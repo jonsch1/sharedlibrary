@@ -49,11 +49,11 @@ Once repository setup is complete, synchronization runs entirely in the backgrou
 
 1. Stage and commit workspace changes locally.
 2. Fetch `origin`.
-3. Rebase the current branch on its remote branch when one exists.
-4. Push the current branch and set its upstream.
-5. Refresh the library after synchronization.
+3. Compare the local and remote branch histories.
+4. Rebase only when the remote branch is ahead, then push only when the local branch is ahead.
+5. Refresh the library when remote changes were applied.
 
-Background synchronization is debounced and requested after meaningful operations, including completing capture processing, editing or deleting a capture, reorganizing content, and saving workspace agent instructions. It also runs after launch, wake, restored connectivity, and periodically while the app remains open. Transient fetch and push failures retry with increasing delays. Rebase conflicts and authentication failures are surfaced in the passive status and must be resolved before synchronization can continue.
+Background synchronization is debounced and requested after meaningful operations, including completing capture processing, editing or deleting a capture, reorganizing content, and saving workspace agent instructions. It also runs after launch, wake, restored connectivity, and periodically while the app remains open. Each check fetches the current branch, compares the local and remote histories, rebases only when remote commits exist, and pushes only when local commits exist. The passive status reports the active phase and finishes with the actual result, including when everything is already up to date. Transient fetch and push failures retry with increasing delays. Rebase conflicts and authentication failures are surfaced in the passive status and must be resolved before synchronization can continue.
 
 ## Sharing
 

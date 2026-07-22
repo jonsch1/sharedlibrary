@@ -107,8 +107,33 @@ struct GitRepositoryStatus: Equatable, Sendable {
 
 struct GitSynchronizationResult: Equatable, Sendable {
     var committedChanges: Bool
+    var remoteConfigured: Bool
+    var integratedRemoteChanges: Bool
     var pushedChanges: Bool
     var summary: String
+}
+
+enum GitSynchronizationPhase: Equatable, Sendable {
+    case checkingLocalChanges
+    case committingLocalChanges
+    case fetchingRemoteChanges
+    case rebasingRemoteChanges
+    case pushingLocalChanges
+
+    var message: String {
+        switch self {
+        case .checkingLocalChanges:
+            return "Checking for local changes..."
+        case .committingLocalChanges:
+            return "Committing local changes..."
+        case .fetchingRemoteChanges:
+            return "Fetching changes from GitHub..."
+        case .rebasingRemoteChanges:
+            return "Rebasing onto remote changes..."
+        case .pushingLocalChanges:
+            return "Pushing local changes to GitHub..."
+        }
+    }
 }
 
 enum GitHubRepositoryVisibility: String, CaseIterable, Identifiable, Sendable {
@@ -287,7 +312,11 @@ actor GitSyncEngine {
         return await inspect(workspaceURL: workspaceURL)
     }
 
-    func synchronize(workspaceURL: URL, reason: String) async throws -> GitSynchronizationResult {
+    func synchronize(
+        workspaceURL: URL,
+        reason: String,
+        onProgress: @escaping @Sendable (GitSynchronizationPhase) async -> Void = { _ in }
+    ) async throws -> GitSynchronizationResult {
         let initialStatus = await inspect(workspaceURL: workspaceURL)
         guard initialStatus.gitAvailable else {
             throw GitCommandFailure(message: "Git is not installed or is not available on PATH.")
@@ -301,14 +330,20 @@ actor GitSyncEngine {
             throw GitCommandFailure(message: "A Git rebase is already in progress. Resolve or abort it before syncing again.")
         }
 
+        await onProgress(.checkingLocalChanges)
         let committedChanges = try await commitWorkspaceChanges(
             workspaceURL: workspaceURL,
-            reason: reason
+            reason: reason,
+            onCommit: {
+                await onProgress(.committingLocalChanges)
+            }
         )
 
         guard let remote = initialStatus.remoteURL, !remote.isEmpty else {
             return GitSynchronizationResult(
                 committedChanges: committedChanges,
+                remoteConfigured: false,
+                integratedRemoteChanges: false,
                 pushedChanges: false,
                 summary: committedChanges
                     ? "Changes committed locally. Connect a GitHub repository to publish them."
@@ -322,6 +357,7 @@ actor GitSyncEngine {
             throw GitCommandFailure(message: "GitHub CLI is not authenticated. Run `gh auth login` and try again.")
         }
 
+        await onProgress(.fetchingRemoteChanges)
         try requireSuccess(
             await command("gh", ["auth", "setup-git", "--hostname", "github.com"], in: workspaceURL),
             operation: "configure Git to use GitHub CLI authentication"
@@ -338,21 +374,68 @@ actor GitSyncEngine {
             ["show-ref", "--verify", "--quiet", "refs/remotes/origin/\(branch)"],
             in: workspaceURL
         )
+
+        var integratedRemoteChanges = false
+        var pushedChanges = false
         if remoteBranch.succeeded {
-            try requireSuccess(
-                await command("git", ["rebase", "origin/\(branch)"], in: workspaceURL),
-                operation: "rebase onto origin/\(branch)"
+            let initialDivergence = try divergenceCounts(
+                await command(
+                    "git",
+                    ["rev-list", "--left-right", "--count", "HEAD...origin/\(branch)"],
+                    in: workspaceURL
+                ),
+                branch: branch
             )
+
+            if initialDivergence.remote > 0 {
+                await onProgress(.rebasingRemoteChanges)
+                try requireSuccess(
+                    await command("git", ["rebase", "origin/\(branch)"], in: workspaceURL),
+                    operation: "rebase onto origin/\(branch)"
+                )
+                integratedRemoteChanges = true
+            }
+
+            let localAhead: Int
+            if integratedRemoteChanges {
+                localAhead = try divergenceCounts(
+                    await command(
+                        "git",
+                        ["rev-list", "--left-right", "--count", "HEAD...origin/\(branch)"],
+                        in: workspaceURL
+                    ),
+                    branch: branch
+                ).local
+            } else {
+                localAhead = initialDivergence.local
+            }
+
+            if localAhead > 0 {
+                await onProgress(.pushingLocalChanges)
+                try requireSuccess(
+                    await command("git", ["push", "--set-upstream", "origin", branch], in: workspaceURL),
+                    operation: "push \(branch) to GitHub"
+                )
+                pushedChanges = true
+            }
+        } else {
+            await onProgress(.pushingLocalChanges)
+            try requireSuccess(
+                await command("git", ["push", "--set-upstream", "origin", branch], in: workspaceURL),
+                operation: "push \(branch) to GitHub"
+            )
+            pushedChanges = true
         }
 
-        try requireSuccess(
-            await command("git", ["push", "--set-upstream", "origin", branch], in: workspaceURL),
-            operation: "push \(branch) to GitHub"
-        )
         return GitSynchronizationResult(
             committedChanges: committedChanges,
-            pushedChanges: true,
-            summary: committedChanges ? "Committed, rebased, and pushed." : "Fetched, rebased, and pushed."
+            remoteConfigured: true,
+            integratedRemoteChanges: integratedRemoteChanges,
+            pushedChanges: pushedChanges,
+            summary: synchronizationSummary(
+                integratedRemoteChanges: integratedRemoteChanges,
+                pushedChanges: pushedChanges
+            )
         )
     }
 
@@ -364,7 +447,11 @@ actor GitSyncEngine {
         )
     }
 
-    private func commitWorkspaceChanges(workspaceURL: URL, reason: String) async throws -> Bool {
+    private func commitWorkspaceChanges(
+        workspaceURL: URL,
+        reason: String,
+        onCommit: (@Sendable () async -> Void)? = nil
+    ) async throws -> Bool {
         try requireSuccess(
             await command("git", ["add", "--all"], in: workspaceURL),
             operation: "stage workspace changes"
@@ -374,6 +461,7 @@ actor GitSyncEngine {
         case 0:
             return false
         case 1:
+            await onCommit?()
             let commitReason = reason
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "\n", with: " ")
@@ -387,6 +475,38 @@ actor GitSyncEngine {
             return true
         default:
             throw failure(for: stagedChanges, operation: "check staged workspace changes")
+        }
+    }
+
+    private func divergenceCounts(
+        _ result: CommandResult,
+        branch: String
+    ) throws -> (local: Int, remote: Int) {
+        try requireSuccess(result, operation: "compare local and origin/\(branch) history")
+        let values = result.standardOutput
+            .split(whereSeparator: { $0.isWhitespace })
+            .compactMap { Int($0) }
+        guard values.count == 2 else {
+            throw GitCommandFailure(
+                message: "Could not compare local and origin/\(branch) history. Git returned an unexpected result."
+            )
+        }
+        return (local: values[0], remote: values[1])
+    }
+
+    private func synchronizationSummary(
+        integratedRemoteChanges: Bool,
+        pushedChanges: Bool
+    ) -> String {
+        switch (integratedRemoteChanges, pushedChanges) {
+        case (true, true):
+            return "Remote changes applied and local changes pushed."
+        case (true, false):
+            return "Remote changes applied."
+        case (false, true):
+            return "Local changes pushed."
+        case (false, false):
+            return "Everything is up to date."
         }
     }
 
@@ -668,16 +788,24 @@ final class GitSyncCoordinator: ObservableObject {
         operationTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await engine.synchronize(workspaceURL: workspaceURL, reason: reason)
+                let result = try await engine.synchronize(
+                    workspaceURL: workspaceURL,
+                    reason: reason,
+                    onProgress: { phase in
+                        await self.showSyncProgress(phase)
+                    }
+                )
                 guard !Task.isCancelled else { return }
                 retryTask?.cancel()
                 retryTask = nil
                 retryAttempt = 0
                 repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
-                state = result.pushedChanges
-                    ? .succeeded("\(result.summary) Synced at \(Self.shortTime(Date())).")
+                state = result.remoteConfigured
+                    ? .succeeded("\(result.summary) Checked at \(Self.shortTime(Date())).")
                     : .needsSetup(result.summary)
-                NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+                if result.integratedRemoteChanges {
+                    NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
@@ -705,6 +833,10 @@ final class GitSyncCoordinator: ObservableObject {
             schedulePendingSync()
         }
         return delay
+    }
+
+    private func showSyncProgress(_ phase: GitSynchronizationPhase) {
+        state = .syncing(phase.message)
     }
 
     private func finishOperation() {

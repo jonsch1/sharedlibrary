@@ -336,9 +336,9 @@ private enum RepositorySettingsPurpose: Equatable {
     var synchronizationHelp: String {
         switch self {
         case .privateLibrary:
-            return "Sync commits local workspace changes, fetches and rebases the current branch, pushes to origin, and refreshes the library."
+            return "Sync commits local workspace changes and fetches the current branch. It rebases or pushes only when Git finds remote or local commits to apply."
         case .sharedLibrary:
-            return "Share and Unshare mirror files into this repository. Sync commits those changes, fetches and rebases, then pushes to its origin."
+            return "Share and Unshare mirror files into this repository. Sync fetches its current branch, then rebases or pushes only when needed."
         }
     }
 }
