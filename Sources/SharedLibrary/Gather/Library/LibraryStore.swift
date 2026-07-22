@@ -38,7 +38,7 @@ final class LibraryStore {
     }
 
     private func save(item: LibraryItem, date: Date) throws -> LibraryItem {
-        let folder = try AppSettings.ensureGatherFolder()
+        let folder = try AppSettings.ensureLibraryFolder()
         return try save(item: item, date: date, in: folder)
     }
 
@@ -52,10 +52,10 @@ final class LibraryStore {
 
     func migrateLegacyClusterMetadata(workspaceRootURL: URL) throws {
         let fileManager = FileManager.default
-        let gatherFolder = workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
+        let libraryFolder = workspaceRootURL.appendingPathComponent("library", isDirectory: true)
         let taxonomyURL = workspaceRootURL.appendingPathComponent("topics.md")
         let sourceURLs = try fileManager.contentsOfDirectory(
-            at: gatherFolder,
+            at: libraryFolder,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         )
@@ -78,21 +78,28 @@ final class LibraryStore {
             try markdown(for: item).write(to: sourceURL, atomically: true, encoding: .utf8)
         }
 
-        let legacyIndexURL = gatherFolder.appendingPathComponent(".gather-capture-clusters.json")
-        if fileManager.fileExists(atPath: legacyIndexURL.path) {
-            try fileManager.removeItem(at: legacyIndexURL)
+        for filename in [".gather-capture-clusters.json", ".shared-library-clusters.json"] {
+            let legacyIndexURL = libraryFolder.appendingPathComponent(filename)
+            if fileManager.fileExists(atPath: legacyIndexURL.path) {
+                try fileManager.removeItem(at: legacyIndexURL)
+            }
         }
     }
 
     @discardableResult
     func preparePromptTopicMigration(workspaceRootURL: URL) throws -> Bool {
         let fileManager = FileManager.default
-        let gatherFolder = workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
-        let markerURL = gatherFolder.appendingPathComponent(".gather-capture-prompt-topics-v2")
+        let libraryFolder = workspaceRootURL.appendingPathComponent("library", isDirectory: true)
+        let markerURL = libraryFolder.appendingPathComponent(".shared-library-prompt-topics-v2")
         guard !fileManager.fileExists(atPath: markerURL.path) else { return false }
+        let legacyMarkerURL = libraryFolder.appendingPathComponent(".gather-capture-prompt-topics-v2")
+        if fileManager.fileExists(atPath: legacyMarkerURL.path) {
+            try fileManager.moveItem(at: legacyMarkerURL, to: markerURL)
+            return false
+        }
 
         let sourceURLs = try fileManager.contentsOfDirectory(
-            at: gatherFolder,
+            at: libraryFolder,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         )
@@ -126,10 +133,10 @@ final class LibraryStore {
     ) throws {
         let fileManager = FileManager.default
         let sourceURL = sourceURL.standardizedFileURL
-        let gatherFolder = workspaceRootURL
-            .appendingPathComponent("gather", isDirectory: true)
+        let libraryFolder = workspaceRootURL
+            .appendingPathComponent("library", isDirectory: true)
             .standardizedFileURL
-        guard sourceURL.deletingLastPathComponent() == gatherFolder,
+        guard sourceURL.deletingLastPathComponent() == libraryFolder,
               fileManager.fileExists(atPath: sourceURL.path) else {
             throw LibraryStoreError.invalidSourceFile
         }
@@ -146,7 +153,7 @@ final class LibraryStore {
 
     static func companionSummaryURLs(for sourceURL: URL, workspaceRootURL: URL) -> [URL] {
         let summariesFolder = workspaceRootURL
-            .appendingPathComponent("gather/summaries", isDirectory: true)
+            .appendingPathComponent("library/summaries", isDirectory: true)
         let filename = sourceURL.lastPathComponent
         return [summariesFolder.appendingPathComponent(filename)]
             + SummaryDetailLevel.allCases.map { level in
@@ -208,11 +215,11 @@ final class LibraryStore {
     ) throws -> URL {
         let fileManager = FileManager.default
         let sourceURL = sourceURL.standardizedFileURL
-        let gatherFolder = workspaceRootURL
-            .appendingPathComponent("gather", isDirectory: true)
+        let libraryFolder = workspaceRootURL
+            .appendingPathComponent("library", isDirectory: true)
             .standardizedFileURL
 
-        guard sourceURL.deletingLastPathComponent().path == gatherFolder.path else {
+        guard sourceURL.deletingLastPathComponent().path == libraryFolder.path else {
             throw LibraryStoreError.sourceOutsideWorkspace
         }
         guard var item = parseMarkdownItem(at: sourceURL) else {
@@ -223,11 +230,11 @@ final class LibraryStore {
             throw LibraryStoreError.emptySummary
         }
 
-        let summariesFolder = gatherFolder.appendingPathComponent("summaries", isDirectory: true)
+        let summariesFolder = libraryFolder.appendingPathComponent("summaries", isDirectory: true)
         try fileManager.createDirectory(at: summariesFolder, withIntermediateDirectories: true)
 
         let destinationURL = uniqueProcessedMarkdownURL(
-            in: gatherFolder,
+            in: libraryFolder,
             summariesFolder: summariesFolder,
             suggestedFilename: suggestedFilename,
             sourceURL: sourceURL
@@ -328,18 +335,18 @@ final class LibraryStore {
     ) throws {
         let fileManager = FileManager.default
         let sourceURL = sourceURL.standardizedFileURL
-        let gatherFolder = workspaceRootURL
-            .appendingPathComponent("gather", isDirectory: true)
+        let libraryFolder = workspaceRootURL
+            .appendingPathComponent("library", isDirectory: true)
             .standardizedFileURL
 
-        guard sourceURL.deletingLastPathComponent().path == gatherFolder.path else {
+        guard sourceURL.deletingLastPathComponent().path == libraryFolder.path else {
             throw LibraryStoreError.sourceOutsideWorkspace
         }
         guard var item = parseMarkdownItem(at: sourceURL) else {
             throw LibraryStoreError.invalidSourceFile
         }
 
-        let summaryURL = gatherFolder
+        let summaryURL = libraryFolder
             .appendingPathComponent("summaries", isDirectory: true)
             .appendingPathComponent(sourceURL.lastPathComponent)
         guard fileManager.fileExists(atPath: summaryURL.path) else {

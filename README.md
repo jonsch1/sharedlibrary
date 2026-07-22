@@ -1,10 +1,10 @@
 # Shared Library
 
-Shared Library is a native macOS menu bar app for capturing, processing, browsing, editing, and synchronizing a local source library. It keeps GatherCapture's library workflow while removing its Notes feature.
+Shared Library is a native macOS menu bar app for capturing, processing, browsing, editing, and synchronizing a local source library.
 
 The default workspace is `~/Documents/Shared Library`. The workspace itself is the Git repository; there is no nested or separate shared folder.
 
-- `gather/` stores capture records and companion summaries.
+- `library/` stores capture records and companion summaries.
 - `topics.md` stores the capture taxonomy.
 - `AGENTS.md` contains workspace instructions for agents.
 
@@ -60,14 +60,14 @@ Automatic synchronization is debounced and requested only after meaningful opera
 | Hotkey | Action |
 | --- | --- |
 | `Option-Shift-Space` | Toggle Shared Library |
-| `Command-G` | Capture clipboard URL or text into `gather/` |
+| `Command-G` | Capture clipboard URL or text into `library/` |
 
 ## Architecture
 
 | Slice | Files |
 | --- | --- |
 | App shell | `Sources/SharedLibrary/App/` |
-| Capture extraction/library | `Sources/SharedLibrary/Gather/` |
+| Capture extraction/library | `Sources/SharedLibrary/` |
 | Git/GitHub sync | `Sources/SharedLibrary/Sync/` |
 | Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
 | Tests | `Tests/SharedLibraryTests/` |

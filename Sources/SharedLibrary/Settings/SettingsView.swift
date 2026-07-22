@@ -466,7 +466,7 @@ private struct HotkeySettings: View {
                 KeyboardShortcuts.Recorder("Shared Library", name: .toggleLibrary)
                 KeyboardShortcuts.Recorder("Capture clipboard", name: .captureClipboard)
             }
-            Text("Capture clipboard saves the current clipboard into gather/.")
+            Text("Capture clipboard saves the current clipboard into library/.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -164,10 +164,10 @@ final class KnowledgeStore {
     }
 
     func snapshot(workspaceRootURL: URL) throws -> KnowledgeSnapshot {
-        let gatherFolder = workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
+        let libraryFolder = workspaceRootURL.appendingPathComponent("library", isDirectory: true)
         let taxonomyURL = workspaceRootURL.appendingPathComponent("topics").appendingPathExtension("md")
 
-        let records = readSources(in: gatherFolder).sorted { lhs, rhs in
+        let records = readSources(in: libraryFolder).sorted { lhs, rhs in
             if lhs.sortDate == rhs.sortDate {
                 return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
             }

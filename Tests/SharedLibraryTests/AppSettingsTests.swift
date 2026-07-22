@@ -9,12 +9,12 @@ final class AppSettingsTests: XCTestCase {
         try withWorkspaceRoot(root) {
             try AppSettings().ensureWorkspace()
 
-            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather").path))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather/summaries").path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("library").path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("library/summaries").path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("topics.md").path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("notes").path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("output").path))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather/images").path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("library/images").path))
 
             let instructions = try String(contentsOf: root.appendingPathComponent("AGENTS.md"))
             XCTAssertTrue(instructions.contains("# Shared Library"))
@@ -31,23 +31,59 @@ final class AppSettingsTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("app-settings-preserve-\(UUID().uuidString)", isDirectory: true)
         let outputFile = root.appendingPathComponent("output/deliverable.md")
-        let assetFile = root.appendingPathComponent("gather/images/asset.png")
+        let legacySourceFile = root.appendingPathComponent("gather/source.md")
+        let legacyAssetFile = root.appendingPathComponent("gather/images/asset.png")
         try FileManager.default.createDirectory(
             at: outputFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try FileManager.default.createDirectory(
-            at: assetFile.deletingLastPathComponent(),
+            at: legacyAssetFile.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         try "Keep me".write(to: outputFile, atomically: true, encoding: .utf8)
-        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: assetFile)
+        try "Source".write(to: legacySourceFile, atomically: true, encoding: .utf8)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: legacyAssetFile)
 
         try withWorkspaceRoot(root) {
             try AppSettings().ensureWorkspace()
 
             XCTAssertTrue(FileManager.default.fileExists(atPath: outputFile.path))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: assetFile.path))
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("library/source.md").path
+            ))
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("library/images/asset.png").path
+            ))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather").path))
+        }
+    }
+
+    func testEnsureWorkspaceMergesLegacyFolderWithoutOverwritingCollisions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("app-settings-merge-\(UUID().uuidString)", isDirectory: true)
+        let currentFile = root.appendingPathComponent("library/source.md")
+        let legacyFile = root.appendingPathComponent("gather/source.md")
+        try FileManager.default.createDirectory(
+            at: currentFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: legacyFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "Current".write(to: currentFile, atomically: true, encoding: .utf8)
+        try "Legacy".write(to: legacyFile, atomically: true, encoding: .utf8)
+
+        try withWorkspaceRoot(root) {
+            try AppSettings().ensureWorkspace()
+
+            XCTAssertEqual(try String(contentsOf: currentFile), "Current")
+            XCTAssertEqual(
+                try String(contentsOf: root.appendingPathComponent("library/source-migrated.md")),
+                "Legacy"
+            )
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather").path))
         }
     }
 

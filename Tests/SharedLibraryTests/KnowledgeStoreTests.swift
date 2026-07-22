@@ -5,8 +5,8 @@ final class KnowledgeStoreTests: XCTestCase {
     private func makeWorkspace() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("knowledge-store-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("gather", isDirectory: true), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: root.appendingPathComponent("gather/summaries", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("library", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("library/summaries", isDirectory: true), withIntermediateDirectories: true)
         return root
     }
 
@@ -44,7 +44,7 @@ final class KnowledgeStoreTests: XCTestCase {
 
         LiveKit voice agent documentation.
         """.write(
-            to: root.appendingPathComponent("gather/260707-1.md"),
+            to: root.appendingPathComponent("library/260707-1.md"),
             atomically: true,
             encoding: .utf8
         )
@@ -54,7 +54,7 @@ final class KnowledgeStoreTests: XCTestCase {
 
         Summary of 260707-1.md.
         """.write(
-            to: root.appendingPathComponent("gather/summaries/260707-1.md"),
+            to: root.appendingPathComponent("library/summaries/260707-1.md"),
             atomically: true,
             encoding: .utf8
         )
@@ -102,7 +102,7 @@ final class KnowledgeStoreTests: XCTestCase {
 
         Unsupported content.
         """.write(
-            to: root.appendingPathComponent("gather/unsupported.md"),
+            to: root.appendingPathComponent("library/unsupported.md"),
             atomically: true,
             encoding: .utf8
         )

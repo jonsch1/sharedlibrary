@@ -4,7 +4,7 @@ import Combine
 /// User-facing configuration for Shared Library.
 ///
 /// The workspace root is the Git repository and contains:
-/// - `gather/` is the source library and multi-level summaries.
+/// - `library/` contains captured sources and multi-level summaries.
 /// - `topics.md` contains the topic taxonomy.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -63,16 +63,16 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    var gatherFolderURL: URL {
-        workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
+    var libraryFolderURL: URL {
+        workspaceRootURL.appendingPathComponent("library", isDirectory: true)
     }
 
     var topicsMetadataURL: URL {
         workspaceRootURL.appendingPathComponent("topics").appendingPathExtension("md")
     }
 
-    static var gatherFolderURL: URL {
-        shared.gatherFolderURL
+    static var libraryFolderURL: URL {
+        shared.libraryFolderURL
     }
 
     static var includeTranscriptTimestamps: Bool {
@@ -83,9 +83,10 @@ final class AppSettings: ObservableObject {
     @discardableResult
     func ensureWorkspace() throws -> URL {
         try FileManager.default.createDirectory(at: workspaceRootURL, withIntermediateDirectories: true)
+        try migrateLegacyCaptureFolder()
         try ensureWorkspaceAgentInstructions()
         try ensureKnowledgeMetadata()
-        try ensureGatherFolder()
+        try ensureLibraryFolder()
         try removeEmptyDeprecatedFolder(
             workspaceRootURL.appendingPathComponent("output", isDirectory: true)
         )
@@ -93,18 +94,18 @@ final class AppSettings: ObservableObject {
     }
 
     @discardableResult
-    func ensureGatherFolder() throws -> URL {
-        let folder = gatherFolderURL
+    func ensureLibraryFolder() throws -> URL {
+        let folder = libraryFolderURL
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try ensureGatherScaffold(in: folder)
+        try ensureLibraryScaffold(in: folder)
         return folder
     }
 
-    static func ensureGatherFolder() throws -> URL {
-        try shared.ensureGatherFolder()
+    static func ensureLibraryFolder() throws -> URL {
+        try shared.ensureLibraryFolder()
     }
 
-    private func ensureGatherScaffold(in folder: URL) throws {
+    private func ensureLibraryScaffold(in folder: URL) throws {
         try FileManager.default.createDirectory(
             at: folder.appendingPathComponent("summaries", isDirectory: true),
             withIntermediateDirectories: true
@@ -112,11 +113,73 @@ final class AppSettings: ObservableObject {
         try removeEmptyDeprecatedFolder(
             folder.appendingPathComponent("images", isDirectory: true)
         )
-        try removeDeprecatedGatherArtifacts(in: folder)
+        try removeDeprecatedLibraryArtifacts(in: folder)
     }
 
-    private func removeDeprecatedGatherArtifacts(in folder: URL) throws {
+    private func removeDeprecatedLibraryArtifacts(in folder: URL) throws {
         try removeItemIfExists(folder.appendingPathComponent("TAGS").appendingPathExtension("md"))
+    }
+
+    private func migrateLegacyCaptureFolder() throws {
+        let fileManager = FileManager.default
+        let legacyFolder = workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
+        guard fileManager.fileExists(atPath: legacyFolder.path) else { return }
+
+        let destinationFolder = libraryFolderURL
+        guard fileManager.fileExists(atPath: destinationFolder.path) else {
+            try fileManager.moveItem(at: legacyFolder, to: destinationFolder)
+            return
+        }
+
+        try mergeDirectoryContents(from: legacyFolder, into: destinationFolder)
+        try removeEmptyDeprecatedFolder(legacyFolder)
+    }
+
+    private func mergeDirectoryContents(from sourceFolder: URL, into destinationFolder: URL) throws {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
+        let sourceItems = try fileManager.contentsOfDirectory(
+            at: sourceFolder,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+
+        for sourceItem in sourceItems {
+            let destination = destinationFolder.appendingPathComponent(sourceItem.lastPathComponent)
+            guard fileManager.fileExists(atPath: destination.path) else {
+                try fileManager.moveItem(at: sourceItem, to: destination)
+                continue
+            }
+
+            let sourceIsDirectory = try sourceItem.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+            let destinationIsDirectory = try destination.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+            if sourceIsDirectory, destinationIsDirectory {
+                try mergeDirectoryContents(from: sourceItem, into: destination)
+                try removeEmptyDeprecatedFolder(sourceItem)
+            } else {
+                try fileManager.moveItem(
+                    at: sourceItem,
+                    to: uniqueMigrationDestination(for: destination)
+                )
+            }
+        }
+    }
+
+    private func uniqueMigrationDestination(for destination: URL) -> URL {
+        let fileManager = FileManager.default
+        let folder = destination.deletingLastPathComponent()
+        let baseName = destination.deletingPathExtension().lastPathComponent
+        let pathExtension = destination.pathExtension
+        var sequence = 2
+        var candidate = folder.appendingPathComponent("\(baseName)-migrated")
+        if !pathExtension.isEmpty { candidate.appendPathExtension(pathExtension) }
+
+        while fileManager.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent("\(baseName)-migrated-\(sequence)")
+            if !pathExtension.isEmpty { candidate.appendPathExtension(pathExtension) }
+            sequence += 1
+        }
+        return candidate
     }
 
     private func removeEmptyDeprecatedFolder(_ folder: URL) throws {
@@ -138,7 +201,10 @@ final class AppSettings: ObservableObject {
             return
         }
         let existing = try String(contentsOf: url, encoding: .utf8)
-        if existing == Self.legacyWorkspaceAgentInstructions {
+        if [
+            Self.captureOnlyGatherWorkspaceAgentInstructions,
+            Self.legacyWorkspaceAgentInstructions
+        ].contains(existing) {
             try Self.workspaceAgentInstructions.write(to: url, atomically: true, encoding: .utf8)
         }
     }
@@ -184,6 +250,22 @@ final class AppSettings: ObservableObject {
     """
 
     private static let workspaceAgentInstructions = """
+    # Shared Library
+
+    `library/` contains captured sources and their companion summaries.
+    `topics.md` is the topic registry for captures.
+    The workspace is the library; do not create additional top-level content areas.
+
+    ## Captures
+
+    Root `library/*.md` files are captures. Shared Library automatically processes each new capture: it generates four companion summaries, assigns one primary topic, and may rename the source record. A source without a topic is still processing or requires a retry and remains visible in Recent.
+    Source frontmatter uses `topics` as a list containing the assigned topic id from `topics.md`.
+    Do not change `id`, `created_at`, or `source_url` unless explicitly asked.
+
+    The concise compatibility summary is `library/summaries/<source-filename>.md`. The four model-generated variants are `library/summaries/{brief,concise,detailed,comprehensive}/<source-filename>.md`.
+    """
+
+    private static let captureOnlyGatherWorkspaceAgentInstructions = """
     # Shared Library
 
     `gather/` contains captured sources and their companion summaries.

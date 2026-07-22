@@ -29,14 +29,14 @@ final class ProcessingStoreTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("processing-store-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("gather/summaries", isDirectory: true),
+            at: root.appendingPathComponent("library/summaries", isDirectory: true),
             withIntermediateDirectories: true
         )
         return root
     }
 
     private func writeSource(named filename: String, in root: URL) throws -> URL {
-        let url = root.appendingPathComponent("gather/\(filename)")
+        let url = root.appendingPathComponent("library/\(filename)")
         try """
         ---
         id: "source-1"
@@ -80,14 +80,14 @@ final class ProcessingStoreTests: XCTestCase {
         XCTAssertNil(metadata.firstValue(for: "reviewed_at"))
         XCTAssertTrue(metadata.body.contains("Body stays exactly where it belongs."))
 
-        let summaryURL = root.appendingPathComponent("gather/summaries/useful-source-draft.md")
+        let summaryURL = root.appendingPathComponent("library/summaries/useful-source-draft.md")
         XCTAssertEqual(
             try String(contentsOf: summaryURL, encoding: .utf8),
             "A short, corrected summary.\n"
         )
         for level in SummaryDetailLevel.allCases {
             let levelURL = root
-                .appendingPathComponent("gather/summaries/\(level.storageDirectoryName)", isDirectory: true)
+                .appendingPathComponent("library/summaries/\(level.storageDirectoryName)", isDirectory: true)
                 .appendingPathComponent("useful-source-draft.md")
             XCTAssertEqual(
                 try String(contentsOf: levelURL, encoding: .utf8),
@@ -122,15 +122,15 @@ final class ProcessingStoreTests: XCTestCase {
         XCTAssertNotNil(metadata.firstValue(for: "reviewed_at"))
 
         let conciseURL = root.appendingPathComponent(
-            "gather/summaries/concise/ai-systems.md"
+            "library/summaries/concise/ai-systems.md"
         )
         let comprehensiveURL = root.appendingPathComponent(
-            "gather/summaries/comprehensive/ai-systems.md"
+            "library/summaries/comprehensive/ai-systems.md"
         )
         XCTAssertEqual(try String(contentsOf: conciseURL), "Concise version.\n")
         XCTAssertEqual(try String(contentsOf: comprehensiveURL), "Comprehensive version.\n")
         XCTAssertEqual(
-            try String(contentsOf: root.appendingPathComponent("gather/summaries/ai-systems.md")),
+            try String(contentsOf: root.appendingPathComponent("library/summaries/ai-systems.md")),
             "Concise version.\n"
         )
     }
@@ -186,7 +186,7 @@ final class ProcessingStoreTests: XCTestCase {
     func testCaptureDeletionIncludesEveryCompanionSummary() throws {
         let root = try makeWorkspace()
         defer { try? FileManager.default.removeItem(at: root) }
-        let sourceURL = root.appendingPathComponent("gather/example.md")
+        let sourceURL = root.appendingPathComponent("library/example.md")
         try "Source".write(to: sourceURL, atomically: true, encoding: .utf8)
         let summaryURLs = LibraryStore.companionSummaryURLs(
             for: sourceURL,
@@ -199,7 +199,7 @@ final class ProcessingStoreTests: XCTestCase {
             )
             try "Summary".write(to: url, atomically: true, encoding: .utf8)
         }
-        let unrelatedURL = root.appendingPathComponent("gather/summaries/unrelated.md")
+        let unrelatedURL = root.appendingPathComponent("library/summaries/unrelated.md")
         try "Keep".write(to: unrelatedURL, atomically: true, encoding: .utf8)
 
         try LibraryStore().deleteCapture(
@@ -217,7 +217,7 @@ final class ProcessingStoreTests: XCTestCase {
 
     func testLegacyClusterMetadataMigratesToTopicAndDeletesIndex() throws {
         let root = try makeWorkspace()
-        let sourceURL = root.appendingPathComponent("gather/legacy.md")
+        let sourceURL = root.appendingPathComponent("library/legacy.md")
         try TaxonomyStore().save(
             TaxonomyStore.defaultTaxonomy,
             to: root.appendingPathComponent("topics.md")
@@ -239,7 +239,7 @@ final class ProcessingStoreTests: XCTestCase {
 
         Source body.
         """.write(to: sourceURL, atomically: true, encoding: .utf8)
-        let indexURL = root.appendingPathComponent("gather/.gather-capture-clusters.json")
+        let indexURL = root.appendingPathComponent("library/.gather-capture-clusters.json")
         try "{}".write(to: indexURL, atomically: true, encoding: .utf8)
 
         try LibraryStore().migrateLegacyClusterMetadata(workspaceRootURL: root)
@@ -276,11 +276,28 @@ final class ProcessingStoreTests: XCTestCase {
         XCTAssertEqual(metadata.values(for: "topics"), ["ai-engineering"])
     }
 
+    func testPromptTopicMigrationRenamesLegacyMarkerWithoutReprocessing() throws {
+        let root = try makeWorkspace()
+        let sourceURL = try writeSource(named: "existing.md", in: root)
+        let original = try String(contentsOf: sourceURL)
+            .replacingOccurrences(of: "topics: []", with: "topics:\n  - \"research\"")
+        try original.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let oldMarkerURL = root.appendingPathComponent("library/.gather-capture-prompt-topics-v2")
+        let newMarkerURL = root.appendingPathComponent("library/.shared-library-prompt-topics-v2")
+        try "version: 1\n".write(to: oldMarkerURL, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(try LibraryStore().preparePromptTopicMigration(workspaceRootURL: root))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldMarkerURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: newMarkerURL.path))
+        let metadata = MarkdownMetadata.parse(try String(contentsOf: sourceURL))
+        XCTAssertEqual(metadata.values(for: "topics"), ["research"])
+    }
+
     func testProcessingAvoidsFilenameAndSummaryCollisions() throws {
         let root = try makeWorkspace()
         let sourceURL = try writeSource(named: "260709-1.md", in: root)
         try "occupied".write(
-            to: root.appendingPathComponent("gather/useful-source.md"),
+            to: root.appendingPathComponent("library/useful-source.md"),
             atomically: true,
             encoding: .utf8
         )
@@ -295,7 +312,7 @@ final class ProcessingStoreTests: XCTestCase {
 
         XCTAssertEqual(processedURL.lastPathComponent, "useful-source-2.md")
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("gather/summaries/useful-source-2.md").path
+            atPath: root.appendingPathComponent("library/summaries/useful-source-2.md").path
         ))
     }
 

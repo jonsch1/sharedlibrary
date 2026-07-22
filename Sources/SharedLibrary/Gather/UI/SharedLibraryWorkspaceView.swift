@@ -769,7 +769,7 @@ struct SharedLibraryWorkspaceView: View {
         guard let sourceURL = selectedCaptureSourceURL else { return [] }
 
         var variants: [DocumentVariant] = []
-        let summariesFolder = env.settings.gatherFolderURL
+        let summariesFolder = env.settings.libraryFolderURL
             .appendingPathComponent("summaries", isDirectory: true)
         for level in SummaryDetailLevel.allCases {
             let url = summariesFolder
@@ -842,23 +842,23 @@ struct SharedLibraryWorkspaceView: View {
 
         let fileURL = selectedFileURL.standardizedFileURL
         let parentURL = fileURL.deletingLastPathComponent().standardizedFileURL
-        let gatherFolder = env.settings.gatherFolderURL.standardizedFileURL
-        if parentURL.path == gatherFolder.path {
+        let libraryFolder = env.settings.libraryFolderURL.standardizedFileURL
+        if parentURL.path == libraryFolder.path {
             return isPrimaryRecordURL(fileURL) ? fileURL : nil
         }
 
         if parentURL.lastPathComponent == "summaries",
-           parentURL.deletingLastPathComponent().standardizedFileURL.path == gatherFolder.path {
-            return gatherFolder.appendingPathComponent(fileURL.lastPathComponent)
+           parentURL.deletingLastPathComponent().standardizedFileURL.path == libraryFolder.path {
+            return libraryFolder.appendingPathComponent(fileURL.lastPathComponent)
         }
 
         let summariesFolder = parentURL.deletingLastPathComponent().standardizedFileURL
         if summariesFolder.lastPathComponent == "summaries",
-           summariesFolder.deletingLastPathComponent().standardizedFileURL.path == gatherFolder.path,
+           summariesFolder.deletingLastPathComponent().standardizedFileURL.path == libraryFolder.path,
            SummaryDetailLevel.allCases.contains(where: {
                $0.storageDirectoryName == parentURL.lastPathComponent
            }) {
-            return gatherFolder.appendingPathComponent(fileURL.lastPathComponent)
+            return libraryFolder.appendingPathComponent(fileURL.lastPathComponent)
         }
         return nil
     }
@@ -873,7 +873,7 @@ struct SharedLibraryWorkspaceView: View {
 
     private func isPrimaryRecordURL(_ url: URL) -> Bool {
         let parentURL = url.deletingLastPathComponent().standardizedFileURL
-        if parentURL.path == env.settings.gatherFolderURL.standardizedFileURL.path {
+        if parentURL.path == env.settings.libraryFolderURL.standardizedFileURL.path {
             return !["TAGS.md", "AGENTS.md"].contains { excluded in
                 url.lastPathComponent.localizedCaseInsensitiveCompare(excluded) == .orderedSame
             }
@@ -1011,11 +1011,11 @@ struct SharedLibraryWorkspaceView: View {
     private func shortestSummaryURL(for url: URL) -> URL? {
         let sourceURL = url.standardizedFileURL
         guard sourceURL.deletingLastPathComponent().path ==
-                env.settings.gatherFolderURL.standardizedFileURL.path else {
+                env.settings.libraryFolderURL.standardizedFileURL.path else {
             return nil
         }
 
-        let summariesFolder = env.settings.gatherFolderURL
+        let summariesFolder = env.settings.libraryFolderURL
             .appendingPathComponent("summaries", isDirectory: true)
         let briefURL = summariesFolder
             .appendingPathComponent(SummaryDetailLevel.brief.storageDirectoryName, isDirectory: true)
