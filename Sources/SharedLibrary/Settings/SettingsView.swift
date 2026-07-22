@@ -13,8 +13,10 @@ struct SettingsView: View {
                 .tabItem { Label("Capture", systemImage: "tray.and.arrow.down") }
             AgentSettings()
                 .tabItem { Label("Agent", systemImage: "sparkles") }
-            SyncSettings(coordinator: env.gitSyncCoordinator)
+            SyncSettings(coordinator: env.gitSyncCoordinator, purpose: .privateLibrary)
                 .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
+            SyncSettings(coordinator: env.sharedGitSyncCoordinator, purpose: .sharedLibrary)
+                .tabItem { Label("Sharing", systemImage: "person.2") }
             HotkeySettings()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
         }
@@ -311,21 +313,82 @@ private struct AgentSettings: View {
     }
 }
 
+private enum RepositorySettingsPurpose: Equatable {
+    case privateLibrary
+    case sharedLibrary
+
+    var repositorySectionTitle: String {
+        switch self {
+        case .privateLibrary: return "Workspace repository"
+        case .sharedLibrary: return "Shared repository"
+        }
+    }
+
+    var connectionHelp: String {
+        switch self {
+        case .privateLibrary:
+            return "Connects the private workspace directly to origin. Authentication uses your existing GitHub CLI login."
+        case .sharedLibrary:
+            return "Connects the separate shared workspace to its own origin. Authentication uses your existing GitHub CLI login."
+        }
+    }
+
+    var synchronizationHelp: String {
+        switch self {
+        case .privateLibrary:
+            return "Sync commits local workspace changes, fetches and rebases the current branch, pushes to origin, and refreshes the library."
+        case .sharedLibrary:
+            return "Share and Unshare mirror files into this repository. Sync commits those changes, fetches and rebases, then pushes to its origin."
+        }
+    }
+}
+
 private struct SyncSettings: View {
+    @EnvironmentObject var env: AppEnvironment
     @ObservedObject var coordinator: GitSyncCoordinator
+    let purpose: RepositorySettingsPurpose
     @State private var remote = ""
     @State private var newRepositoryName = ""
     @State private var newRepositoryVisibility = GitHubRepositoryVisibility.privateRepository
+    @State private var sharedWorkspaceFolderPath = ""
+    @State private var sharedWorkspaceFolderStatus: String?
 
     var body: some View {
         Form {
+            if purpose == .sharedLibrary {
+                Section("Shared folder") {
+                    HStack {
+                        TextField("Folder", text: $sharedWorkspaceFolderPath)
+                            .onSubmit { applySharedWorkspaceFolder() }
+                        Button("Choose...") { chooseSharedWorkspaceFolder() }
+                        Button("Default") {
+                            sharedWorkspaceFolderPath = env.settings.defaultSharedWorkspaceRootURL.path
+                            applySharedWorkspaceFolder()
+                        }
+                    }
+
+                    if let sharedWorkspaceFolderStatus {
+                        Text(sharedWorkspaceFolderStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Shared captures and summaries are copied into this separate folder. The private workspace remains authoritative.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text("Unshare removes files from the current shared tree, but previously pushed copies remain in Git history.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             Section("Prerequisites") {
                 statusRow("Git", isReady: coordinator.repositoryStatus.gitAvailable)
                 statusRow("GitHub CLI", isReady: coordinator.repositoryStatus.ghAvailable)
                 statusRow("GitHub authentication", isReady: coordinator.repositoryStatus.ghAuthenticated)
             }
 
-            Section("Workspace repository") {
+            Section(purpose.repositorySectionTitle) {
                 statusRow("Git repository", isReady: coordinator.repositoryStatus.isRepository)
 
                 if let branch = coordinator.repositoryStatus.branch {
@@ -344,10 +407,6 @@ private struct SyncSettings: View {
                     Button("Refresh Status") { coordinator.refreshStatus() }
                     Button("Initialize Repository") { coordinator.initializeRepository() }
                         .disabled(coordinator.repositoryStatus.isRepository || coordinator.state.isBusy)
-                    Spacer()
-                    Button("Sync Now") { coordinator.syncNow() }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(coordinator.state.isBusy)
                 }
             }
 
@@ -361,7 +420,7 @@ private struct SyncSettings: View {
                                 || coordinator.state.isBusy
                         )
                 }
-                Text("Connects this normal workspace directly to origin. Authentication uses your existing GitHub CLI login.")
+                Text(purpose.connectionHelp)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -400,17 +459,20 @@ private struct SyncSettings: View {
                 }
             }
 
-            Section("Sync status") {
+            Section("Background sync status") {
                 Label(coordinator.state.message, systemImage: syncStatusSymbol)
                     .foregroundStyle(syncStatusColor)
                     .textSelection(.enabled)
-                Text("Sync commits local workspace changes, fetches and rebases the current branch, pushes to origin, and refreshes the library.")
+                Text(purpose.synchronizationHelp)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
         }
         .formStyle(.grouped)
         .onAppear {
+            if purpose == .sharedLibrary {
+                sharedWorkspaceFolderPath = env.settings.sharedWorkspaceRootURL.path
+            }
             if remote.isEmpty {
                 remote = coordinator.repositoryStatus.remoteURL ?? ""
             }
@@ -422,6 +484,36 @@ private struct SyncSettings: View {
         .onReceive(coordinator.$repositoryStatus) { status in
             if remote.isEmpty { remote = status.remoteURL ?? "" }
         }
+    }
+
+    private func applySharedWorkspaceFolder() {
+        let trimmed = sharedWorkspaceFolderPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let url = URL(
+            fileURLWithPath: NSString(string: trimmed).expandingTildeInPath,
+            isDirectory: true
+        )
+        do {
+            try env.setSharedWorkspaceFolder(url)
+            sharedWorkspaceFolderPath = url.path
+            sharedWorkspaceFolderStatus = "Using \(url.path)"
+            remote = ""
+            newRepositoryName = coordinator.suggestedRepositoryName
+        } catch {
+            sharedWorkspaceFolderStatus = error.localizedDescription
+        }
+    }
+
+    private func chooseSharedWorkspaceFolder() {
+        let panel = NSOpenPanel()
+        panel.canCreateDirectories = true
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Choose shared repository folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sharedWorkspaceFolderPath = url.path
+        applySharedWorkspaceFolder()
     }
 
     @ViewBuilder

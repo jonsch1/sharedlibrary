@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import KeyboardShortcuts
 import UserNotifications
+import Network
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -14,6 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusResetTask: Task<Void, Never>?
     private var canPostUserNotifications = false
     private var libraryVisible = false
+    private var backgroundSyncTimer: Timer?
+    private let networkMonitor = NWPathMonitor()
+    private let networkMonitorQueue = DispatchQueue(label: "SharedLibrary.NetworkMonitor")
+    private var networkWasAvailable: Bool?
+    private var lastBackgroundSyncRequestAt: Date?
     private let libraryWindowIdentifier = NSUserInterfaceItemIdentifier("SharedLibraryWorkspaceWindow")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -21,13 +27,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         registerHotkeys()
         setupNotifications()
+        setupBackgroundSyncTriggers()
         env.gitSyncCoordinator.refreshStatus()
+        env.sharedGitSyncCoordinator.refreshStatus()
+        requestBackgroundSync(reason: "app launched")
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(libraryAppearanceDidChange(_:)),
             name: .libraryAppearanceDidChange,
             object: nil
         )
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        requestBackgroundSync(reason: "app became active", minimumInterval: 300)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        backgroundSyncTimer?.invalidate()
+        networkMonitor.cancel()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -76,7 +94,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Library", action: #selector(showLibrary), keyEquivalent: "")
-        menu.addItem(withTitle: "Sync Now", action: #selector(syncNow), keyEquivalent: "")
         menu.addItem(withTitle: "Settings", action: #selector(showSettings), keyEquivalent: "")
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "")
 
@@ -309,10 +326,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
-    @objc func syncNow() {
-        env.gitSyncCoordinator.syncNow()
-    }
-
     private func makeSettingsWindow() -> NSWindow {
         let root = SettingsView().environmentObject(env)
         let window = NSWindow(
@@ -382,6 +395,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
+    private func setupBackgroundSyncTriggers() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(workspaceDidWake(_:)),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+
+        let timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.requestBackgroundSync(reason: "periodic background sync")
+            }
+        }
+        timer.tolerance = 60
+        backgroundSyncTimer = timer
+
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            let isAvailable = path.status == .satisfied
+            Task { @MainActor in
+                guard let self else { return }
+                let connectivityWasRestored = self.networkWasAvailable == false && isAvailable
+                self.networkWasAvailable = isAvailable
+                if connectivityWasRestored {
+                    self.requestBackgroundSync(reason: "network connectivity restored")
+                }
+            }
+        }
+        networkMonitor.start(queue: networkMonitorQueue)
+    }
+
+    @objc private func workspaceDidWake(_ notification: Notification) {
+        requestBackgroundSync(reason: "Mac woke from sleep")
+    }
+
+    private func requestBackgroundSync(
+        reason: String,
+        minimumInterval: TimeInterval = 0
+    ) {
+        let now = Date()
+        if let lastBackgroundSyncRequestAt,
+           now.timeIntervalSince(lastBackgroundSyncRequestAt) < minimumInterval {
+            return
+        }
+        lastBackgroundSyncRequestAt = now
+        env.gitSyncCoordinator.requestAutomaticSync(reason: reason)
+        env.sharedGitSyncCoordinator.requestAutomaticSync(reason: reason)
+    }
+
     @objc private func processingDidStart(_ notification: Notification) {
         let sourceTitle = notification.userInfo?["sourceTitle"] as? String ?? "Capture"
         setStatus(.capturing("Processing \(sourceTitle)"))
@@ -390,12 +451,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func processingDidFinish(_ notification: Notification) {
         let sourceTitle = notification.userInfo?["sourceTitle"] as? String ?? "Capture"
         let topicName = notification.userInfo?["topicName"] as? String
+        refreshSharedCopyAfterProcessing(notification)
         setStatus(.saved(sourceTitle))
         postNotification(
             title: "Capture organized",
             body: topicName.map { "\(sourceTitle) → \($0)" } ?? sourceTitle
         )
         env.gitSyncCoordinator.requestAutomaticSync(reason: "capture processing completed")
+    }
+
+    private func refreshSharedCopyAfterProcessing(_ notification: Notification) {
+        guard let oldPath = notification.userInfo?["sourcePath"] as? String,
+              let newPath = notification.userInfo?["processedPath"] as? String else { return }
+        let oldURL = URL(fileURLWithPath: oldPath)
+        let newURL = URL(fileURLWithPath: newPath)
+        let privateWorkspaceURL = env.settings.workspaceRootURL
+        let sharedWorkspaceURL = env.settings.sharedWorkspaceRootURL
+        guard env.sharingStore.isShared(
+            captureAt: oldURL,
+            privateWorkspaceURL: privateWorkspaceURL,
+            sharedWorkspaceURL: sharedWorkspaceURL
+        ) else { return }
+
+        do {
+            try env.sharingStore.shareCapture(
+                at: newURL,
+                privateWorkspaceURL: privateWorkspaceURL,
+                sharedWorkspaceURL: sharedWorkspaceURL
+            )
+            if oldURL.standardizedFileURL != newURL.standardizedFileURL {
+                try env.sharingStore.unshareCapture(
+                    at: oldURL,
+                    privateWorkspaceURL: privateWorkspaceURL,
+                    sharedWorkspaceURL: sharedWorkspaceURL
+                )
+            }
+            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "shared capture processed")
+        } catch {
+            postNotification(title: "Shared copy update failed", body: error.localizedDescription)
+        }
     }
 
     @objc private func processingDidFail(_ notification: Notification) {

@@ -19,6 +19,23 @@ final class GitSyncCoordinatorTests: XCTestCase {
         }
     }
 
+    func testBackgroundRetryClassificationOnlyAcceptsTransientNetworkFailures() async {
+        await MainActor.run {
+            XCTAssertTrue(GitSyncCoordinator.isRetryableSyncError(
+                GitCommandFailure(message: "Could not fetch from origin. Network is unreachable")
+            ))
+            XCTAssertTrue(GitSyncCoordinator.isRetryableSyncError(
+                GitCommandFailure(message: "Could not push main. Connection timed out")
+            ))
+            XCTAssertFalse(GitSyncCoordinator.isRetryableSyncError(
+                GitCommandFailure(message: "GitHub CLI is not authenticated. Run gh auth login.")
+            ))
+            XCTAssertFalse(GitSyncCoordinator.isRetryableSyncError(
+                GitCommandFailure(message: "Could not rebase onto origin/main. Resolve the conflict.")
+            ))
+        }
+    }
+
     func testCreateRemoteRepositoryCommitsCreatesOriginAndPushes() async throws {
         let workspace = FileManager.default.temporaryDirectory
             .appendingPathComponent("shared-library-create-remote-\(UUID().uuidString)", isDirectory: true)

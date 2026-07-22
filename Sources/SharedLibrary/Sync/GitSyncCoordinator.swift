@@ -468,7 +468,11 @@ final class GitSyncCoordinator: ObservableObject {
     private var workspaceURL: URL
     private var operationTask: Task<Void, Never>?
     private var automaticSyncTask: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
     private var pendingSyncReason: String?
+    private var retryAttempt = 0
+
+    private static let retryDelaySeconds = [5, 15, 60, 300]
 
     init(
         workspaceURL: URL,
@@ -481,9 +485,12 @@ final class GitSyncCoordinator: ObservableObject {
     func setWorkspaceURL(_ url: URL) {
         operationTask?.cancel()
         automaticSyncTask?.cancel()
+        retryTask?.cancel()
         operationTask = nil
         automaticSyncTask = nil
+        retryTask = nil
         pendingSyncReason = nil
+        retryAttempt = 0
         workspaceURL = url.standardizedFileURL
         repositoryStatus = .unknown
         refreshStatus()
@@ -576,19 +583,42 @@ final class GitSyncCoordinator: ObservableObject {
         }
     }
 
-    func syncNow() {
-        automaticSyncTask?.cancel()
-        automaticSyncTask = nil
-        startSync(reason: "manual sync")
+    func requestAutomaticSync(reason: String) {
+        retryTask?.cancel()
+        retryTask = nil
+        retryAttempt = 0
+        pendingSyncReason = reason
+        schedulePendingSync()
     }
 
-    func requestAutomaticSync(reason: String) {
-        guard repositoryStatus.isRepository else { return }
+    static func isRetryableSyncError(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return [
+            "could not fetch",
+            "could not push",
+            "could not resolve host",
+            "connection reset",
+            "connection timed out",
+            "network is unreachable",
+            "temporarily unavailable"
+        ].contains(where: message.contains)
+    }
+
+    private func schedulePendingSync() {
         automaticSyncTask?.cancel()
+        guard operationTask == nil,
+              repositoryStatus.isRepository,
+              pendingSyncReason != nil else {
+            automaticSyncTask = nil
+            return
+        }
+        state = .syncing("Background sync queued...")
         automaticSyncTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled, let self else { return }
             automaticSyncTask = nil
+            guard let reason = pendingSyncReason else { return }
+            pendingSyncReason = nil
             startSync(reason: reason)
         }
     }
@@ -640,25 +670,46 @@ final class GitSyncCoordinator: ObservableObject {
             do {
                 let result = try await engine.synchronize(workspaceURL: workspaceURL, reason: reason)
                 guard !Task.isCancelled else { return }
+                retryTask?.cancel()
+                retryTask = nil
+                retryAttempt = 0
                 repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
                 state = result.pushedChanges
-                    ? .succeeded(result.summary)
+                    ? .succeeded("\(result.summary) Synced at \(Self.shortTime(Date())).")
                     : .needsSetup(result.summary)
                 NotificationCenter.default.post(name: .libraryDidChange, object: nil)
             } catch {
                 guard !Task.isCancelled else { return }
                 repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
-                state = .failed(error.localizedDescription)
+                if let delay = scheduleRetryIfNeeded(for: error, reason: reason) {
+                    state = .failed("\(error.localizedDescription) Retrying in \(delay) seconds.")
+                } else {
+                    state = .failed(error.localizedDescription)
+                }
             }
             finishOperation()
         }
     }
 
+    private func scheduleRetryIfNeeded(for error: Error, reason: String) -> Int? {
+        guard Self.isRetryableSyncError(error),
+              retryAttempt < Self.retryDelaySeconds.count else { return nil }
+        let delay = Self.retryDelaySeconds[retryAttempt]
+        retryAttempt += 1
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            retryTask = nil
+            pendingSyncReason = reason
+            schedulePendingSync()
+        }
+        return delay
+    }
+
     private func finishOperation() {
         operationTask = nil
-        guard let reason = pendingSyncReason else { return }
-        pendingSyncReason = nil
-        startSync(reason: reason)
+        schedulePendingSync()
     }
 
     private static func state(for status: GitRepositoryStatus) -> GitSyncState {
@@ -677,6 +728,10 @@ final class GitSyncCoordinator: ObservableObject {
         guard status.ghAuthenticated else {
             return .needsSetup("GitHub CLI is not authenticated. Run `gh auth login`.")
         }
-        return .ready("Ready to sync \(status.branch ?? "the current branch").")
+        return .ready("Background sync is active on \(status.branch ?? "the current branch").")
+    }
+
+    private static func shortTime(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
     }
 }

@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
 
     private enum Keys {
         static let workspaceFolderPath = "workspaceFolderPath"
+        static let sharedWorkspaceFolderPath = "sharedWorkspaceFolderPath"
         static let processingPrompt = "processingPrompt"
         static let agentCommand = "agentCommand"
     }
@@ -60,6 +61,28 @@ final class AppSettings: ObservableObject {
         set {
             objectWillChange.send()
             defaults.set(newValue.path, forKey: Keys.workspaceFolderPath)
+        }
+    }
+
+    var defaultSharedWorkspaceRootURL: URL {
+        let documents = FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)
+            .first ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents", isDirectory: true)
+        return documents.appendingPathComponent("Shared Library Shared", isDirectory: true)
+    }
+
+    var sharedWorkspaceRootURL: URL {
+        get {
+            let path = defaults.string(forKey: Keys.sharedWorkspaceFolderPath) ?? ""
+            guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return defaultSharedWorkspaceRootURL
+            }
+            return URL(fileURLWithPath: NSString(string: path).expandingTildeInPath,
+                       isDirectory: true)
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue.path, forKey: Keys.sharedWorkspaceFolderPath)
         }
     }
 

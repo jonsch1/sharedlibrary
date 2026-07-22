@@ -125,6 +125,7 @@ struct SharedLibraryWorkspaceView: View {
     @State private var copyFeedbackGeneration = 0
     @State private var knowledgeRefreshTask: Task<Void, Never>?
     @State private var documentSyncTask: Task<Void, Never>?
+    @State private var sharingRevision = 0
 
     private let sidebarWidth: CGFloat = 305
     private let outerInset: CGFloat = 12
@@ -293,7 +294,6 @@ struct SharedLibraryWorkspaceView: View {
                     isSelected: false,
                     action: launchAgent
                 )
-                GitSyncSidebarButton(coordinator: env.gitSyncCoordinator)
             }
             GitSyncSidebarStatus(coordinator: env.gitSyncCoordinator)
         }
@@ -452,6 +452,12 @@ struct SharedLibraryWorkspaceView: View {
         if item.isVirtualFolder {
             EmptyView()
         } else {
+            if let sourceURL = captureSourceURL(for: item.url) {
+                Button(isCaptureShared(sourceURL) ? "Unshare" : "Share") {
+                    toggleSharing(for: sourceURL)
+                }
+                Divider()
+            }
             Button("Copy Path") {
                 copyPath(item.url)
             }
@@ -539,6 +545,10 @@ struct SharedLibraryWorkspaceView: View {
                 } else {
                     Text(fileKindLabel)
                         .foregroundStyle(WorkspaceTheme.secondaryText)
+                }
+
+                if let selectedCaptureSourceURL {
+                    sharingButton(for: selectedCaptureSourceURL)
                 }
 
                 copyPathButton
@@ -645,6 +655,23 @@ struct SharedLibraryWorkspaceView: View {
         .disabled(selectedURL == nil)
         .animation(.easeInOut(duration: 0.14), value: copyFeedbackVisible)
         .help("Copy path")
+    }
+
+    private func sharingButton(for sourceURL: URL) -> some View {
+        let isShared = isCaptureShared(sourceURL)
+        return Button {
+            toggleSharing(for: sourceURL)
+        } label: {
+            Image(systemName: isShared ? "person.2.fill" : "person.2")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(WorkspaceTheme.primaryText.opacity(0.92))
+                .frame(width: 36, height: 36)
+                .background(footerButtonBackground)
+                .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(isShared ? "Unshare this capture" : "Share this capture")
+        .accessibilityLabel(isShared ? "Unshare capture" : "Share capture")
     }
 
     private var rawEditor: some View {
@@ -835,8 +862,12 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private var selectedCaptureSourceURL: URL? {
-        guard let selectedFileURL,
-              selectedFileURL.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame else {
+        guard let selectedFileURL else { return nil }
+        return captureSourceURL(for: selectedFileURL)
+    }
+
+    private func captureSourceURL(for selectedFileURL: URL) -> URL? {
+        guard selectedFileURL.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame else {
             return nil
         }
 
@@ -1048,6 +1079,7 @@ struct SharedLibraryWorkspaceView: View {
 
     private func saveSelectedText(_ text: String) {
         guard let selectedURL, !isDirectory(selectedURL) else { return }
+        let captureSourceURL = captureSourceURL(for: selectedURL)
         do {
             try text.write(to: selectedURL, atomically: true, encoding: .utf8)
             if selectedURL.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame {
@@ -1059,6 +1091,21 @@ struct SharedLibraryWorkspaceView: View {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     env.gitSyncCoordinator.requestAutomaticSync(reason: "document edited")
+                    guard let captureSourceURL,
+                          isCaptureShared(captureSourceURL) else { return }
+                    do {
+                        try env.sharingStore.shareCapture(
+                            at: captureSourceURL,
+                            privateWorkspaceURL: env.settings.workspaceRootURL,
+                            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+                        )
+                        sharingRevision += 1
+                        env.sharedGitSyncCoordinator.requestAutomaticSync(
+                            reason: "shared capture edited"
+                        )
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
             }
         } catch {
@@ -1113,18 +1160,74 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private func moveCaptureToTrash(_ url: URL) {
+        let sourceURL = captureSourceURL(for: url) ?? url
+        let wasShared = isCaptureShared(sourceURL)
         do {
             try env.libraryStore.deleteCapture(
-                at: url,
+                at: sourceURL,
                 workspaceRootURL: env.settings.workspaceRootURL
             )
-            reloadTreePreservingSelection()
-            if selectedURL == url {
-                selectedURL = nil
-                editorText = ""
-                updateDerivedDocumentState(for: "", isMarkdown: false)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        var sharedRemovalError: Error?
+        if wasShared {
+            do {
+                try env.sharingStore.unshareCapture(
+                    at: sourceURL,
+                    privateWorkspaceURL: env.settings.workspaceRootURL,
+                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+                )
+                sharingRevision += 1
+                env.sharedGitSyncCoordinator.requestAutomaticSync(
+                    reason: "shared capture deleted"
+                )
+            } catch {
+                sharedRemovalError = error
             }
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "capture deleted")
+        }
+
+        reloadTreePreservingSelection()
+        if selectedCaptureSourceURL == sourceURL || selectedURL == url {
+            selectedURL = nil
+            editorText = ""
+            updateDerivedDocumentState(for: "", isMarkdown: false)
+        }
+        env.gitSyncCoordinator.requestAutomaticSync(reason: "capture deleted")
+        if let sharedRemovalError {
+            errorMessage = "The private capture was deleted, but its shared copy could not be removed. \(sharedRemovalError.localizedDescription)"
+        }
+    }
+
+    private func isCaptureShared(_ sourceURL: URL) -> Bool {
+        _ = sharingRevision
+        return env.sharingStore.isShared(
+            captureAt: sourceURL,
+            privateWorkspaceURL: env.settings.workspaceRootURL,
+            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+        )
+    }
+
+    private func toggleSharing(for sourceURL: URL) {
+        do {
+            if isCaptureShared(sourceURL) {
+                try env.sharingStore.unshareCapture(
+                    at: sourceURL,
+                    privateWorkspaceURL: env.settings.workspaceRootURL,
+                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+                )
+                env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture unshared")
+            } else {
+                try env.sharingStore.shareCapture(
+                    at: sourceURL,
+                    privateWorkspaceURL: env.settings.workspaceRootURL,
+                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+                )
+                env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture shared")
+            }
+            sharingRevision += 1
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1259,40 +1362,6 @@ private struct MarkdownProperty: Identifiable, Hashable {
 
     var displayValue: String {
         values.joined(separator: ", ")
-    }
-}
-
-private struct GitSyncSidebarButton: View {
-    @ObservedObject var coordinator: GitSyncCoordinator
-
-    var body: some View {
-        Button {
-            coordinator.syncNow()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: coordinator.state.isBusy ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Sync Now")
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 16)
-            .foregroundStyle(WorkspaceTheme.primaryText)
-            .frame(maxWidth: .infinity, minHeight: 38)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(WorkspaceTheme.controlFill.opacity(0.56))
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(WorkspaceTheme.hairline, lineWidth: 0.9)
-            )
-            .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
-            .contentShape(Capsule(style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(coordinator.state.isBusy)
-        .help("Commit, fetch, rebase, and push workspace changes")
     }
 }
 
