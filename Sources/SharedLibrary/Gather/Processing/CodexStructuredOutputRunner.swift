@@ -4,7 +4,6 @@ struct CodexStructuredOutputRunner {
     func run(
         prompt: String,
         schemaJSON: String,
-        imageURL: URL? = nil,
         operationName: String
     ) throws -> Data {
         let temporaryFolder = FileManager.default.temporaryDirectory
@@ -32,9 +31,6 @@ struct CodexStructuredOutputRunner {
             "--output-last-message", outputURL.path,
             "-C", temporaryFolder.path
         ]
-        if let imageURL {
-            arguments.append(contentsOf: ["--image", imageURL.path])
-        }
         arguments.append("-")
         process.arguments = arguments
         process.environment = processEnvironment()

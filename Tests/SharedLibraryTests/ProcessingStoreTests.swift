@@ -135,38 +135,6 @@ final class ProcessingStoreTests: XCTestCase {
         )
     }
 
-    func testImageCaptureSavesAssetAndAppliesInformativeNameOnly() throws {
-        let root = try makeWorkspace()
-        let date = ISO8601DateFormatter().date(from: "2026-07-15T10:00:00Z")!
-        let store = LibraryStore()
-        let item = try store.saveImagePNG(Data([0x89, 0x50, 0x4E, 0x47]), in: root.appendingPathComponent("gather"), date: date)
-
-        XCTAssertEqual(item.type, "image")
-        XCTAssertEqual(item.url, "images/260715-1.png")
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent("gather/images/260715-1.png").path
-        ))
-        XCTAssertTrue(item.content.contains("![Clipboard image](images/260715-1.png)"))
-
-        let namedItem = try store.updateImageTitle(
-            for: item,
-            title: "Image Processing Pipeline Diagram",
-            date: date.addingTimeInterval(60)
-        )
-
-        let recordURL = try XCTUnwrap(namedItem.fileURL)
-        let metadata = MarkdownMetadata.parse(try String(contentsOf: recordURL))
-        XCTAssertEqual(metadata.firstValue(for: "type"), "image")
-        XCTAssertEqual(metadata.firstValue(for: "title"), "Image Processing Pipeline Diagram")
-        XCTAssertEqual(metadata.values(for: "topics"), [])
-        XCTAssertNil(metadata.firstValue(for: "reviewed_at"))
-        XCTAssertEqual(namedItem.url, "images/image-processing-pipeline-diagram.png")
-        XCTAssertTrue(metadata.body.contains("images/image-processing-pipeline-diagram.png"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather/images/260715-1.png").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: try XCTUnwrap(store.imageAssetURL(for: namedItem)).path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("gather/summaries/\(recordURL.lastPathComponent)").path))
-    }
-
     func testEditablePromptRendersTopicsAndSourcePlaceholders() throws {
         let record = KnowledgeRecord(
             id: "source:test",
@@ -215,54 +183,36 @@ final class ProcessingStoreTests: XCTestCase {
         XCTAssertFalse(prompt.contains("image"))
     }
 
-    func testImageSimplificationRemovesTopicsSummariesAndScopedTaxonomy() throws {
+    func testCaptureDeletionIncludesEveryCompanionSummary() throws {
         let root = try makeWorkspace()
-        let taxonomyURL = root.appendingPathComponent("topics.md")
-        let taxonomyStore = TaxonomyStore()
-        try taxonomyStore.save(TaxonomyStore.defaultTaxonomy, to: taxonomyURL)
-        let imageTopic = try taxonomyStore.ensureTopic(named: "Architecture Images", at: taxonomyURL)
-        let scopedTaxonomy = try String(contentsOf: taxonomyURL)
-            .replacingOccurrences(of: "version: 1", with: "version: 2")
-            .replacingOccurrences(
-                of: "    title: \"Architecture Images\"\n    description: \"\"",
-                with: "    title: \"Architecture Images\"\n    description: \"\"\n    scope: \"image\""
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sourceURL = root.appendingPathComponent("gather/example.md")
+        try "Source".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let summaryURLs = LibraryStore.companionSummaryURLs(
+            for: sourceURL,
+            workspaceRootURL: root
+        )
+        for url in summaryURLs {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
             )
-        try scopedTaxonomy.write(to: taxonomyURL, atomically: true, encoding: .utf8)
+            try "Summary".write(to: url, atomically: true, encoding: .utf8)
+        }
+        let unrelatedURL = root.appendingPathComponent("gather/summaries/unrelated.md")
+        try "Keep".write(to: unrelatedURL, atomically: true, encoding: .utf8)
 
-        let store = LibraryStore()
-        let item = try store.saveImagePNG(
-            Data([0x89, 0x50, 0x4E, 0x47]),
-            in: root.appendingPathComponent("gather")
+        try LibraryStore().deleteCapture(
+            at: sourceURL,
+            workspaceRootURL: root,
+            trashItem: { try FileManager.default.removeItem(at: $0) }
         )
-        let recordURL = try XCTUnwrap(item.fileURL)
-        let recordText = try String(contentsOf: recordURL)
-            .replacingOccurrences(of: "topics: []", with: "topics:\n  - \"\(imageTopic.id)\"")
-            .replacingOccurrences(of: "updated_at:", with: "reviewed_at: \"2026-07-15T10:01:00.000Z\"\nupdated_at:")
-        try recordText.write(to: recordURL, atomically: true, encoding: .utf8)
-        let summaryURL = root.appendingPathComponent("gather/summaries/\(recordURL.lastPathComponent)")
-        try "Image summary".write(to: summaryURL, atomically: true, encoding: .utf8)
-        let briefFolder = root.appendingPathComponent("gather/summaries/brief", isDirectory: true)
-        try FileManager.default.createDirectory(at: briefFolder, withIntermediateDirectories: true)
-        let briefURL = briefFolder.appendingPathComponent(recordURL.lastPathComponent)
-        try "Brief image summary".write(to: briefURL, atomically: true, encoding: .utf8)
 
-        try store.simplifyImageCaptures(workspaceRootURL: root)
-
-        let metadata = MarkdownMetadata.parse(try String(contentsOf: recordURL))
-        XCTAssertEqual(metadata.values(for: "topics"), [])
-        XCTAssertNil(metadata.firstValue(for: "reviewed_at"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: summaryURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: briefURL.path))
-        let taxonomy = try taxonomyStore.load(from: taxonomyURL)
-        XCTAssertFalse(taxonomy.topics.contains { $0.id == imageTopic.id })
-        XCTAssertFalse(try String(contentsOf: taxonomyURL).contains("scope:"))
-    }
-
-    func testImageNameNormalizationIsConciseAndSingleLine() {
-        XCTAssertEqual(
-            ImageNamingService.normalizedTitle("  ## Architecture\nPipeline Diagram!!!  "),
-            "Architecture Pipeline Diagram!!!"
-        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(summaryURLs.allSatisfy {
+            !FileManager.default.fileExists(atPath: $0.path)
+        })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unrelatedURL.path))
     }
 
     func testLegacyClusterMetadataMigratesToTopicAndDeletesIndex() throws {

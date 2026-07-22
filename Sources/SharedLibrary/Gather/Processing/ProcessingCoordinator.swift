@@ -36,7 +36,7 @@ final class ProcessingCoordinator {
     }
 
     func process(item: LibraryItem, workspaceRootURL: URL) {
-        guard item.type != "image", let fileURL = item.fileURL else { return }
+        guard let fileURL = item.fileURL else { return }
         process(
             record: KnowledgeRecord(
                 id: "source:\(fileURL.standardizedFileURL.path)",

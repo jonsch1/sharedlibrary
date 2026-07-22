@@ -86,7 +86,6 @@ private enum WorkspaceTheme {
 private enum LibraryViewMode: String, CaseIterable, Identifiable {
     case recent
     case topics
-    case images
 
     var id: String { rawValue }
 
@@ -94,7 +93,6 @@ private enum LibraryViewMode: String, CaseIterable, Identifiable {
         switch self {
         case .recent: return "Recent"
         case .topics: return "Topics"
-        case .images: return "Images"
         }
     }
 }
@@ -113,11 +111,6 @@ struct SharedLibraryWorkspaceView: View {
     @AppStorage("libraryDarkMode") private var libraryDarkMode = false
     @State private var libraryViewModeRaw = LibraryViewMode.recent.rawValue
     @State private var knowledgeSnapshot = KnowledgeSnapshot.empty
-    @State private var outputTreeItems: [WorkspaceItem] = []
-    @State private var imageItems: [LibraryItem] = []
-    @State private var selectedImageID: String?
-    @State private var fullscreenImage: LibraryItem?
-    @FocusState private var fullscreenViewFocused: Bool
     @State private var expandedItems: Set<String> = []
     @State private var selectedURL: URL?
     @State private var editorText = ""
@@ -153,10 +146,6 @@ struct SharedLibraryWorkspaceView: View {
                     .padding(.vertical, outerInset)
             }
 
-            if let fullscreenImage {
-                fullscreenImageView(fullscreenImage)
-                    .zIndex(100)
-            }
         }
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         .preferredColorScheme(libraryDarkMode ? .dark : .light)
@@ -175,12 +164,6 @@ struct SharedLibraryWorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: .processingDidFail)) { notification in
             errorMessage = notification.userInfo?["message"] as? String
                 ?? "The capture could not be processed."
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showImagesTab)) { _ in
-            libraryViewModeRaw = LibraryViewMode.images.rawValue
-        }
-        .onExitCommand {
-            if fullscreenImage != nil { fullscreenImage = nil }
         }
         .onDisappear {
             knowledgeRefreshTask?.cancel()
@@ -261,23 +244,13 @@ struct SharedLibraryWorkspaceView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    if libraryViewMode == .images {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(filteredImageItems) { item in
-                                imageTitleRow(item)
-                            }
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(visibleTreeItems) { item in
+                            fileTreeRows(item)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(visibleTreeItems) { item in
-                                fileTreeRows(item)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
                 }
                 .onAppear {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -288,10 +261,8 @@ struct SharedLibraryWorkspaceView: View {
                 }
             }
 
-            if libraryViewMode != .images {
-                sidebarFloatingCommands
-                    .padding(.horizontal, 16)
-            }
+            sidebarFloatingCommands
+                .padding(.horizontal, 16)
         }
         .padding(.top, 66)
         .padding(.bottom, 12)
@@ -304,22 +275,11 @@ struct SharedLibraryWorkspaceView: View {
         }
         .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
         .contextMenu {
-            if libraryViewMode != .images {
-                Button("New File") {
-                    createNewFile(in: env.settings.outputFolderURL)
-                }
-                Button("New Folder") {
-                    createFolder(in: env.settings.outputFolderURL)
-                }
-                Divider()
-            }
             Button("Refresh") {
                 reloadTreePreservingSelection()
             }
-            Button(libraryViewMode == .images ? "Reveal Images in Finder" : "Reveal Workspace in Finder") {
-                reveal(libraryViewMode == .images
-                    ? env.settings.gatherFolderURL.appendingPathComponent("images", isDirectory: true)
-                    : env.settings.workspaceRootURL)
+            Button("Reveal Workspace in Finder") {
+                reveal(env.settings.workspaceRootURL)
             }
         }
     }
@@ -400,7 +360,7 @@ struct SharedLibraryWorkspaceView: View {
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(WorkspaceTheme.secondaryText)
 
-            TextField(libraryViewMode == .images ? "Search images" : "Search", text: $searchText)
+            TextField("Search", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .foregroundStyle(WorkspaceTheme.primaryText)
@@ -487,69 +447,10 @@ struct SharedLibraryWorkspaceView: View {
         return selectedCaptureSourceURL.standardizedFileURL == item.url.standardizedFileURL
     }
 
-    private func imageTitleRow(_ item: LibraryItem) -> some View {
-        Button {
-            selectedImageID = item.id
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "photo")
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 18)
-                    .foregroundStyle(WorkspaceTheme.tertiaryText)
-                Text(item.title)
-                    .font(.system(size: 15, weight: selectedImageID == item.id ? .medium : .regular))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(WorkspaceTheme.primaryText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(selectedImageID == item.id ? WorkspaceTheme.selectionFill : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            imageContextMenu(for: item)
-        }
-        .help(item.title)
-    }
-
-    @ViewBuilder
-    private func imageContextMenu(for item: LibraryItem) -> some View {
-        Button("Copy Path") {
-            copyImagePath(item)
-        }
-        Button("Reveal in Finder") {
-            revealImage(item)
-        }
-        Divider()
-        Button("Move to Trash", role: .destructive) {
-            moveImageToTrash(item)
-        }
-    }
-
     @ViewBuilder
     private func fileContextMenu(for item: WorkspaceItem) -> some View {
         if item.isVirtualFolder {
             EmptyView()
-        } else if item.isDirectory {
-            Button("New File") {
-                createNewFile(in: item.url)
-            }
-            Button("New Folder") {
-                createFolder(in: item.url)
-            }
-            Divider()
-            Button("Refresh") {
-                reloadTreePreservingSelection()
-            }
-            Button("Reveal in Finder") {
-                reveal(item.url)
-            }
         } else {
             Button("Copy Path") {
                 copyPath(item.url)
@@ -559,98 +460,14 @@ struct SharedLibraryWorkspaceView: View {
             }
             Divider()
             Button("Move to Trash", role: .destructive) {
-                moveToTrash(item.url)
+                moveCaptureToTrash(item.url)
             }
         }
     }
 
     private var contentPane: some View {
-        Group {
-            if libraryViewMode == .images {
-                imageGalleryPane
-            } else {
-                editorPane
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var imageGalleryPane: some View {
-        Group {
-            if filteredImageItems.isEmpty {
-                ContentUnavailableView(
-                    searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "No Images Yet"
-                        : "No Matching Images",
-                    systemImage: "photo.on.rectangle.angled",
-                    description: Text("Copy an image and capture it to add it here.")
-                )
-            } else {
-                ImageMasonryGallery(
-                    items: filteredImageItems,
-                    selectedImageID: selectedImageID,
-                    imageURL: env.libraryStore.imageAssetURL(for:),
-                    onSelect: { selectedImageID = $0.id },
-                    onOpen: { fullscreenImage = $0 },
-                    onCopyPath: copyImagePath,
-                    onReveal: revealImage,
-                    onDelete: moveImageToTrash
-                )
-            }
-        }
-        .background(documentPanelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-    }
-
-    private func fullscreenImageView(_ item: LibraryItem) -> some View {
-        ZStack {
-            Color.black.opacity(0.96)
-                .ignoresSafeArea()
-
-            if let url = env.libraryStore.imageAssetURL(for: item),
-               let image = NSImage(contentsOf: url) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(52)
-            } else {
-                ContentUnavailableView("Image unavailable", systemImage: "photo.badge.exclamationmark")
-            }
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        fullscreenImage = nil
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 42, height: 42)
-                            .background(Color.white.opacity(0.12), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .help("Close image")
-                }
-                Spacer()
-                Text(item.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(Color.black.opacity(0.55), in: Capsule())
-            }
-            .padding(24)
-        }
-        .transition(.opacity)
-        .focusable()
-        .focused($fullscreenViewFocused)
-        .onAppear {
-            DispatchQueue.main.async {
-                fullscreenViewFocused = true
-            }
-        }
+        editorPane
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var editorPane: some View {
@@ -884,22 +701,9 @@ struct SharedLibraryWorkspaceView: View {
         return collectionTreeItems.compactMap { $0.filtered(matching: query) }
     }
 
-    private var filteredImageItems: [LibraryItem] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return imageItems }
-        return imageItems.filter { $0.title.localizedCaseInsensitiveContains(query) }
-    }
-
     private var collectionTreeItems: [WorkspaceItem] {
-        let output = WorkspaceItem.physicalFolder(
-            url: env.settings.outputFolderURL,
-            displayName: "Output",
-            systemImage: "shippingbox",
-            children: outputTreeItems
-        )
-
         if libraryViewMode == .topics {
-            return topicLibraryChildren + [output]
+            return topicLibraryChildren
         }
 
         let library = WorkspaceItem.virtualFolder(
@@ -909,7 +713,7 @@ struct SharedLibraryWorkspaceView: View {
             badgeCount: libraryRecords.count,
             children: recentLibraryChildren
         )
-        return [library, output]
+        return [library]
     }
 
     private var libraryRecords: [KnowledgeRecord] {
@@ -1114,7 +918,6 @@ struct SharedLibraryWorkspaceView: View {
             try env.settings.ensureWorkspace()
             reloadTreePreservingSelection()
             expandedItems.insert(WorkspaceItem.virtualID("main"))
-            expandedItems.insert(env.settings.outputFolderURL.path)
             if selectedURL == nil {
                 selectInitialFile()
             }
@@ -1125,14 +928,7 @@ struct SharedLibraryWorkspaceView: View {
 
     private func reloadTreePreservingSelection() {
         do {
-            try env.settings.ensureOutputFolder()
-            outputTreeItems = try WorkspaceItem.children(of: env.settings.outputFolderURL)
-            imageItems = try env.libraryStore.recentImageItems()
-            if selectedImageID == nil || !imageItems.contains(where: { $0.id == selectedImageID }) {
-                selectedImageID = imageItems.first?.id
-            }
             try refreshKnowledgeSnapshot()
-            expandedItems.insert(env.settings.outputFolderURL.path)
             if let selectedURL, !FileManager.default.fileExists(atPath: selectedURL.path) {
                 self.selectedURL = nil
                 editorText = ""
@@ -1274,68 +1070,9 @@ struct SharedLibraryWorkspaceView: View {
         select(url, prefersShortestSummary: false)
     }
 
-    private func createNewFile(in folder: URL? = nil) {
-        do {
-            let targetFolder = folder ?? selectedDirectoryForCreation()
-            try FileManager.default.createDirectory(at: targetFolder, withIntermediateDirectories: true)
-            let url = uniqueURL(in: targetFolder, baseName: "new-file", pathExtension: "md")
-            try "".write(to: url, atomically: true, encoding: .utf8)
-            expandedItems.insert(targetFolder.path)
-            reloadTreePreservingSelection()
-            select(url, focusEditor: true)
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "document created")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func createFolder(in folder: URL? = nil) {
-        do {
-            let parent = folder ?? selectedDirectoryForCreation()
-            let url = uniqueFolderURL(in: parent, baseName: "new-folder")
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            expandedItems.insert(parent.path)
-            expandedItems.insert(url.path)
-            reloadTreePreservingSelection()
-            selectedURL = url
-            editorText = ""
-            updateDerivedDocumentState(for: "", isMarkdown: false)
-            isEditingMarkdown = false
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "folder created")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func selectedDirectoryForCreation() -> URL {
-        guard let selectedURL else { return env.settings.outputFolderURL }
-        if isDirectory(selectedURL) { return selectedURL }
-        return selectedURL.deletingLastPathComponent()
-    }
-
     private func selectInitialFile() {
         guard let record = libraryRecords.first else { return }
         select(record.fileURL)
-    }
-
-    private func uniqueURL(in folder: URL, baseName: String, pathExtension: String) -> URL {
-        var candidate = folder.appendingPathComponent(baseName).appendingPathExtension(pathExtension)
-        var index = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(baseName)-\(index)").appendingPathExtension(pathExtension)
-            index += 1
-        }
-        return candidate
-    }
-
-    private func uniqueFolderURL(in folder: URL, baseName: String) -> URL {
-        var candidate = folder.appendingPathComponent(baseName, isDirectory: true)
-        var index = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(baseName)-\(index)", isDirectory: true)
-            index += 1
-        }
-        return candidate
     }
 
     private func reveal(_ url: URL) {
@@ -1375,56 +1112,22 @@ struct SharedLibraryWorkspaceView: View {
         return String(path.dropFirst(root.count + 1))
     }
 
-    private func moveToTrash(_ url: URL) {
+    private func moveCaptureToTrash(_ url: URL) {
         do {
-            var trashedURL: NSURL?
-            try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
+            try env.libraryStore.deleteCapture(
+                at: url,
+                workspaceRootURL: env.settings.workspaceRootURL
+            )
             reloadTreePreservingSelection()
             if selectedURL == url {
                 selectedURL = nil
                 editorText = ""
                 updateDerivedDocumentState(for: "", isMarkdown: false)
             }
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "item deleted")
+            env.gitSyncCoordinator.requestAutomaticSync(reason: "capture deleted")
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func moveImageToTrash(_ item: LibraryItem) {
-        do {
-            try env.libraryStore.delete(document: LibraryDocument(
-                item: item,
-                summary: nil,
-                summaryFileURL: nil
-            ))
-            if fullscreenImage?.id == item.id {
-                fullscreenImage = nil
-            }
-            if selectedImageID == item.id {
-                selectedImageID = nil
-            }
-            reloadTreePreservingSelection()
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "image deleted")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func copyImagePath(_ item: LibraryItem) {
-        guard let url = env.libraryStore.imageAssetURL(for: item) else {
-            errorMessage = "The image file for \"\(item.title)\" is missing."
-            return
-        }
-        copyPath(url)
-    }
-
-    private func revealImage(_ item: LibraryItem) {
-        guard let url = env.libraryStore.imageAssetURL(for: item) else {
-            errorMessage = "The image file for \"\(item.title)\" is missing."
-            return
-        }
-        reveal(url)
     }
 
     private func isDirectory(_ url: URL) -> Bool {
@@ -1839,7 +1542,6 @@ private struct FileTreeRow: View {
 
 private struct WorkspaceItem: Identifiable, Hashable {
     private enum Kind: Hashable {
-        case physical
         case virtualFolder
         case recordAlias
     }
@@ -1863,7 +1565,7 @@ private struct WorkspaceItem: Identifiable, Hashable {
         displayName: String,
         isDirectory: Bool,
         children: [WorkspaceItem],
-        kind: Kind = .physical,
+        kind: Kind,
         identity: String? = nil,
         systemImage: String? = nil,
         badgeCount: Int? = nil
@@ -1898,23 +1600,6 @@ private struct WorkspaceItem: Identifiable, Hashable {
             identity: virtualID(id),
             systemImage: systemImage,
             badgeCount: badgeCount
-        )
-    }
-
-    static func physicalFolder(
-        url: URL,
-        displayName: String,
-        systemImage: String,
-        children: [WorkspaceItem]
-    ) -> WorkspaceItem {
-        WorkspaceItem(
-            url: url.standardizedFileURL,
-            displayName: displayName,
-            isDirectory: true,
-            children: children,
-            kind: .physical,
-            systemImage: systemImage,
-            badgeCount: children.count
         )
     }
 
@@ -1966,57 +1651,4 @@ private struct WorkspaceItem: Identifiable, Hashable {
         )
     }
 
-    static func children(of folder: URL) throws -> [WorkspaceItem] {
-        let urls = try FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-
-        return try urls
-            .filter { !$0.lastPathComponent.hasPrefix(".") }
-            .filter { !$0.lastPathComponent.hasPrefix("_") }
-            .filter { !isHiddenSystemFolder($0) }
-            .filter { !isHiddenSystemFile($0) }
-            .sorted(by: sortURLs)
-            .map { try item(for: $0) }
-    }
-
-    private static func isHiddenSystemFolder(_ url: URL) -> Bool {
-        guard ["summaries"].contains(where: { hiddenName in
-            url.lastPathComponent.localizedCaseInsensitiveCompare(hiddenName) == .orderedSame
-        }) else {
-            return false
-        }
-        return ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
-    }
-
-    private static func isHiddenSystemFile(_ url: URL) -> Bool {
-        guard ["AGENTS.md", "topics.md", "types.md"].contains(where: { hiddenName in
-            url.lastPathComponent.localizedCaseInsensitiveCompare(hiddenName) == .orderedSame
-        }) else {
-            return false
-        }
-        return ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
-    }
-
-    private static func item(for url: URL) throws -> WorkspaceItem {
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey])
-        let isDirectory = values.isDirectory == true
-        return WorkspaceItem(
-            url: url.standardizedFileURL,
-            displayName: url.lastPathComponent,
-            isDirectory: isDirectory,
-            children: isDirectory ? (try children(of: url)) : []
-        )
-    }
-
-    private static func sortURLs(_ lhs: URL, _ rhs: URL) -> Bool {
-        let lhsDirectory = (try? lhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        let rhsDirectory = (try? rhs.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-        if lhsDirectory != rhsDirectory {
-            return lhsDirectory && !rhsDirectory
-        }
-        return lhs.lastPathComponent.localizedStandardCompare(rhs.lastPathComponent) == .orderedAscending
-    }
 }

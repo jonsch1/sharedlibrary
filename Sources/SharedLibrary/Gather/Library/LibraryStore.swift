@@ -37,37 +37,6 @@ final class LibraryStore {
         return try save(item: item, date: now)
     }
 
-    func saveImagePNG(_ data: Data) throws -> LibraryItem {
-        let folder = try AppSettings.ensureGatherFolder()
-        return try saveImagePNG(data, in: folder)
-    }
-
-    func saveImagePNG(_ data: Data, in gatherFolder: URL, date: Date = Date()) throws -> LibraryItem {
-        let fileManager = FileManager.default
-        let imagesFolder = gatherFolder.appendingPathComponent("images", isDirectory: true)
-        try fileManager.createDirectory(at: imagesFolder, withIntermediateDirectories: true)
-
-        let imageURL = uniqueImageURL(in: imagesFolder, date: date, pathExtension: "png")
-        let relativeImagePath = "images/\(imageURL.lastPathComponent)"
-        let timestamp = Self.milliseconds(since1970: date)
-        let item = LibraryItem(
-            type: "image",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            url: relativeImagePath,
-            title: "Clipboard image",
-            content: "![Clipboard image](\(relativeImagePath))"
-        )
-
-        do {
-            try data.write(to: imageURL, options: .atomic)
-            return try save(item: item, date: date, in: gatherFolder)
-        } catch {
-            try? fileManager.removeItem(at: imageURL)
-            throw error
-        }
-    }
-
     private func save(item: LibraryItem, date: Date) throws -> LibraryItem {
         let folder = try AppSettings.ensureGatherFolder()
         return try save(item: item, date: date, in: folder)
@@ -79,48 +48,6 @@ final class LibraryStore {
         savedItem.fileURL = fileURL
         try markdown(for: savedItem).write(to: fileURL, atomically: true, encoding: .utf8)
         return savedItem
-    }
-
-    func recentItems(limit: Int = 200) throws -> [LibraryItem] {
-        let folder = try AppSettings.ensureGatherFolder()
-        let urls = try FileManager.default.contentsOfDirectory(
-            at: folder,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-
-        let items = urls
-            .filter { $0.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame }
-            .compactMap { parseMarkdownItem(at: $0) }
-            .sorted { $0.createdAt > $1.createdAt }
-
-        return Array(items.prefix(limit))
-    }
-
-    func recentImageItems(limit: Int = 500) throws -> [LibraryItem] {
-        try recentItems(limit: Int.max)
-            .filter { $0.type == "image" }
-            .prefix(limit)
-            .map { $0 }
-    }
-
-    func snapshot(limit: Int = 500) throws -> LibrarySnapshot {
-        let folder = try AppSettings.ensureGatherFolder()
-        let items = try recentItems(limit: limit)
-
-        let documents = items.map { item in
-            let summary = readSummary(for: item, in: folder)
-
-            return LibraryDocument(
-                item: item,
-                summary: summary?.text,
-                summaryFileURL: summary?.fileURL
-            )
-        }
-
-        return LibrarySnapshot(
-            documents: documents
-        )
     }
 
     func migrateLegacyClusterMetadata(workspaceRootURL: URL) throws {
@@ -157,48 +84,6 @@ final class LibraryStore {
         }
     }
 
-    func simplifyImageCaptures(workspaceRootURL: URL) throws {
-        let fileManager = FileManager.default
-        let gatherFolder = workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
-        let taxonomyURL = workspaceRootURL.appendingPathComponent("topics.md")
-        let sourceURLs = try fileManager.contentsOfDirectory(
-            at: gatherFolder,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        )
-        .filter { $0.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame }
-
-        var imageTopicIDs = Set<String>()
-        var nonImageTopicIDs = Set<String>()
-        for sourceURL in sourceURLs {
-            guard var item = parseMarkdownItem(at: sourceURL) else { continue }
-            if item.type == "image" {
-                imageTopicIDs.formUnion(item.topics)
-                let needsMetadataCleanup = !item.topics.isEmpty || item.reviewedAt != nil
-                item.topics = []
-                item.reviewedAt = nil
-                try removeImageSummaries(for: sourceURL, gatherFolder: gatherFolder)
-                if needsMetadataCleanup {
-                    try markdown(for: item).write(to: sourceURL, atomically: true, encoding: .utf8)
-                }
-            } else {
-                nonImageTopicIDs.formUnion(item.topics)
-            }
-        }
-
-        guard fileManager.fileExists(atPath: taxonomyURL.path) else { return }
-        let taxonomyText = try String(contentsOf: taxonomyURL, encoding: .utf8)
-        imageTopicIDs.formUnion(Self.scopedImageTopicIDs(in: taxonomyText))
-        let taxonomyStore = TaxonomyStore(fileManager: fileManager)
-        var taxonomy = try taxonomyStore.load(from: taxonomyURL)
-        let removable = imageTopicIDs.subtracting(nonImageTopicIDs)
-        let originalCount = taxonomy.topics.count
-        taxonomy.topics.removeAll { removable.contains($0.id) }
-        if originalCount != taxonomy.topics.count || taxonomyText.contains("scope:") || taxonomyText.contains("version: 2") {
-            try taxonomyStore.save(taxonomy, to: taxonomyURL)
-        }
-    }
-
     @discardableResult
     func preparePromptTopicMigration(workspaceRootURL: URL) throws -> Bool {
         let fileManager = FileManager.default
@@ -223,27 +108,52 @@ final class LibraryStore {
         return true
     }
 
-    func delete(document: LibraryDocument) throws {
-        guard let fileURL = document.item.fileURL else {
-            throw LibraryStoreError.missingSourceFile(document.item.title)
-        }
-
-        try moveToTrashIfExists(fileURL)
-
-        if let imageURL = imageAssetURL(for: document.item) {
-            try moveToTrashIfExists(imageURL)
-        }
-
-        if let summaryFileURL = document.summaryFileURL {
-            try moveToTrashIfExists(summaryFileURL)
-
-            for level in SummaryDetailLevel.allCases {
-                let levelURL = summaryFileURL.deletingLastPathComponent()
-                    .appendingPathComponent(level.storageDirectoryName, isDirectory: true)
-                    .appendingPathComponent(summaryFileURL.lastPathComponent)
-                try moveToTrashIfExists(levelURL)
+    func deleteCapture(at sourceURL: URL, workspaceRootURL: URL) throws {
+        try deleteCapture(
+            at: sourceURL,
+            workspaceRootURL: workspaceRootURL,
+            trashItem: { url in
+                var trashedURL: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
             }
+        )
+    }
+
+    func deleteCapture(
+        at sourceURL: URL,
+        workspaceRootURL: URL,
+        trashItem: (URL) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let sourceURL = sourceURL.standardizedFileURL
+        let gatherFolder = workspaceRootURL
+            .appendingPathComponent("gather", isDirectory: true)
+            .standardizedFileURL
+        guard sourceURL.deletingLastPathComponent() == gatherFolder,
+              fileManager.fileExists(atPath: sourceURL.path) else {
+            throw LibraryStoreError.invalidSourceFile
         }
+
+        for summaryURL in Self.companionSummaryURLs(
+            for: sourceURL,
+            workspaceRootURL: workspaceRootURL
+        ) where fileManager.fileExists(atPath: summaryURL.path) {
+            try trashItem(summaryURL)
+        }
+
+        try trashItem(sourceURL)
+    }
+
+    static func companionSummaryURLs(for sourceURL: URL, workspaceRootURL: URL) -> [URL] {
+        let summariesFolder = workspaceRootURL
+            .appendingPathComponent("gather/summaries", isDirectory: true)
+        let filename = sourceURL.lastPathComponent
+        return [summariesFolder.appendingPathComponent(filename)]
+            + SummaryDetailLevel.allCases.map { level in
+                summariesFolder
+                    .appendingPathComponent(level.storageDirectoryName, isDirectory: true)
+                    .appendingPathComponent(filename)
+            }
     }
 
     @discardableResult
@@ -411,55 +321,6 @@ final class LibraryStore {
         return destinationURL
     }
 
-    @discardableResult
-    func updateImageTitle(
-        for savedItem: LibraryItem,
-        title: String,
-        date: Date = Date()
-    ) throws -> LibraryItem {
-        guard let sourceURL = savedItem.fileURL,
-              var item = parseMarkdownItem(at: sourceURL),
-              item.type == "image",
-              let currentImageURL = imageAssetURL(for: item) else {
-            throw LibraryStoreError.invalidSourceFile
-        }
-
-        let normalizedTitle = ImageNamingService.normalizedTitle(title)
-        guard !normalizedTitle.isEmpty else { throw LibraryStoreError.invalidSourceFile }
-
-        let imagesFolder = currentImageURL.deletingLastPathComponent()
-        let imageExtension = currentImageURL.pathExtension.isEmpty ? "png" : currentImageURL.pathExtension
-        let baseName = Self.processedFilenameBase(normalizedTitle, fallback: "image")
-        let destinationImageURL = uniqueAssetURL(
-            in: imagesFolder,
-            baseName: baseName,
-            pathExtension: imageExtension,
-            currentURL: currentImageURL
-        )
-        let didMove = destinationImageURL.standardizedFileURL != currentImageURL.standardizedFileURL
-        if didMove {
-            try FileManager.default.moveItem(at: currentImageURL, to: destinationImageURL)
-        }
-
-        item.title = normalizedTitle
-        item.updatedAt = Self.milliseconds(since1970: date)
-        item.reviewedAt = nil
-        item.topics = []
-        item.url = "images/\(destinationImageURL.lastPathComponent)"
-        let altText = normalizedTitle
-            .replacingOccurrences(of: "[", with: "")
-            .replacingOccurrences(of: "]", with: "")
-        item.content = "![\(altText)](\(item.url))"
-
-        do {
-            try markdown(for: item).write(to: sourceURL, atomically: true, encoding: .utf8)
-        } catch {
-            if didMove { try? FileManager.default.moveItem(at: destinationImageURL, to: currentImageURL) }
-            throw error
-        }
-        return item
-    }
-
     func markSourceReviewed(
         at sourceURL: URL,
         workspaceRootURL: URL,
@@ -572,44 +433,6 @@ final class LibraryStore {
         )
     }
 
-    private func readSummary(for item: LibraryItem, in folder: URL) -> (text: String, fileURL: URL)? {
-        guard let sourceFilename = item.fileURL?.lastPathComponent else { return nil }
-        let url = folder
-            .appendingPathComponent("summaries", isDirectory: true)
-            .appendingPathComponent(sourceFilename)
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return (text, url)
-    }
-
-    private func moveToTrashIfExists(_ url: URL) throws {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        var trashedURL: NSURL?
-        try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
-    }
-
-    func imageAssetURL(for item: LibraryItem) -> URL? {
-        guard item.type == "image", !item.url.isEmpty, let sourceFileURL = item.fileURL else { return nil }
-        let gatherFolder = sourceFileURL.deletingLastPathComponent().standardizedFileURL
-        let imagesFolder = gatherFolder.appendingPathComponent("images", isDirectory: true).standardizedFileURL
-        let candidate = gatherFolder.appendingPathComponent(item.url).standardizedFileURL
-        guard candidate.path.hasPrefix(imagesFolder.path + "/"),
-              FileManager.default.fileExists(atPath: candidate.path) else { return nil }
-        return candidate
-    }
-
-    private func removeImageSummaries(for sourceURL: URL, gatherFolder: URL) throws {
-        let summariesFolder = gatherFolder.appendingPathComponent("summaries", isDirectory: true)
-        let urls = [summariesFolder.appendingPathComponent(sourceURL.lastPathComponent)]
-            + SummaryDetailLevel.allCases.map {
-                summariesFolder
-                    .appendingPathComponent($0.storageDirectoryName, isDirectory: true)
-                    .appendingPathComponent(sourceURL.lastPathComponent)
-            }
-        for url in urls where FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-    }
-
     private func uniqueMarkdownURL(in folder: URL, for item: LibraryItem, date: Date) -> URL {
         let prefix = Self.fileDateFormatter.string(from: date)
         let sequence = nextSequenceNumber(in: folder, datePrefix: prefix)
@@ -623,37 +446,6 @@ final class LibraryStore {
             fallbackSequence += 1
         }
 
-        return candidate
-    }
-
-    private func uniqueImageURL(in folder: URL, date: Date, pathExtension: String) -> URL {
-        let prefix = Self.fileDateFormatter.string(from: date)
-        var sequence = 1
-        var candidate = folder.appendingPathComponent("\(prefix)-\(sequence)")
-            .appendingPathExtension(pathExtension)
-
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            sequence += 1
-            candidate = folder.appendingPathComponent("\(prefix)-\(sequence)")
-                .appendingPathExtension(pathExtension)
-        }
-        return candidate
-    }
-
-    private func uniqueAssetURL(
-        in folder: URL,
-        baseName: String,
-        pathExtension: String,
-        currentURL: URL
-    ) -> URL {
-        var candidate = folder.appendingPathComponent(baseName).appendingPathExtension(pathExtension)
-        var sequence = 2
-        while candidate.standardizedFileURL != currentURL.standardizedFileURL,
-              FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent("\(baseName)-\(sequence)")
-                .appendingPathExtension(pathExtension)
-            sequence += 1
-        }
         return candidate
     }
 
@@ -836,37 +628,6 @@ final class LibraryStore {
             return value
         }
         return decoded
-    }
-
-    private static func scopedImageTopicIDs(in text: String) -> Set<String> {
-        var isInTopics = false
-        var currentID: String?
-        var currentScope: String?
-        var result = Set<String>()
-
-        func finish() {
-            if currentScope == "image", let currentID { result.insert(currentID) }
-            currentID = nil
-            currentScope = nil
-        }
-
-        for rawLine in text.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !rawLine.hasPrefix(" ") {
-                if isInTopics { finish() }
-                isInTopics = line == "topics:"
-                continue
-            }
-            guard isInTopics else { continue }
-            if line.hasPrefix("- id:") {
-                finish()
-                currentID = parseScalar(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
-            } else if line.hasPrefix("scope:") {
-                currentScope = parseScalar(String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces))
-            }
-        }
-        if isInTopics { finish() }
-        return result
     }
 
     private static func markdownTitle(in content: String, fallback: String) -> String {

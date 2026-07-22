@@ -3,7 +3,6 @@ import AppKit
 
 extension Notification.Name {
     static let libraryDidChange = Notification.Name("SharedLibrary.libraryDidChange")
-    static let showImagesTab = Notification.Name("SharedLibrary.showImagesTab")
     static let processingDidStart = Notification.Name("SharedLibrary.processingDidStart")
     static let processingDidFinish = Notification.Name("SharedLibrary.processingDidFinish")
     static let processingDidFail = Notification.Name("SharedLibrary.processingDidFail")
@@ -37,7 +36,6 @@ final class AppEnvironment: ObservableObject {
             try libraryStore.migrateLegacyClusterMetadata(
                 workspaceRootURL: settings.workspaceRootURL
             )
-            try libraryStore.simplifyImageCaptures(workspaceRootURL: settings.workspaceRootURL)
             let shouldReorganizeExistingCaptures = try libraryStore.preparePromptTopicMigration(
                 workspaceRootURL: settings.workspaceRootURL
             )
@@ -55,7 +53,6 @@ final class AppEnvironment: ObservableObject {
         settings.workspaceRootURL = url
         try settings.ensureWorkspace()
         try libraryStore.migrateLegacyClusterMetadata(workspaceRootURL: settings.workspaceRootURL)
-        try libraryStore.simplifyImageCaptures(workspaceRootURL: settings.workspaceRootURL)
         let shouldReorganizeExistingCaptures = try libraryStore.preparePromptTopicMigration(
             workspaceRootURL: settings.workspaceRootURL
         )

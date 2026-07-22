@@ -103,13 +103,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showLibraryWindow()
     }
 
-    @objc func showImages() {
-        showLibraryWindow()
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .showImagesTab, object: nil)
-        }
-    }
-
     private func showLibraryWindow() {
         let window = libraryWindow ?? makeLibraryWindow()
         libraryWindow = window
@@ -237,15 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         captureTask?.cancel()
 
         let pasteboard = NSPasteboard.general
-        if let imageData = Self.clipboardPNGData(from: pasteboard) {
-            captureClipboardImage(imageData)
-            return
-        }
-
         let clipboardText = pasteboard.string(forType: .string) ?? ""
         let trimmedClipboardText = clipboardText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedClipboardText.isEmpty else {
-            setStatus(.failed("Clipboard does not contain text or an image."))
+            setStatus(.failed("Clipboard does not contain text."))
             return
         }
 
@@ -273,47 +261,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     item: item,
                     workspaceRootURL: self.env.settings.workspaceRootURL
                 )
-            } catch {
-                guard let self else { return }
-                self.setStatus(.failed(error.localizedDescription))
-                self.postNotification(title: "Capture failed", body: error.localizedDescription)
-            }
-        }
-    }
-
-    private func captureClipboardImage(_ imageData: Data) {
-        setStatus(.capturing("Clipboard image"))
-
-        let store = env.libraryStore
-        captureTask = Task { [weak self, store, imageData] in
-            do {
-                let savedItem = try await Task.detached(priority: .userInitiated) { [store, imageData] in
-                    try store.saveImagePNG(imageData)
-                }.value
-
-                guard let self else { return }
-                NotificationCenter.default.post(name: .libraryDidChange, object: nil)
-                guard let imageURL = store.imageAssetURL(for: savedItem) else {
-                    throw LibraryStoreError.invalidSourceFile
-                }
-
-                do {
-                    let title = try await ImageNamingService().suggestName(for: imageURL)
-                    let item = try await Task.detached(priority: .userInitiated) { [store] in
-                        try store.updateImageTitle(for: savedItem, title: title)
-                    }.value
-                    self.setStatus(.saved(item.title))
-                    self.postNotification(title: "Image saved", body: item.title)
-                    NotificationCenter.default.post(name: .libraryDidChange, object: nil)
-                    self.env.gitSyncCoordinator.requestAutomaticSync(reason: "image captured")
-                } catch {
-                    self.setStatus(.saved(savedItem.title))
-                    self.postNotification(
-                        title: "Image saved",
-                        body: "Saved without an informative name: \(error.localizedDescription)"
-                    )
-                    self.env.gitSyncCoordinator.requestAutomaticSync(reason: "image captured")
-                }
             } catch {
                 guard let self else { return }
                 self.setStatus(.failed(error.localizedDescription))
@@ -485,19 +432,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         URL(string: url)?.host(percentEncoded: false) ?? url
     }
 
-    private static func clipboardPNGData(from pasteboard: NSPasteboard) -> Data? {
-        if let pngData = pasteboard.data(forType: .png),
-           NSBitmapImageRep(data: pngData) != nil {
-            return pngData
-        }
-
-        guard let image = NSImage(pasteboard: pasteboard),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        return bitmap.representation(using: .png, properties: [:])
-    }
 }
 
 private enum LibraryStatus {

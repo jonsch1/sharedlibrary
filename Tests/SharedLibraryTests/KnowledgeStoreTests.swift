@@ -71,10 +71,10 @@ final class KnowledgeStoreTests: XCTestCase {
         XCTAssertTrue(voiceRecords.first { $0.typeID == "source" }?.isReviewed == true)
     }
 
-    func testSnapshotExcludesImageRecordsFromTextLibrary() throws {
+    func testSnapshotExcludesUnsupportedCaptureTypes() throws {
         let root = try makeWorkspace()
         try """
-        version: 2
+        version: 1
 
         areas:
           - id: "learning"
@@ -82,28 +82,27 @@ final class KnowledgeStoreTests: XCTestCase {
             description: ""
 
         topics:
-          - id: "image-diagrams"
+          - id: "diagrams"
             area: "learning"
             title: "Diagrams"
             description: "Visual diagrams."
-            scope: "image"
         """.write(to: root.appendingPathComponent("topics.md"), atomically: true, encoding: .utf8)
         try """
         ---
-        id: "image-1"
-        type: "image"
-        title: "System diagram"
+        id: "unsupported-1"
+        type: "binary"
+        title: "Unsupported record"
         created_at: "2026-07-15T10:00:00.000Z"
         updated_at: "2026-07-15T10:00:00.000Z"
         tags: []
         topics:
-          - image-diagrams
-        source_url: "images/260715-1.png"
+          - diagrams
+        source_url: "asset.bin"
         ---
 
-        ![System diagram](images/260715-1.png)
+        Unsupported content.
         """.write(
-            to: root.appendingPathComponent("gather/system-diagram.md"),
+            to: root.appendingPathComponent("gather/unsupported.md"),
             atomically: true,
             encoding: .utf8
         )

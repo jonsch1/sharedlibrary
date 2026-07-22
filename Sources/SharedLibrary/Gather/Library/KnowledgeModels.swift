@@ -202,9 +202,11 @@ final class KnowledgeStore {
     ) -> KnowledgeRecord? {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let metadata = MarkdownMetadata.parse(text)
-        if typeID == "source",
-           metadata.firstValue(for: "type")?.localizedCaseInsensitiveCompare("image") == .orderedSame {
-            return nil
+        if typeID == "source", let captureType = metadata.firstValue(for: "type") {
+            let supportedTypes = ["link", "text"]
+            guard supportedTypes.contains(where: {
+                $0.localizedCaseInsensitiveCompare(captureType) == .orderedSame
+            }) else { return nil }
         }
         let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
         let topics = metadata.values(for: "topics").isEmpty ? inheritedTopics : metadata.values(for: "topics")

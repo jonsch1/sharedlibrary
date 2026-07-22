@@ -4,9 +4,8 @@ Shared Library is a native macOS menu bar app for capturing, processing, browsin
 
 The default workspace is `~/Documents/Shared Library`. The workspace itself is the Git repository; there is no nested or separate shared folder.
 
-- `gather/` stores text capture records, image capture records, image assets, and companion summaries.
-- `topics.md` stores the text-capture taxonomy.
-- `output/` stores syntheses and other derived work.
+- `gather/` stores capture records and companion summaries.
+- `topics.md` stores the capture taxonomy.
 - `AGENTS.md` contains workspace instructions for agents.
 
 ## Build, test, and install
@@ -31,11 +30,9 @@ Install or update the app in `/Applications`:
 
 ## Capture library
 
-Use `Command-G` to capture the clipboard as a URL, text, or image. New text captures are extracted and processed in the background: Codex generates brief, concise, detailed, and comprehensive summaries and assigns one existing topic or creates a new topic.
+Use `Command-G` to capture a clipboard URL or text. New captures are extracted and processed in the background: Codex generates brief, concise, detailed, and comprehensive summaries and assigns one existing topic or creates a new topic.
 
-Clipboard images are stored separately. Codex assigns one informative name; images do not receive summaries or topics. The **Recent / Topics / Images** selector switches among the text library's newest-first and topic views and the image library's masonry gallery.
-
-Text captures open at the shortest summary by default. The footer slider moves through all four editable summary variants and the original source. **Reorganize** regenerates every variant and re-evaluates the topic using the current processing prompt. **Output** exposes derived files without showing internal storage. The Agent button launches the configured workspace command; by default it opens the workspace in ChatGPT.
+Captures open at the shortest summary by default. The footer slider moves through all four editable summary variants and the original source. **Reorganize** regenerates every variant and re-evaluates the topic using the current processing prompt. The Agent button launches the configured workspace command; by default it opens the workspace in ChatGPT.
 
 ## GitHub synchronization
 
@@ -56,14 +53,14 @@ Use **Initialize Repository** to run Git initialization in the normal workspace.
 4. Push the current branch and set its upstream.
 5. Refresh the library after synchronization.
 
-Automatic synchronization is debounced and requested only after meaningful operations, including completing capture processing, editing a document, creating or deleting an item, and saving workspace agent instructions. It is not triggered for every low-level filesystem write. Rebase conflicts and authentication failures are surfaced in the sync status and must be resolved before retrying.
+Automatic synchronization is debounced and requested only after meaningful operations, including completing capture processing, editing or deleting a capture, reorganizing content, and saving workspace agent instructions. It is not triggered for every low-level filesystem write. Rebase conflicts and authentication failures are surfaced in the sync status and must be resolved before retrying.
 
 ## Hotkeys
 
 | Hotkey | Action |
 | --- | --- |
 | `Option-Shift-Space` | Toggle Shared Library |
-| `Command-G` | Capture clipboard URL, text, or image into `gather/` |
+| `Command-G` | Capture clipboard URL or text into `gather/` |
 
 ## Architecture
 
@@ -71,7 +68,6 @@ Automatic synchronization is debounced and requested only after meaningful opera
 | --- | --- |
 | App shell | `Sources/SharedLibrary/App/` |
 | Capture extraction/library | `Sources/SharedLibrary/Gather/` |
-| Images | `Sources/SharedLibrary/Images/` |
 | Git/GitHub sync | `Sources/SharedLibrary/Sync/` |
 | Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
 | Tests | `Tests/SharedLibraryTests/` |

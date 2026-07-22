@@ -105,25 +105,7 @@ struct CaptureSummaries: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-struct LibraryDocument: Identifiable, Hashable {
-    var item: LibraryItem
-    var summary: String?
-    var summaryFileURL: URL?
-
-    var id: LibraryItem.ID { item.id }
-
-    var hasSummary: Bool {
-        guard let summary else { return false }
-        return !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-}
-
-struct LibrarySnapshot {
-    var documents: [LibraryDocument]
-}
-
 enum LibraryStoreError: LocalizedError {
-    case missingSourceFile(String)
     case invalidSourceFile
     case sourceOutsideWorkspace
     case emptySummary
@@ -131,8 +113,6 @@ enum LibraryStoreError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingSourceFile(let title):
-            return "The source file for \"\(title)\" is missing."
         case .invalidSourceFile:
             return "This capture is not a valid Shared Library source."
         case .sourceOutsideWorkspace:

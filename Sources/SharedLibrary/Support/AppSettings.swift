@@ -5,7 +5,6 @@ import Combine
 ///
 /// The workspace root is the Git repository and contains:
 /// - `gather/` is the source library and multi-level summaries.
-/// - `output/` contains derived work such as syntheses.
 /// - `topics.md` contains the topic taxonomy.
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -27,8 +26,7 @@ final class AppSettings: ObservableObject {
     init() {
         if let storedPrompt = defaults.object(forKey: Keys.processingPrompt) as? String {
             let obsoleteTitleRequirements = [
-                "- title: a specific, concise, human-readable title for the source.\n",
-                "- title: a specific, concise, human-readable title for the source. When the source is an attached image, title what is visibly shown rather than using its filename.\n"
+                "- title: a specific, concise, human-readable title for the source.\n"
             ]
             let simplifiedPrompt = obsoleteTitleRequirements.reduce(storedPrompt) {
                 $0.replacingOccurrences(of: $1, with: "")
@@ -69,10 +67,6 @@ final class AppSettings: ObservableObject {
         workspaceRootURL.appendingPathComponent("gather", isDirectory: true)
     }
 
-    var outputFolderURL: URL {
-        workspaceRootURL.appendingPathComponent("output", isDirectory: true)
-    }
-
     var topicsMetadataURL: URL {
         workspaceRootURL.appendingPathComponent("topics").appendingPathExtension("md")
     }
@@ -92,7 +86,9 @@ final class AppSettings: ObservableObject {
         try ensureWorkspaceAgentInstructions()
         try ensureKnowledgeMetadata()
         try ensureGatherFolder()
-        try ensureOutputFolder()
+        try removeEmptyDeprecatedFolder(
+            workspaceRootURL.appendingPathComponent("output", isDirectory: true)
+        )
         return workspaceRootURL
     }
 
@@ -108,26 +104,13 @@ final class AppSettings: ObservableObject {
         try shared.ensureGatherFolder()
     }
 
-    @discardableResult
-    func ensureOutputFolder() throws -> URL {
-        try FileManager.default.createDirectory(at: outputFolderURL, withIntermediateDirectories: true)
-        try migrateLegacyOutputFolder(
-            gatherFolderURL.appendingPathComponent("syntheses", isDirectory: true)
-        )
-        try migrateLegacyOutputFolder(
-            outputFolderURL.appendingPathComponent("syntheses", isDirectory: true)
-        )
-        return outputFolderURL
-    }
-
     private func ensureGatherScaffold(in folder: URL) throws {
-        try FileManager.default.createDirectory(
-            at: folder.appendingPathComponent("images", isDirectory: true),
-            withIntermediateDirectories: true
-        )
         try FileManager.default.createDirectory(
             at: folder.appendingPathComponent("summaries", isDirectory: true),
             withIntermediateDirectories: true
+        )
+        try removeEmptyDeprecatedFolder(
+            folder.appendingPathComponent("images", isDirectory: true)
         )
         try removeDeprecatedGatherArtifacts(in: folder)
     }
@@ -136,30 +119,11 @@ final class AppSettings: ObservableObject {
         try removeItemIfExists(folder.appendingPathComponent("TAGS").appendingPathExtension("md"))
     }
 
-    private func migrateLegacyOutputFolder(_ legacyFolder: URL) throws {
+    private func removeEmptyDeprecatedFolder(_ folder: URL) throws {
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: legacyFolder.path) else { return }
-
-        let items = try fileManager.contentsOfDirectory(
-            at: legacyFolder,
-            includingPropertiesForKeys: nil,
-            options: []
-        )
-        for item in items {
-            var destination = outputFolderURL.appendingPathComponent(item.lastPathComponent)
-            var sequence = 2
-            while fileManager.fileExists(atPath: destination.path) {
-                let base = item.deletingPathExtension().lastPathComponent
-                let ext = item.pathExtension
-                destination = outputFolderURL.appendingPathComponent("\(base)-\(sequence)")
-                if !ext.isEmpty {
-                    destination.appendPathExtension(ext)
-                }
-                sequence += 1
-            }
-            try fileManager.moveItem(at: item, to: destination)
-        }
-        try fileManager.removeItem(at: legacyFolder)
+        guard fileManager.fileExists(atPath: folder.path),
+              try fileManager.contentsOfDirectory(atPath: folder.path).isEmpty else { return }
+        try fileManager.removeItem(at: folder)
     }
 
     private func removeItemIfExists(_ url: URL) throws {
@@ -173,7 +137,10 @@ final class AppSettings: ObservableObject {
             try Self.workspaceAgentInstructions.write(to: url, atomically: true, encoding: .utf8)
             return
         }
-
+        let existing = try String(contentsOf: url, encoding: .utf8)
+        if existing == Self.legacyWorkspaceAgentInstructions {
+            try Self.workspaceAgentInstructions.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     private func ensureKnowledgeMetadata() throws {
@@ -217,6 +184,22 @@ final class AppSettings: ObservableObject {
     """
 
     private static let workspaceAgentInstructions = """
+    # Shared Library
+
+    `gather/` contains captured sources and their companion summaries.
+    `topics.md` is the topic registry for captures.
+    The workspace is the library; do not create additional top-level content areas.
+
+    ## Captures
+
+    Root `gather/*.md` files are captures. Shared Library automatically processes each new capture: it generates four companion summaries, assigns one primary topic, and may rename the source record. A source without a topic is still processing or requires a retry and remains visible in Recent.
+    Source frontmatter uses `topics` as a list containing the assigned topic id from `topics.md`.
+    Do not change `id`, `created_at`, or `source_url` unless explicitly asked.
+
+    The concise compatibility summary is `gather/summaries/<source-filename>.md`. The four model-generated variants are `gather/summaries/{brief,concise,detailed,comprehensive}/<source-filename>.md`.
+    """
+
+    private static let legacyWorkspaceAgentInstructions = """
     # Shared Library
 
     `gather/` contains text capture records and image capture records. Image assets live in `gather/images/`.

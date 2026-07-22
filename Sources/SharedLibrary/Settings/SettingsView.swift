@@ -62,7 +62,7 @@ private struct GeneralSettings: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Captured sources, topics, output, and AGENTS.md all live inside this folder.")
+                Text("Captured sources, summaries, topics, and AGENTS.md all live inside this folder.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
