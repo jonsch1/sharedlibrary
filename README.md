@@ -46,7 +46,7 @@ The Sync tab in Settings reports:
 - whether the workspace is a Git repository;
 - the current branch and `origin` remote.
 
-Use **Initialize Repository** to run Git initialization in the normal workspace. Connect an existing GitHub repository by entering `owner/repository`, an HTTPS URL, or an SSH remote. Shared Library uses the existing GitHub CLI login and configures Git's credential helper through `gh auth setup-git`.
+Use **Initialize Repository** to run Git initialization in the normal workspace. If no remote is connected, **Create Repository** can create a private or public GitHub repository, add it as `origin`, and push the current branch. You can instead connect an existing repository by entering `owner/repository`, an HTTPS URL, or an SSH remote. Shared Library uses the existing GitHub CLI login and configures Git's credential helper through `gh auth setup-git`.
 
 **Sync Now** performs one serialized synchronization:
 

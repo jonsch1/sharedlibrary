@@ -13,7 +13,124 @@ final class GitSyncCoordinatorTests: XCTestCase {
                 "git@github.com:octocat/library.git"
             )
             XCTAssertNil(GitSyncCoordinator.normalizedRemote("not a repository"))
+            XCTAssertEqual(GitSyncCoordinator.normalizedRepositoryName("library"), "library")
+            XCTAssertEqual(GitSyncCoordinator.normalizedRepositoryName("octocat/library"), "octocat/library")
+            XCTAssertNil(GitSyncCoordinator.normalizedRepositoryName("octocat/shared library"))
         }
+    }
+
+    func testCreateRemoteRepositoryCommitsCreatesOriginAndPushes() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared-library-create-remote-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let createArguments = [
+            "gh", "repo", "create", "octocat/shared-library",
+            "--public",
+            "--source", workspace.path,
+            "--remote", "origin",
+            "--push"
+        ]
+        let runner = ScriptedCommandRunner(responses: [
+            key("git", "--version"): [
+                .success("git version 2.50"),
+                .success("git version 2.50"),
+                .success("git version 2.50")
+            ],
+            key("gh", "--version"): [.success("gh version 2.76"), .success("gh version 2.76")],
+            key("gh", "auth", "status", "--hostname", "github.com"): [
+                .success("authenticated"),
+                .success("authenticated")
+            ],
+            key("git", "rev-parse", "--is-inside-work-tree"): [
+                .success("true"),
+                .success("true"),
+                .success("true")
+            ],
+            key("git", "remote", "get-url", "origin"): [
+                .failure(),
+                .success("https://github.com/octocat/shared-library.git")
+            ],
+            key("git", "branch", "--show-current"): [.success("main"), .success("main")],
+            key("git", "add", "--all"): [.success()],
+            key("git", "diff", "--cached", "--quiet"): [.failure(exitCode: 1)],
+            key("git", "commit", "-m", "Shared Library sync: initial GitHub repository"): [.success()],
+            key("git", "rev-parse", "--verify", "HEAD"): [.success("abc123")],
+            key("gh", "auth", "setup-git", "--hostname", "github.com"): [.success()],
+            createArguments.joined(separator: "\u{1F}"): [.success("https://github.com/octocat/shared-library")]
+        ])
+        let engine = GitSyncEngine(runner: runner)
+
+        let status = try await engine.createRemoteRepository(
+            name: "octocat/shared-library",
+            visibility: .publicRepository,
+            workspaceURL: workspace
+        )
+
+        XCTAssertEqual(status.remoteURL, "https://github.com/octocat/shared-library.git")
+        let calls = await runner.recordedArguments()
+        XCTAssertLessThan(
+            try XCTUnwrap(calls.firstIndex(of: ["git", "commit", "-m", "Shared Library sync: initial GitHub repository"])),
+            try XCTUnwrap(calls.firstIndex(of: createArguments))
+        )
+    }
+
+    func testCreateRemoteRepositoryMakesEmptyInitialCommitWhenNeeded() async throws {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shared-library-create-empty-remote-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let createArguments = [
+            "gh", "repo", "create", "shared-library",
+            "--private",
+            "--source", workspace.path,
+            "--remote", "origin",
+            "--push"
+        ]
+        let runner = ScriptedCommandRunner(responses: [
+            key("git", "--version"): [
+                .success("git version 2.50"),
+                .success("git version 2.50"),
+                .success("git version 2.50")
+            ],
+            key("gh", "--version"): [.success("gh version 2.76"), .success("gh version 2.76")],
+            key("gh", "auth", "status", "--hostname", "github.com"): [
+                .success("authenticated"),
+                .success("authenticated")
+            ],
+            key("git", "rev-parse", "--is-inside-work-tree"): [
+                .success("true"),
+                .success("true"),
+                .success("true")
+            ],
+            key("git", "remote", "get-url", "origin"): [
+                .failure(),
+                .success("https://github.com/octocat/shared-library.git")
+            ],
+            key("git", "branch", "--show-current"): [.success("main"), .success("main")],
+            key("git", "add", "--all"): [.success()],
+            key("git", "diff", "--cached", "--quiet"): [.success()],
+            key("git", "rev-parse", "--verify", "HEAD"): [.failure()],
+            key("git", "commit", "--allow-empty", "-m", "Shared Library sync: initial GitHub repository"): [.success()],
+            key("gh", "auth", "setup-git", "--hostname", "github.com"): [.success()],
+            createArguments.joined(separator: "\u{1F}"): [.success("https://github.com/octocat/shared-library")]
+        ])
+        let engine = GitSyncEngine(runner: runner)
+
+        let status = try await engine.createRemoteRepository(
+            name: "shared-library",
+            visibility: .privateRepository,
+            workspaceURL: workspace
+        )
+
+        XCTAssertEqual(status.remoteURL, "https://github.com/octocat/shared-library.git")
+        let calls = await runner.recordedArguments()
+        XCTAssertLessThan(
+            try XCTUnwrap(calls.firstIndex(of: ["git", "commit", "--allow-empty", "-m", "Shared Library sync: initial GitHub repository"])),
+            try XCTUnwrap(calls.firstIndex(of: createArguments))
+        )
     }
 
     func testSynchronizationCommitsFetchesRebasesAndPushes() async throws {

@@ -111,6 +111,15 @@ struct GitSynchronizationResult: Equatable, Sendable {
     var summary: String
 }
 
+enum GitHubRepositoryVisibility: String, CaseIterable, Identifiable, Sendable {
+    case privateRepository = "private"
+    case publicRepository = "public"
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+    var commandFlag: String { "--\(rawValue)" }
+}
+
 struct GitCommandFailure: LocalizedError, Equatable, Sendable {
     var message: String
     var errorDescription: String? { message }
@@ -222,6 +231,62 @@ actor GitSyncEngine {
         return status
     }
 
+    func createRemoteRepository(
+        name: String,
+        visibility: GitHubRepositoryVisibility,
+        workspaceURL: URL
+    ) async throws -> GitRepositoryStatus {
+        guard let repositoryName = Self.normalizedRepositoryName(name) else {
+            throw GitCommandFailure(message: "Enter a repository name or owner/repository using letters, numbers, periods, hyphens, or underscores.")
+        }
+
+        let status = try await initializeRepository(workspaceURL: workspaceURL)
+        guard status.ghAvailable else {
+            throw GitCommandFailure(message: "GitHub CLI is not installed or is not available on PATH.")
+        }
+        guard status.ghAuthenticated else {
+            throw GitCommandFailure(message: "GitHub CLI is not authenticated. Run `gh auth login` and try again.")
+        }
+        guard !status.hasRemote else {
+            throw GitCommandFailure(message: "This workspace already has an origin remote. Disconnect it before creating a different repository.")
+        }
+
+        _ = try await commitWorkspaceChanges(
+            workspaceURL: workspaceURL,
+            reason: "initial GitHub repository"
+        )
+        let head = await command("git", ["rev-parse", "--verify", "HEAD"], in: workspaceURL)
+        if !head.succeeded {
+            try requireSuccess(
+                await command(
+                    "git",
+                    ["commit", "--allow-empty", "-m", "Shared Library sync: initial GitHub repository"],
+                    in: workspaceURL
+                ),
+                operation: "create an initial commit"
+            )
+        }
+        try requireSuccess(
+            await command("gh", ["auth", "setup-git", "--hostname", "github.com"], in: workspaceURL),
+            operation: "configure Git to use GitHub CLI authentication"
+        )
+        try requireSuccess(
+            await command(
+                "gh",
+                [
+                    "repo", "create", repositoryName,
+                    visibility.commandFlag,
+                    "--source", workspaceURL.path,
+                    "--remote", "origin",
+                    "--push"
+                ],
+                in: workspaceURL
+            ),
+            operation: "create the GitHub repository"
+        )
+        return await inspect(workspaceURL: workspaceURL)
+    }
+
     func synchronize(workspaceURL: URL, reason: String) async throws -> GitSynchronizationResult {
         let initialStatus = await inspect(workspaceURL: workspaceURL)
         guard initialStatus.gitAvailable else {
@@ -236,30 +301,10 @@ actor GitSyncEngine {
             throw GitCommandFailure(message: "A Git rebase is already in progress. Resolve or abort it before syncing again.")
         }
 
-        try requireSuccess(
-            await command("git", ["add", "--all"], in: workspaceURL),
-            operation: "stage workspace changes"
+        let committedChanges = try await commitWorkspaceChanges(
+            workspaceURL: workspaceURL,
+            reason: reason
         )
-        let stagedChanges = await command("git", ["diff", "--cached", "--quiet"], in: workspaceURL)
-        let committedChanges: Bool
-        switch stagedChanges.exitCode {
-        case 0:
-            committedChanges = false
-        case 1:
-            let commitReason = reason
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "\n", with: " ")
-            let message = commitReason.isEmpty
-                ? "Shared Library sync"
-                : "Shared Library sync: \(commitReason)"
-            try requireSuccess(
-                await command("git", ["commit", "-m", message], in: workspaceURL),
-                operation: "commit workspace changes"
-            )
-            committedChanges = true
-        default:
-            throw failure(for: stagedChanges, operation: "check staged workspace changes")
-        }
 
         guard let remote = initialStatus.remoteURL, !remote.isEmpty else {
             return GitSynchronizationResult(
@@ -317,6 +362,45 @@ actor GitSyncEngine {
             arguments: [tool] + arguments,
             workingDirectory: workspaceURL
         )
+    }
+
+    private func commitWorkspaceChanges(workspaceURL: URL, reason: String) async throws -> Bool {
+        try requireSuccess(
+            await command("git", ["add", "--all"], in: workspaceURL),
+            operation: "stage workspace changes"
+        )
+        let stagedChanges = await command("git", ["diff", "--cached", "--quiet"], in: workspaceURL)
+        switch stagedChanges.exitCode {
+        case 0:
+            return false
+        case 1:
+            let commitReason = reason
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+            let message = commitReason.isEmpty
+                ? "Shared Library sync"
+                : "Shared Library sync: \(commitReason)"
+            try requireSuccess(
+                await command("git", ["commit", "-m", message], in: workspaceURL),
+                operation: "commit workspace changes"
+            )
+            return true
+        default:
+            throw failure(for: stagedChanges, operation: "check staged workspace changes")
+        }
+    }
+
+    fileprivate static func normalizedRepositoryName(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(where: { $0.isWhitespace }) else { return nil }
+        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count), parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard parts.allSatisfy({ part in
+            ![".", ".."].contains(String(part))
+                && part.unicodeScalars.allSatisfy(allowed.contains)
+        }) else { return nil }
+        return parts.joined(separator: "/")
     }
 
     private func requireSuccess(_ result: CommandResult, operation: String) throws {
@@ -460,6 +544,38 @@ final class GitSyncCoordinator: ObservableObject {
         }
     }
 
+    func createRemoteRepository(
+        name: String,
+        visibility: GitHubRepositoryVisibility
+    ) {
+        guard operationTask == nil else { return }
+        guard Self.normalizedRepositoryName(name) != nil else {
+            state = .failed("Enter a repository name or owner/repository using letters, numbers, periods, hyphens, or underscores.")
+            return
+        }
+
+        state = .syncing("Creating the GitHub repository...")
+        let workspaceURL = workspaceURL
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let status = try await engine.createRemoteRepository(
+                    name: name,
+                    visibility: visibility,
+                    workspaceURL: workspaceURL
+                )
+                guard !Task.isCancelled else { return }
+                repositoryStatus = status
+                state = .succeeded("Created the GitHub repository and pushed the current branch.")
+            } catch {
+                guard !Task.isCancelled else { return }
+                repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
+                state = .failed(error.localizedDescription)
+            }
+            finishOperation()
+        }
+    }
+
     func syncNow() {
         automaticSyncTask?.cancel()
         automaticSyncTask = nil
@@ -489,6 +605,26 @@ final class GitSyncCoordinator: ObservableObject {
         guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }) else { return nil }
         let repository = parts[1].hasSuffix(".git") ? String(parts[1]) : "\(parts[1]).git"
         return "https://github.com/\(parts[0])/\(repository)"
+    }
+
+    static func normalizedRepositoryName(_ value: String) -> String? {
+        GitSyncEngine.normalizedRepositoryName(value)
+    }
+
+    var suggestedRepositoryName: String {
+        let rawName = workspaceURL.lastPathComponent.lowercased()
+        var result = ""
+        var lastWasSeparator = false
+        for scalar in rawName.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) || scalar == "." || scalar == "_" {
+                result.unicodeScalars.append(scalar)
+                lastWasSeparator = false
+            } else if !lastWasSeparator, !result.isEmpty {
+                result.append("-")
+                lastWasSeparator = true
+            }
+        }
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
     private func startSync(reason: String) {

@@ -314,6 +314,8 @@ private struct AgentSettings: View {
 private struct SyncSettings: View {
     @ObservedObject var coordinator: GitSyncCoordinator
     @State private var remote = ""
+    @State private var newRepositoryName = ""
+    @State private var newRepositoryVisibility = GitHubRepositoryVisibility.privateRepository
 
     var body: some View {
         Form {
@@ -364,6 +366,40 @@ private struct SyncSettings: View {
                     .foregroundStyle(.tertiary)
             }
 
+            if !coordinator.repositoryStatus.hasRemote {
+                Section("Create GitHub repository") {
+                    TextField("repository or owner/repository", text: $newRepositoryName)
+                        .font(.system(.body, design: .monospaced))
+
+                    Picker("Visibility", selection: $newRepositoryVisibility) {
+                        ForEach(GitHubRepositoryVisibility.allCases) { visibility in
+                            Text(visibility.title).tag(visibility)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Creates the repository with GitHub CLI, adds it as origin, and pushes the current branch. New repositories are private by default.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Button("Create Repository") {
+                            coordinator.createRemoteRepository(
+                                name: newRepositoryName,
+                                visibility: newRepositoryVisibility
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            newRepositoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || coordinator.state.isBusy
+                                || !coordinator.repositoryStatus.ghAvailable
+                                || !coordinator.repositoryStatus.ghAuthenticated
+                        )
+                    }
+                }
+            }
+
             Section("Sync status") {
                 Label(coordinator.state.message, systemImage: syncStatusSymbol)
                     .foregroundStyle(syncStatusColor)
@@ -377,6 +413,9 @@ private struct SyncSettings: View {
         .onAppear {
             if remote.isEmpty {
                 remote = coordinator.repositoryStatus.remoteURL ?? ""
+            }
+            if newRepositoryName.isEmpty {
+                newRepositoryName = coordinator.suggestedRepositoryName
             }
             coordinator.refreshStatus()
         }
