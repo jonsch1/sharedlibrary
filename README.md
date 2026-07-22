@@ -59,9 +59,15 @@ Background synchronization is debounced and requested after meaningful operation
 
 The Sharing tab configures the separate shared folder and its GitHub repository. It provides the same prerequisite checks, repository initialization, remote connection or creation, and passive background-sync status as the private workspace.
 
-Use the people button in a capture's footer, or its context menu, to Share or Unshare it. Sharing copies the original source and every existing companion summary to the matching paths in the shared repository. Unsharing deletes only those mirrored files. The private library remains authoritative: edits and processing refresh an existing shared copy, and deleting a private capture also removes its shared copy.
+Use the people button in a capture's footer, or its context menu, to share it and optionally tag organization members. Sharing copies the original source and every existing companion summary to the matching paths in the shared repository. The canonical content is stored only once. Lightweight JSON references under each person's `shared/` and `shared_with/` folders record who shared the capture and who it was tagged for. Editing tags reconciles those references, and Unshare removes the mirrored content and all related references. The private library remains authoritative: edits and processing refresh an existing shared copy, and deleting a private capture also removes its shared copy.
 
 Unsharing removes the files from the shared repository's current tree. Copies already pushed to Git remain available in repository history unless that history is explicitly rewritten.
+
+## People
+
+The People mode browses sharing activity by GitHub organization member. A person's `shared/` section contains captures they shared; `shared_with/` contains captures tagged for them. These tags organize content but do not create folder-level access control: every repository collaborator can still read the whole shared repository.
+
+Settings → People provides the only GitHub roster refresh action. **Sync People from GitHub** reads the configured organization through the existing authenticated GitHub CLI session, creates `people/<login>/`, and triggers normal shared-repository synchronization afterward. The roster is never fetched automatically. Each `profile.json` stores only `githubID` and `displayName`; the login is represented by the directory name. Login changes are detected through the stable ID so the directory and its sharing history move together. Avatars and email addresses are not imported.
 
 ## Hotkeys
 
@@ -78,5 +84,6 @@ Unsharing removes the files from the shared repository's current tree. Copies al
 | Capture extraction/library | `Sources/SharedLibrary/` |
 | Git/GitHub sync | `Sources/SharedLibrary/Sync/` |
 | Sharing mirror | `Sources/SharedLibrary/Sharing/` |
+| GitHub people | `Sources/SharedLibrary/People/` |
 | Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
 | Tests | `Tests/SharedLibraryTests/` |

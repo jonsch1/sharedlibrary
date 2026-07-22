@@ -176,6 +176,117 @@ final class SharingStoreTests: XCTestCase {
         ))
     }
 
+    func testPeopleTagsCreateAndReconcileSharedReferences() throws {
+        let (privateRoot, sharedRoot) = try makeWorkspaces()
+        defer { cleanUp(privateRoot, sharedRoot) }
+        let sourceURL = try writeCapture(in: privateRoot)
+        let sharer = SharedPerson(githubID: "sharer-id", login: "sharer", displayName: "Sharer")
+        let firstRecipient = SharedPerson(githubID: "first-id", login: "first", displayName: "First")
+        let secondRecipient = SharedPerson(githubID: "second-id", login: "second", displayName: "Second")
+        try PeopleDirectoryStore().synchronize(
+            people: [sharer, firstRecipient, secondRecipient],
+            sharedWorkspaceURL: sharedRoot
+        )
+        let store = SharingStore()
+        try store.shareCapture(
+            at: sourceURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot
+        )
+
+        let original = try store.tagSharedCapture(
+            at: sourceURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot,
+            sharedBy: sharer,
+            sharedWith: [firstRecipient, secondRecipient]
+        )
+
+        XCTAssertEqual(
+            try store.references(for: sharer, direction: .shared, sharedWorkspaceURL: sharedRoot),
+            [original]
+        )
+        XCTAssertEqual(
+            try store.references(for: firstRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
+            [original]
+        )
+        XCTAssertEqual(
+            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
+            [original]
+        )
+
+        let updated = try store.tagSharedCapture(
+            at: sourceURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot,
+            sharedBy: sharer,
+            sharedWith: [secondRecipient]
+        )
+
+        XCTAssertEqual(updated.id, original.id)
+        XCTAssertTrue(
+            try store.references(for: firstRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot).isEmpty
+        )
+        XCTAssertEqual(
+            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
+            [updated]
+        )
+
+        try store.unshareCapture(
+            at: sourceURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot
+        )
+        XCTAssertTrue(try store.references(for: sharer, direction: .shared, sharedWorkspaceURL: sharedRoot).isEmpty)
+        XCTAssertTrue(
+            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot).isEmpty
+        )
+    }
+
+    func testRetargetingSharedCapturePreservesPeopleReferencesAcrossRename() throws {
+        let (privateRoot, sharedRoot) = try makeWorkspaces()
+        defer { cleanUp(privateRoot, sharedRoot) }
+        let oldURL = try writeCapture(in: privateRoot)
+        let sharer = SharedPerson(githubID: "sharer-id", login: "sharer", displayName: "Sharer")
+        let recipient = SharedPerson(githubID: "recipient-id", login: "recipient", displayName: "Recipient")
+        try PeopleDirectoryStore().synchronize(
+            people: [sharer, recipient],
+            sharedWorkspaceURL: sharedRoot
+        )
+        let store = SharingStore()
+        try store.shareCapture(at: oldURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
+        let originalReference = try store.tagSharedCapture(
+            at: oldURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot,
+            sharedBy: sharer,
+            sharedWith: [recipient]
+        )
+        let newURL = privateRoot.appendingPathComponent("library/renamed.md")
+        try "Renamed".write(to: newURL, atomically: true, encoding: .utf8)
+        try store.shareCapture(at: newURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
+
+        try store.retargetSharingReference(
+            from: oldURL,
+            to: newURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot
+        )
+        try store.unshareCapture(at: oldURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
+
+        let newReference = try XCTUnwrap(store.sharingReference(
+            for: newURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot
+        ))
+        XCTAssertEqual(newReference.id, originalReference.id)
+        XCTAssertEqual(newReference.contentPath, "library/renamed.md")
+        XCTAssertEqual(
+            try store.references(for: recipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
+            [newReference]
+        )
+    }
+
     private func makeWorkspaces() throws -> (URL, URL) {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("sharing-store-\(UUID().uuidString)", isDirectory: true)

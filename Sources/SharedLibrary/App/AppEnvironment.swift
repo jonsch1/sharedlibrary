@@ -19,11 +19,16 @@ final class AppEnvironment: ObservableObject {
     let gitSyncCoordinator: GitSyncCoordinator
     let sharingStore: SharingStore
     let sharedGitSyncCoordinator: GitSyncCoordinator
+    let peopleStore: GitHubPeopleStore
 
     init() {
         settings = AppSettings.shared
         gitSyncCoordinator = GitSyncCoordinator(workspaceURL: settings.workspaceRootURL)
         sharedGitSyncCoordinator = GitSyncCoordinator(workspaceURL: settings.sharedWorkspaceRootURL)
+        peopleStore = GitHubPeopleStore(
+            sharedWorkspaceURL: settings.sharedWorkspaceRootURL,
+            settings: settings
+        )
         let sharingStore = SharingStore()
         self.sharingStore = sharingStore
         let libraryStore = LibraryStore()
@@ -86,6 +91,7 @@ final class AppEnvironment: ObservableObject {
         )
         settings.sharedWorkspaceRootURL = url
         sharedGitSyncCoordinator.setWorkspaceURL(url)
+        peopleStore.setSharedWorkspaceURL(url)
         objectWillChange.send()
     }
 }

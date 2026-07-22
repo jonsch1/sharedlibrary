@@ -480,12 +480,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sharedWorkspaceURL: sharedWorkspaceURL
             )
             if oldURL.standardizedFileURL != newURL.standardizedFileURL {
+                try env.sharingStore.retargetSharingReference(
+                    from: oldURL,
+                    to: newURL,
+                    privateWorkspaceURL: privateWorkspaceURL,
+                    sharedWorkspaceURL: sharedWorkspaceURL
+                )
                 try env.sharingStore.unshareCapture(
                     at: oldURL,
                     privateWorkspaceURL: privateWorkspaceURL,
                     sharedWorkspaceURL: sharedWorkspaceURL
                 )
             }
+            env.peopleStore.reloadFromDisk()
             env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "shared capture processed")
         } catch {
             postNotification(title: "Shared copy update failed", body: error.localizedDescription)

@@ -86,6 +86,7 @@ private enum WorkspaceTheme {
 private enum LibraryViewMode: String, CaseIterable, Identifiable {
     case recent
     case topics
+    case people
 
     var id: String { rawValue }
 
@@ -93,6 +94,7 @@ private enum LibraryViewMode: String, CaseIterable, Identifiable {
         switch self {
         case .recent: return "Recent"
         case .topics: return "Topics"
+        case .people: return "People"
         }
     }
 }
@@ -102,6 +104,11 @@ private struct DocumentVariant: Identifiable {
     var target: URL
 
     var id: URL { target }
+}
+
+private struct SharingSheetTarget: Identifiable {
+    var sourceURL: URL
+    var id: URL { sourceURL }
 }
 
 struct SharedLibraryWorkspaceView: View {
@@ -126,6 +133,8 @@ struct SharedLibraryWorkspaceView: View {
     @State private var knowledgeRefreshTask: Task<Void, Never>?
     @State private var documentSyncTask: Task<Void, Never>?
     @State private var sharingRevision = 0
+    @State private var selectedPersonID: String?
+    @State private var sharingSheetTarget: SharingSheetTarget?
 
     private let sidebarWidth: CGFloat = 305
     private let outerInset: CGFloat = 12
@@ -161,14 +170,35 @@ struct SharedLibraryWorkspaceView: View {
         .onAppear(perform: loadWorkspace)
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in
             reloadTreePreservingSelection()
+            env.peopleStore.reloadFromDisk()
         }
         .onReceive(NotificationCenter.default.publisher(for: .processingDidFail)) { notification in
             errorMessage = notification.userInfo?["message"] as? String
                 ?? "The capture could not be processed."
         }
+        .onReceive(env.peopleStore.$people) { people in
+            sharingRevision += 1
+            if selectedPersonID.flatMap({ id in people.first { $0.githubID == id } }) == nil {
+                selectedPersonID = people.first?.githubID
+            }
+        }
         .onDisappear {
             knowledgeRefreshTask?.cancel()
             documentSyncTask?.cancel()
+        }
+        .sheet(item: $sharingSheetTarget) { target in
+            SharePeopleSheet(
+                peopleStore: env.peopleStore,
+                sourceURL: target.sourceURL,
+                existingReference: sharingReference(for: target.sourceURL),
+                isShared: isCaptureShared(target.sourceURL),
+                onSave: { recipients in
+                    saveSharing(for: target.sourceURL, recipients: recipients)
+                },
+                onUnshare: {
+                    unshareCapture(target.sourceURL, reason: "capture unshared")
+                }
+            )
         }
     }
 
@@ -246,8 +276,14 @@ struct SharedLibraryWorkspaceView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(visibleTreeItems) { item in
-                            fileTreeRows(item)
+                        if libraryViewMode == .people {
+                            ForEach(visiblePeople) { person in
+                                peopleSidebarRow(person)
+                            }
+                        } else {
+                            ForEach(visibleTreeItems) { item in
+                                fileTreeRows(item)
+                            }
                         }
                     }
                     .padding(.horizontal, 10)
@@ -324,6 +360,9 @@ struct SharedLibraryWorkspaceView: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.16)) {
                         libraryViewModeRaw = mode.rawValue
+                    }
+                    if mode == .people, selectedPersonID == nil {
+                        selectedPersonID = env.peopleStore.people.first?.githubID
                     }
                 } label: {
                     Text(mode.title)
@@ -414,6 +453,49 @@ struct SharedLibraryWorkspaceView: View {
         .help(title)
     }
 
+    private func peopleSidebarRow(_ person: SharedPerson) -> some View {
+        Button {
+            selectedPersonID = person.githubID
+        } label: {
+            HStack(spacing: 10) {
+                Text(initials(for: person))
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(WorkspaceTheme.primaryText)
+                    .frame(width: 28, height: 28)
+                    .background(WorkspaceTheme.controlFill, in: Circle())
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(person.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                    Text("@\(person.login)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(WorkspaceTheme.tertiaryText)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            .foregroundStyle(WorkspaceTheme.primaryText)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 42)
+            .background {
+                if selectedPersonID == person.githubID {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(WorkspaceTheme.selectionFill)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func initials(for person: SharedPerson) -> String {
+        let words = person.displayName.split(whereSeparator: { $0.isWhitespace })
+        let letters = words.prefix(2).compactMap(\.first)
+        let value = String(letters)
+        return value.isEmpty ? String(person.login.prefix(2)).uppercased() : value.uppercased()
+    }
+
     private func fileTreeRows(_ item: WorkspaceItem) -> AnyView {
         AnyView(
             VStack(alignment: .leading, spacing: 2) {
@@ -453,8 +535,17 @@ struct SharedLibraryWorkspaceView: View {
             EmptyView()
         } else {
             if let sourceURL = captureSourceURL(for: item.url) {
-                Button(isCaptureShared(sourceURL) ? "Unshare" : "Share") {
-                    toggleSharing(for: sourceURL)
+                if isCaptureShared(sourceURL) {
+                    Button("Edit Sharing...") {
+                        presentSharingSheet(for: sourceURL)
+                    }
+                    Button("Unshare", role: .destructive) {
+                        unshareCapture(sourceURL, reason: "capture unshared")
+                    }
+                } else {
+                    Button("Share...") {
+                        presentSharingSheet(for: sourceURL)
+                    }
                 }
                 Divider()
             }
@@ -472,8 +563,125 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private var contentPane: some View {
-        editorPane
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if libraryViewMode == .people {
+                peopleContentPane
+            } else {
+                editorPane
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var peopleContentPane: some View {
+        Group {
+            if let selectedPerson {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 16) {
+                        Text(initials(for: selectedPerson))
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(WorkspaceTheme.primaryText)
+                            .frame(width: 54, height: 54)
+                            .background(WorkspaceTheme.controlFill, in: Circle())
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(selectedPerson.displayName)
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(WorkspaceTheme.primaryText)
+                            Text("@\(selectedPerson.login)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(WorkspaceTheme.secondaryText)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 36)
+                    .padding(.top, 38)
+                    .padding(.bottom, 24)
+
+                    Rectangle()
+                        .fill(WorkspaceTheme.hairline.opacity(0.72))
+                        .frame(height: 1)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 28) {
+                            peopleReferenceSection(
+                                title: "Shared",
+                                emptyMessage: "Nothing shared by this person.",
+                                references: references(for: selectedPerson, direction: .shared)
+                            )
+                            peopleReferenceSection(
+                                title: "Shared With",
+                                emptyMessage: "Nothing has been tagged for this person.",
+                                references: references(for: selectedPerson, direction: .sharedWith)
+                            )
+                        }
+                        .padding(36)
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "No People",
+                    systemImage: "person.3",
+                    description: Text("Use Settings → People to sync the GitHub organization roster.")
+                )
+            }
+        }
+        .background(documentPanelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
+    }
+
+    private func peopleReferenceSection(
+        title: String,
+        emptyMessage: String,
+        references: [SharedCaptureReference]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(WorkspaceTheme.primaryText)
+                Text("\(references.count)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(WorkspaceTheme.tertiaryText)
+            }
+
+            if references.isEmpty {
+                Text(emptyMessage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(WorkspaceTheme.tertiaryText)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(references) { reference in
+                    Button {
+                        revealSharedReference(reference)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "doc.text")
+                                .foregroundStyle(WorkspaceTheme.secondaryText)
+                            Text(referenceDisplayName(reference))
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(WorkspaceTheme.primaryText)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "arrow.right.circle")
+                                .foregroundStyle(WorkspaceTheme.tertiaryText)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 42)
+                        .background(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .fill(WorkspaceTheme.controlFill.opacity(0.56))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .stroke(WorkspaceTheme.hairline, lineWidth: 0.8)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reveal shared document in Finder")
+                }
+            }
+        }
     }
 
     private var editorPane: some View {
@@ -660,7 +868,7 @@ struct SharedLibraryWorkspaceView: View {
     private func sharingButton(for sourceURL: URL) -> some View {
         let isShared = isCaptureShared(sourceURL)
         return Button {
-            toggleSharing(for: sourceURL)
+            presentSharingSheet(for: sourceURL)
         } label: {
             Image(systemName: isShared ? "person.2.fill" : "person.2")
                 .font(.system(size: 15, weight: .medium))
@@ -670,8 +878,8 @@ struct SharedLibraryWorkspaceView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(isShared ? "Unshare this capture" : "Share this capture")
-        .accessibilityLabel(isShared ? "Unshare capture" : "Share capture")
+        .help(isShared ? "Edit sharing and people tags" : "Share and tag people")
+        .accessibilityLabel(isShared ? "Edit capture sharing" : "Share capture")
     }
 
     private var rawEditor: some View {
@@ -728,9 +936,61 @@ struct SharedLibraryWorkspaceView: View {
         return collectionTreeItems.compactMap { $0.filtered(matching: query) }
     }
 
+    private var visiblePeople: [SharedPerson] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return env.peopleStore.people }
+        return env.peopleStore.people.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.login.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var selectedPerson: SharedPerson? {
+        if let selectedPersonID,
+           let person = env.peopleStore.person(githubID: selectedPersonID) {
+            return person
+        }
+        return env.peopleStore.people.first
+    }
+
+    private func references(
+        for person: SharedPerson,
+        direction: SharedReferenceDirection
+    ) -> [SharedCaptureReference] {
+        (try? env.sharingStore.references(
+            for: person,
+            direction: direction,
+            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+        )) ?? []
+    }
+
+    private func referenceDisplayName(_ reference: SharedCaptureReference) -> String {
+        URL(fileURLWithPath: reference.contentPath)
+            .deletingPathExtension()
+            .lastPathComponent
+    }
+
+    private func revealSharedReference(_ reference: SharedCaptureReference) {
+        do {
+            let url = try env.sharingStore.sharedContentURL(
+                for: reference,
+                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+            )
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw SharingStoreError.missingCapture
+            }
+            reveal(url)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private var collectionTreeItems: [WorkspaceItem] {
         if libraryViewMode == .topics {
             return topicLibraryChildren
+        }
+        if libraryViewMode == .people {
+            return []
         }
 
         let library = WorkspaceItem.virtualFolder(
@@ -1181,6 +1441,7 @@ struct SharedLibraryWorkspaceView: View {
                     sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
                 )
                 sharingRevision += 1
+                env.peopleStore.reloadFromDisk()
                 env.sharedGitSyncCoordinator.requestAutomaticSync(
                     reason: "shared capture deleted"
                 )
@@ -1210,24 +1471,54 @@ struct SharedLibraryWorkspaceView: View {
         )
     }
 
-    private func toggleSharing(for sourceURL: URL) {
+    private func sharingReference(for sourceURL: URL) -> SharedCaptureReference? {
+        try? env.sharingStore.sharingReference(
+            for: sourceURL,
+            privateWorkspaceURL: env.settings.workspaceRootURL,
+            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+        )
+    }
+
+    private func presentSharingSheet(for sourceURL: URL) {
+        sharingSheetTarget = SharingSheetTarget(sourceURL: sourceURL)
+    }
+
+    private func saveSharing(for sourceURL: URL, recipients: [SharedPerson]) {
+        guard let currentUser = env.peopleStore.currentUser else {
+            errorMessage = "Sync people from GitHub in Settings before sharing."
+            return
+        }
         do {
-            if isCaptureShared(sourceURL) {
-                try env.sharingStore.unshareCapture(
-                    at: sourceURL,
-                    privateWorkspaceURL: env.settings.workspaceRootURL,
-                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-                )
-                env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture unshared")
-            } else {
-                try env.sharingStore.shareCapture(
-                    at: sourceURL,
-                    privateWorkspaceURL: env.settings.workspaceRootURL,
-                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-                )
-                env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture shared")
-            }
+            try env.sharingStore.shareCapture(
+                at: sourceURL,
+                privateWorkspaceURL: env.settings.workspaceRootURL,
+                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+            )
+            try env.sharingStore.tagSharedCapture(
+                at: sourceURL,
+                privateWorkspaceURL: env.settings.workspaceRootURL,
+                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL,
+                sharedBy: currentUser,
+                sharedWith: recipients
+            )
             sharingRevision += 1
+            env.peopleStore.reloadFromDisk()
+            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture sharing updated")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func unshareCapture(_ sourceURL: URL, reason: String) {
+        do {
+            try env.sharingStore.unshareCapture(
+                at: sourceURL,
+                privateWorkspaceURL: env.settings.workspaceRootURL,
+                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
+            )
+            sharingRevision += 1
+            env.peopleStore.reloadFromDisk()
+            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: reason)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1235,6 +1526,131 @@ struct SharedLibraryWorkspaceView: View {
 
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+}
+
+private struct SharePeopleSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var peopleStore: GitHubPeopleStore
+    let sourceURL: URL
+    let existingReference: SharedCaptureReference?
+    let isShared: Bool
+    let onSave: ([SharedPerson]) -> Void
+    let onUnshare: () -> Void
+
+    @State private var searchText = ""
+    @State private var selectedIDs: Set<String>
+
+    init(
+        peopleStore: GitHubPeopleStore,
+        sourceURL: URL,
+        existingReference: SharedCaptureReference?,
+        isShared: Bool,
+        onSave: @escaping ([SharedPerson]) -> Void,
+        onUnshare: @escaping () -> Void
+    ) {
+        self.peopleStore = peopleStore
+        self.sourceURL = sourceURL
+        self.existingReference = existingReference
+        self.isShared = isShared
+        self.onSave = onSave
+        self.onUnshare = onUnshare
+        _selectedIDs = State(initialValue: Set(existingReference?.sharedWithIDs ?? []))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(isShared ? "Edit Sharing" : "Share Capture")
+                    .font(.title2.weight(.semibold))
+                Text(sourceURL.deletingPathExtension().lastPathComponent)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let currentUser = peopleStore.currentUser {
+                LabeledContent("Shared by", value: "\(currentUser.displayName) (@\(currentUser.login))")
+
+                TextField("Search people", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(filteredPeople) { person in
+                            Toggle(isOn: selectionBinding(for: person.githubID)) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(person.displayName)
+                                    Text("@\(person.login)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                            .padding(.horizontal, 8)
+                            .frame(minHeight: 38)
+                        }
+                    }
+                }
+                .frame(minHeight: 280)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+            } else {
+                ContentUnavailableView(
+                    "People Not Synced",
+                    systemImage: "person.3",
+                    description: Text("Use Settings → People → Sync People from GitHub first.")
+                )
+                .frame(minHeight: 330)
+            }
+
+            HStack {
+                if isShared {
+                    Button("Unshare", role: .destructive) {
+                        onUnshare()
+                        dismiss()
+                    }
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }
+                Button(isShared ? "Save" : "Share") {
+                    let recipients = peopleStore.people.filter { selectedIDs.contains($0.githubID) }
+                    onSave(recipients)
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(peopleStore.currentUser == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 500, height: 520)
+    }
+
+    private var filteredPeople: [SharedPerson] {
+        let candidates = peopleStore.people.filter {
+            $0.githubID != peopleStore.currentUser?.githubID
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return candidates }
+        return candidates.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.login.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func selectionBinding(for githubID: String) -> Binding<Bool> {
+        Binding(
+            get: { selectedIDs.contains(githubID) },
+            set: { isSelected in
+                if isSelected {
+                    selectedIDs.insert(githubID)
+                } else {
+                    selectedIDs.remove(githubID)
+                }
+            }
+        )
     }
 }
 

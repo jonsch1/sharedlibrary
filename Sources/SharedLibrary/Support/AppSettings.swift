@@ -18,6 +18,9 @@ final class AppSettings: ObservableObject {
     private enum Keys {
         static let workspaceFolderPath = "workspaceFolderPath"
         static let sharedWorkspaceFolderPath = "sharedWorkspaceFolderPath"
+        static let githubPeopleOrganization = "githubPeopleOrganization"
+        static let currentGitHubUserID = "currentGitHubUserID"
+        static let githubPeopleLastSyncedAt = "githubPeopleLastSyncedAt"
         static let processingPrompt = "processingPrompt"
         static let agentCommand = "agentCommand"
     }
@@ -37,6 +40,7 @@ final class AppSettings: ObservableObject {
             }
         }
         defaults.register(defaults: [
+            Keys.githubPeopleOrganization: "saezlab",
             Keys.processingPrompt: Self.defaultProcessingPrompt,
             Keys.agentCommand: Self.defaultAgentCommand
         ])
@@ -83,6 +87,33 @@ final class AppSettings: ObservableObject {
         set {
             objectWillChange.send()
             defaults.set(newValue.path, forKey: Keys.sharedWorkspaceFolderPath)
+        }
+    }
+
+    var githubPeopleOrganization: String {
+        get { defaults.string(forKey: Keys.githubPeopleOrganization) ?? "saezlab" }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.githubPeopleOrganization)
+        }
+    }
+
+    var currentGitHubUserID: String? {
+        get {
+            let value = defaults.string(forKey: Keys.currentGitHubUserID) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.currentGitHubUserID)
+        }
+    }
+
+    var githubPeopleLastSyncedAt: Date? {
+        get { defaults.object(forKey: Keys.githubPeopleLastSyncedAt) as? Date }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.githubPeopleLastSyncedAt)
         }
     }
 

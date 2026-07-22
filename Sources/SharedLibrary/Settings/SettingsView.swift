@@ -17,10 +17,107 @@ struct SettingsView: View {
                 .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
             SyncSettings(coordinator: env.sharedGitSyncCoordinator, purpose: .sharedLibrary)
                 .tabItem { Label("Sharing", systemImage: "person.2") }
+            PeopleSettings(peopleStore: env.peopleStore)
+                .tabItem { Label("People", systemImage: "person.3") }
             HotkeySettings()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
         }
         .frame(width: 740, height: 720)
+    }
+}
+
+private struct PeopleSettings: View {
+    @EnvironmentObject var env: AppEnvironment
+    @ObservedObject var peopleStore: GitHubPeopleStore
+    @State private var organization = ""
+
+    var body: some View {
+        Form {
+            Section("GitHub organization") {
+                TextField("Organization", text: $organization)
+                    .font(.system(.body, design: .monospaced))
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("People are read from the authenticated organization roster only when you request it.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Sync People from GitHub") {
+                        peopleStore.synchronize(organization: organization) {
+                            env.sharedGitSyncCoordinator.requestAutomaticSync(
+                                reason: "people directory refreshed"
+                            )
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        organization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || peopleStore.state.isBusy
+                    )
+                }
+            }
+
+            Section("People directory") {
+                LabeledContent("People", value: "\(peopleStore.people.count)")
+                if let currentUser = peopleStore.currentUser {
+                    LabeledContent("You", value: "\(currentUser.displayName) (@\(currentUser.login))")
+                }
+                LabeledContent("Folder") {
+                    Text(
+                        env.settings.sharedWorkspaceRootURL
+                            .appendingPathComponent("people", isDirectory: true)
+                            .path
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                }
+
+                Label(peopleStore.state.message, systemImage: peopleStatusSymbol)
+                    .foregroundStyle(peopleStatusColor)
+                    .textSelection(.enabled)
+
+                Text("Each login folder stores only profile.json with the stable GitHub ID and display name, plus shared and shared_with reference folders. Avatars and email addresses are not imported.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section("Refresh behavior") {
+                Text("The GitHub roster is never refreshed automatically. Repository synchronization remains automatic after a manual people refresh so other collaborators receive the updated directory.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            if organization.isEmpty {
+                organization = env.settings.githubPeopleOrganization
+            }
+        }
+    }
+
+    private var peopleStatusSymbol: String {
+        switch peopleStore.state {
+        case .syncing:
+            return "arrow.triangle.2.circlepath"
+        case .succeeded:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .idle:
+            return "person.3"
+        }
+    }
+
+    private var peopleStatusColor: Color {
+        switch peopleStore.state {
+        case .succeeded:
+            return .green
+        case .failed:
+            return .red
+        case .idle, .syncing:
+            return .secondary
+        }
     }
 }
 
