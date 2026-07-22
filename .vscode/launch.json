@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}",
+            "name": "Debug SharedLibrary",
+            "target": "SharedLibrary",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug SharedLibrary"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}",
+            "name": "Release SharedLibrary",
+            "target": "SharedLibrary",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release SharedLibrary"
+        }
+    ]
+}

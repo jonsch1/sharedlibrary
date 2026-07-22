@@ -1,0 +1,546 @@
+import Foundation
+import Combine
+
+struct CommandResult: Equatable, Sendable {
+    var exitCode: Int32
+    var standardOutput: String
+    var standardError: String
+
+    var succeeded: Bool { exitCode == 0 }
+
+    var output: String {
+        let values = [standardOutput, standardError]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return values.joined(separator: "\n")
+    }
+}
+
+protocol CommandRunning: Sendable {
+    func run(
+        executable: String,
+        arguments: [String],
+        workingDirectory: URL?
+    ) async -> CommandResult
+}
+
+struct ProcessCommandRunner: CommandRunning {
+    func run(
+        executable: String,
+        arguments: [String],
+        workingDirectory: URL?
+    ) async -> CommandResult {
+        await Task.detached(priority: .utility) {
+            let process = Process()
+            let standardOutput = Pipe()
+            let standardError = Pipe()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.currentDirectoryURL = workingDirectory
+            process.environment = Self.commandEnvironment()
+            process.standardOutput = standardOutput
+            process.standardError = standardError
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return CommandResult(
+                    exitCode: process.terminationStatus,
+                    standardOutput: String(
+                        data: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? "",
+                    standardError: String(
+                        data: standardError.fileHandleForReading.readDataToEndOfFile(),
+                        encoding: .utf8
+                    ) ?? ""
+                )
+            } catch {
+                return CommandResult(
+                    exitCode: 127,
+                    standardOutput: "",
+                    standardError: error.localizedDescription
+                )
+            }
+        }.value
+    }
+
+    private static func commandEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let preferredPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+            "\(home)/.local/bin",
+            "/usr/bin",
+            "/bin"
+        ]
+        let existingPaths = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        var seen = Set<String>()
+        environment["PATH"] = (preferredPaths + existingPaths)
+            .filter { seen.insert($0).inserted }
+            .joined(separator: ":")
+        return environment
+    }
+}
+
+struct GitRepositoryStatus: Equatable, Sendable {
+    var gitAvailable: Bool
+    var ghAvailable: Bool
+    var ghAuthenticated: Bool
+    var isRepository: Bool
+    var remoteURL: String?
+    var branch: String?
+
+    static let unknown = GitRepositoryStatus(
+        gitAvailable: false,
+        ghAvailable: false,
+        ghAuthenticated: false,
+        isRepository: false,
+        remoteURL: nil,
+        branch: nil
+    )
+
+    var hasRemote: Bool { remoteURL != nil }
+}
+
+struct GitSynchronizationResult: Equatable, Sendable {
+    var committedChanges: Bool
+    var pushedChanges: Bool
+    var summary: String
+}
+
+struct GitCommandFailure: LocalizedError, Equatable, Sendable {
+    var message: String
+    var errorDescription: String? { message }
+}
+
+actor GitSyncEngine {
+    private let runner: any CommandRunning
+    private let environmentExecutable = "/usr/bin/env"
+
+    init(runner: any CommandRunning = ProcessCommandRunner()) {
+        self.runner = runner
+    }
+
+    func inspect(workspaceURL: URL) async -> GitRepositoryStatus {
+        let gitAvailable = await command("git", ["--version"], in: nil).succeeded
+        let ghAvailable = await command("gh", ["--version"], in: nil).succeeded
+        let ghAuthenticated: Bool
+        if ghAvailable {
+            ghAuthenticated = await command(
+                "gh",
+                ["auth", "status", "--hostname", "github.com"],
+                in: nil
+            ).succeeded
+        } else {
+            ghAuthenticated = false
+        }
+
+        guard gitAvailable else {
+            return GitRepositoryStatus(
+                gitAvailable: false,
+                ghAvailable: ghAvailable,
+                ghAuthenticated: ghAuthenticated,
+                isRepository: false,
+                remoteURL: nil,
+                branch: nil
+            )
+        }
+
+        let repositoryCheck = await command(
+            "git",
+            ["rev-parse", "--is-inside-work-tree"],
+            in: workspaceURL
+        )
+        let isRepository = repositoryCheck.succeeded
+            && repositoryCheck.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        guard isRepository else {
+            return GitRepositoryStatus(
+                gitAvailable: true,
+                ghAvailable: ghAvailable,
+                ghAuthenticated: ghAuthenticated,
+                isRepository: false,
+                remoteURL: nil,
+                branch: nil
+            )
+        }
+
+        let remoteResult = await command("git", ["remote", "get-url", "origin"], in: workspaceURL)
+        let branchResult = await command("git", ["branch", "--show-current"], in: workspaceURL)
+        return GitRepositoryStatus(
+            gitAvailable: true,
+            ghAvailable: ghAvailable,
+            ghAuthenticated: ghAuthenticated,
+            isRepository: true,
+            remoteURL: nonemptyOutput(remoteResult),
+            branch: nonemptyOutput(branchResult)
+        )
+    }
+
+    func initializeRepository(workspaceURL: URL) async throws -> GitRepositoryStatus {
+        guard await command("git", ["--version"], in: nil).succeeded else {
+            throw GitCommandFailure(message: "Git is not installed or is not available on PATH.")
+        }
+
+        let repositoryCheck = await command(
+            "git",
+            ["rev-parse", "--is-inside-work-tree"],
+            in: workspaceURL
+        )
+        if !repositoryCheck.succeeded {
+            let initialized = await command("git", ["init", "-b", "main"], in: workspaceURL)
+            if !initialized.succeeded {
+                try requireSuccess(
+                    await command("git", ["init"], in: workspaceURL),
+                    operation: "initialize the Git repository"
+                )
+                _ = await command("git", ["branch", "-M", "main"], in: workspaceURL)
+            }
+        }
+
+        try ensureWorkspaceGitignore(workspaceURL: workspaceURL)
+        return await inspect(workspaceURL: workspaceURL)
+    }
+
+    func connectRemote(_ remote: String, workspaceURL: URL) async throws -> GitRepositoryStatus {
+        var status = try await initializeRepository(workspaceURL: workspaceURL)
+        let existingRemote = await command("git", ["remote", "get-url", "origin"], in: workspaceURL)
+        if existingRemote.succeeded {
+            try requireSuccess(
+                await command("git", ["remote", "set-url", "origin", remote], in: workspaceURL),
+                operation: "update the origin remote"
+            )
+        } else {
+            try requireSuccess(
+                await command("git", ["remote", "add", "origin", remote], in: workspaceURL),
+                operation: "add the origin remote"
+            )
+        }
+        status = await inspect(workspaceURL: workspaceURL)
+        return status
+    }
+
+    func synchronize(workspaceURL: URL, reason: String) async throws -> GitSynchronizationResult {
+        let initialStatus = await inspect(workspaceURL: workspaceURL)
+        guard initialStatus.gitAvailable else {
+            throw GitCommandFailure(message: "Git is not installed or is not available on PATH.")
+        }
+        guard initialStatus.isRepository else {
+            throw GitCommandFailure(message: "Initialize this workspace as a Git repository before syncing.")
+        }
+
+        let rebaseCheck = await command("git", ["rev-parse", "-q", "--verify", "REBASE_HEAD"], in: workspaceURL)
+        guard !rebaseCheck.succeeded else {
+            throw GitCommandFailure(message: "A Git rebase is already in progress. Resolve or abort it before syncing again.")
+        }
+
+        try requireSuccess(
+            await command("git", ["add", "--all"], in: workspaceURL),
+            operation: "stage workspace changes"
+        )
+        let stagedChanges = await command("git", ["diff", "--cached", "--quiet"], in: workspaceURL)
+        let committedChanges: Bool
+        switch stagedChanges.exitCode {
+        case 0:
+            committedChanges = false
+        case 1:
+            let commitReason = reason
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+            let message = commitReason.isEmpty
+                ? "Shared Library sync"
+                : "Shared Library sync: \(commitReason)"
+            try requireSuccess(
+                await command("git", ["commit", "-m", message], in: workspaceURL),
+                operation: "commit workspace changes"
+            )
+            committedChanges = true
+        default:
+            throw failure(for: stagedChanges, operation: "check staged workspace changes")
+        }
+
+        guard let remote = initialStatus.remoteURL, !remote.isEmpty else {
+            return GitSynchronizationResult(
+                committedChanges: committedChanges,
+                pushedChanges: false,
+                summary: committedChanges
+                    ? "Changes committed locally. Connect a GitHub repository to publish them."
+                    : "No local changes. Connect a GitHub repository to enable synchronization."
+            )
+        }
+        guard initialStatus.ghAvailable else {
+            throw GitCommandFailure(message: "GitHub CLI is not installed or is not available on PATH.")
+        }
+        guard initialStatus.ghAuthenticated else {
+            throw GitCommandFailure(message: "GitHub CLI is not authenticated. Run `gh auth login` and try again.")
+        }
+
+        try requireSuccess(
+            await command("gh", ["auth", "setup-git", "--hostname", "github.com"], in: workspaceURL),
+            operation: "configure Git to use GitHub CLI authentication"
+        )
+        try requireSuccess(
+            await command("git", ["fetch", "origin"], in: workspaceURL),
+            operation: "fetch from \(remote)"
+        )
+
+        let branchResult = await command("git", ["branch", "--show-current"], in: workspaceURL)
+        let branch = nonemptyOutput(branchResult) ?? initialStatus.branch ?? "main"
+        let remoteBranch = await command(
+            "git",
+            ["show-ref", "--verify", "--quiet", "refs/remotes/origin/\(branch)"],
+            in: workspaceURL
+        )
+        if remoteBranch.succeeded {
+            try requireSuccess(
+                await command("git", ["rebase", "origin/\(branch)"], in: workspaceURL),
+                operation: "rebase onto origin/\(branch)"
+            )
+        }
+
+        try requireSuccess(
+            await command("git", ["push", "--set-upstream", "origin", branch], in: workspaceURL),
+            operation: "push \(branch) to GitHub"
+        )
+        return GitSynchronizationResult(
+            committedChanges: committedChanges,
+            pushedChanges: true,
+            summary: committedChanges ? "Committed, rebased, and pushed." : "Fetched, rebased, and pushed."
+        )
+    }
+
+    private func command(_ tool: String, _ arguments: [String], in workspaceURL: URL?) async -> CommandResult {
+        await runner.run(
+            executable: environmentExecutable,
+            arguments: [tool] + arguments,
+            workingDirectory: workspaceURL
+        )
+    }
+
+    private func requireSuccess(_ result: CommandResult, operation: String) throws {
+        guard result.succeeded else { throw failure(for: result, operation: operation) }
+    }
+
+    private func failure(for result: CommandResult, operation: String) -> GitCommandFailure {
+        let detail = result.output.isEmpty ? "The command exited with status \(result.exitCode)." : result.output
+        return GitCommandFailure(message: "Could not \(operation). \(detail)")
+    }
+
+    private func nonemptyOutput(_ result: CommandResult) -> String? {
+        guard result.succeeded else { return nil }
+        let value = result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func ensureWorkspaceGitignore(workspaceURL: URL) throws {
+        let url = workspaceURL.appendingPathComponent(".gitignore")
+        let existing = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let lines = existing.components(separatedBy: .newlines)
+        guard !lines.contains(".DS_Store") else { return }
+        var updated = existing
+        if !updated.isEmpty, !updated.hasSuffix("\n") { updated.append("\n") }
+        updated.append(".DS_Store\n")
+        try updated.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+enum GitSyncState: Equatable, Sendable {
+    case checking
+    case ready(String)
+    case syncing(String)
+    case succeeded(String)
+    case needsSetup(String)
+    case unavailable(String)
+    case failed(String)
+
+    var message: String {
+        switch self {
+        case .checking:
+            return "Checking Git and GitHub..."
+        case .ready(let message), .syncing(let message), .succeeded(let message),
+             .needsSetup(let message), .unavailable(let message), .failed(let message):
+            return message
+        }
+    }
+
+    var isBusy: Bool {
+        switch self {
+        case .checking, .syncing:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+@MainActor
+final class GitSyncCoordinator: ObservableObject {
+    @Published private(set) var repositoryStatus = GitRepositoryStatus.unknown
+    @Published private(set) var state = GitSyncState.checking
+
+    private let engine: GitSyncEngine
+    private var workspaceURL: URL
+    private var operationTask: Task<Void, Never>?
+    private var automaticSyncTask: Task<Void, Never>?
+    private var pendingSyncReason: String?
+
+    init(
+        workspaceURL: URL,
+        runner: any CommandRunning = ProcessCommandRunner()
+    ) {
+        self.workspaceURL = workspaceURL.standardizedFileURL
+        engine = GitSyncEngine(runner: runner)
+    }
+
+    func setWorkspaceURL(_ url: URL) {
+        operationTask?.cancel()
+        automaticSyncTask?.cancel()
+        operationTask = nil
+        automaticSyncTask = nil
+        pendingSyncReason = nil
+        workspaceURL = url.standardizedFileURL
+        repositoryStatus = .unknown
+        refreshStatus()
+    }
+
+    func refreshStatus() {
+        guard operationTask == nil else { return }
+        state = .checking
+        let workspaceURL = workspaceURL
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            let status = await engine.inspect(workspaceURL: workspaceURL)
+            guard !Task.isCancelled else { return }
+            repositoryStatus = status
+            state = Self.state(for: status)
+            finishOperation()
+        }
+    }
+
+    func initializeRepository() {
+        guard operationTask == nil else { return }
+        state = .syncing("Initializing the workspace repository...")
+        let workspaceURL = workspaceURL
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let status = try await engine.initializeRepository(workspaceURL: workspaceURL)
+                guard !Task.isCancelled else { return }
+                repositoryStatus = status
+                state = Self.state(for: status)
+            } catch {
+                state = .failed(error.localizedDescription)
+            }
+            finishOperation()
+        }
+    }
+
+    func connectRemote(_ value: String) {
+        guard operationTask == nil else { return }
+        guard let remote = Self.normalizedRemote(value) else {
+            state = .failed("Enter a GitHub repository as owner/name or a valid Git remote URL.")
+            return
+        }
+
+        state = .syncing("Connecting the GitHub repository...")
+        let workspaceURL = workspaceURL
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let status = try await engine.connectRemote(remote, workspaceURL: workspaceURL)
+                guard !Task.isCancelled else { return }
+                repositoryStatus = status
+                state = Self.state(for: status)
+            } catch {
+                state = .failed(error.localizedDescription)
+            }
+            finishOperation()
+        }
+    }
+
+    func syncNow() {
+        automaticSyncTask?.cancel()
+        automaticSyncTask = nil
+        startSync(reason: "manual sync")
+    }
+
+    func requestAutomaticSync(reason: String) {
+        guard repositoryStatus.isRepository else { return }
+        automaticSyncTask?.cancel()
+        automaticSyncTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self else { return }
+            automaticSyncTask = nil
+            startSync(reason: reason)
+        }
+    }
+
+    static func normalizedRemote(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(where: { $0.isWhitespace }) else { return nil }
+
+        if trimmed.hasPrefix("https://") || trimmed.hasPrefix("ssh://") || trimmed.hasPrefix("git@") {
+            return trimmed
+        }
+
+        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }) else { return nil }
+        let repository = parts[1].hasSuffix(".git") ? String(parts[1]) : "\(parts[1]).git"
+        return "https://github.com/\(parts[0])/\(repository)"
+    }
+
+    private func startSync(reason: String) {
+        if operationTask != nil {
+            pendingSyncReason = reason
+            return
+        }
+
+        state = .syncing("Synchronizing workspace changes...")
+        let workspaceURL = workspaceURL
+        operationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await engine.synchronize(workspaceURL: workspaceURL, reason: reason)
+                guard !Task.isCancelled else { return }
+                repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
+                state = result.pushedChanges
+                    ? .succeeded(result.summary)
+                    : .needsSetup(result.summary)
+                NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+            } catch {
+                guard !Task.isCancelled else { return }
+                repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)
+                state = .failed(error.localizedDescription)
+            }
+            finishOperation()
+        }
+    }
+
+    private func finishOperation() {
+        operationTask = nil
+        guard let reason = pendingSyncReason else { return }
+        pendingSyncReason = nil
+        startSync(reason: reason)
+    }
+
+    private static func state(for status: GitRepositoryStatus) -> GitSyncState {
+        guard status.gitAvailable else {
+            return .unavailable("Git is not installed or is not available on PATH.")
+        }
+        guard status.isRepository else {
+            return .needsSetup("Initialize the workspace as a Git repository.")
+        }
+        guard status.hasRemote else {
+            return .needsSetup("The local repository is ready. Connect a GitHub repository to sync.")
+        }
+        guard status.ghAvailable else {
+            return .unavailable("GitHub CLI is not installed or is not available on PATH.")
+        }
+        guard status.ghAuthenticated else {
+            return .needsSetup("GitHub CLI is not authenticated. Run `gh auth login`.")
+        }
+        return .ready("Ready to sync \(status.branch ?? "the current branch").")
+    }
+}
