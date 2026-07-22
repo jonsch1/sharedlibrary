@@ -66,9 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Status item
 
     private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "books.vertical",
-                                           accessibilityDescription: "Shared Library")
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = statusItem.button {
+            button.image = NSImage(systemSymbolName: "books.vertical",
+                                   accessibilityDescription: "Shared Library")
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+        }
 
         let menu = NSMenu()
         menu.addItem(withTitle: "Library", action: #selector(showLibrary), keyEquivalent: "")
@@ -333,10 +337,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setStatus(_ state: LibraryStatus) {
         statusResetTask?.cancel()
 
-        statusItem.button?.image = NSImage(systemSymbolName: state.systemSymbolName,
-                                           accessibilityDescription: state.accessibilityDescription)
-        statusItem.button?.title = state.buttonTitle
-        statusItem.button?.toolTip = state.detail.map { "Shared Library - \($0)" } ?? "Shared Library"
+        if let button = statusItem.button {
+            if let image = NSImage(systemSymbolName: state.systemSymbolName,
+                                   accessibilityDescription: state.accessibilityDescription) {
+                button.image = image
+            }
+            button.title = ""
+            button.toolTip = state.detail.map { "Shared Library - \($0)" } ?? "Shared Library"
+        }
 
         guard state.shouldAutoReset else { return }
         statusResetTask = Task { [weak self] in
@@ -439,19 +447,6 @@ private enum LibraryStatus {
     case capturing(String)
     case saved(String)
     case failed(String)
-
-    var buttonTitle: String {
-        switch self {
-        case .ready:
-            return ""
-        case .capturing:
-            return "Capturing..."
-        case .saved:
-            return "Saved"
-        case .failed:
-            return "Failed"
-        }
-    }
 
     var detail: String? {
         switch self {
