@@ -19,6 +19,78 @@ export interface SharedItemStatus {
 	referenceID?: string;
 	recipientIDs: string[];
 	people: SharedPerson[];
+	operationStatus?: 'queued' | 'syncing' | 'failed';
+	operationError?: string;
+}
+
+export interface SharingOperationStatus {
+	status: 'queued' | 'syncing' | 'failed' | 'complete';
+	error?: string;
+}
+
+const sharedPeopleCacheKey = 'shared-library-shared-people-v1';
+const sharedItemCacheKey = 'shared-library-shared-items-v1';
+
+function validCachedPerson(value: unknown): value is SharedPerson {
+	if (!value || typeof value !== 'object') return false;
+	const person = value as Record<string, unknown>;
+	return (
+		typeof person.userID === 'string' &&
+		person.userID.length > 0 &&
+		typeof person.username === 'string' &&
+		person.username.length > 0
+	);
+}
+
+export function loadCachedSharedPeople(): SharedPerson[] {
+	if (typeof localStorage === 'undefined') return [];
+	try {
+		const value = JSON.parse(localStorage.getItem(sharedPeopleCacheKey) ?? '[]') as unknown;
+		return Array.isArray(value) ? value.filter(validCachedPerson) : [];
+	} catch {
+		return [];
+	}
+}
+
+function cacheSharedPeople(people: SharedPerson[]): void {
+	if (typeof localStorage === 'undefined' || people.length === 0) return;
+	localStorage.setItem(sharedPeopleCacheKey, JSON.stringify(people));
+}
+
+function cacheSharedItemStatus(captureID: string, status: SharedItemStatus): void {
+	if (typeof localStorage === 'undefined') return;
+	try {
+		const parsed = JSON.parse(localStorage.getItem(sharedItemCacheKey) ?? '{}') as unknown;
+		const existing =
+			parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+				? (parsed as Record<string, SharedItemStatus>)
+				: {};
+		existing[captureID] = {
+			...status,
+			people: status.people.length > 0 ? status.people : loadCachedSharedPeople()
+		};
+		localStorage.setItem(sharedItemCacheKey, JSON.stringify(existing));
+	} catch {
+		// A malformed cache is replaced on the next successful refresh.
+		localStorage.removeItem(sharedItemCacheKey);
+	}
+}
+
+export function loadCachedSharedItemStatus(captureID: string): SharedItemStatus | null {
+	if (typeof localStorage === 'undefined') return null;
+	try {
+		const parsed = JSON.parse(localStorage.getItem(sharedItemCacheKey) ?? '{}') as unknown;
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+		const existing = parsed as Record<string, SharedItemStatus>;
+		const status = existing[captureID];
+		if (!status || !Array.isArray(status.recipientIDs)) return null;
+		return {
+			...status,
+			people: Array.isArray(status.people) ? status.people.filter(validCachedPerson) : []
+		};
+	} catch {
+		return null;
+	}
 }
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
@@ -100,22 +172,48 @@ export async function loadSharedItemStatus(captureID: string): Promise<SharedIte
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not load sharing details.'));
 	}
-	return (await response.json()) as SharedItemStatus;
+	const status = (await response.json()) as SharedItemStatus;
+	cacheSharedPeople(status.people);
+	cacheSharedItemStatus(captureID, status);
+	return status;
 }
 
 export async function updateSharedItem(
 	captureID: string,
 	recipientIDs: string[]
 ): Promise<SharedItemStatus> {
-	const response = await fetch('/api/sharing/item', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-		body: JSON.stringify({ captureID, recipientIDs })
-	});
+	const response = await fetchWithTimeout(
+		'/api/sharing/item',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+			body: JSON.stringify({ captureID, recipientIDs })
+		},
+		10_000
+	);
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not update sharing.'));
 	}
-	return (await response.json()) as SharedItemStatus;
+	const status = (await response.json()) as SharedItemStatus;
+	cacheSharedItemStatus(captureID, status);
+	return status;
+}
+
+export async function loadSharingOperationStatus(
+	captureID: string
+): Promise<SharingOperationStatus> {
+	const response = await fetchWithTimeout(
+		`/api/sharing/operation?captureID=${encodeURIComponent(captureID)}`,
+		{
+			headers: { Accept: 'application/json' },
+			cache: 'no-store'
+		},
+		8_000
+	);
+	if (!response.ok) {
+		throw new Error(await errorMessage(response, 'Could not check the Drive update.'));
+	}
+	return (await response.json()) as SharingOperationStatus;
 }
 
 export async function loadSharedInbox(): Promise<LibraryProjection> {

@@ -68,12 +68,16 @@
 		connectSharedFolder,
 		dismissSharedInboxItem,
 		disconnectSharedFolder,
+		loadCachedSharedPeople,
+		loadCachedSharedItemStatus,
 		loadSharedItemStatus,
 		loadSharedFolderConnection,
 		loadSharedInbox,
+		loadSharingOperationStatus,
 		saveSharedInboxItem,
 		updateSharedItem,
 		type SharedFolderConnection,
+		type SharedItemStatus,
 		type SharedPerson
 	} from '$lib/sharing.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
@@ -109,6 +113,9 @@
 	let shareQuery = $state('');
 	let shareBusy = $state(false);
 	let shareWasShared = $state(false);
+	let shareOperationStatus = $state<SharedItemStatus['operationStatus']>();
+	let shareOperationError = $state('');
+	const sharingWatchTokens = new Map<string, string>();
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
@@ -230,6 +237,7 @@
 			(navigatorWithStandalone.standalone === true ||
 				window.matchMedia('(display-mode: standalone)').matches);
 		openRouterVoice = loadVoicePreference();
+		sharePeople = loadCachedSharedPeople();
 		void initializeOpenRouter(() => active);
 		loadLibraryProjection()
 			.then((saved) => {
@@ -579,10 +587,13 @@
 			return;
 		}
 		shareTarget = entry;
-		sharePeople = [];
-		selectedRecipientIDs = [];
+		const cached = loadCachedSharedItemStatus(entry.captureID ?? entry.id);
+		selectedRecipientIDs = cached?.recipientIDs ?? [];
 		shareQuery = '';
-		shareWasShared = false;
+		shareWasShared = cached?.shared ?? false;
+		shareOperationStatus = cached?.operationStatus;
+		shareOperationError = cached?.operationError ?? '';
+		if (cached?.people.length) sharePeople = cached.people;
 		shareBusy = true;
 		sharingVisible = true;
 		connectionsVisible = false;
@@ -594,10 +605,12 @@
 			sharePeople = status.people;
 			selectedRecipientIDs = status.recipientIDs;
 			shareWasShared = status.shared;
+			shareOperationStatus = status.operationStatus;
+			shareOperationError = status.operationError ?? '';
 		} catch (error) {
-			connectionMessage =
+			shareOperationError =
 				error instanceof Error ? error.message : 'Sharing details could not be loaded.';
-			sharingVisible = false;
+			if (sharePeople.length === 0) connectionMessage = shareOperationError;
 		} finally {
 			shareBusy = false;
 		}
@@ -620,17 +633,54 @@
 			);
 			shareWasShared = result.shared;
 			selectedRecipientIDs = result.recipientIDs;
+			shareOperationStatus = result.operationStatus;
+			shareOperationError = result.operationError ?? '';
 			sharingVisible = false;
 			connectionMessage = result.shared
-				? `Shared with ${result.recipientIDs.length} ${
+				? `Sharing with ${result.recipientIDs.length} ${
 						result.recipientIDs.length === 1 ? 'person' : 'people'
-					}. Their Inbox will update in the background.`
-				: 'Sharing stopped. The item will disappear from recipient Inboxes; saved copies remain.';
+					} in the background. You can keep browsing.`
+				: 'Removing this item from the group library in the background. Saved Inbox copies remain.';
+			void watchSharingOperation(
+				target.captureID ?? target.id,
+				result.recipientIDs.length
+			);
 		} catch (error) {
 			connectionMessage =
 				error instanceof Error ? error.message : 'The document could not be shared.';
 		} finally {
 			shareBusy = false;
+		}
+	}
+
+	async function watchSharingOperation(captureID: string, recipientCount: number): Promise<void> {
+		const token = crypto.randomUUID();
+		sharingWatchTokens.set(captureID, token);
+		const delays = [1_500, 2_500, 4_000, 6_000, 8_000];
+		for (const delay of delays) {
+			await new Promise((resolve) => window.setTimeout(resolve, delay));
+			if (sharingWatchTokens.get(captureID) !== token) return;
+			try {
+				const operation = await loadSharingOperationStatus(captureID);
+				if (sharingWatchTokens.get(captureID) !== token) return;
+				if (operation.status === 'failed') {
+					connectionMessage = `Drive sync failed: ${
+						operation.error ?? 'the update did not finish'
+					}. Open Share to retry.`;
+					return;
+				}
+				if (operation.status === 'complete') {
+					connectionMessage =
+						recipientCount > 0
+							? `Shared with ${recipientCount} ${
+									recipientCount === 1 ? 'person' : 'people'
+								}.`
+							: 'Sharing removed from the group library.';
+					return;
+				}
+			} catch {
+				// The queued state remains locally visible; a later check can still complete it.
+			}
 		}
 	}
 
@@ -1639,6 +1689,36 @@
 					</div>
 				</div>
 
+				{#if shareOperationStatus}
+					<div
+						class="share-sync-state"
+						class:error={shareOperationStatus === 'failed'}
+						role={shareOperationStatus === 'failed' ? 'alert' : 'status'}
+					>
+						{#if shareOperationStatus === 'failed'}
+							<TriangleAlertIcon />
+							<div>
+								<strong>Drive sync needs another try</strong>
+								<span>{shareOperationError || 'The last background update did not finish.'}</span>
+							</div>
+						{:else}
+							<LoaderCircleIcon class="spin" />
+							<div>
+								<strong>{shareOperationStatus === 'queued' ? 'Update queued' : 'Syncing with Drive'}</strong>
+								<span>You can close this panel and keep browsing.</span>
+							</div>
+						{/if}
+					</div>
+				{:else if shareOperationError}
+					<div class="share-sync-state error" role="alert">
+						<TriangleAlertIcon />
+						<div>
+							<strong>Could not refresh Drive</strong>
+							<span>{shareOperationError}</span>
+						</div>
+					</div>
+				{/if}
+
 				{#if shareBusy && sharePeople.length === 0}
 					<div class="share-loading">
 						<LoaderCircleIcon class="spin" />
@@ -1685,7 +1765,9 @@
 				>
 					<Share2Icon data-icon="inline-start" />
 					{shareBusy
-						? 'Saving…'
+						? 'Queueing…'
+						: shareOperationStatus === 'failed'
+							? 'Retry sync'
 						: shareWasShared && selectedRecipientIDs.length === 0
 							? 'Stop sharing'
 							: shareWasShared

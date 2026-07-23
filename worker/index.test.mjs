@@ -21,10 +21,17 @@ class MockStatement {
 		if (this.sql.includes('FROM openrouter_credentials')) {
 			return this.database.credential;
 		}
+		if (this.sql.includes('FROM shared_folder_connections')) {
+			return this.database.sharedFolderConnection;
+		}
+		if (this.sql.includes('FROM sharing_operations')) {
+			return this.database.sharingOperation;
+		}
 		return null;
 	}
 
 	async run() {
+		let changes = 0;
 		if (this.sql.includes('INSERT INTO openrouter_oauth_states')) {
 			this.database.oauthState = {
 				state: this.arguments[0],
@@ -32,9 +39,11 @@ class MockStatement {
 				verifier: this.arguments[2],
 				createdAt: this.arguments[3]
 			};
+			changes = 1;
 		}
 		if (this.sql.includes('DELETE FROM openrouter_credentials')) {
 			this.database.credential = null;
+			changes = 1;
 		}
 		if (this.sql.includes('INSERT INTO openrouter_credentials')) {
 			this.database.savedCredential = {
@@ -43,8 +52,22 @@ class MockStatement {
 				initializationVector: this.arguments[2],
 				openRouterUserID: this.arguments[3]
 			};
+			changes = 1;
 		}
-		return { success: true };
+		if (this.sql.includes('INSERT INTO sharing_operations')) {
+			this.database.sharingOperation = {
+				capture_id: this.arguments[1],
+				recipient_ids: this.arguments[2],
+				generation: this.arguments[3],
+				status:
+					this.database.sharingOperation?.status === 'syncing' ? 'syncing' : 'queued',
+				attempt_count: 0,
+				last_error: null,
+				updated_at: this.arguments[5]
+			};
+			changes = 1;
+		}
+		return { success: true, meta: { changes } };
 	}
 }
 
@@ -53,6 +76,8 @@ class MockDatabase {
 	oauthState = null;
 	pendingOAuthState = null;
 	savedCredential = null;
+	sharedFolderConnection = null;
+	sharingOperation = null;
 
 	prepare(sql) {
 		return new MockStatement(this, sql);
@@ -163,6 +188,57 @@ test('shared folder connection is restricted to the configured group folder', as
 	assert.deepEqual(await response.json(), {
 		error: 'Choose the predefined Shared Library group folder.'
 	});
+});
+
+test('sharing updates return immediately and persist a coalescing Drive operation', async () => {
+	const database = new MockDatabase();
+	database.sharedFolderConnection = {
+		user_email: 'reader@example.com',
+		folder_id: '1ConfiguredGroupFolder234567890',
+		user_id: 'reader-id',
+		username: 'reader'
+	};
+	let backgroundTask;
+	const response = await worker.fetch(
+		authenticatedRequest('/api/sharing/item', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				captureID: 'capture-1',
+				recipientIDs: ['reader-id', 'recipient-1', 'recipient-1']
+			})
+		}),
+		environment(database),
+		{
+			waitUntil(task) {
+				backgroundTask = task;
+			}
+		}
+	);
+	assert.equal(response.status, 202);
+	assert.deepEqual(await response.json(), {
+		shared: true,
+		referenceID: 'capture-1',
+		recipientIDs: ['recipient-1'],
+		people: [],
+		operationStatus: 'queued'
+	});
+	assert.deepEqual(JSON.parse(database.sharingOperation.recipient_ids), ['recipient-1']);
+	assert.equal(database.sharingOperation.status, 'queued');
+	assert.ok(backgroundTask);
+	await backgroundTask;
+});
+
+test('sharing operation status completes without reading Google Drive', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/sharing/operation?captureID=capture-1'),
+		environment()
+	);
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { status: 'complete' });
 });
 
 test('Google authorization uses the central web client with each user account', async () => {

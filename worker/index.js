@@ -166,6 +166,20 @@ async function ensureSchema(database) {
 				connected_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS sharing_operations (
+				user_email TEXT NOT NULL,
+				capture_id TEXT NOT NULL,
+				recipient_ids TEXT NOT NULL,
+				generation TEXT NOT NULL,
+				status TEXT NOT NULL,
+				attempt_count INTEGER NOT NULL DEFAULT 0,
+				last_error TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY (user_email, capture_id)
+			)`
 		)
 	]);
 }
@@ -1440,9 +1454,10 @@ async function disconnectSharedFolder(request, env) {
 	const email = authenticatedEmail(request);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
-	await env.DB.prepare('DELETE FROM shared_folder_connections WHERE user_email = ?')
-		.bind(email)
-		.run();
+	await env.DB.batch([
+		env.DB.prepare('DELETE FROM sharing_operations WHERE user_email = ?').bind(email),
+		env.DB.prepare('DELETE FROM shared_folder_connections WHERE user_email = ?').bind(email)
+	]);
 	return json({ disconnected: true });
 }
 
@@ -1645,7 +1660,243 @@ function sharedCompanionPaths(itemID) {
 	];
 }
 
-async function sharedItemStatus(request, env) {
+async function sharingOperation(env, email, captureID) {
+	return env.DB.prepare(
+		`SELECT capture_id, recipient_ids, generation, status, attempt_count, last_error, updated_at
+		 FROM sharing_operations
+		 WHERE user_email = ? AND capture_id = ?`
+	)
+		.bind(email, captureID)
+		.first();
+}
+
+function sharingOperationRecipientIDs(operation) {
+	try {
+		const values = JSON.parse(operation?.recipient_ids ?? '[]');
+		return Array.isArray(values) ? values.filter(validSharedUserID) : [];
+	} catch {
+		return [];
+	}
+}
+
+async function enqueueSharingOperation(env, email, captureID, recipientIDs) {
+	const now = new Date().toISOString();
+	const generation = crypto.randomUUID();
+	await env.DB.prepare(
+		`INSERT INTO sharing_operations (
+			user_email, capture_id, recipient_ids, generation, status,
+			attempt_count, last_error, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?)
+		ON CONFLICT(user_email, capture_id) DO UPDATE SET
+			recipient_ids = excluded.recipient_ids,
+			generation = excluded.generation,
+			status = CASE
+				WHEN sharing_operations.status = 'syncing' THEN 'syncing'
+				ELSE 'queued'
+			END,
+			attempt_count = 0,
+			last_error = NULL,
+			updated_at = excluded.updated_at`
+	)
+		.bind(email, captureID, JSON.stringify(recipientIDs), generation, now, now)
+		.run();
+	return sharingOperation(env, email, captureID);
+}
+
+function scheduleSharingOperation(context, task) {
+	if (context && typeof context.waitUntil === 'function') {
+		context.waitUntil(task);
+		return;
+	}
+	void task.catch(() => {});
+}
+
+async function performSharedItemUpdate(env, email, captureID, requestedIDs) {
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) throw new Error('Connect the shared folder first.');
+	const { itemID, personal, tree, people, reference: existing } = await sharedItemContext(
+		env,
+		email,
+		connection,
+		captureID,
+		true
+	);
+	const peopleByID = new Map(people.map((person) => [person.userID, person]));
+	const recipients = requestedIDs
+		.filter((id) => id !== connection.user_id)
+		.map((id) => peopleByID.get(id));
+	if (recipients.some((person) => !person)) {
+		throw new Error('One or more people are no longer available in the shared folder.');
+	}
+	recipients.sort((a, b) => a.username.localeCompare(b.username));
+	if (existing && existing.sharedByID !== connection.user_id) {
+		throw new Error('This shared item is owned by another person.');
+	}
+	const now = new Date().toISOString();
+	const referencePath = `shares/${itemID}.json`;
+	const companionPaths = sharedCompanionPaths(itemID);
+	if (recipients.length === 0) {
+		await Promise.all(
+			[referencePath, ...companionPaths]
+				.map((path) => tree.files.get(path))
+				.filter(Boolean)
+				.map((file) => trashDriveFile(env, email, file.id))
+		);
+		return {
+			shared: false,
+			recipientIDs: [],
+			people: people.filter((person) => person.userID !== connection.user_id)
+		};
+	}
+
+	const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
+	const desired = [];
+	for (const text of personal.entry.texts ?? []) {
+		if (
+			!['source', 'brief', 'concise', 'detailed', 'comprehensive'].includes(text?.variant) ||
+			typeof text?.path !== 'string'
+		) {
+			continue;
+		}
+		const file = personalFiles.get(text.path);
+		if (!file) continue;
+		desired.push({
+			path: `library/${itemID}.${text.variant}.md`,
+			file
+		});
+	}
+	if (!desired.some((item) => item.path === `library/${itemID}.source.md`)) {
+		throw new Error('The source file has not synchronized to Google Drive yet.');
+	}
+	const desiredPaths = new Set(desired.map((item) => item.path));
+	await Promise.all(
+		companionPaths
+			.filter((path) => !desiredPaths.has(path))
+			.map((path) => tree.files.get(path))
+			.filter(Boolean)
+			.map((file) => trashDriveFile(env, email, file.id))
+	);
+	await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'library');
+	await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'shares');
+	for (const item of desired) {
+		const bytes = await downloadDriveFile(env, email, item.file.id);
+		await upsertDriveFile(env, email, {
+			rootFolderID: connection.folder_id,
+			folders: tree.folders,
+			path: item.path,
+			bytes,
+			existingID: tree.files.get(item.path)?.id ?? null
+		});
+	}
+
+	const sharedReference = {
+		schemaVersion: 2,
+		id: itemID,
+		itemID,
+		contentPath: `library/${itemID}.source.md`,
+		sourceFilename: personal.sourcePath.split('/').at(-1),
+		sharedByID: connection.user_id,
+		sharedWithIDs: recipients.map((person) => person.userID),
+		revision: (existing?.revision ?? 0) + 1,
+		createdAt: existing?.createdAt ?? now,
+		updatedAt: now
+	};
+	const referenceBytes = new TextEncoder().encode(JSON.stringify(sharedReference, null, 2));
+	await upsertDriveFile(env, email, {
+		rootFolderID: connection.folder_id,
+		folders: tree.folders,
+		path: referencePath,
+		bytes: referenceBytes,
+		existingID: tree.files.get(referencePath)?.id ?? null
+	});
+	return {
+		shared: true,
+		referenceID: itemID,
+		recipientIDs: recipients.map((person) => person.userID),
+		people: people.filter((person) => person.userID !== connection.user_id)
+	};
+}
+
+async function processSharingOperation(env, email, captureID) {
+	for (let iteration = 0; iteration < 4; iteration += 1) {
+		const operation = await sharingOperation(env, email, captureID);
+		if (!operation || operation.status === 'failed' || operation.status === 'syncing') return;
+		const generation = operation.generation;
+		const startedAt = new Date().toISOString();
+		const claim = await env.DB.prepare(
+			`UPDATE sharing_operations
+			 SET status = 'syncing', attempt_count = attempt_count + 1, updated_at = ?
+			 WHERE user_email = ? AND capture_id = ? AND generation = ? AND status = 'queued'`
+		)
+			.bind(startedAt, email, captureID, generation)
+			.run();
+		if (Number(claim?.meta?.changes ?? 0) === 0) return;
+
+		try {
+			await performSharedItemUpdate(
+				env,
+				email,
+				captureID,
+				sharingOperationRecipientIDs(operation)
+			);
+			const completed = await env.DB.prepare(
+				`DELETE FROM sharing_operations
+				 WHERE user_email = ? AND capture_id = ? AND generation = ?`
+			)
+				.bind(email, captureID, generation)
+				.run();
+			if (Number(completed?.meta?.changes ?? 0) > 0) return;
+			await env.DB.prepare(
+				`UPDATE sharing_operations
+				 SET status = 'queued', updated_at = ?
+				 WHERE user_email = ? AND capture_id = ? AND status = 'syncing'`
+			)
+				.bind(new Date().toISOString(), email, captureID)
+				.run();
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : 'The document could not be shared.';
+			const failed = await env.DB.prepare(
+				`UPDATE sharing_operations
+				 SET status = 'failed', last_error = ?, updated_at = ?
+				 WHERE user_email = ? AND capture_id = ? AND generation = ?`
+			)
+				.bind(message, new Date().toISOString(), email, captureID, generation)
+				.run();
+			if (Number(failed?.meta?.changes ?? 0) > 0) return;
+			await env.DB.prepare(
+				`UPDATE sharing_operations
+				 SET status = 'queued', updated_at = ?
+				 WHERE user_email = ? AND capture_id = ? AND status = 'syncing'`
+			)
+				.bind(new Date().toISOString(), email, captureID)
+				.run();
+		}
+	}
+}
+
+async function resumeSharingOperation(env, email, captureID, operation, context) {
+	let resumable = operation;
+	if (
+		resumable?.status === 'syncing' &&
+		Date.now() - Date.parse(resumable.updated_at ?? '') > 2 * 60 * 1000
+	) {
+		await env.DB.prepare(
+			`UPDATE sharing_operations
+			 SET status = 'queued', updated_at = ?
+			 WHERE user_email = ? AND capture_id = ? AND generation = ? AND status = 'syncing'`
+		)
+			.bind(new Date().toISOString(), email, captureID, resumable.generation)
+			.run();
+		resumable = await sharingOperation(env, email, captureID);
+	}
+	if (resumable?.status === 'queued') {
+		scheduleSharingOperation(context, processSharingOperation(env, email, captureID));
+	}
+	return resumable;
+}
+
+async function sharedItemStatus(request, env, context) {
 	const email = authenticatedEmail(request);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
@@ -1655,15 +1906,39 @@ async function sharedItemStatus(request, env) {
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
 	}
+	const pending = await resumeSharingOperation(
+		env,
+		email,
+		captureID,
+		await sharingOperation(env, email, captureID),
+		context
+	);
 	try {
-		const context = await sharedItemContext(env, email, connection, captureID);
+		const itemContext = await sharedItemContext(env, email, connection, captureID);
+		const pendingRecipientIDs = pending
+			? sharingOperationRecipientIDs(pending)
+			: null;
 		return json({
-			shared: Boolean(context.reference),
-			referenceID: context.reference?.id,
-			recipientIDs: context.reference?.sharedWithIDs ?? [],
-			people: context.people.filter((person) => person.userID !== connection.user_id)
+			shared: pending ? pendingRecipientIDs.length > 0 : Boolean(itemContext.reference),
+			referenceID: itemContext.reference?.id,
+			recipientIDs: pendingRecipientIDs ?? itemContext.reference?.sharedWithIDs ?? [],
+			people: itemContext.people.filter((person) => person.userID !== connection.user_id),
+			operationStatus: pending?.status,
+			operationError: pending?.last_error ?? undefined
 		});
 	} catch (error) {
+		if (pending) {
+			const recipientIDs = sharingOperationRecipientIDs(pending);
+			return json({
+				shared: recipientIDs.length > 0,
+				recipientIDs,
+				people: [],
+				operationStatus: pending.status,
+				operationError:
+					pending.last_error ??
+					(error instanceof Error ? error.message : 'Sharing details could not be refreshed.')
+			});
+		}
 		return json(
 			{ error: error instanceof Error ? error.message : 'Sharing details could not be loaded.' },
 			{ status: 400 }
@@ -1671,7 +1946,29 @@ async function sharedItemStatus(request, env) {
 	}
 }
 
-async function updateSharedItem(request, env) {
+async function sharedOperationStatus(request, env, context) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const captureID = new URL(request.url).searchParams.get('captureID');
+	if (!validCaptureIdentifier(captureID)) {
+		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	const operation = await resumeSharingOperation(
+		env,
+		email,
+		captureID,
+		await sharingOperation(env, email, captureID),
+		context
+	);
+	if (!operation) return json({ status: 'complete' });
+	return json({
+		status: operation.status,
+		error: operation.last_error ?? undefined
+	});
+}
+
+async function updateSharedItem(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = authenticatedEmail(request);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
@@ -1692,114 +1989,19 @@ async function updateSharedItem(request, env) {
 	if (requestedIDs.length > 100 || requestedIDs.some((id) => !validSharedUserID(id))) {
 		return json({ error: 'One or more sharing recipients are invalid.' }, { status: 400 });
 	}
-	try {
-		const { itemID, personal, tree, people, reference: existing } = await sharedItemContext(
-			env,
-			email,
-			connection,
-			captureID,
-			true
-		);
-		const peopleByID = new Map(people.map((person) => [person.userID, person]));
-		const recipients = requestedIDs
-			.filter((id) => id !== connection.user_id)
-			.map((id) => peopleByID.get(id));
-		if (recipients.some((person) => !person)) {
-			throw new Error('One or more people are no longer available in the shared folder.');
-		}
-		recipients.sort((a, b) => a.username.localeCompare(b.username));
-		if (existing && existing.sharedByID !== connection.user_id) {
-			throw new Error('This shared item is owned by another person.');
-		}
-		const now = new Date().toISOString();
-		const referencePath = `shares/${itemID}.json`;
-		const companionPaths = sharedCompanionPaths(itemID);
-		if (recipients.length === 0) {
-			await Promise.all(
-				[referencePath, ...companionPaths]
-					.map((path) => tree.files.get(path))
-					.filter(Boolean)
-					.map((file) => trashDriveFile(env, email, file.id))
-			);
-			return json({
-				shared: false,
-				recipientIDs: [],
-				people: people.filter((person) => person.userID !== connection.user_id)
-			});
-		}
-
-		const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
-		const desired = [];
-		for (const text of personal.entry.texts ?? []) {
-			if (
-				!['source', 'brief', 'concise', 'detailed', 'comprehensive'].includes(text?.variant) ||
-				typeof text?.path !== 'string'
-			) {
-				continue;
-			}
-			const file = personalFiles.get(text.path);
-			if (!file) continue;
-			desired.push({
-				path: `library/${itemID}.${text.variant}.md`,
-				file
-			});
-		}
-		if (!desired.some((item) => item.path === `library/${itemID}.source.md`)) {
-			throw new Error('The source file has not synchronized to Google Drive yet.');
-		}
-		const desiredPaths = new Set(desired.map((item) => item.path));
-		await Promise.all(
-			companionPaths
-				.filter((path) => !desiredPaths.has(path))
-				.map((path) => tree.files.get(path))
-				.filter(Boolean)
-				.map((file) => trashDriveFile(env, email, file.id))
-		);
-		await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'library');
-		await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'shares');
-		for (const item of desired) {
-			const bytes = await downloadDriveFile(env, email, item.file.id);
-			await upsertDriveFile(env, email, {
-				rootFolderID: connection.folder_id,
-				folders: tree.folders,
-				path: item.path,
-				bytes,
-				existingID: tree.files.get(item.path)?.id ?? null
-			});
-		}
-
-		const sharedReference = {
-			schemaVersion: 2,
-			id: itemID,
-			itemID,
-			contentPath: `library/${itemID}.source.md`,
-			sourceFilename: personal.sourcePath.split('/').at(-1),
-			sharedByID: connection.user_id,
-			sharedWithIDs: recipients.map((person) => person.userID),
-			revision: (existing?.revision ?? 0) + 1,
-			createdAt: existing?.createdAt ?? now,
-			updatedAt: now
-		};
-		const referenceBytes = new TextEncoder().encode(JSON.stringify(sharedReference, null, 2));
-		await upsertDriveFile(env, email, {
-			rootFolderID: connection.folder_id,
-			folders: tree.folders,
-			path: referencePath,
-			bytes: referenceBytes,
-			existingID: tree.files.get(referencePath)?.id ?? null
-		});
-		return json({
-			shared: true,
-			referenceID: itemID,
-			recipientIDs: recipients.map((person) => person.userID),
-			people: people.filter((person) => person.userID !== connection.user_id)
-		});
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The document could not be shared.' },
-			{ status: 400 }
-		);
-	}
+	const recipientIDs = requestedIDs.filter((id) => id !== connection.user_id);
+	const operation = await enqueueSharingOperation(env, email, captureID, recipientIDs);
+	scheduleSharingOperation(context, processSharingOperation(env, email, captureID));
+	return json(
+		{
+			shared: recipientIDs.length > 0,
+			referenceID: recipientIDs.length > 0 ? await sharedItemID(captureID) : undefined,
+			recipientIDs,
+			people: [],
+			operationStatus: operation?.status === 'syncing' ? 'syncing' : 'queued'
+		},
+		{ status: 202 }
+	);
 }
 
 async function loadSharedInboxProjection(request, env) {
@@ -2245,7 +2447,7 @@ async function saveInboxReference(request, env, referenceID) {
 }
 
 const worker = {
-	async fetch(request, env) {
+	async fetch(request, env, context) {
 		const url = new URL(request.url);
 
 		if (url.pathname === '/api/openrouter/status' && request.method === 'GET') {
@@ -2279,10 +2481,13 @@ const worker = {
 			return disconnectSharedFolder(request, env);
 		}
 		if (url.pathname === '/api/sharing/item' && request.method === 'GET') {
-			return sharedItemStatus(request, env);
+			return sharedItemStatus(request, env, context);
 		}
 		if (url.pathname === '/api/sharing/item' && request.method === 'POST') {
-			return updateSharedItem(request, env);
+			return updateSharedItem(request, env, context);
+		}
+		if (url.pathname === '/api/sharing/operation' && request.method === 'GET') {
+			return sharedOperationStatus(request, env, context);
 		}
 		if (url.pathname === '/api/inbox' && request.method === 'GET') {
 			return loadSharedInboxProjection(request, env);

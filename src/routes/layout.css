@@ -1078,6 +1078,49 @@
 	white-space: nowrap;
 }
 
+.share-sync-state {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr);
+	align-items: start;
+	gap: 10px;
+	padding: 11px 12px;
+	border: 1px solid color-mix(in oklch, var(--primary) 20%, var(--border));
+	border-radius: 13px;
+	background: color-mix(in oklch, var(--primary) 7%, transparent);
+}
+
+.share-sync-state.error {
+	border-color: oklch(0.67 0.14 35 / 0.42);
+	background: oklch(0.96 0.025 35 / 0.8);
+}
+
+.share-sync-state > svg {
+	width: 17px;
+	height: 17px;
+	margin-top: 1px;
+	color: var(--primary);
+}
+
+.share-sync-state.error > svg {
+	color: oklch(0.5 0.17 35);
+}
+
+.share-sync-state div {
+	display: grid;
+	gap: 2px;
+}
+
+.share-sync-state strong {
+	font-size: 12px;
+	font-weight: 650;
+}
+
+.share-sync-state span {
+	color: var(--muted-foreground);
+	font-size: 10px;
+	line-height: 15px;
+}
+
 .share-search {
 	position: relative;
 	display: block;
