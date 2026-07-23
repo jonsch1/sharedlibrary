@@ -20,7 +20,6 @@
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import Volume2Icon from '@lucide/svelte/icons/volume-2';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -46,7 +45,6 @@
 	} from '$lib/library.js';
 	import {
 		beginOpenRouterConnection,
-		clearOpenRouterAudioCache,
 		completeOpenRouterConnection,
 		disconnectOpenRouter,
 		loadOpenRouterCredential,
@@ -471,15 +469,6 @@
 		saveVoicePreference(selected);
 		player.configureOpenRouter(openRouterCredential, selected);
 		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? 'Voice'} selected.`;
-	}
-
-	async function clearAudioCache(): Promise<void> {
-		try {
-			await clearOpenRouterAudioCache();
-			audioMessage = 'Generated audio cache cleared from this device.';
-		} catch {
-			audioMessage = 'The generated audio cache could not be cleared.';
-		}
 	}
 
 	function toggleAudioSettings(): void {
@@ -1069,37 +1058,6 @@
 					{/if}
 				</section>
 
-				<section class="audio-section audio-cache-section">
-					<div>
-						<h3>Offline audio</h3>
-						<p>
-							Generated segments are kept here, backed up to Google Drive, and mirrored
-							to your other connected clients in the background.
-						</p>
-					</div>
-					<Button variant="ghost" size="sm" onclick={clearAudioCache}>
-						<Trash2Icon data-icon="inline-start" />
-						Clear cache
-					</Button>
-				</section>
-
-				<div class="audio-privacy">
-						<ShieldCheckIcon />
-					<div>
-						<strong>Your key stays encrypted</strong>
-						<p>
-							OpenRouter creates a user-controlled key that Shared Library stores
-							encrypted for your private account. It is never added to your snapshot,
-							Google Drive, or the library projection. Text is sent to OpenRouter and xAI only when
-							you request narration.
-						</p>
-					</div>
-				</div>
-
-				<p class="device-fallback">
-					Previously generated Grok narration plays offline. If a segment has not been
-					generated yet, Shared Library can fall back to the speech voice built into this device.
-				</p>
 			</div>
 		</aside>
 	{/if}

@@ -1217,7 +1217,6 @@
 
 .audio-connection-heading p,
 .audio-section p,
-.device-fallback,
 .audio-privacy p {
 	margin: 4px 0 0;
 	color: var(--muted-foreground);
@@ -1237,8 +1236,7 @@
 	border-bottom: 1px solid var(--border);
 }
 
-.audio-section-heading,
-.audio-cache-section {
+.audio-section-heading {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -1247,11 +1245,6 @@
 
 .voice-description {
 	color: var(--primary) !important;
-}
-
-.audio-cache-section {
-	padding-right: 0;
-	padding-left: 0;
 }
 
 .audio-privacy {
@@ -1275,10 +1268,6 @@
 .audio-privacy strong {
 	font-size: 11px;
 	font-weight: 670;
-}
-
-.device-fallback {
-	margin: 14px 2px 0;
 }
 
 .queue-list {
