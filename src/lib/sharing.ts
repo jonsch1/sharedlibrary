@@ -32,6 +32,25 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
 	return fallback;
 }
 
+async function fetchWithTimeout(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	timeoutMilliseconds = 15_000
+): Promise<Response> {
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), timeoutMilliseconds);
+	try {
+		return await fetch(input, { ...init, signal: controller.signal });
+	} catch (error) {
+		if (error instanceof DOMException && error.name === 'AbortError') {
+			throw new Error('Google Drive took too long to respond. Please try again.');
+		}
+		throw error;
+	} finally {
+		clearTimeout(timeout);
+	}
+}
+
 export async function loadSharedFolderConnection(): Promise<SharedFolderConnection> {
 	const response = await fetch('/api/sharing/status', {
 		headers: { Accept: 'application/json' },
@@ -70,12 +89,13 @@ export async function disconnectSharedFolder(): Promise<void> {
 }
 
 export async function loadSharedItemStatus(captureID: string): Promise<SharedItemStatus> {
-	const response = await fetch(
+	const response = await fetchWithTimeout(
 		`/api/sharing/item?captureID=${encodeURIComponent(captureID)}`,
 		{
 			headers: { Accept: 'application/json' },
 			cache: 'no-store'
-		}
+		},
+		12_000
 	);
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not load sharing details.'));
@@ -99,10 +119,10 @@ export async function updateSharedItem(
 }
 
 export async function loadSharedInbox(): Promise<LibraryProjection> {
-	const response = await fetch('/api/inbox', {
+	const response = await fetchWithTimeout('/api/inbox', {
 		headers: { Accept: 'application/json' },
 		cache: 'no-store'
-	});
+	}, 20_000);
 	if (response.status === 401 || response.status === 404) {
 		return {
 			schemaVersion: 3,

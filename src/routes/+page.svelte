@@ -625,7 +625,7 @@
 				? `Shared with ${result.recipientIDs.length} ${
 						result.recipientIDs.length === 1 ? 'person' : 'people'
 					}. Their Inbox will update in the background.`
-				: 'Sharing stopped. Existing recipient Inbox records were revoked.';
+				: 'Sharing stopped. The item will disappear from recipient Inboxes; saved copies remain.';
 		} catch (error) {
 			connectionMessage =
 				error instanceof Error ? error.message : 'The document could not be shared.';
