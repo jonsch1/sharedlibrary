@@ -60,6 +60,10 @@
 		type GoogleDriveConnection
 	} from '$lib/google-drive.js';
 	import {
+		chooseGoogleDriveFolder,
+		type GoogleDriveFolderSelection
+	} from '$lib/google-drive-picker.js';
+	import {
 		connectSharedFolder,
 		dismissSharedInboxItem,
 		disconnectSharedFolder,
@@ -112,6 +116,7 @@
 	let googleSyncTotal = $state(0);
 	let sharedConnection = $state<SharedFolderConnection>({ connected: false });
 	let sharedFolderInput = $state('');
+	let sharedFolderName = $state('');
 	let sharedUsername = $state('');
 	let sharedBusy = $state(false);
 	let textRevision = $state(0);
@@ -251,6 +256,7 @@
 			googleConnection = google;
 			sharedConnection = shared;
 			sharedFolderInput = shared.folderID ?? '';
+			sharedFolderName = shared.folderName ?? '';
 			sharedUsername = shared.username ?? '';
 			if (googleResult === 'connected') {
 				connectionMessage =
@@ -422,13 +428,16 @@
 		}
 	}
 
-	async function connectSharingFolder(): Promise<void> {
+	async function connectSharingFolder(folder: GoogleDriveFolderSelection): Promise<void> {
 		sharedBusy = true;
 		connectionMessage = '';
 		try {
-			const connected = await connectSharedFolder(sharedFolderInput, sharedUsername);
+			sharedFolderInput = folder.id;
+			sharedFolderName = folder.name;
+			const connected = await connectSharedFolder(folder.id, sharedUsername);
 			sharedConnection = connected;
-			sharedFolderInput = connected.folderID ?? sharedFolderInput;
+			sharedFolderInput = connected.folderID ?? folder.id;
+			sharedFolderName = connected.folderName ?? folder.name;
 			sharedUsername = connected.username ?? sharedUsername;
 			connectionMessage = `Shared folder connected as @${connected.username}. Synchronizing the Inbox…`;
 			await syncFromGoogleDrive(false);
@@ -440,12 +449,28 @@
 		}
 	}
 
+	async function chooseSharingFolder(): Promise<void> {
+		sharedBusy = true;
+		connectionMessage = '';
+		try {
+			const folder = await chooseGoogleDriveFolder();
+			if (!folder) return;
+			await connectSharingFolder(folder);
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The Google Drive folder picker could not be opened.';
+		} finally {
+			sharedBusy = false;
+		}
+	}
+
 	async function removeSharedFolderConnection(): Promise<void> {
 		sharedBusy = true;
 		try {
 			await disconnectSharedFolder();
 			sharedConnection = { connected: false };
 			sharedFolderInput = '';
+			sharedFolderName = '';
 			projection = projection
 				? { ...projection, entries: projection.entries.filter((entry) => entry.origin === 'personal') }
 				: projection;
@@ -1418,7 +1443,7 @@
 					{#if sharedConnection.connected}
 						<div class="shared-connection-summary">
 							<strong>@{sharedConnection.username}</strong>
-							<span>{sharedConnection.folderID}</span>
+							<span>{sharedFolderName || sharedConnection.folderID}</span>
 						</div>
 						<Button
 							variant="outline"
@@ -1438,28 +1463,27 @@
 									autocomplete="username"
 								/>
 							</label>
-							<label>
-								<span>Google Drive folder</span>
-								<Input
-									bind:value={sharedFolderInput}
-									placeholder="Paste folder link or ID"
-								/>
-							</label>
 						</div>
 						<Button
 							disabled={sharedBusy ||
 								!googleConnection.connected ||
-								!sharedUsername.trim() ||
-								!sharedFolderInput.trim()}
-							onclick={connectSharingFolder}
+								!googleConnection.pickerConfigured ||
+								!sharedUsername.trim()}
+							onclick={chooseSharingFolder}
 						>
 							<InboxIcon data-icon="inline-start" />
-							{sharedBusy ? 'Connecting…' : 'Connect shared folder'}
+							{sharedBusy ? 'Opening Google Drive…' : 'Choose shared folder'}
 						</Button>
 						<p class="connection-help">
-							The folder must already exist and be shared with the intended group. Enter
-							the same username you use in the Mac app; an existing profile is reused.
+							Choose the existing group folder in Google Drive. This explicitly grants
+							Shared Library access to that folder only. Enter the same username you use
+							in the Mac app; an existing profile is reused.
 						</p>
+						{#if googleConnection.connected && !googleConnection.pickerConfigured}
+							<p class="connection-help">
+								The Google Drive folder picker has not been configured for this deployment.
+							</p>
+						{/if}
 					{/if}
 				</section>
 

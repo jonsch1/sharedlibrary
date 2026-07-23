@@ -116,8 +116,21 @@ test('Google Drive setup is centrally configured without exposing OAuth credenti
 		googleStatus.callbackURL,
 		'https://library.example/api/google/connect/callback'
 	);
+	assert.equal(googleStatus.pickerConfigured, true);
+	assert.equal(googleStatus.appID, '123456789');
 	assert.equal('clientID' in googleStatus, false);
 	assert.equal('clientSecret' in googleStatus, false);
+});
+
+test('folder picker requires a connected Google Drive account', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/google/picker'),
+		environment()
+	);
+	assert.equal(response.status, 409);
+	assert.deepEqual(await response.json(), {
+		error: 'Connect Google Drive before choosing a shared folder.'
+	});
 });
 
 test('shared folder is optional and independent from the personal Drive connection', async () => {

@@ -15,6 +15,11 @@ function authenticatedEmail(request) {
 	return email || null;
 }
 
+function googleCloudProjectNumber(clientID) {
+	const match = /^(\d+)(?:-|\.apps\.googleusercontent\.com$)/.exec(clientID ?? '');
+	return match?.[1] ?? null;
+}
+
 function requireSameOrigin(request) {
 	const expected = new URL(request.url).origin;
 	const origin = request.headers.get('Origin');
@@ -533,11 +538,42 @@ async function googleDriveStatus(request, env) {
 	)
 		.bind(email)
 		.first();
+	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	const appID = googleCloudProjectNumber(config?.clientID);
 	return json({
-		configured: Boolean(googleOAuthConfig(env) || connection),
+		configured: Boolean(config),
 		connected: Boolean(connection?.encrypted_refresh_token),
 		connectedAt: connection?.connected_at ?? undefined,
-		callbackURL: new URL('/api/google/connect/callback', request.url).toString()
+		callbackURL: new URL('/api/google/connect/callback', request.url).toString(),
+		pickerConfigured: Boolean(appID),
+		appID: appID ?? undefined
+	});
+}
+
+async function googleDrivePickerConfig(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await googleDriveConnection(env, email);
+	if (!connection?.encrypted_refresh_token) {
+		return json({ error: 'Connect Google Drive before choosing a shared folder.' }, { status: 409 });
+	}
+	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	const appID = googleCloudProjectNumber(config?.clientID);
+	if (!appID) {
+		return json(
+			{ error: 'Google Drive Picker is not configured for this deployment.' },
+			{ status: 503 }
+		);
+	}
+	const oauthToken = await googleAccessToken(env, email);
+	if (!oauthToken) {
+		return json({ error: 'Reconnect Google Drive before choosing a folder.' }, { status: 401 });
+	}
+	return json({
+		appID,
+		oauthToken,
+		developerKey: env.GOOGLE_DRIVE_PICKER_API_KEY || undefined
 	});
 }
 
@@ -1062,7 +1098,7 @@ async function driveFolderMetadata(env, email, folderID) {
 	if (!response.ok) {
 		throw new Error(
 			response.status === 404
-				? 'Google Drive did not grant Shared Library access to that folder. Open or create the folder with this Google account, then try again.'
+				? 'Google Drive has not granted Shared Library access to that folder. Choose it with the folder picker, then try again.'
 				: `The shared Google Drive folder could not be opened (${response.status}).`
 		);
 	}
@@ -1815,8 +1851,11 @@ const worker = {
 		if (url.pathname === '/api/google/status' && request.method === 'GET') {
 			return googleDriveStatus(request, env);
 		}
-			if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
-				return startGoogleDriveConnection(request, env);
+		if (url.pathname === '/api/google/picker' && request.method === 'GET') {
+			return googleDrivePickerConfig(request, env);
+		}
+		if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
+			return startGoogleDriveConnection(request, env);
 		}
 		if (url.pathname === '/api/google/connect/callback' && request.method === 'GET') {
 			return finishGoogleDriveConnection(request, env);

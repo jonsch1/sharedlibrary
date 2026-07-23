@@ -3,6 +3,8 @@ export interface GoogleDriveConnection {
 	connected: boolean;
 	connectedAt?: string;
 	callbackURL?: string;
+	pickerConfigured?: boolean;
+	appID?: string;
 }
 
 export interface GoogleDriveAudioFile {
