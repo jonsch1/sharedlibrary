@@ -2,6 +2,7 @@ interface GoogleDrivePickerConfig {
 	appID: string;
 	oauthToken: string;
 	developerKey?: string;
+	folderID?: string;
 }
 
 export interface GoogleDriveFolderSelection {
@@ -64,7 +65,12 @@ export async function chooseGoogleDriveFolder(): Promise<GoogleDriveFolderSelect
 		picker.setAttribute('app-id', config.appID);
 		picker.setAttribute('oauth-token', config.oauthToken);
 		picker.setAttribute('origin', window.location.origin);
-		picker.setAttribute('title', 'Choose the Shared Library group folder');
+		picker.setAttribute(
+			'title',
+			config.folderID
+				? 'Confirm the Shared Library group folder'
+				: 'Choose the Shared Library group folder'
+		);
 		picker.setAttribute('max-items', '1');
 		if (config.developerKey) picker.setAttribute('developer-key', config.developerKey);
 
@@ -74,6 +80,7 @@ export async function chooseGoogleDriveFolder(): Promise<GoogleDriveFolderSelect
 		view.setAttribute('select-folder-enabled', 'true');
 		view.setAttribute('mime-types', 'application/vnd.google-apps.folder');
 		view.setAttribute('mode', 'LIST');
+		if (config.folderID) view.setAttribute('file-ids', config.folderID);
 		picker.append(view);
 
 		picker.addEventListener('picker-picked', (event) => {
@@ -89,6 +96,10 @@ export async function chooseGoogleDriveFolder(): Promise<GoogleDriveFolderSelect
 					null,
 					new Error('Choose a Google Drive folder rather than an individual file.')
 				);
+				return;
+			}
+			if (config.folderID && folder.id !== config.folderID) {
+				finish(null, new Error('Confirm the predefined Shared Library group folder.'));
 				return;
 			}
 			finish({ id: folder.id, name: folder.name });

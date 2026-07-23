@@ -20,6 +20,11 @@ function googleCloudProjectNumber(clientID) {
 	return match?.[1] ?? null;
 }
 
+function configuredGroupFolderID(env) {
+	const value = String(env.SHARED_LIBRARY_GROUP_FOLDER_ID || '').trim();
+	return /^[A-Za-z0-9_-]{10,256}$/.test(value) ? value : null;
+}
+
 function requireSameOrigin(request) {
 	const expected = new URL(request.url).origin;
 	const origin = request.headers.get('Origin');
@@ -540,13 +545,15 @@ async function googleDriveStatus(request, env) {
 		.first();
 	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
 	const appID = googleCloudProjectNumber(config?.clientID);
+	const groupFolderID = configuredGroupFolderID(env);
 	return json({
 		configured: Boolean(config),
 		connected: Boolean(connection?.encrypted_refresh_token),
 		connectedAt: connection?.connected_at ?? undefined,
 		callbackURL: new URL('/api/google/connect/callback', request.url).toString(),
 		pickerConfigured: Boolean(appID),
-		appID: appID ?? undefined
+		appID: appID ?? undefined,
+		groupFolderConfigured: Boolean(groupFolderID)
 	});
 }
 
@@ -573,7 +580,8 @@ async function googleDrivePickerConfig(request, env) {
 	return json({
 		appID,
 		oauthToken,
-		developerKey: env.GOOGLE_DRIVE_PICKER_API_KEY || undefined
+		developerKey: env.GOOGLE_DRIVE_PICKER_API_KEY || undefined,
+		folderID: configuredGroupFolderID(env) ?? undefined
 	});
 }
 
@@ -1322,7 +1330,14 @@ async function connectSharedFolder(request, env) {
 	}
 	const folderID = googleDriveFolderID(value?.folder);
 	const username = normalizedUsername(value?.username);
-	if (!folderID) return json({ error: 'Paste a valid Google Drive folder link or ID.' }, { status: 400 });
+	if (!folderID) return json({ error: 'Choose a valid Google Drive folder.' }, { status: 400 });
+	const groupFolderID = configuredGroupFolderID(env);
+	if (groupFolderID && folderID !== groupFolderID) {
+		return json(
+			{ error: 'Choose the predefined Shared Library group folder.' },
+			{ status: 400 }
+		);
+	}
 	if (!validUsername(username)) {
 		return json(
 			{ error: 'Use 2–32 letters, numbers, hyphens, or underscores for the username.' },

@@ -115,7 +115,6 @@
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
 	let sharedConnection = $state<SharedFolderConnection>({ connected: false });
-	let sharedFolderInput = $state('');
 	let sharedFolderName = $state('');
 	let sharedUsername = $state('');
 	let sharedBusy = $state(false);
@@ -255,7 +254,6 @@
 			if (!isActive()) return;
 			googleConnection = google;
 			sharedConnection = shared;
-			sharedFolderInput = shared.folderID ?? '';
 			sharedFolderName = shared.folderName ?? '';
 			sharedUsername = shared.username ?? '';
 			if (googleResult === 'connected') {
@@ -432,11 +430,9 @@
 		sharedBusy = true;
 		connectionMessage = '';
 		try {
-			sharedFolderInput = folder.id;
 			sharedFolderName = folder.name;
 			const connected = await connectSharedFolder(folder.id, sharedUsername);
 			sharedConnection = connected;
-			sharedFolderInput = connected.folderID ?? folder.id;
 			sharedFolderName = connected.folderName ?? folder.name;
 			sharedUsername = connected.username ?? sharedUsername;
 			connectionMessage = `Shared folder connected as @${connected.username}. Synchronizing the Inbox…`;
@@ -469,7 +465,6 @@
 		try {
 			await disconnectSharedFolder();
 			sharedConnection = { connected: false };
-			sharedFolderInput = '';
 			sharedFolderName = '';
 			projection = projection
 				? { ...projection, entries: projection.entries.filter((entry) => entry.origin === 'personal') }
@@ -1472,12 +1467,22 @@
 							onclick={chooseSharingFolder}
 						>
 							<InboxIcon data-icon="inline-start" />
-							{sharedBusy ? 'Opening Google Drive…' : 'Choose shared folder'}
+							{sharedBusy
+								? 'Opening Google Drive…'
+								: googleConnection.groupFolderConfigured
+									? 'Confirm group folder'
+									: 'Choose shared folder'}
 						</Button>
 						<p class="connection-help">
-							Choose the existing group folder in Google Drive. This explicitly grants
-							Shared Library access to that folder only. Enter the same username you use
-							in the Mac app; an existing profile is reused.
+							{#if googleConnection.groupFolderConfigured}
+								The group folder is already configured. Google will show it for one-time
+								confirmation; you do not need to find or paste it. Enter the same username
+								you use in the Mac app; an existing profile is reused.
+							{:else}
+								Choose the existing group folder in Google Drive. This explicitly grants
+								Shared Library access to that folder only. Enter the same username you use
+								in the Mac app; an existing profile is reused.
+							{/if}
 						</p>
 						{#if googleConnection.connected && !googleConnection.pickerConfigured}
 							<p class="connection-help">

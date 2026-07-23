@@ -71,6 +71,7 @@ function environment(database = new MockDatabase()) {
 		GOOGLE_DRIVE_WEB_CLIENT_ID:
 			'123456789-sharedlibrary.apps.googleusercontent.com',
 		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
+		SHARED_LIBRARY_GROUP_FOLDER_ID: '1ConfiguredGroupFolder234567890',
 		ASSETS: {
 			async fetch() {
 				return new Response('asset', { status: 200 });
@@ -118,6 +119,7 @@ test('Google Drive setup is centrally configured without exposing OAuth credenti
 	);
 	assert.equal(googleStatus.pickerConfigured, true);
 	assert.equal(googleStatus.appID, '123456789');
+	assert.equal(googleStatus.groupFolderConfigured, true);
 	assert.equal('clientID' in googleStatus, false);
 	assert.equal('clientSecret' in googleStatus, false);
 });
@@ -140,6 +142,27 @@ test('shared folder is optional and independent from the personal Drive connecti
 	);
 	assert.equal(response.status, 200);
 	assert.deepEqual(await response.json(), { connected: false });
+});
+
+test('shared folder connection is restricted to the configured group folder', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/sharing/connect', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				folder: '1DifferentGoogleDriveFolder2345',
+				username: 'reader'
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 400);
+	assert.deepEqual(await response.json(), {
+		error: 'Choose the predefined Shared Library group folder.'
+	});
 });
 
 test('Google authorization uses the central web client with each user account', async () => {

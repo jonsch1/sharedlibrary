@@ -5,6 +5,7 @@ export interface GoogleDriveConnection {
 	callbackURL?: string;
 	pickerConfigured?: boolean;
 	appID?: string;
+	groupFolderConfigured?: boolean;
 }
 
 export interface GoogleDriveAudioFile {
