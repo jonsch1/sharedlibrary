@@ -190,6 +190,13 @@
 	onMount(() => {
 		let active = true;
 		let lastAutomaticSync = 0;
+		let reloadingForServiceWorker = false;
+		const activateLatestVersion = (): void => {
+			if (reloadingForServiceWorker) return;
+			reloadingForServiceWorker = true;
+			window.location.reload();
+		};
+		navigator.serviceWorker?.addEventListener('controllerchange', activateLatestVersion);
 		if (narrationAudio) player.attachAudioElement(narrationAudio);
 		const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
 		const isAppleMobile =
@@ -228,6 +235,7 @@
 			window.removeEventListener('online', automaticallySync);
 			window.removeEventListener('focus', automaticallySync);
 			document.removeEventListener('visibilitychange', automaticallySync);
+			navigator.serviceWorker?.removeEventListener('controllerchange', activateLatestVersion);
 			player.dispose();
 		};
 	});

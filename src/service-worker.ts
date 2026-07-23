@@ -8,7 +8,12 @@ const audioCacheName = 'shared-library-openrouter-audio-v1';
 const applicationFiles = [...build, ...files];
 
 worker.addEventListener('install', (event) => {
-	event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(applicationFiles)));
+	event.waitUntil(
+		caches
+			.open(cacheName)
+			.then((cache) => cache.addAll(applicationFiles))
+			.then(() => worker.skipWaiting())
+	);
 });
 
 worker.addEventListener('activate', (event) => {
