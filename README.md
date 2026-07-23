@@ -15,7 +15,7 @@ The hosted web app contains no personal library content. Re-import the snapshot 
 
 Audio settings connect the signed-in Shared Library user to OpenRouter through its OAuth PKCE flow. The user-controlled API key is encrypted with AES-GCM and stored in the site's private D1 database, allowing the connection to survive Safari-to-Home-Screen handoffs on iOS without exposing the key to browser JavaScript. It is never added to the library snapshot, iCloud Drive, or Git.
 
-Narration uses `x-ai/grok-voice-tts-1.0` and progressively plays MP3 output as it arrives through a same-origin server endpoint. The service worker keeps the completed stream in the browser Cache API for later replay. Disconnecting removes the encrypted credential for the signed-in user; clearing the device-local audio cache is a separate action.
+Narration uses `x-ai/grok-voice-tts-1.0`. Long documents are generated as short MP3 segments; playback starts after the first segment is ready while the next segment is prepared in the background. Completed segments are kept in the browser Cache API for later replay. Disconnecting removes the encrypted credential for the signed-in user; clearing the device-local audio cache is a separate action.
 
 When OpenRouter is not connected or the device is offline, the reader falls back to browser-native speech synthesis. Text is sent to OpenRouter and xAI only when the user requests narration.
 

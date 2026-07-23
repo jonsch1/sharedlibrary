@@ -18,13 +18,10 @@ export interface OpenRouterCredential {
 
 const audioCacheName = 'shared-library-openrouter-audio-v1';
 const voicePreferenceKey = 'shared-library-openrouter-voice';
-const maximumInputLength = 14_000;
-const streamPathPrefix = '/__openrouter-speech-stream/';
-const streamPreparationTimeoutMilliseconds = 1_500;
+const maximumSpeechSegmentLength = 360;
 
 export interface OpenRouterSpeechSource {
 	url: string;
-	streaming: boolean;
 	release: () => void;
 }
 
@@ -134,12 +131,24 @@ export function openRouterSpeechChunks(text: string): string[] {
 	for (const sentence of sentences) {
 		const trimmed = sentence.trim();
 		if (!trimmed) continue;
-		if (trimmed.length > maximumInputLength) {
+		if (trimmed.length > maximumSpeechSegmentLength) {
 			flush();
-			for (let offset = 0; offset < trimmed.length; offset += maximumInputLength) {
-				chunks.push(trimmed.slice(offset, offset + maximumInputLength));
+			let remaining = trimmed;
+			while (remaining.length > maximumSpeechSegmentLength) {
+				const candidate = remaining.slice(0, maximumSpeechSegmentLength + 1);
+				const wordBoundary = candidate.lastIndexOf(' ');
+				const splitAt =
+					wordBoundary >= Math.floor(maximumSpeechSegmentLength * 0.6)
+						? wordBoundary
+						: maximumSpeechSegmentLength;
+				chunks.push(remaining.slice(0, splitAt).trim());
+				remaining = remaining.slice(splitAt).trim();
 			}
-		} else if (current && current.length + trimmed.length + 1 > maximumInputLength) {
+			if (remaining) current = remaining;
+		} else if (
+			current &&
+			current.length + trimmed.length + 1 > maximumSpeechSegmentLength
+		) {
 			flush();
 			current = trimmed;
 		} else {
@@ -205,10 +214,14 @@ export class OpenRouterSpeechError extends Error {
 
 function blobSpeechSource(audio: Blob): OpenRouterSpeechSource {
 	const url = URL.createObjectURL(audio);
+	let released = false;
 	return {
 		url,
-		streaming: false,
-		release: () => URL.revokeObjectURL(url)
+		release: () => {
+			if (released) return;
+			released = true;
+			URL.revokeObjectURL(url);
+		}
 	};
 }
 
@@ -216,105 +229,14 @@ function abortError(): DOMException {
 	return new DOMException('Speech generation was cancelled.', 'AbortError');
 }
 
-async function prepareServiceWorkerStream(
-	text: string,
-	voice: OpenRouterVoice,
-	signal: AbortSignal | undefined,
-	onError: (error: OpenRouterSpeechError) => void
-): Promise<OpenRouterSpeechSource | null> {
-	if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) return null;
-	if (signal?.aborted) throw abortError();
-
-	const controller = navigator.serviceWorker.controller;
-	const id = crypto.randomUUID();
-	const cacheURL = (await audioCacheRequest(text, voice)).url;
-	const channel = new MessageChannel();
-
-	return new Promise((resolve, reject) => {
-		let prepared = false;
-		let released = false;
-
-		const cancel = (): void => {
-			if (released) return;
-			released = true;
-			clearTimeout(timeout);
-			signal?.removeEventListener('abort', abort);
-			channel.port1.close();
-			try {
-				controller.postMessage({ type: 'cancel-openrouter-speech-stream', id });
-			} catch {
-				// The worker may already have been replaced or stopped.
-			}
-		};
-		const abort = (): void => {
-			cancel();
-			if (!prepared) reject(abortError());
-		};
-		const timeout = window.setTimeout(() => {
-			cancel();
-			if (!prepared) resolve(null);
-		}, streamPreparationTimeoutMilliseconds);
-
-		channel.port1.onmessage = (event: MessageEvent<unknown>) => {
-			const value = event.data as {
-				type?: unknown;
-				status?: unknown;
-				message?: unknown;
-			};
-			if (value.type === 'openrouter-speech-stream-ready' && !prepared) {
-				prepared = true;
-				clearTimeout(timeout);
-				resolve({
-					url: new URL(`${streamPathPrefix}${id}.mp3`, window.location.origin).toString(),
-					streaming: true,
-					release: cancel
-				});
-				return;
-			}
-			if (value.type === 'openrouter-speech-stream-error') {
-				onError(
-					new OpenRouterSpeechError(
-						typeof value.message === 'string'
-							? value.message
-							: 'OpenRouter speech streaming failed.',
-						typeof value.status === 'number' ? value.status : 502
-					)
-				);
-			}
-		};
-		channel.port1.start();
-		signal?.addEventListener('abort', abort, { once: true });
-
-		try {
-			controller.postMessage(
-				{
-					type: 'prepare-openrouter-speech-stream',
-					id,
-					input: text,
-					voice,
-					cacheURL
-				},
-				[channel.port2]
-			);
-		} catch {
-			cancel();
-			resolve(null);
-		}
-	});
-}
-
 export async function createOpenRouterSpeechSource(
 	_credential: OpenRouterCredential,
 	text: string,
 	voice: OpenRouterVoice,
-	signal?: AbortSignal,
-	onStreamError: (error: OpenRouterSpeechError) => void = () => {}
+	signal?: AbortSignal
 ): Promise<OpenRouterSpeechSource> {
 	const cached = await loadCachedSpeech(text, voice);
 	if (cached) return blobSpeechSource(cached);
-
-	const streamed = await prepareServiceWorkerStream(text, voice, signal, onStreamError);
-	if (streamed) return streamed;
 	if (signal?.aborted) throw abortError();
 
 	const response = await fetch('/api/tts', {

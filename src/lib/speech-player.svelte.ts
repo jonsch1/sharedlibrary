@@ -5,6 +5,7 @@ import {
 	openRouterSpeechChunks,
 	OpenRouterSpeechError,
 	type OpenRouterCredential,
+	type OpenRouterSpeechSource,
 	type OpenRouterVoice
 } from '$lib/openrouter.js';
 
@@ -55,7 +56,6 @@ export class SpeechPlayer {
 	queue = $state<LibraryEntry[]>([]);
 	notice = $state('');
 	requiresReconnect = $state(false);
-	streaming = $state(false);
 
 	private credential: OpenRouterCredential | null = null;
 	private voice: OpenRouterVoice = 'eve';
@@ -64,6 +64,7 @@ export class SpeechPlayer {
 	private audio: HTMLAudioElement | null = null;
 	private releaseAudioSource: (() => void) | null = null;
 	private abortController: AbortController | null = null;
+	private sourcePromises = new Map<number, Promise<OpenRouterSpeechSource>>();
 	private sessionID = 0;
 
 	configureOpenRouter(
@@ -87,7 +88,6 @@ export class SpeechPlayer {
 		this.currentVariant = availableVariant;
 		this.chunkIndex = 0;
 		this.progress = 0;
-		this.streaming = false;
 		this.notice = '';
 		this.requiresReconnect = false;
 		this.updateMediaSession();
@@ -96,6 +96,7 @@ export class SpeechPlayer {
 			this.provider = 'openrouter';
 			this.chunks = openRouterSpeechChunks(cleanText);
 			this.state = 'loading';
+			this.abortController = new AbortController();
 			void this.playOpenRouterChunk(sessionID);
 			return;
 		}
@@ -154,7 +155,6 @@ export class SpeechPlayer {
 		this.progress = 0;
 		this.chunks = [];
 		this.chunkIndex = 0;
-		this.streaming = false;
 		if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
 	}
 
@@ -205,7 +205,6 @@ export class SpeechPlayer {
 		}
 
 		this.state = 'loading';
-		this.abortController = new AbortController();
 		let failureHandled = false;
 		const fail = (message: string, status?: number): void => {
 			if (failureHandled || sessionID !== this.sessionID) return;
@@ -214,24 +213,25 @@ export class SpeechPlayer {
 			this.fallbackToDevice(chunk, `${message} Using the device voice.`);
 		};
 		try {
-			const source = await createOpenRouterSpeechSource(
-				this.credential,
-				chunk,
-				this.voice,
-				this.abortController.signal,
-				(error) => fail(error.message, error.status)
-			);
+			const source = await this.sourceForChunk(this.chunkIndex, sessionID);
+			this.sourcePromises.delete(this.chunkIndex);
 			if (sessionID !== this.sessionID) {
 				source.release();
 				return;
 			}
-			this.releaseAudio();
+			this.releaseCurrentAudioSource();
 			this.releaseAudioSource = source.release;
-			this.streaming = source.streaming;
-			const audio = new Audio(source.url);
+			const audio = this.audio ?? new Audio();
+			audio.src = source.url;
 			audio.preload = 'auto';
 			audio.playbackRate = this.rate;
 			this.audio = audio;
+			const nextChunkIndex = this.chunkIndex + 1;
+			if (nextChunkIndex < this.chunks.length) {
+				void this.sourceForChunk(nextChunkIndex, sessionID).catch(() => {
+					// The error is handled if this segment is needed for playback.
+				});
+			}
 			audio.ontimeupdate = () => {
 				if (sessionID !== this.sessionID) return;
 				const withinChunk =
@@ -245,18 +245,13 @@ export class SpeechPlayer {
 			};
 			audio.onended = () => {
 				if (sessionID !== this.sessionID) return;
-				this.releaseAudio();
-				this.streaming = false;
+				this.releaseCurrentAudioSource();
 				this.chunkIndex += 1;
 				this.progress = Math.min(1, this.chunkIndex / Math.max(1, this.chunks.length));
 				void this.playOpenRouterChunk(sessionID);
 			};
 			audio.onerror = () => {
-				fail(
-					source.streaming
-						? 'The generated audio stream was interrupted.'
-						: 'The generated audio could not be played.'
-				);
+				fail('The generated audio could not be played.');
 			};
 			audio.onplaying = () => {
 				if (sessionID !== this.sessionID) return;
@@ -289,9 +284,38 @@ export class SpeechPlayer {
 	private fallbackToDevice(remainingChunk: string, notice: string): void {
 		const remainingText = [remainingChunk, ...this.chunks.slice(this.chunkIndex + 1)].join(' ');
 		this.cancelActivePlayback();
-		this.streaming = false;
 		this.notice = notice;
 		this.startDeviceSpeech(remainingText);
+	}
+
+	private sourceForChunk(
+		index: number,
+		sessionID: number
+	): Promise<OpenRouterSpeechSource> {
+		const existing = this.sourcePromises.get(index);
+		if (existing) return existing;
+
+		const chunk = this.chunks[index];
+		const credential = this.credential;
+		const controller = this.abortController;
+		if (!chunk || !credential || !controller) {
+			return Promise.reject(new DOMException('Speech generation was cancelled.', 'AbortError'));
+		}
+
+		const sourcePromise = createOpenRouterSpeechSource(
+			credential,
+			chunk,
+			this.voice,
+			controller.signal
+		).then((source) => {
+			if (sessionID !== this.sessionID || controller.signal.aborted) {
+				source.release();
+				throw new DOMException('Speech generation was cancelled.', 'AbortError');
+			}
+			return source;
+		});
+		this.sourcePromises.set(index, sourcePromise);
+		return sourcePromise;
 	}
 
 	private startDeviceSpeech(text: string): void {
@@ -337,6 +361,11 @@ export class SpeechPlayer {
 		if ('speechSynthesis' in globalThis) speechSynthesis.cancel();
 		this.abortController?.abort();
 		this.abortController = null;
+		const pendingSources = [...this.sourcePromises.values()];
+		this.sourcePromises.clear();
+		for (const sourcePromise of pendingSources) {
+			void sourcePromise.then((source) => source.release()).catch(() => {});
+		}
 		this.releaseAudio();
 	}
 
@@ -351,6 +380,10 @@ export class SpeechPlayer {
 			this.audio.load();
 			this.audio = null;
 		}
+		this.releaseCurrentAudioSource();
+	}
+
+	private releaseCurrentAudioSource(): void {
 		this.releaseAudioSource?.();
 		this.releaseAudioSource = null;
 	}
