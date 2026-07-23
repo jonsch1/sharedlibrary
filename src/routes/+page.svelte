@@ -591,7 +591,9 @@
 				<div class="now-playing-copy">
 					<span>
 						{#if player.state === 'loading'}
-							Generating with {currentVoiceName}
+							Starting {currentVoiceName}
+						{:else if player.provider === 'openrouter' && player.streaming}
+							Streaming · {currentVoiceName}
 						{:else if player.provider === 'openrouter'}
 							Grok voice · {currentVoiceName}
 						{:else if player.provider === 'device'}
@@ -760,7 +762,7 @@
 				<section class="audio-section audio-cache-section">
 					<div>
 						<h3>Offline audio</h3>
-						<p>Generated speech is cached only in this browser for replay.</p>
+						<p>Completed streams are cached only in this browser for replay.</p>
 					</div>
 					<Button variant="ghost" size="sm" onclick={clearAudioCache}>
 						<Trash2Icon data-icon="inline-start" />

@@ -1,7 +1,7 @@
 import type { LibraryEntry, LibraryVariant } from '$lib/library.js';
 import { preferredVariant, textFor } from '$lib/library.js';
 import {
-	createOpenRouterSpeech,
+	createOpenRouterSpeechSource,
 	openRouterSpeechChunks,
 	OpenRouterSpeechError,
 	type OpenRouterCredential,
@@ -55,13 +55,14 @@ export class SpeechPlayer {
 	queue = $state<LibraryEntry[]>([]);
 	notice = $state('');
 	requiresReconnect = $state(false);
+	streaming = $state(false);
 
 	private credential: OpenRouterCredential | null = null;
 	private voice: OpenRouterVoice = 'eve';
 	private chunks: string[] = [];
 	private chunkIndex = 0;
 	private audio: HTMLAudioElement | null = null;
-	private audioURL: string | null = null;
+	private releaseAudioSource: (() => void) | null = null;
 	private abortController: AbortController | null = null;
 	private sessionID = 0;
 
@@ -86,6 +87,7 @@ export class SpeechPlayer {
 		this.currentVariant = availableVariant;
 		this.chunkIndex = 0;
 		this.progress = 0;
+		this.streaming = false;
 		this.notice = '';
 		this.requiresReconnect = false;
 		this.updateMediaSession();
@@ -152,6 +154,7 @@ export class SpeechPlayer {
 		this.progress = 0;
 		this.chunks = [];
 		this.chunkIndex = 0;
+		this.streaming = false;
 		if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
 	}
 
@@ -203,17 +206,29 @@ export class SpeechPlayer {
 
 		this.state = 'loading';
 		this.abortController = new AbortController();
+		let failureHandled = false;
+		const fail = (message: string, status?: number): void => {
+			if (failureHandled || sessionID !== this.sessionID) return;
+			failureHandled = true;
+			if (status === 401 || status === 403) this.requiresReconnect = true;
+			this.fallbackToDevice(chunk, `${message} Using the device voice.`);
+		};
 		try {
-			const blob = await createOpenRouterSpeech(
+			const source = await createOpenRouterSpeechSource(
 				this.credential,
 				chunk,
 				this.voice,
-				this.abortController.signal
+				this.abortController.signal,
+				(error) => fail(error.message, error.status)
 			);
-			if (sessionID !== this.sessionID) return;
+			if (sessionID !== this.sessionID) {
+				source.release();
+				return;
+			}
 			this.releaseAudio();
-			this.audioURL = URL.createObjectURL(blob);
-			const audio = new Audio(this.audioURL);
+			this.releaseAudioSource = source.release;
+			this.streaming = source.streaming;
+			const audio = new Audio(source.url);
 			audio.preload = 'auto';
 			audio.playbackRate = this.rate;
 			this.audio = audio;
@@ -231,13 +246,22 @@ export class SpeechPlayer {
 			audio.onended = () => {
 				if (sessionID !== this.sessionID) return;
 				this.releaseAudio();
+				this.streaming = false;
 				this.chunkIndex += 1;
 				this.progress = Math.min(1, this.chunkIndex / Math.max(1, this.chunks.length));
 				void this.playOpenRouterChunk(sessionID);
 			};
 			audio.onerror = () => {
+				fail(
+					source.streaming
+						? 'The generated audio stream was interrupted.'
+						: 'The generated audio could not be played.'
+				);
+			};
+			audio.onplaying = () => {
 				if (sessionID !== this.sessionID) return;
-				this.fallbackToDevice(chunk, 'The generated audio could not be played.');
+				this.state = 'playing';
+				if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 			};
 			await audio.play();
 			if (sessionID !== this.sessionID) return;
@@ -252,17 +276,20 @@ export class SpeechPlayer {
 				this.notice = 'Audio is ready. Tap play to begin.';
 				return;
 			}
-			if (error instanceof OpenRouterSpeechError && (error.status === 401 || error.status === 403)) {
-				this.requiresReconnect = true;
+			if (failureHandled) return;
+			if (error instanceof OpenRouterSpeechError) {
+				fail(error.message, error.status);
+				return;
 			}
 			const message = error instanceof Error ? error.message : 'OpenRouter speech is unavailable.';
-			this.fallbackToDevice(chunk, `${message} Using the device voice.`);
+			fail(message);
 		}
 	}
 
 	private fallbackToDevice(remainingChunk: string, notice: string): void {
 		const remainingText = [remainingChunk, ...this.chunks.slice(this.chunkIndex + 1)].join(' ');
 		this.cancelActivePlayback();
+		this.streaming = false;
 		this.notice = notice;
 		this.startDeviceSpeech(remainingText);
 	}
@@ -315,15 +342,17 @@ export class SpeechPlayer {
 
 	private releaseAudio(): void {
 		if (this.audio) {
+			this.audio.ontimeupdate = null;
+			this.audio.onended = null;
+			this.audio.onerror = null;
+			this.audio.onplaying = null;
 			this.audio.pause();
 			this.audio.removeAttribute('src');
 			this.audio.load();
 			this.audio = null;
 		}
-		if (this.audioURL) {
-			URL.revokeObjectURL(this.audioURL);
-			this.audioURL = null;
-		}
+		this.releaseAudioSource?.();
+		this.releaseAudioSource = null;
 	}
 
 	private updateMediaSession(): void {
