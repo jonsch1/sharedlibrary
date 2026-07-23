@@ -1078,6 +1078,44 @@
 	margin-top: 14px;
 }
 
+.shared-folder-fields {
+	display: grid;
+	gap: 10px;
+	margin: 14px 0 12px;
+}
+
+.shared-folder-fields label {
+	display: grid;
+	gap: 5px;
+}
+
+.shared-folder-fields label > span {
+	color: var(--muted-foreground);
+	font-size: 10px;
+	font-weight: 650;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+}
+
+.shared-connection-summary {
+	display: grid;
+	gap: 3px;
+	margin: 12px 0;
+}
+
+.shared-connection-summary strong {
+	font-size: 13px;
+}
+
+.shared-connection-summary span {
+	overflow: hidden;
+	color: var(--muted-foreground);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .connection-field {
 	display: grid;
 	gap: 6px;
@@ -1714,6 +1752,18 @@ html {
 		0 1px 2px rgb(0 0 0 / 10%);
 }
 
+.topic-chip.inbox-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	line-height: 1;
+}
+
+.topic-chip.inbox-chip svg {
+	width: 13px;
+	height: 13px;
+}
+
 .native-entry-list {
 	min-height: 0;
 	flex: 1;
@@ -2068,6 +2118,17 @@ html {
 	margin: 0;
 }
 
+.native-icon-button.inbox-save-action {
+	border-color: rgb(25 109 86 / 24%);
+	background: rgb(215 238 229 / 65%);
+	color: rgb(18 91 71);
+}
+
+.native-icon-button.inbox-dismiss-action {
+	border-color: rgb(133 70 62 / 18%);
+	color: rgb(113 58 50);
+}
+
 .native-play-button {
 	width: 38px;
 	height: 38px;
@@ -2395,6 +2456,12 @@ html {
 	}
 
 	.native-queue-count {
+		display: none;
+	}
+
+	.native-document-footer.has-inbox-actions .native-footer-actions > a,
+	.native-document-footer.has-inbox-actions .native-rate-button,
+	.native-document-footer.has-inbox-actions .queue-action {
 		display: none;
 	}
 

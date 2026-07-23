@@ -120,6 +120,15 @@ test('Google Drive setup is centrally configured without exposing OAuth credenti
 	assert.equal('clientSecret' in googleStatus, false);
 });
 
+test('shared folder is optional and independent from the personal Drive connection', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/sharing/status'),
+		environment()
+	);
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { connected: false });
+});
+
 test('Google authorization uses the central web client with each user account', async () => {
 	const response = await worker.fetch(
 		authenticatedRequest('/api/google/connect/start'),
@@ -221,6 +230,13 @@ test('credential and media mutations reject cross-origin requests', async () => 
 			path: `/api/media/audio/${'a'.repeat(64)}`,
 			body: new Uint8Array([1, 2, 3]),
 			contentType: 'audio/mpeg'
+		},
+		{
+			path: '/api/sharing/connect',
+			body: { folder: '1AbCdEfGhIjKlMnOpQrStUvWxYz', username: 'reader' }
+		},
+		{
+			path: '/api/inbox/reference-1/dismiss'
 		}
 	];
 	for (const mutation of mutations) {

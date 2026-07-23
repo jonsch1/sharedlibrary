@@ -53,8 +53,14 @@ async function sha256Base64URL(value) {
 }
 
 async function sha256Hex(value) {
+	const input =
+		typeof value === 'string'
+			? new TextEncoder().encode(value)
+			: value instanceof Uint8Array
+				? value
+				: new Uint8Array(value);
 	const digest = new Uint8Array(
-		await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+		await crypto.subtle.digest('SHA-256', input)
 	);
 	return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -139,6 +145,16 @@ async function ensureSchema(database) {
 				user_email TEXT NOT NULL,
 				code_verifier TEXT NOT NULL,
 				created_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS shared_folder_connections (
+				user_email TEXT PRIMARY KEY NOT NULL,
+				folder_id TEXT NOT NULL,
+				user_id TEXT NOT NULL,
+				username TEXT NOT NULL,
+				connected_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
 			)`
 		)
 	]);
@@ -980,6 +996,777 @@ async function uploadDriveMedia(request, env, media) {
 	return json({ id: value.id, existed: false });
 }
 
+function normalizedUsername(value) {
+	return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function validUsername(value) {
+	const username = normalizedUsername(value);
+	return /^[a-z0-9](?:[a-z0-9_-]{0,30}[a-z0-9])?$/.test(username);
+}
+
+function googleDriveFolderID(value) {
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	let candidate = trimmed;
+	try {
+		const url = new URL(trimmed);
+		const components = url.pathname.split('/').filter(Boolean);
+		const index = components.indexOf('folders');
+		if (index >= 0 && components[index + 1]) candidate = components[index + 1];
+	} catch {
+		// A bare folder ID is also valid.
+	}
+	return /^[A-Za-z0-9_-]{10,256}$/.test(candidate) ? candidate : null;
+}
+
+async function sharedFolderConnection(env, email) {
+	return env.DB.prepare(
+		`SELECT folder_id, user_id, username, connected_at
+		 FROM shared_folder_connections WHERE user_email = ?`
+	)
+		.bind(email)
+		.first();
+}
+
+async function sharedFolderStatus(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ connected: false }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	return json({
+		connected: Boolean(connection),
+		folderID: connection?.folder_id ?? undefined,
+		userID: connection?.user_id ?? undefined,
+		username: connection?.username ?? undefined,
+		connectedAt: connection?.connected_at ?? undefined
+	});
+}
+
+function validSharedPath(path) {
+	return (
+		typeof path === 'string' &&
+		path.length > 0 &&
+		path.length <= 2048 &&
+		['library/', 'content/', 'people/', 'inbox/'].some((prefix) => path.startsWith(prefix)) &&
+		!path.split('/').some((component) => !component || component === '.' || component === '..')
+	);
+}
+
+async function driveFolderMetadata(env, email, folderID) {
+	const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderID)}`);
+	url.searchParams.set('fields', 'id,name,mimeType,capabilities(canEdit)');
+	url.searchParams.set('supportsAllDrives', 'true');
+	const response = await googleDriveRequest(env, email, url);
+	if (!response.ok) {
+		throw new Error(
+			response.status === 404
+				? 'Google Drive did not grant Shared Library access to that folder. Open or create the folder with this Google account, then try again.'
+				: `The shared Google Drive folder could not be opened (${response.status}).`
+		);
+	}
+	const folder = await response.json();
+	if (folder.mimeType !== 'application/vnd.google-apps.folder') {
+		throw new Error('The sharing location must be a Google Drive folder.');
+	}
+	if (folder.capabilities?.canEdit === false) {
+		throw new Error('You need edit access to the shared Google Drive folder.');
+	}
+	return folder;
+}
+
+async function driveFolderChildren(env, email, parentID) {
+	const files = [];
+	let pageToken;
+	do {
+		const url = new URL('https://www.googleapis.com/drive/v3/files');
+		url.searchParams.set(
+			'q',
+			`'${String(parentID).replaceAll("'", "\\'")}' in parents and trashed=false`
+		);
+		url.searchParams.set(
+			'fields',
+			'nextPageToken,files(id,name,mimeType,parents,modifiedTime,appProperties)'
+		);
+		url.searchParams.set('pageSize', '1000');
+		url.searchParams.set('supportsAllDrives', 'true');
+		url.searchParams.set('includeItemsFromAllDrives', 'true');
+		if (pageToken) url.searchParams.set('pageToken', pageToken);
+		const response = await googleDriveRequest(env, email, url);
+		if (!response.ok) {
+			throw new Error(`The shared Google Drive folder could not be listed (${response.status}).`);
+		}
+		const value = await response.json();
+		files.push(...(value.files ?? []));
+		pageToken = value.nextPageToken;
+	} while (pageToken);
+	return files;
+}
+
+async function driveFolderTree(
+	env,
+	email,
+	rootFolderID,
+	allowedPath = validSharedPath,
+	includeHiddenFolders = false
+) {
+	const folders = new Map([['', rootFolderID]]);
+	const files = new Map();
+	const queue = [{ path: '', id: rootFolderID }];
+	for (let index = 0; index < queue.length; index += 1) {
+		const parent = queue[index];
+		for (const item of await driveFolderChildren(env, email, parent.id)) {
+			if (
+				typeof item.name !== 'string' ||
+				!item.name ||
+				item.name === '.' ||
+				item.name === '..' ||
+				item.name.includes('/')
+			) {
+				continue;
+			}
+			const path = parent.path ? `${parent.path}/${item.name}` : item.name;
+			if (item.mimeType === 'application/vnd.google-apps.folder') {
+				if (!includeHiddenFolders && path.startsWith('.')) continue;
+				folders.set(path, item.id);
+				queue.push({ path, id: item.id });
+			} else if (allowedPath(path)) {
+				files.set(path, { ...item, path });
+			}
+		}
+	}
+	return { folders, files };
+}
+
+async function downloadDriveFile(env, email, fileID) {
+	const response = await googleDriveRequest(
+		env,
+		email,
+		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileID)}?alt=media&supportsAllDrives=true`
+	);
+	if (!response.ok) {
+		throw new Error(`A shared file could not be downloaded (${response.status}).`);
+	}
+	return new Uint8Array(await response.arrayBuffer());
+}
+
+function driveContentType(path) {
+	if (path.endsWith('.json')) return 'application/json';
+	if (path.endsWith('.md') || path.endsWith('.markdown')) return 'text/markdown';
+	if (path.endsWith('.mp3')) return 'audio/mpeg';
+	if (path.endsWith('.m4a')) return 'audio/mp4';
+	return 'application/octet-stream';
+}
+
+async function ensureDrivePath(env, email, rootFolderID, folders, path) {
+	if (!path) return rootFolderID;
+	let parentID = rootFolderID;
+	let currentPath = '';
+	for (const component of path.split('/')) {
+		currentPath = currentPath ? `${currentPath}/${component}` : component;
+		const existing = folders.get(currentPath);
+		if (existing) {
+			parentID = existing;
+			continue;
+		}
+		const url = new URL('https://www.googleapis.com/drive/v3/files');
+		url.searchParams.set('fields', 'id');
+		url.searchParams.set('supportsAllDrives', 'true');
+		const response = await googleDriveRequest(env, email, url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: component,
+				mimeType: 'application/vnd.google-apps.folder',
+				parents: [parentID],
+				appProperties: {
+					sharedLibraryKind: 'shared-folder',
+					sharedLibraryPathHash: await sha256Hex(currentPath)
+				}
+			})
+		});
+		if (!response.ok) {
+			throw new Error(`A shared Google Drive folder could not be created (${response.status}).`);
+		}
+		parentID = (await response.json()).id;
+		folders.set(currentPath, parentID);
+	}
+	return parentID;
+}
+
+async function upsertDriveFile(
+	env,
+	email,
+	{ rootFolderID, folders, path, bytes, existingID = null, kind = 'shared-workspace' }
+) {
+	const components = path.split('/');
+	const name = components.pop();
+	const parentID = existingID
+		? null
+		: await ensureDrivePath(env, email, rootFolderID, folders, components.join('/'));
+	const contentHash = await sha256Hex(bytes);
+	const metadata = {
+		name,
+		appProperties: {
+			sharedLibraryKind: kind,
+			sharedLibraryPathHash: await sha256Hex(path),
+			sharedLibraryContentHash: contentHash
+		}
+	};
+	if (!existingID) metadata.parents = [parentID];
+	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
+	const body = new Blob([
+		`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+		JSON.stringify(metadata),
+		`\r\n--${boundary}\r\nContent-Type: ${driveContentType(path)}\r\n\r\n`,
+		bytes,
+		`\r\n--${boundary}--\r\n`
+	]);
+	const uploadURL = existingID
+		? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingID)}?uploadType=multipart&fields=id&supportsAllDrives=true`
+		: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&supportsAllDrives=true';
+	const response = await googleDriveRequest(env, email, uploadURL, {
+		method: existingID ? 'PATCH' : 'POST',
+		headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+		body
+	});
+	if (!response.ok) {
+		throw new Error(`A Google Drive file could not be saved (${response.status}).`);
+	}
+	return { id: (await response.json()).id, contentHash, byteCount: bytes.byteLength };
+}
+
+async function registerSharedProfile(env, email, rootFolderID, username) {
+	const tree = await driveFolderTree(env, email, rootFolderID);
+	const profilePath = `people/${username}/profile.json`;
+	const existing = tree.files.get(profilePath);
+	let userID = crypto.randomUUID().toLowerCase();
+	if (existing) {
+		try {
+			const profile = JSON.parse(
+				new TextDecoder().decode(await downloadDriveFile(env, email, existing.id))
+			);
+			if (typeof profile.userID === 'string' && profile.userID) userID = profile.userID;
+		} catch {
+			throw new Error(`The existing @${username} profile is invalid.`);
+		}
+	}
+	const now = new Date().toISOString();
+	const profile = new TextEncoder().encode(
+		JSON.stringify(
+			{ schemaVersion: 1, userID, username, updatedAt: now },
+			null,
+			2
+		)
+	);
+	await upsertDriveFile(env, email, {
+		rootFolderID,
+		folders: tree.folders,
+		path: profilePath,
+		bytes: profile,
+		existingID: existing?.id ?? null
+	});
+	await ensureDrivePath(env, email, rootFolderID, tree.folders, `people/${username}/shared`);
+	await ensureDrivePath(env, email, rootFolderID, tree.folders, `people/${username}/shared_with`);
+	await ensureDrivePath(env, email, rootFolderID, tree.folders, `inbox/${userID}`);
+	return userID;
+}
+
+async function connectSharedFolder(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid connection request.' }, { status: 400 });
+	}
+	const folderID = googleDriveFolderID(value?.folder);
+	const username = normalizedUsername(value?.username);
+	if (!folderID) return json({ error: 'Paste a valid Google Drive folder link or ID.' }, { status: 400 });
+	if (!validUsername(username)) {
+		return json(
+			{ error: 'Use 2–32 letters, numbers, hyphens, or underscores for the username.' },
+			{ status: 400 }
+		);
+	}
+	try {
+		const folder = await driveFolderMetadata(env, email, folderID);
+		const userID = await registerSharedProfile(env, email, folderID, username);
+		const now = new Date().toISOString();
+		await env.DB.prepare(
+			`INSERT INTO shared_folder_connections (
+				user_email, folder_id, user_id, username, connected_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(user_email) DO UPDATE SET
+				folder_id = excluded.folder_id,
+				user_id = excluded.user_id,
+				username = excluded.username,
+				updated_at = excluded.updated_at`
+		)
+			.bind(email, folderID, userID, username, now, now)
+			.run();
+		return json({ connected: true, folderID, folderName: folder.name, userID, username });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The shared folder could not be connected.' },
+			{ status: 400 }
+		);
+	}
+}
+
+async function disconnectSharedFolder(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	await env.DB.prepare('DELETE FROM shared_folder_connections WHERE user_email = ?')
+		.bind(email)
+		.run();
+	return json({ disconnected: true });
+}
+
+function parsedMarkdownDocument(text, fallbackTitle) {
+	let title = fallbackTitle;
+	let body = text;
+	let captureID;
+	let sourceURL;
+	let topicIDs = [];
+	let tags = [];
+	let createdAt;
+	if (text.startsWith('---')) {
+		const end = text.indexOf('\n---', 3);
+		if (end >= 0) {
+			const frontmatter = text.slice(3, end);
+			body = text.slice(end + 4).trim();
+			const scalar = (name) => {
+				const match = frontmatter.match(new RegExp(`^${name}:\\s*[\"']?([^\\n\"']+)[\"']?\\s*$`, 'm'));
+				return match?.[1]?.trim();
+			};
+			title = scalar('title') || title;
+			captureID = scalar('id');
+			sourceURL = scalar('source_url');
+			createdAt = scalar('created_at');
+			const tagLine = scalar('tags');
+			if (tagLine?.startsWith('[')) {
+				try {
+					tags = JSON.parse(tagLine.replaceAll("'", '"'));
+				} catch {
+					tags = [];
+				}
+			}
+			const topicsBlock = frontmatter.match(/^topics:\s*\n((?:\s+-[^\n]+\n?)*)/m)?.[1] ?? '';
+			topicIDs = [...topicsBlock.matchAll(/^\s+-\s*[\"']?([^\"'\n]+)[\"']?\s*$/gm)].map(
+				(match) => match[1].trim()
+			);
+		}
+	}
+	return {
+		title,
+		body,
+		captureID,
+		sourceURL,
+		topicIDs,
+		topicNames: topicIDs,
+		tags: Array.isArray(tags) ? tags.filter((tag) => typeof tag === 'string') : [],
+		createdAt,
+		excerpt: body.replace(/\s+/g, ' ').trim().slice(0, 260)
+	};
+}
+
+async function loadSharedInboxProjection(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) {
+		return json({ schemaVersion: 3, generatedAt: new Date().toISOString(), files: [], entries: [] });
+	}
+	try {
+		const tree = await driveFolderTree(env, email, connection.folder_id);
+		const inboxPrefix = `inbox/${connection.user_id}/`;
+		const referenceFiles = [...tree.files.values()].filter(
+			(file) => file.path.startsWith(inboxPrefix) && file.path.endsWith('.json')
+		);
+		const profileFiles = [...tree.files.values()].filter(
+			(file) => /^people\/[^/]+\/profile\.json$/.test(file.path)
+		);
+		const usernames = new Map();
+		await Promise.all(
+			profileFiles.map(async (file) => {
+				try {
+					const profile = JSON.parse(
+						new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+					);
+					if (typeof profile.userID === 'string' && typeof profile.username === 'string') {
+						usernames.set(profile.userID, profile.username);
+					}
+				} catch {
+					// Invalid profiles are omitted from attribution.
+				}
+			})
+		);
+		const entries = [];
+		for (const file of referenceFiles) {
+			let reference;
+			try {
+				reference = JSON.parse(
+					new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+				);
+			} catch {
+				continue;
+			}
+			if (
+				reference.disposition !== 'pending' ||
+				reference.recipientID !== connection.user_id ||
+				!validSharedPath(reference.contentPath)
+			) {
+				continue;
+			}
+			const source = tree.files.get(reference.contentPath);
+			if (!source) continue;
+			const sourceText = new TextDecoder().decode(
+				await downloadDriveFile(env, email, source.id)
+			);
+			const filename = reference.contentPath.split('/').at(-1);
+			const metadata = parsedMarkdownDocument(
+				sourceText,
+				filename?.replace(/\.[^.]+$/, '') || 'Shared item'
+			);
+			const texts = [];
+			for (const [variant, path] of [
+				['brief', `library/summaries/brief/${filename}`],
+				['concise', `library/summaries/concise/${filename}`],
+				['detailed', `library/summaries/detailed/${filename}`],
+				['comprehensive', `library/summaries/comprehensive/${filename}`],
+				['concise', `library/summaries/${filename}`]
+			]) {
+				if (texts.some((text) => text.variant === variant)) continue;
+				const summary = tree.files.get(path);
+				if (!summary) continue;
+				texts.push({
+					variant,
+					text: new TextDecoder().decode(
+						await downloadDriveFile(env, email, summary.id)
+					)
+				});
+			}
+			texts.push({ variant: 'source', text: metadata.body });
+			entries.push({
+				id: `shared:${reference.id}`,
+				captureID: metadata.captureID,
+				title: metadata.title,
+				excerpt: metadata.excerpt,
+				topicIDs: metadata.topicIDs,
+				topicNames: metadata.topicNames,
+				tags: metadata.tags,
+				sourceURL: metadata.sourceURL,
+				createdAt: metadata.createdAt ?? reference.sharedAt,
+				updatedAt: reference.updatedAt,
+				origin: 'shared',
+				sharedByUsername: usernames.get(reference.sharedByID),
+				inboxReferenceID: reference.id,
+				texts
+			});
+		}
+		entries.sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')));
+		return json({
+			schemaVersion: 3,
+			generatedAt: new Date().toISOString(),
+			files: [],
+			entries
+		});
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The shared Inbox could not be loaded.' },
+			{ status: 502 }
+		);
+	}
+}
+
+async function updateInboxReference(env, email, connection, referenceID, disposition) {
+	const tree = await driveFolderTree(env, email, connection.folder_id);
+	const path = `inbox/${connection.user_id}/${referenceID}.json`;
+	const file = tree.files.get(path);
+	if (!file) throw new Error('This Inbox item is no longer available.');
+	const reference = JSON.parse(
+		new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+	);
+	if (reference.recipientID !== connection.user_id || reference.id !== referenceID) {
+		throw new Error('This Inbox reference is invalid.');
+	}
+	reference.disposition = disposition;
+	reference.updatedAt = new Date().toISOString();
+	await upsertDriveFile(env, email, {
+		rootFolderID: connection.folder_id,
+		folders: tree.folders,
+		path,
+		bytes: new TextEncoder().encode(JSON.stringify(reference, null, 2)),
+		existingID: file.id
+	});
+	return { tree, reference };
+}
+
+async function dismissInboxReference(request, env, referenceID) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
+	try {
+		await updateInboxReference(env, email, connection, referenceID, 'dismissed');
+		return json({ dismissed: true });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The Inbox item could not be dismissed.' },
+			{ status: 400 }
+		);
+	}
+}
+
+function rewriteCaptureID(sourceText, captureID) {
+	if (!sourceText.startsWith('---')) return sourceText;
+	const end = sourceText.indexOf('\n---', 3);
+	if (end < 0) return sourceText;
+	const frontmatter = sourceText.slice(0, end);
+	const updated = /^id:/m.test(frontmatter)
+		? frontmatter.replace(/^id:.*$/m, `id: "${captureID}"`)
+		: `${frontmatter}\nid: "${captureID}"`;
+	return updated + sourceText.slice(end);
+}
+
+function personalWorkspacePath(path) {
+	return path === 'topics.md' || (path.startsWith('library/') && path.endsWith('.md'));
+}
+
+async function driveFileByKind(env, email, kind) {
+	const url = new URL('https://www.googleapis.com/drive/v3/files');
+	url.searchParams.set(
+		'q',
+		`appProperties has { key='sharedLibraryKind' and value='${kind}' } and trashed=false`
+	);
+	url.searchParams.set('fields', 'files(id,name,mimeType,parents,appProperties)');
+	url.searchParams.set('pageSize', '1');
+	url.searchParams.set('supportsAllDrives', 'true');
+	url.searchParams.set('includeItemsFromAllDrives', 'true');
+	const response = await googleDriveRequest(env, email, url);
+	if (!response.ok) throw new Error(`Google Drive could not find the library index (${response.status}).`);
+	return (await response.json()).files?.[0] ?? null;
+}
+
+function wordCount(text) {
+	return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+async function updatePersonalDriveIndexAfterInboxSave(
+	env,
+	email,
+	{ personalRootID, personalTree, copied, captureID, sourceDestination, sourceText }
+) {
+	const currentIndexFile = await driveFileByKind(env, email, 'library-index');
+	let index = {
+		schemaVersion: 3,
+		generatedAt: new Date().toISOString(),
+		files: [],
+		entries: []
+	};
+	if (currentIndexFile) {
+		try {
+			const value = JSON.parse(
+				new TextDecoder().decode(await downloadDriveFile(env, email, currentIndexFile.id))
+			);
+			if (
+				value?.schemaVersion === 3 &&
+				Array.isArray(value.files) &&
+				Array.isArray(value.entries)
+			) {
+				index = value;
+			}
+		} catch {
+			// A fresh index is safer than publishing malformed metadata.
+		}
+	}
+	const copiedPaths = new Set(copied.map((file) => file.path));
+	index.files = [
+		...index.files.filter((file) => !copiedPaths.has(file.path)),
+		...copied.map((file) => ({
+			path: file.path,
+			contentHash: file.contentHash,
+			byteCount: file.byteCount
+		}))
+	].sort((a, b) => a.path.localeCompare(b.path));
+	const metadata = parsedMarkdownDocument(
+		sourceText,
+		sourceDestination.split('/').at(-1)?.replace(/\.[^.]+$/, '') || 'Shared item'
+	);
+	const texts = [];
+	for (const file of copied) {
+		let variant;
+		if (file.path === sourceDestination) variant = 'source';
+		else if (file.path.includes('/summaries/brief/')) variant = 'brief';
+		else if (file.path.includes('/summaries/concise/')) variant = 'concise';
+		else if (file.path.includes('/summaries/detailed/')) variant = 'detailed';
+		else if (file.path.includes('/summaries/comprehensive/')) variant = 'comprehensive';
+		else if (file.path.includes('/summaries/')) variant = 'concise';
+		if (!variant || texts.some((text) => text.variant === variant)) continue;
+		const text =
+			variant === 'source'
+				? metadata.body
+				: new TextDecoder().decode(file.bytes);
+		texts.push({
+			variant,
+			path: file.path,
+			contentHash: file.contentHash,
+			wordCount: wordCount(text)
+		});
+	}
+	const entry = {
+		id: `personal:${captureID}`,
+		captureID,
+		title: metadata.title,
+		excerpt: metadata.excerpt,
+		topicIDs: metadata.topicIDs,
+		topicNames: metadata.topicNames,
+		tags: metadata.tags,
+		sourceURL: metadata.sourceURL,
+		createdAt: metadata.createdAt,
+		updatedAt: new Date().toISOString(),
+		origin: 'personal',
+		texts
+	};
+	index.entries = [
+		...index.entries.filter(
+			(candidate) => candidate.id !== entry.id && candidate.captureID !== captureID
+		),
+		entry
+	].sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(
+		String(a.updatedAt ?? a.createdAt ?? '')
+	));
+	index.schemaVersion = 3;
+	index.generatedAt = new Date().toISOString();
+	await upsertDriveFile(env, email, {
+		rootFolderID: personalRootID,
+		folders: personalTree.folders,
+		path: '.shared-library/index.json',
+		bytes: new TextEncoder().encode(JSON.stringify(index, null, 2)),
+		existingID: currentIndexFile?.id ?? null,
+		kind: 'library-index'
+	});
+}
+
+async function saveInboxReference(request, env, referenceID) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
+	try {
+		const sharedTree = await driveFolderTree(env, email, connection.folder_id);
+		const referencePath = `inbox/${connection.user_id}/${referenceID}.json`;
+		const referenceFile = sharedTree.files.get(referencePath);
+		if (!referenceFile) throw new Error('This Inbox item is no longer available.');
+		const reference = JSON.parse(
+			new TextDecoder().decode(await downloadDriveFile(env, email, referenceFile.id))
+		);
+		if (
+			reference.id !== referenceID ||
+			reference.recipientID !== connection.user_id ||
+			reference.disposition !== 'pending' ||
+			!validSharedPath(reference.contentPath)
+		) {
+			throw new Error('This Inbox item is no longer pending.');
+		}
+		const sourceFile = sharedTree.files.get(reference.contentPath);
+		if (!sourceFile) throw new Error('The shared source file is no longer available.');
+		const personalRootID = await ensureDriveRootFolder(env, email);
+		const personalTree = await driveFolderTree(
+			env,
+			email,
+			personalRootID,
+			personalWorkspacePath,
+			true
+		);
+		const originalFilename = reference.contentPath.split('/').at(-1);
+		const base = originalFilename.replace(/\.[^.]+$/, '');
+		const extension = originalFilename.includes('.') ? `.${originalFilename.split('.').at(-1)}` : '';
+		let filename = originalFilename;
+		for (let index = 1; personalTree.files.has(`library/${filename}`); index += 1) {
+			filename = `${base}${index === 1 ? '-shared' : `-shared-${index}`}${extension}`;
+		}
+		const captureID = crypto.randomUUID().toLowerCase();
+		const copied = [];
+		const sourceBytes = await downloadDriveFile(env, email, sourceFile.id);
+		const rewrittenSource = new TextEncoder().encode(
+			rewriteCaptureID(new TextDecoder().decode(sourceBytes), captureID)
+		);
+		const sourceDestination = `library/${filename}`;
+		copied.push({
+			path: sourceDestination,
+			bytes: rewrittenSource,
+			...(await upsertDriveFile(env, email, {
+				rootFolderID: personalRootID,
+				folders: personalTree.folders,
+				path: sourceDestination,
+				bytes: rewrittenSource,
+				kind: 'workspace'
+			}))
+		});
+		for (const sourcePath of [
+			`library/summaries/brief/${originalFilename}`,
+			`library/summaries/concise/${originalFilename}`,
+			`library/summaries/detailed/${originalFilename}`,
+			`library/summaries/comprehensive/${originalFilename}`,
+			`library/summaries/${originalFilename}`
+		]) {
+			const summary = sharedTree.files.get(sourcePath);
+			if (!summary) continue;
+			const parts = sourcePath.split('/');
+			parts[parts.length - 1] = filename;
+			const destination = parts.join('/');
+			const bytes = await downloadDriveFile(env, email, summary.id);
+			copied.push({
+				path: destination,
+				bytes,
+				...(await upsertDriveFile(env, email, {
+					rootFolderID: personalRootID,
+					folders: personalTree.folders,
+					path: destination,
+					bytes,
+					kind: 'workspace'
+				}))
+			});
+		}
+		await updatePersonalDriveIndexAfterInboxSave(env, email, {
+			personalRootID,
+			personalTree,
+			copied,
+			captureID,
+			sourceDestination,
+			sourceText: new TextDecoder().decode(rewrittenSource)
+		});
+		reference.disposition = 'saved';
+		reference.updatedAt = new Date().toISOString();
+		await upsertDriveFile(env, email, {
+			rootFolderID: connection.folder_id,
+			folders: sharedTree.folders,
+			path: referencePath,
+			bytes: new TextEncoder().encode(JSON.stringify(reference, null, 2)),
+			existingID: referenceFile.id
+		});
+		return json({ saved: true, path: sourceDestination, captureID });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The Inbox item could not be saved.' },
+			{ status: 400 }
+		);
+	}
+}
+
 const worker = {
 	async fetch(request, env) {
 		const url = new URL(request.url);
@@ -1004,6 +1791,26 @@ const worker = {
 		}
 		if (url.pathname === '/api/library/file' && request.method === 'GET') {
 			return fetchLibraryFile(request, env);
+		}
+		if (url.pathname === '/api/sharing/status' && request.method === 'GET') {
+			return sharedFolderStatus(request, env);
+		}
+		if (url.pathname === '/api/sharing/connect' && request.method === 'POST') {
+			return connectSharedFolder(request, env);
+		}
+		if (url.pathname === '/api/sharing/disconnect' && request.method === 'POST') {
+			return disconnectSharedFolder(request, env);
+		}
+		if (url.pathname === '/api/inbox' && request.method === 'GET') {
+			return loadSharedInboxProjection(request, env);
+		}
+		const inboxAction = url.pathname.match(
+			/^\/api\/inbox\/([a-zA-Z0-9_-]{1,256})\/(save|dismiss)$/
+		);
+		if (inboxAction && request.method === 'POST') {
+			return inboxAction[2] === 'save'
+				? saveInboxReference(request, env, inboxAction[1])
+				: dismissInboxReference(request, env, inboxAction[1]);
 		}
 		if (url.pathname === '/api/google/status' && request.method === 'GET') {
 			return googleDriveStatus(request, env);

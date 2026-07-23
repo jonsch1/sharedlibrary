@@ -8,6 +8,7 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
+	import InboxIcon from '@lucide/svelte/icons/inbox';
 	import ListMusicIcon from '@lucide/svelte/icons/list-music';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
@@ -31,6 +32,7 @@
 		loadLibraryText,
 		preferredVariant,
 		readingMinutes,
+		saveLibraryProjection,
 		textFor,
 		type LibraryEntry,
 		type LibraryOrigin,
@@ -57,9 +59,19 @@
 		syncGoogleDriveLibrary,
 		type GoogleDriveConnection
 	} from '$lib/google-drive.js';
+	import {
+		connectSharedFolder,
+		dismissSharedInboxItem,
+		disconnectSharedFolder,
+		loadSharedFolderConnection,
+		loadSharedInbox,
+		saveSharedInboxItem,
+		type SharedFolderConnection
+	} from '$lib/sharing.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
+	type OriginFilter = 'all' | 'personal' | 'shared';
 
 	const variantNames: Record<LibraryVariant, string> = {
 		brief: 'Brief',
@@ -74,6 +86,7 @@
 	let selectedVariant = $state<LibraryVariant>('concise');
 	let query = $state('');
 	let topicFilter = $state('all');
+	let originFilter = $state<OriginFilter>('all');
 	let loading = $state(true);
 	let importMessage = $state('');
 	let isDemo = $state(false);
@@ -97,6 +110,10 @@
 	let googleSyncPhase = $state<GoogleSyncPhase>('checking');
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
+	let sharedConnection = $state<SharedFolderConnection>({ connected: false });
+	let sharedFolderInput = $state('');
+	let sharedUsername = $state('');
+	let sharedBusy = $state(false);
 	let textRevision = $state(0);
 	let loadingText = $state(false);
 	let installedAppleWebApp = $state(false);
@@ -115,6 +132,7 @@
 	let normalizedQuery = $derived(query.trim().toLocaleLowerCase());
 	let filteredEntries = $derived(
 		entries.filter((entry) => {
+			if (originFilter !== 'all' && entry.origin !== originFilter) return false;
 			if (topicFilter !== 'all' && !entry.topicNames.includes(topicFilter)) return false;
 			if (!normalizedQuery) return true;
 			const searchable = [
@@ -217,9 +235,15 @@
 	async function initializeConnections(isActive: () => boolean): Promise<void> {
 		try {
 			const googleResult = consumeGoogleDriveConnectionResult();
-			const google = await loadGoogleDriveConnection();
+			const [google, shared] = await Promise.all([
+				loadGoogleDriveConnection(),
+				loadSharedFolderConnection()
+			]);
 			if (!isActive()) return;
 			googleConnection = google;
+			sharedConnection = shared;
+			sharedFolderInput = shared.folderID ?? '';
+			sharedUsername = shared.username ?? '';
 			if (googleResult === 'connected') {
 				connectionMessage =
 					'Google Drive connected. The complete library and existing narration are being saved on this device.';
@@ -265,6 +289,7 @@
 		selectedEntryID = firstEntry?.id ?? null;
 		selectedVariant = firstEntry ? preferredVariant(firstEntry) : 'concise';
 		query = '';
+		originFilter = 'all';
 		const savedTopic =
 			typeof localStorage === 'undefined'
 				? null
@@ -293,11 +318,31 @@
 		googleSyncCompleted = 0;
 		googleSyncTotal = 0;
 		try {
-			const nextProjection = await syncGoogleDriveLibrary((completed, total) => {
+			const personalProjection = await syncGoogleDriveLibrary((completed, total) => {
 				googleSyncPhase = 'library';
 				googleSyncCompleted = completed;
 				googleSyncTotal = total;
 			});
+			const inboxProjection = sharedConnection.connected
+				? await loadSharedInbox()
+				: {
+						schemaVersion: personalProjection.schemaVersion,
+						generatedAt: new Date().toISOString(),
+						files: [],
+						entries: []
+					};
+			const nextProjection: LibraryProjection = {
+				...personalProjection,
+				generatedAt:
+					personalProjection.generatedAt > inboxProjection.generatedAt
+						? personalProjection.generatedAt
+						: inboxProjection.generatedAt,
+				entries: [
+					...personalProjection.entries.filter((entry) => entry.origin === 'personal'),
+					...inboxProjection.entries
+				]
+			};
+			await saveLibraryProjection(nextProjection);
 			applySyncedProjection(nextProjection);
 			googleSyncPhase = 'audio';
 			googleSyncCompleted = 0;
@@ -369,6 +414,105 @@
 		}
 	}
 
+	async function connectSharingFolder(): Promise<void> {
+		sharedBusy = true;
+		connectionMessage = '';
+		try {
+			const connected = await connectSharedFolder(sharedFolderInput, sharedUsername);
+			sharedConnection = connected;
+			sharedFolderInput = connected.folderID ?? sharedFolderInput;
+			sharedUsername = connected.username ?? sharedUsername;
+			connectionMessage = `Shared folder connected as @${connected.username}. Synchronizing the Inbox…`;
+			await syncFromGoogleDrive(false);
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The shared folder could not be connected.';
+		} finally {
+			sharedBusy = false;
+		}
+	}
+
+	async function removeSharedFolderConnection(): Promise<void> {
+		sharedBusy = true;
+		try {
+			await disconnectSharedFolder();
+			sharedConnection = { connected: false };
+			sharedFolderInput = '';
+			projection = projection
+				? { ...projection, entries: projection.entries.filter((entry) => entry.origin === 'personal') }
+				: projection;
+			if (projection) await saveLibraryProjection(projection);
+			connectionMessage = 'Shared folder disconnected. Your personal library remains connected.';
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The shared folder could not be disconnected.';
+		} finally {
+			sharedBusy = false;
+		}
+	}
+
+	async function saveSelectedInboxItem(): Promise<void> {
+		const entry = selectedEntry;
+		const referenceID = entry?.inboxReferenceID;
+		if (!entry || !referenceID) return;
+		sharedBusy = true;
+		try {
+			const saved = await saveSharedInboxItem(referenceID);
+			const savedEntry: LibraryEntry = {
+				...entry,
+				id: `personal:${saved.captureID}`,
+				captureID: saved.captureID,
+				origin: 'personal',
+				sharedByUsername: undefined,
+				inboxReferenceID: undefined
+			};
+			projection = projection
+				? {
+						...projection,
+						generatedAt: new Date().toISOString(),
+						entries: projection.entries.map((candidate) =>
+							candidate.id === entry.id ? savedEntry : candidate
+						)
+					}
+				: projection;
+			selectedEntryID = savedEntry.id;
+			if (projection) await saveLibraryProjection(projection);
+			await syncFromGoogleDrive(false);
+			connectionMessage =
+				'Saved to your personal library. The independent copy is now synchronized.';
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The Inbox item could not be saved.';
+		} finally {
+			sharedBusy = false;
+		}
+	}
+
+	async function dismissSelectedInboxItem(): Promise<void> {
+		const entry = selectedEntry;
+		const referenceID = entry?.inboxReferenceID;
+		if (!entry || !referenceID) return;
+		sharedBusy = true;
+		try {
+			await dismissSharedInboxItem(referenceID);
+			projection = projection
+				? {
+						...projection,
+						generatedAt: new Date().toISOString(),
+						entries: projection.entries.filter((candidate) => candidate.id !== entry.id)
+					}
+				: projection;
+			selectedEntryID = projection?.entries[0]?.id ?? null;
+			if (projection) await saveLibraryProjection(projection);
+			connectionMessage = 'Inbox item dismissed. The shared source was left untouched.';
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The Inbox item could not be dismissed.';
+		} finally {
+			sharedBusy = false;
+		}
+	}
+
 	function toggleConnections(): void {
 		connectionsVisible = !connectionsVisible;
 		audioSettingsVisible = false;
@@ -383,9 +527,15 @@
 
 	function selectTopic(topic: string): void {
 		topicFilter = topic;
+		if (topic !== 'all') originFilter = 'all';
 		if (typeof localStorage !== 'undefined') {
 			localStorage.setItem('shared-library-selected-topic', topic);
 		}
+	}
+
+	function selectOrigin(origin: OriginFilter): void {
+		originFilter = origin;
+		if (origin !== 'all') topicFilter = 'all';
 	}
 
 	function selectVariantFromSlider(event: Event): void {
@@ -945,9 +1095,22 @@
 					<div class="topic-strip" aria-label="Topic filter">
 						<button
 							class="topic-chip"
-							class:active={topicFilter === 'all'}
-							onclick={() => selectTopic('all')}>All</button
+							class:active={topicFilter === 'all' && originFilter === 'all'}
+							onclick={() => {
+								selectTopic('all');
+								selectOrigin('all');
+							}}>All</button
 						>
+						{#if sharedConnection.connected}
+							<button
+								class="topic-chip inbox-chip"
+								class:active={originFilter === 'shared'}
+								onclick={() => selectOrigin('shared')}
+							>
+								<InboxIcon />
+								Inbox
+							</button>
+						{/if}
 						{#each topics as topic}
 							<button
 								class="topic-chip"
@@ -967,6 +1130,7 @@
 								onclick={() => {
 									query = '';
 									selectTopic('all');
+									selectOrigin('all');
 								}}>Clear filters</button
 							>
 						</div>
@@ -1013,7 +1177,10 @@
 						</article>
 					</div>
 
-					<footer class="native-document-footer">
+					<footer
+						class="native-document-footer"
+						class:has-inbox-actions={Boolean(selectedEntry.inboxReferenceID)}
+					>
 						<div
 							class="native-player-progress"
 							class:visible={selectedAudioActive}
@@ -1037,6 +1204,26 @@
 						</div>
 
 						<div class="native-footer-actions">
+							{#if selectedEntry.inboxReferenceID}
+								<button
+									class="native-icon-button inbox-dismiss-action"
+									disabled={sharedBusy}
+									aria-label="Dismiss Inbox item"
+									title="Dismiss without saving"
+									onclick={dismissSelectedInboxItem}
+								>
+									<XIcon />
+								</button>
+								<button
+									class="native-icon-button inbox-save-action"
+									disabled={sharedBusy}
+									aria-label="Save Inbox item to personal library"
+									title="Save to Library"
+									onclick={saveSelectedInboxItem}
+								>
+									<CheckIcon />
+								</button>
+							{/if}
 							{#if selectedEntry.sourceURL}
 								<a
 									class="native-icon-button"
@@ -1199,6 +1386,71 @@
 								This deployment has not been configured with Google OAuth yet. The site
 								administrator needs to add it once—users never paste a client secret.
 							{/if}
+						</p>
+					{/if}
+				</section>
+
+				<section class="audio-connection" class:connected={sharedConnection.connected}>
+					<div class="audio-connection-heading">
+						<div class="provider-mark"><InboxIcon /></div>
+						<div>
+							<div class="provider-title">
+								<h3>Shared folder</h3>
+								<Badge variant={sharedConnection.connected ? 'secondary' : 'outline'}>
+									{sharedConnection.connected ? 'Connected' : 'Optional'}
+								</Badge>
+							</div>
+							<p>
+								A separate group folder for deliberate shares and your Inbox. It never
+								contains the rest of your personal library.
+							</p>
+						</div>
+					</div>
+
+					{#if sharedConnection.connected}
+						<div class="shared-connection-summary">
+							<strong>@{sharedConnection.username}</strong>
+							<span>{sharedConnection.folderID}</span>
+						</div>
+						<Button
+							variant="outline"
+							disabled={sharedBusy}
+							onclick={removeSharedFolderConnection}
+						>
+							<LogOutIcon data-icon="inline-start" />
+							Disconnect shared folder
+						</Button>
+					{:else}
+						<div class="shared-folder-fields">
+							<label>
+								<span>Username</span>
+								<Input
+									bind:value={sharedUsername}
+									placeholder="your-name"
+									autocomplete="username"
+								/>
+							</label>
+							<label>
+								<span>Google Drive folder</span>
+								<Input
+									bind:value={sharedFolderInput}
+									placeholder="Paste folder link or ID"
+								/>
+							</label>
+						</div>
+						<Button
+							disabled={sharedBusy ||
+								!googleConnection.connected ||
+								!sharedUsername.trim() ||
+								!sharedFolderInput.trim()}
+							onclick={connectSharingFolder}
+						>
+							<InboxIcon data-icon="inline-start" />
+							{sharedBusy ? 'Connecting…' : 'Connect shared folder'}
+						</Button>
+						<p class="connection-help">
+							The folder must already exist and be shared with the intended group. Enter
+							the same username you use in the Mac app; an existing profile is reused.
 						</p>
 					{/if}
 				</section>

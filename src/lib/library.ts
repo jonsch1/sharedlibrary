@@ -39,6 +39,7 @@ export interface LibraryEntry {
 	reviewedAt?: string;
 	origin: LibraryOrigin;
 	sharedByUsername?: string;
+	inboxReferenceID?: string;
 	texts: LibraryText[];
 }
 
