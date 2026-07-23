@@ -21,6 +21,7 @@
 	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
 	import SquareIcon from '@lucide/svelte/icons/square';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import Volume2Icon from '@lucide/svelte/icons/volume-2';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '$lib/MarkdownText.svelte';
@@ -81,11 +82,13 @@
 	let queueVisible = $state(false);
 	let audioSettingsVisible = $state(false);
 	let fileInput = $state<HTMLInputElement>();
+	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
 	let openRouterVoice = $state<OpenRouterVoice>('eve');
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
+	let installedAppleWebApp = $state(false);
 	const player = new SpeechPlayer();
 
 	let entries = $derived(projection?.entries ?? []);
@@ -126,6 +129,12 @@
 	let currentVoiceName = $derived(
 		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? 'Eve'
 	);
+	let selectedAudioReady = $derived(
+		player.currentEntry?.id === selectedEntry?.id &&
+			player.currentVariant === selectedVariant &&
+			player.provider === 'openrouter' &&
+			player.state === 'paused'
+	);
 	let toastMessage = $derived(audioMessage || player.notice || importMessage);
 
 	$effect(() => {
@@ -136,6 +145,15 @@
 
 	onMount(() => {
 		let active = true;
+		if (narrationAudio) player.attachAudioElement(narrationAudio);
+		const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
+		const isAppleMobile =
+			/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+			(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+		installedAppleWebApp =
+			isAppleMobile &&
+			(navigatorWithStandalone.standalone === true ||
+				window.matchMedia('(display-mode: standalone)').matches);
 		openRouterVoice = loadVoicePreference();
 		void initializeOpenRouter(() => active);
 		loadLibraryProjection()
@@ -216,6 +234,16 @@
 
 	function listen(): void {
 		if (!selectedEntry) return;
+		if (installedAppleWebApp) {
+			audioMessage =
+				'Apple currently blocks audio in installed iPhone web apps. Delete this Home Screen icon, reopen Shared Library in Safari, then add it again with “Open as Web App” turned off.';
+			audioSettingsVisible = true;
+			return;
+		}
+		if (selectedAudioReady) {
+			player.toggle();
+			return;
+		}
 		player.configureOpenRouter(openRouterCredential, openRouterVoice);
 		player.play(selectedEntry, selectedVariant);
 	}
@@ -329,6 +357,7 @@
 	accept=".json,application/json"
 	onchange={importSnapshot}
 />
+<audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
 
 <div class="app-shell">
 	<header class="app-header">
@@ -543,7 +572,7 @@
 								</Button>
 								<Button onclick={listen}>
 									<Volume2Icon data-icon="inline-start" />
-									Listen
+									{selectedAudioReady ? 'Play' : 'Listen'}
 								</Button>
 							</div>
 						</div>
@@ -696,6 +725,19 @@
 			</div>
 
 			<div class="audio-content">
+				{#if installedAppleWebApp}
+					<section class="ios-audio-warning">
+						<TriangleAlertIcon />
+						<div>
+							<strong>Listening needs Safari on this iPhone</strong>
+							<p>
+								Apple has an audio bug in installed Home Screen web apps. Delete this
+								icon, open Shared Library in Safari, then add it again. If shown, turn
+								off “Open as Web App.”
+							</p>
+						</div>
+					</section>
+				{/if}
 				<section class="audio-connection" class:connected={openRouterCredential}>
 					<div class="audio-connection-heading">
 						<div class="provider-mark"><HeadphonesIcon /></div>

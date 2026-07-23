@@ -12,6 +12,14 @@ import {
 export type SpeechState = 'idle' | 'loading' | 'playing' | 'paused';
 export type SpeechProvider = 'openrouter' | 'device' | null;
 
+function isAppleMobileBrowser(): boolean {
+	if (!('navigator' in globalThis)) return false;
+	return (
+		/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+		(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+	);
+}
+
 function spokenText(markdown: string): string {
 	return markdown
 		.replace(/^---[\s\S]*?---\s*/m, '')
@@ -62,9 +70,11 @@ export class SpeechPlayer {
 	private chunks: string[] = [];
 	private chunkIndex = 0;
 	private audio: HTMLAudioElement | null = null;
+	private attachedAudio: HTMLAudioElement | null = null;
 	private releaseAudioSource: (() => void) | null = null;
 	private abortController: AbortController | null = null;
 	private sourcePromises = new Map<number, Promise<OpenRouterSpeechSource>>();
+	private playbackWatchdog: number | null = null;
 	private sessionID = 0;
 
 	configureOpenRouter(
@@ -74,6 +84,12 @@ export class SpeechPlayer {
 		this.credential = credential;
 		this.voice = voice;
 		this.requiresReconnect = false;
+	}
+
+	attachAudioElement(audio: HTMLAudioElement): void {
+		if (this.attachedAudio === audio) return;
+		if (this.audio && this.audio !== audio) this.releaseAudio();
+		this.attachedAudio = audio;
 	}
 
 	play(entry: LibraryEntry, variant: LibraryVariant): void {
@@ -116,18 +132,21 @@ export class SpeechPlayer {
 
 		if (this.provider === 'openrouter' && this.audio) {
 			if (this.state === 'playing') {
+				this.clearPlaybackWatchdog();
 				this.audio.pause();
 				this.state = 'paused';
 				if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
 			} else {
+				const audio = this.audio;
+				const sessionID = this.sessionID;
 				void this.audio
 					.play()
 					.then(() => {
-						this.state = 'playing';
-						if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+						this.markAudioPlaying(audio, sessionID);
 					})
 					.catch(() => {
-						this.notice = 'Audio is ready. Tap play once more to begin.';
+						this.state = 'paused';
+						this.notice = 'Audio is ready. Tap Play to begin.';
 					});
 			}
 			return;
@@ -221,7 +240,7 @@ export class SpeechPlayer {
 			}
 			this.releaseCurrentAudioSource();
 			this.releaseAudioSource = source.release;
-			const audio = this.audio ?? new Audio();
+			const audio = this.audio ?? this.attachedAudio ?? new Audio();
 			audio.src = source.url;
 			audio.preload = 'auto';
 			audio.playbackRate = this.rate;
@@ -234,6 +253,7 @@ export class SpeechPlayer {
 			}
 			audio.ontimeupdate = () => {
 				if (sessionID !== this.sessionID) return;
+				if (audio.currentTime > 0.1) this.clearPlaybackWatchdog();
 				const withinChunk =
 					Number.isFinite(audio.duration) && audio.duration > 0
 						? audio.currentTime / audio.duration
@@ -254,14 +274,16 @@ export class SpeechPlayer {
 				fail('The generated audio could not be played.');
 			};
 			audio.onplaying = () => {
-				if (sessionID !== this.sessionID) return;
-				this.state = 'playing';
-				if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+				this.markAudioPlaying(audio, sessionID);
 			};
+			if (this.chunkIndex === 0 && isAppleMobileBrowser()) {
+				this.state = 'paused';
+				this.notice = 'Audio is ready. Tap Play to begin.';
+				if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+				return;
+			}
 			await audio.play();
-			if (sessionID !== this.sessionID) return;
-			this.state = 'playing';
-			if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+			this.markAudioPlaying(audio, sessionID);
 		} catch (error) {
 			if (sessionID !== this.sessionID || (error instanceof DOMException && error.name === 'AbortError')) {
 				return;
@@ -359,6 +381,7 @@ export class SpeechPlayer {
 
 	private cancelActivePlayback(): void {
 		if ('speechSynthesis' in globalThis) speechSynthesis.cancel();
+		this.clearPlaybackWatchdog();
 		this.abortController?.abort();
 		this.abortController = null;
 		const pendingSources = [...this.sourcePromises.values()];
@@ -386,6 +409,41 @@ export class SpeechPlayer {
 	private releaseCurrentAudioSource(): void {
 		this.releaseAudioSource?.();
 		this.releaseAudioSource = null;
+	}
+
+	private markAudioPlaying(audio: HTMLAudioElement, sessionID: number): void {
+		if (sessionID !== this.sessionID || this.audio !== audio) return;
+		this.state = 'playing';
+		this.notice = '';
+		if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+		this.monitorPlayback(audio, sessionID);
+	}
+
+	private monitorPlayback(audio: HTMLAudioElement, sessionID: number): void {
+		this.clearPlaybackWatchdog();
+		const startingTime = audio.currentTime;
+		this.playbackWatchdog = window.setTimeout(() => {
+			this.playbackWatchdog = null;
+			if (
+				sessionID !== this.sessionID ||
+				this.audio !== audio ||
+				this.state !== 'playing' ||
+				audio.currentTime > startingTime + 0.05
+			) {
+				return;
+			}
+			audio.pause();
+			this.state = 'paused';
+			this.notice =
+				'Playback was blocked by iOS. Open Shared Library in Safari instead of as an installed web app.';
+			if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+		}, 2_500);
+	}
+
+	private clearPlaybackWatchdog(): void {
+		if (this.playbackWatchdog === null) return;
+		window.clearTimeout(this.playbackWatchdog);
+		this.playbackWatchdog = null;
 	}
 
 	private updateMediaSession(): void {

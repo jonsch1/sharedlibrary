@@ -19,6 +19,8 @@ Narration uses `x-ai/grok-voice-tts-1.0`. Long documents are generated as short 
 
 When OpenRouter is not connected or the device is offline, the reader falls back to browser-native speech synthesis. Text is sent to OpenRouter and xAI only when the user requests narration.
 
+On Apple mobile devices, generated audio waits for an explicit Play tap after the first segment is ready. The manifest intentionally opens Home Screen shortcuts in browser mode because current iOS WebKit releases can report successful playback while producing silence in standalone Home Screen web apps.
+
 ## Development
 
 ```bash

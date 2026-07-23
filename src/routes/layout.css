@@ -917,6 +917,16 @@
 	height: 14px;
 }
 
+.narration-engine {
+	position: fixed;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	opacity: 0;
+	pointer-events: none;
+}
+
 .queue-backdrop,
 .audio-backdrop {
 	position: fixed;
@@ -960,6 +970,37 @@
 	height: calc(100% - 78px);
 	padding: 18px;
 	overflow-y: auto;
+}
+
+.ios-audio-warning {
+	display: flex;
+	align-items: flex-start;
+	gap: 11px;
+	margin-bottom: 14px;
+	padding: 14px;
+	border: 1px solid oklch(0.74 0.12 75 / 0.45);
+	border-radius: 14px;
+	background: oklch(0.97 0.035 85);
+}
+
+.ios-audio-warning > svg {
+	width: 18px;
+	height: 18px;
+	flex: 0 0 auto;
+	margin-top: 1px;
+	color: oklch(0.56 0.13 65);
+}
+
+.ios-audio-warning strong {
+	font-size: 12px;
+	font-weight: 680;
+}
+
+.ios-audio-warning p {
+	margin: 4px 0 0;
+	color: var(--muted-foreground);
+	font-size: 11px;
+	line-height: 1.5;
 }
 
 .audio-connection {
