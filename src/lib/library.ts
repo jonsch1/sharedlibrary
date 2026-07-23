@@ -1,4 +1,4 @@
-export const librarySchemaVersion = 2;
+export const librarySchemaVersion = 3;
 
 export const libraryVariants = [
 	'brief',
@@ -38,7 +38,7 @@ export interface LibraryEntry {
 	updatedAt?: string;
 	reviewedAt?: string;
 	origin: LibraryOrigin;
-	sharedByDisplayName?: string;
+	sharedByUsername?: string;
 	texts: LibraryText[];
 }
 
@@ -109,7 +109,7 @@ function isLibraryFile(value: unknown): value is LibraryFile {
 export function parseLibraryProjection(value: unknown): LibraryProjection {
 	if (
 		!isObject(value) ||
-		value.schemaVersion !== librarySchemaVersion ||
+		(value.schemaVersion !== 2 && value.schemaVersion !== librarySchemaVersion) ||
 		typeof value.generatedAt !== 'string' ||
 		Number.isNaN(Date.parse(value.generatedAt)) ||
 		!Array.isArray(value.files) ||
@@ -121,7 +121,20 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
 			'This is not a compatible Shared Library Drive index. Open the Mac app and let it synchronize again.'
 		);
 	}
-	return value as unknown as LibraryProjection;
+	const projection = value as unknown as LibraryProjection & {
+		entries: Array<LibraryEntry & { sharedByDisplayName?: string }>;
+	};
+	return {
+		...projection,
+		schemaVersion: librarySchemaVersion,
+		entries: projection.entries.map((entry) => {
+			const legacyEntry = entry as LibraryEntry & { sharedByDisplayName?: string };
+			return {
+				...entry,
+				sharedByUsername: entry.sharedByUsername ?? legacyEntry.sharedByDisplayName
+			};
+		})
+	};
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -447,7 +460,7 @@ export const demoProjection: LibraryProjection = {
 			tags: ['communication', 'ligand-receptor'],
 			createdAt: '2026-07-10T11:45:00Z',
 			origin: 'shared',
-			sharedByDisplayName: 'Alex Morgan',
+			sharedByUsername: 'alex',
 			texts: [
 				{
 					variant: 'brief',

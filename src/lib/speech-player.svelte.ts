@@ -448,7 +448,7 @@ export class SpeechPlayer {
 			title: this.currentEntry.title,
 			artist:
 				this.currentEntry.origin === 'shared'
-					? `Shared by ${this.currentEntry.sharedByDisplayName ?? 'a collaborator'}`
+					? `Shared by @${this.currentEntry.sharedByUsername ?? 'a collaborator'}`
 					: 'Shared Library',
 			album: this.currentVariant === 'source' ? 'Original' : `${this.currentVariant} summary`
 		});

@@ -7,38 +7,38 @@
 @plugin '@tailwindcss/typography';
 
 :root {
-	--background: oklch(0.967 0.008 90);
-	--foreground: oklch(0.22 0.018 65);
-	--card: oklch(0.995 0.004 90);
-	--card-foreground: oklch(0.22 0.018 65);
-	--popover: oklch(0.995 0.004 90);
-	--popover-foreground: oklch(0.22 0.018 65);
-	--primary: oklch(0.39 0.083 174);
-	--primary-foreground: oklch(0.985 0.008 170);
-	--secondary: oklch(0.93 0.015 86);
-	--secondary-foreground: oklch(0.29 0.025 69);
-	--muted: oklch(0.945 0.01 86);
-	--muted-foreground: oklch(0.52 0.025 65);
-	--accent: oklch(0.92 0.025 170);
-	--accent-foreground: oklch(0.3 0.07 174);
+	--background: rgb(176 178 173);
+	--foreground: rgb(31 31 29);
+	--card: rgb(232 230 219);
+	--card-foreground: rgb(31 31 29);
+	--popover: rgb(235 233 223);
+	--popover-foreground: rgb(31 31 29);
+	--primary: rgb(120 122 117);
+	--primary-foreground: rgb(250 249 244);
+	--secondary: rgb(221 221 212);
+	--secondary-foreground: rgb(51 51 47);
+	--muted: rgb(224 223 214);
+	--muted-foreground: rgb(92 92 85);
+	--accent: rgb(202 202 193);
+	--accent-foreground: rgb(39 39 36);
 	--destructive: oklch(0.577 0.245 27.325);
-	--border: oklch(0.875 0.015 80);
-	--input: oklch(0.875 0.015 80);
-	--ring: oklch(0.57 0.085 174);
+	--border: rgb(46 46 43 / 38%);
+	--input: rgb(46 46 43 / 42%);
+	--ring: rgb(92 94 89);
 	--chart-1: oklch(0.87 0 0);
 	--chart-2: oklch(0.556 0 0);
 	--chart-3: oklch(0.439 0 0);
 	--chart-4: oklch(0.371 0 0);
 	--chart-5: oklch(0.269 0 0);
-	--radius: 0.7rem;
-	--sidebar: oklch(0.985 0 0);
-	--sidebar-foreground: oklch(0.145 0 0);
-	--sidebar-primary: oklch(0.205 0 0);
-	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.97 0 0);
-	--sidebar-accent-foreground: oklch(0.205 0 0);
-	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
+	--radius: 0.85rem;
+	--sidebar: rgb(209 209 201);
+	--sidebar-foreground: rgb(31 31 29);
+	--sidebar-primary: rgb(120 122 117);
+	--sidebar-primary-foreground: rgb(250 249 244);
+	--sidebar-accent: rgb(198 198 189);
+	--sidebar-accent-foreground: rgb(31 31 29);
+	--sidebar-border: rgb(46 46 43 / 38%);
+	--sidebar-ring: rgb(92 94 89);
 }
 
 .dark {
@@ -145,21 +145,32 @@
 	height: 100dvh;
 	overflow: hidden;
 	background:
-		radial-gradient(circle at 80% -20%, oklch(0.93 0.04 170 / 0.45), transparent 35%),
-		var(--background);
+		radial-gradient(circle at 22% -15%, rgb(199 199 190 / 76%), transparent 38%),
+		linear-gradient(135deg, rgb(158 161 156), rgb(176 178 173) 46%, rgb(189 189 181));
+}
+
+.app-shell::before {
+	position: absolute;
+	z-index: 0;
+	inset: 0;
+	background:
+		repeating-radial-gradient(circle at 18% 20%, rgb(0 0 0 / 4%) 0 0.45px, transparent 0.55px 3px),
+		repeating-radial-gradient(circle at 82% 70%, rgb(255 255 255 / 4%) 0 0.4px, transparent 0.5px 3.4px);
+	content: '';
+	opacity: 0.5;
+	pointer-events: none;
 }
 
 .app-header {
 	position: relative;
 	z-index: 30;
 	display: flex;
-	height: 64px;
+	height: 70px;
 	align-items: center;
 	justify-content: space-between;
-	padding: 0 20px;
-	border-bottom: 1px solid var(--border);
-	background: oklch(0.985 0.006 88 / 0.92);
-	backdrop-filter: blur(18px);
+	padding: 0 22px;
+	border: 0;
+	background: transparent;
 }
 
 .brand,
@@ -193,10 +204,11 @@
 	width: 34px;
 	height: 34px;
 	place-items: center;
-	border-radius: 10px;
-	background: var(--primary);
-	color: var(--primary-foreground);
-	box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.12);
+	border: 1px solid var(--border);
+	border-radius: 11px;
+	background: rgb(221 221 212 / 76%);
+	color: var(--foreground);
+	box-shadow: 0 5px 14px rgb(0 0 0 / 9%);
 }
 
 .brand-mark svg {
@@ -229,8 +241,8 @@
 	height: 6px;
 	margin-left: 2px;
 	border-radius: 999px;
-	background: oklch(0.59 0.15 154);
-	box-shadow: 0 0 0 2px oklch(0.59 0.15 154 / 0.12);
+	background: rgb(76 116 83);
+	box-shadow: 0 0 0 2px rgb(76 116 83 / 16%);
 }
 
 .snapshot-status {
@@ -243,8 +255,8 @@
 	width: 7px;
 	height: 7px;
 	border-radius: 999px;
-	background: oklch(0.62 0.14 154);
-	box-shadow: 0 0 0 3px oklch(0.62 0.14 154 / 0.13);
+	background: rgb(76 116 83);
+	box-shadow: 0 0 0 3px rgb(76 116 83 / 15%);
 }
 
 .status-time {
@@ -258,23 +270,30 @@
 
 .workspace {
 	position: absolute;
-	inset: 64px 0 76px;
+	z-index: 1;
+	inset: 70px 12px 88px;
 	display: grid;
 	grid-template-columns: minmax(290px, 340px) minmax(0, 1fr);
-	overflow: hidden;
+	gap: 10px;
+	overflow: visible;
 }
 
 .library-pane {
 	display: flex;
 	min-width: 0;
 	flex-direction: column;
-	border-right: 1px solid var(--border);
-	background: oklch(0.99 0.005 88 / 0.88);
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	background:
+		linear-gradient(145deg, rgb(217 217 209 / 96%), rgb(209 209 201 / 96%)),
+		var(--sidebar);
+	box-shadow: 0 14px 28px rgb(0 0 0 / 15%);
 }
 
 .library-toolbar {
-	padding: 18px 16px 14px;
-	border-bottom: 1px solid var(--border);
+	padding: 20px 18px 14px;
+	border-bottom: 0;
 }
 
 .search-field {
@@ -293,16 +312,22 @@
 }
 
 .search-field input {
-	height: 36px;
+	height: 42px;
 	padding-left: 32px;
-	background: oklch(1 0 0 / 0.7);
+	border-color: var(--border);
+	border-radius: 999px;
+	background: rgb(221 221 212 / 68%);
 }
 
 .filter-row {
 	display: flex;
-	gap: 5px;
+	gap: 2px;
 	margin-top: 12px;
+	padding: 2px;
 	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: rgb(221 221 212 / 48%);
 	scrollbar-width: none;
 }
 
@@ -311,7 +336,7 @@
 }
 
 .filter-chip {
-	height: 28px;
+	height: 30px;
 	flex: 0 0 auto;
 	padding: 0 10px;
 	border: 1px solid transparent;
@@ -330,9 +355,9 @@
 }
 
 .filter-chip.active {
-	border-color: oklch(0.65 0.08 174 / 0.3);
-	background: oklch(0.9 0.038 174);
-	color: oklch(0.32 0.073 174);
+	border-color: rgb(46 46 43 / 28%);
+	background: rgb(120 122 117);
+	color: rgb(250 249 244);
 }
 
 .topic-row {
@@ -354,6 +379,7 @@
 
 .entry-list {
 	flex: 1;
+	padding: 2px 10px 12px;
 	overflow-y: auto;
 	overscroll-behavior: contain;
 }
@@ -361,8 +387,10 @@
 .entry-row {
 	display: block;
 	width: 100%;
-	padding: 17px 17px 16px;
-	border-bottom: 1px solid oklch(0.88 0.014 80 / 0.7);
+	margin: 2px 0;
+	padding: 15px 13px 14px;
+	border: 0;
+	border-radius: 11px;
 	text-align: left;
 	transition:
 		background 130ms ease,
@@ -370,12 +398,12 @@
 }
 
 .entry-row:hover {
-	background: oklch(0.965 0.012 84);
+	background: rgb(198 198 189 / 52%);
 }
 
 .entry-row.selected {
-	background: oklch(0.935 0.027 169);
-	box-shadow: inset 3px 0 0 var(--primary);
+	background: rgb(189 189 179 / 72%);
+	box-shadow: inset 0 0 0 1px rgb(46 46 43 / 20%);
 }
 
 .entry-topline {
@@ -390,14 +418,14 @@
 }
 
 .personal-kicker {
-	color: oklch(0.46 0.08 174);
+	color: var(--muted-foreground);
 }
 
 .shared-badge {
 	height: 18px;
-	border-color: oklch(0.68 0.08 245 / 0.35);
-	background: oklch(0.95 0.025 245);
-	color: oklch(0.43 0.1 245);
+	border-color: var(--border);
+	background: rgb(221 221 212 / 66%);
+	color: var(--foreground);
 	font-size: 9px;
 }
 
@@ -440,13 +468,18 @@
 	min-width: 0;
 	overflow-y: auto;
 	overscroll-behavior: contain;
-	background: oklch(0.985 0.006 88 / 0.72);
+	border: 1px solid var(--border);
+	border-radius: 20px;
+	background:
+		linear-gradient(145deg, rgb(238 235 224 / 97%), rgb(232 230 219 / 97%)),
+		var(--card);
+	box-shadow: 0 14px 28px rgb(0 0 0 / 14%);
 }
 
 .reader-inner {
-	width: min(820px, calc(100% - 64px));
+	width: min(860px, calc(100% - 72px));
 	margin: 0 auto;
-	padding: 52px 0 80px;
+	padding: 46px 0 78px;
 }
 
 .mobile-reader-bar {
@@ -471,8 +504,8 @@
 
 .document-header h1 {
 	margin: 0;
-	color: oklch(0.205 0.022 65);
-	font-family: ui-serif, 'Iowan Old Style', 'Palatino Linotype', serif;
+	color: var(--foreground);
+	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-size: clamp(34px, 4vw, 51px);
 	font-weight: 640;
 	line-height: 1.04;
@@ -483,8 +516,8 @@
 .document-excerpt {
 	max-width: 690px;
 	margin: 20px 0 0;
-	color: oklch(0.44 0.025 65);
-	font-family: ui-serif, 'Iowan Old Style', 'Palatino Linotype', serif;
+	color: rgb(69 69 64);
+	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-size: 17px;
 	line-height: 1.55;
 }
@@ -507,8 +540,8 @@
 	padding: 3px;
 	overflow-x: auto;
 	border: 1px solid var(--border);
-	border-radius: 10px;
-	background: oklch(0.95 0.01 85 / 0.75);
+	border-radius: 999px;
+	background: rgb(221 221 212 / 58%);
 	scrollbar-width: none;
 }
 
@@ -520,7 +553,7 @@
 	height: 28px;
 	flex: 0 0 auto;
 	padding: 0 10px;
-	border-radius: 7px;
+	border-radius: 999px;
 	color: var(--muted-foreground);
 	font-size: 11px;
 	font-weight: 600;
@@ -528,9 +561,9 @@
 }
 
 .variant-tabs button.active {
-	background: var(--card);
-	color: var(--foreground);
-	box-shadow: 0 1px 3px oklch(0.3 0.02 70 / 0.1);
+	background: rgb(120 122 117);
+	color: rgb(250 249 244);
+	box-shadow: inset 0 0 0 1px rgb(46 46 43 / 20%);
 }
 
 .document-actions {
@@ -552,18 +585,27 @@
 
 .document-body {
 	padding: 38px 0 30px;
+	background-image: linear-gradient(
+		to bottom,
+		transparent 0,
+		transparent 31px,
+		rgb(55 55 51 / 9%) 31px,
+		rgb(55 55 51 / 9%) 32px
+	);
+	background-position: 0 37px;
+	background-size: 100% 32px;
 }
 
 .library-prose {
-	color: oklch(0.275 0.022 65);
-	font-family: ui-serif, 'Iowan Old Style', 'Palatino Linotype', serif;
-	font-size: 17px;
-	line-height: 1.78;
+	color: rgb(29 29 27 / 94%);
+	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
+	font-size: 19px;
+	line-height: 32px;
 }
 
 .library-prose :is(h1, h2, h3, h4) {
-	color: oklch(0.22 0.025 65);
-	font-family: ui-serif, 'Iowan Old Style', 'Palatino Linotype', serif;
+	color: rgb(25 25 24 / 96%);
+	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-weight: 650;
 	letter-spacing: -0.02em;
 }
@@ -579,14 +621,14 @@
 }
 
 .library-prose a {
-	color: oklch(0.39 0.083 174);
-	text-decoration-color: oklch(0.39 0.083 174 / 0.35);
+	color: rgb(56 56 52);
+	text-decoration-color: rgb(56 56 52 / 42%);
 	text-underline-offset: 3px;
 }
 
 .library-prose code {
 	border-radius: 5px;
-	background: oklch(0.92 0.015 80);
+	background: rgb(65 65 61 / 8%);
 	padding: 0.12em 0.3em;
 	font-family: ui-monospace, 'SFMono-Regular', monospace;
 	font-size: 0.84em;
@@ -642,9 +684,11 @@
 	width: min(620px, 100%);
 	padding: 48px 42px;
 	border: 1px solid var(--border);
-	border-radius: 24px;
-	background: oklch(0.995 0.004 90 / 0.88);
-	box-shadow: 0 24px 80px oklch(0.4 0.03 70 / 0.09);
+	border-radius: 20px;
+	background:
+		linear-gradient(145deg, rgb(238 235 224 / 97%), rgb(232 230 219 / 97%)),
+		var(--card);
+	box-shadow: 0 20px 60px rgb(0 0 0 / 14%);
 	text-align: center;
 }
 
@@ -656,8 +700,9 @@
 	margin: 0 auto 25px;
 	place-items: center;
 	border-radius: 22px;
-	background: oklch(0.91 0.034 170);
-	color: var(--primary);
+	border: 1px solid var(--border);
+	background: rgb(221 221 212 / 72%);
+	color: var(--foreground);
 }
 
 .empty-illustration > svg {
@@ -686,7 +731,7 @@
 
 .eyebrow {
 	margin: 0;
-	color: var(--primary);
+	color: var(--muted-foreground);
 	font-size: 10px;
 	font-weight: 700;
 	letter-spacing: 0.13em;
@@ -774,18 +819,20 @@
 .player-bar {
 	position: fixed;
 	z-index: 50;
-	right: 0;
-	bottom: 0;
-	left: 0;
+	right: 12px;
+	bottom: 12px;
+	left: 12px;
 	display: grid;
-	height: 76px;
+	height: 64px;
 	grid-template-columns: minmax(180px, 1fr) auto minmax(220px, 1fr);
 	align-items: center;
 	padding: 0 18px;
-	border-top: 1px solid oklch(0.3 0.02 65 / 0.16);
-	background: oklch(0.975 0.009 87 / 0.94);
-	box-shadow: 0 -8px 30px oklch(0.3 0.02 65 / 0.05);
-	backdrop-filter: blur(20px);
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 18px;
+	background: rgb(184 186 179 / 94%);
+	box-shadow: 0 10px 24px rgb(0 0 0 / 14%);
+	backdrop-filter: blur(18px);
 }
 
 .player-progress {
@@ -815,8 +862,9 @@
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 10px;
-	background: oklch(0.9 0.035 171);
-	color: var(--primary);
+	border: 1px solid var(--border);
+	background: rgb(221 221 212 / 66%);
+	color: var(--foreground);
 }
 
 .audio-mark svg {
@@ -931,7 +979,8 @@
 .audio-backdrop {
 	position: fixed;
 	z-index: 60;
-	inset: 64px 0 76px;
+	inset: 70px 12px 88px;
+	border-radius: 20px;
 	background: oklch(0.18 0.02 65 / 0.22);
 	backdrop-filter: blur(2px);
 }
@@ -940,13 +989,15 @@
 .audio-panel {
 	position: fixed;
 	z-index: 70;
-	top: 64px;
-	right: 0;
-	bottom: 76px;
+	top: 70px;
+	right: 12px;
+	bottom: 88px;
 	width: min(400px, 92vw);
-	border-left: 1px solid var(--border);
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: 20px;
 	background: var(--popover);
-	box-shadow: -18px 0 50px oklch(0.2 0.02 65 / 0.12);
+	box-shadow: -12px 10px 38px rgb(0 0 0 / 17%);
 }
 
 .queue-header,
@@ -1141,8 +1192,9 @@
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 12px;
-	background: var(--primary);
-	color: var(--primary-foreground);
+	border: 1px solid var(--border);
+	background: rgb(221 221 212 / 72%);
+	color: var(--foreground);
 }
 
 .provider-mark svg {
@@ -1325,7 +1377,7 @@
 @media (max-width: 680px) {
 	.app-header {
 		height: 56px;
-		padding: 0 12px;
+		padding: 0 10px;
 	}
 
 	.brand-mark {
@@ -1344,7 +1396,7 @@
 	}
 
 	.workspace {
-		inset: 56px 0 72px;
+		inset: 56px 8px 80px;
 		display: block;
 	}
 
@@ -1352,7 +1404,8 @@
 	.reader-pane {
 		width: 100%;
 		height: 100%;
-		border: 0;
+		border: 1px solid var(--border);
+		border-radius: 16px;
 	}
 
 	.reader-pane {
@@ -1376,8 +1429,8 @@
 	}
 
 	.entry-row.selected {
-		background: transparent;
-		box-shadow: none;
+		background: rgb(189 189 179 / 72%);
+		box-shadow: inset 0 0 0 1px rgb(46 46 43 / 20%);
 	}
 
 	.reader-inner {
@@ -1395,7 +1448,7 @@
 		margin: 0 -18px 24px;
 		padding: 0 8px;
 		border-bottom: 1px solid var(--border);
-		background: oklch(0.985 0.006 88 / 0.94);
+		background: rgb(232 230 219 / 94%);
 		backdrop-filter: blur(16px);
 	}
 
@@ -1429,8 +1482,8 @@
 	}
 
 	.library-prose {
-		font-size: 16px;
-		line-height: 1.72;
+		font-size: 17px;
+		line-height: 30px;
 	}
 
 	.center-stage {
@@ -1453,9 +1506,13 @@
 	}
 
 	.player-bar {
-		height: 72px;
+		right: 8px;
+		bottom: 8px;
+		left: 8px;
+		height: 64px;
 		grid-template-columns: minmax(0, 1fr) auto;
 		padding: 0 10px;
+		border-radius: 16px;
 	}
 
 	.player-options {
@@ -1477,14 +1534,17 @@
 
 	.queue-backdrop,
 	.audio-backdrop {
-		inset: 56px 0 72px;
+		inset: 56px 8px 80px;
+		border-radius: 16px;
 	}
 
 	.queue-panel,
 	.audio-panel {
 		top: 56px;
-		bottom: 72px;
-		width: 100%;
+		right: 8px;
+		bottom: 80px;
+		width: calc(100% - 16px);
+		border-radius: 16px;
 	}
 
 	.toast {

@@ -133,7 +133,7 @@
 				entry.excerpt,
 				...entry.topicNames,
 				...entry.tags,
-				entry.sharedByDisplayName ?? ''
+				entry.sharedByUsername ?? ''
 			]
 				.join(' ')
 				.toLocaleLowerCase();
@@ -686,8 +686,8 @@
 								<p>{entry.excerpt}</p>
 								<div class="entry-footer">
 									<span>{entry.topicNames[0] ?? 'Library'}</span>
-									{#if entry.origin === 'shared' && entry.sharedByDisplayName}
-										<span>From {entry.sharedByDisplayName}</span>
+									{#if entry.origin === 'shared' && entry.sharedByUsername}
+										<span>From @{entry.sharedByUsername}</span>
 									{/if}
 								</div>
 							</button>
@@ -714,8 +714,8 @@
 							<div class="document-kicker">
 								{#if selectedEntry.origin === 'shared'}
 									<Badge variant="outline" class="shared-badge">Shared with me</Badge>
-									{#if selectedEntry.sharedByDisplayName}
-										<span>From {selectedEntry.sharedByDisplayName}</span>
+									{#if selectedEntry.sharedByUsername}
+										<span>From @{selectedEntry.sharedByUsername}</span>
 									{/if}
 								{:else}
 									<Badge variant="secondary">Personal library</Badge>
