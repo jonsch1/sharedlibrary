@@ -8,7 +8,6 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import InboxIcon from '@lucide/svelte/icons/inbox';
 	import ListMusicIcon from '@lucide/svelte/icons/list-music';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
@@ -22,6 +21,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '$lib/MarkdownText.svelte';
+	import PublicShareReader from '$lib/PublicShareReader.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -61,29 +61,15 @@
 		type GoogleDriveConnection
 	} from '$lib/google-drive.js';
 	import {
-		chooseGoogleDriveFolder,
-		type GoogleDriveFolderSelection
-	} from '$lib/google-drive-picker.js';
-	import {
-		connectSharedFolder,
-		dismissSharedInboxItem,
-		disconnectSharedFolder,
-		loadCachedSharedPeople,
-		loadCachedSharedItemStatus,
-		loadSharedItemStatus,
-		loadSharedFolderConnection,
-		loadSharedInbox,
-		loadSharingOperationStatus,
-		saveSharedInboxItem,
-		updateSharedItem,
-		type SharedFolderConnection,
-		type SharedItemStatus,
-		type SharedPerson
-	} from '$lib/sharing.js';
+		loadShareLinkStatus,
+		publishShareLink,
+		revokeShareLink,
+		type ShareLinkStatus
+	} from '$lib/share-links.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
-	type OriginFilter = 'all' | 'personal' | 'shared';
+	type OriginFilter = 'all' | 'personal';
 
 	const variantNames: Record<LibraryVariant, string> = {
 		brief: 'Brief',
@@ -94,6 +80,7 @@
 	};
 
 	let projection = $state<LibraryProjection | null>(null);
+	let publicShareToken = $state('');
 	let selectedEntryID = $state<string | null>(null);
 	let selectedVariant = $state<LibraryVariant>('concise');
 	let query = $state('');
@@ -108,13 +95,9 @@
 	let connectionsVisible = $state(false);
 	let sharingVisible = $state(false);
 	let shareTarget = $state<LibraryEntry | null>(null);
-	let sharePeople = $state<SharedPerson[]>([]);
-	let selectedRecipientIDs = $state<string[]>([]);
-	let shareQuery = $state('');
 	let shareBusy = $state(false);
-	let shareWasShared = $state(false);
-	let shareOperationStatus = $state<SharedItemStatus['operationStatus']>();
-	let shareOperationError = $state('');
+	let shareLink = $state<ShareLinkStatus>({ shared: false });
+	let shareError = $state('');
 	const sharingWatchTokens = new Map<string, string>();
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
@@ -132,10 +115,6 @@
 	let googleSyncPhase = $state<GoogleSyncPhase>('checking');
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
-	let sharedConnection = $state<SharedFolderConnection>({ connected: false });
-	let sharedFolderName = $state('');
-	let sharedUsername = $state('');
-	let sharedBusy = $state(false);
 	let textRevision = $state(0);
 	let loadingText = $state(false);
 	let installedAppleWebApp = $state(false);
@@ -190,14 +169,6 @@
 			player.currentVariant === selectedVariant
 	);
 	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
-	let normalizedShareQuery = $derived(shareQuery.trim().toLocaleLowerCase());
-	let filteredSharePeople = $derived(
-		sharePeople.filter((person) =>
-			normalizedShareQuery
-				? person.username.toLocaleLowerCase().includes(normalizedShareQuery)
-				: true
-		)
-	);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
@@ -218,6 +189,12 @@
 	});
 
 	onMount(() => {
+		const sharedToken = new URL(window.location.href).searchParams.get('shared') ?? '';
+		if (/^[A-Za-z0-9_-]{32}$/.test(sharedToken)) {
+			publicShareToken = sharedToken;
+			loading = false;
+			return;
+		}
 		let active = true;
 		let lastAutomaticSync = 0;
 		let reloadingForServiceWorker = false;
@@ -237,7 +214,6 @@
 			(navigatorWithStandalone.standalone === true ||
 				window.matchMedia('(display-mode: standalone)').matches);
 		openRouterVoice = loadVoicePreference();
-		sharePeople = loadCachedSharedPeople();
 		void initializeOpenRouter(() => active);
 		loadLibraryProjection()
 			.then((saved) => {
@@ -274,15 +250,9 @@
 	async function initializeConnections(isActive: () => boolean): Promise<void> {
 		try {
 			const googleResult = consumeGoogleDriveConnectionResult();
-			const [google, shared] = await Promise.all([
-				loadGoogleDriveConnection(),
-				loadSharedFolderConnection()
-			]);
+			const google = await loadGoogleDriveConnection();
 			if (!isActive()) return;
 			googleConnection = google;
-			sharedConnection = shared;
-			sharedFolderName = shared.folderName ?? '';
-			sharedUsername = shared.username ?? '';
 			if (googleResult === 'connected') {
 				connectionMessage =
 					'Google Drive connected. The complete library and existing narration are being saved on this device.';
@@ -338,6 +308,7 @@
 				? savedTopic
 				: 'all';
 		mobileReaderVisible = false;
+		openRequestedShare(nextProjection.entries);
 	}
 
 	function applySyncedProjection(nextProjection: LibraryProjection): void {
@@ -348,6 +319,23 @@
 			nextProjection.entries.some((entry) => entry.id === previousSelection)
 				? previousSelection
 				: (nextProjection.entries[0]?.id ?? null);
+		openRequestedShare(nextProjection.entries);
+	}
+
+	function openRequestedShare(availableEntries: LibraryEntry[]): void {
+		const url = new URL(window.location.href);
+		const captureID = url.searchParams.get('publish');
+		if (!captureID) return;
+		const entry = availableEntries.find(
+			(candidate) =>
+				candidate.origin === 'personal' &&
+				(candidate.captureID === captureID || candidate.id === captureID)
+		);
+		if (!entry) return;
+		url.searchParams.delete('publish');
+		window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+		selectedEntryID = entry.id;
+		queueMicrotask(() => void openSharing(entry));
 	}
 
 	async function syncFromGoogleDrive(showError = true): Promise<void> {
@@ -362,27 +350,8 @@
 				googleSyncCompleted = completed;
 				googleSyncTotal = total;
 			});
-			const inboxProjection = sharedConnection.connected
-				? await loadSharedInbox()
-				: {
-						schemaVersion: personalProjection.schemaVersion,
-						generatedAt: new Date().toISOString(),
-						files: [],
-						entries: []
-					};
-			const nextProjection: LibraryProjection = {
-				...personalProjection,
-				generatedAt:
-					personalProjection.generatedAt > inboxProjection.generatedAt
-						? personalProjection.generatedAt
-						: inboxProjection.generatedAt,
-				entries: [
-					...personalProjection.entries.filter((entry) => entry.origin === 'personal'),
-					...inboxProjection.entries
-				]
-			};
-			await saveLibraryProjection(nextProjection);
-			applySyncedProjection(nextProjection);
+			await saveLibraryProjection(personalProjection);
+			applySyncedProjection(personalProjection);
 			googleSyncPhase = 'audio';
 			googleSyncCompleted = 0;
 			googleSyncTotal = 0;
@@ -453,121 +422,6 @@
 		}
 	}
 
-	async function connectSharingFolder(folder: GoogleDriveFolderSelection): Promise<void> {
-		sharedBusy = true;
-		connectionMessage = '';
-		try {
-			sharedFolderName = folder.name;
-			const connected = await connectSharedFolder(folder.id, sharedUsername);
-			sharedConnection = connected;
-			sharedFolderName = connected.folderName ?? folder.name;
-			sharedUsername = connected.username ?? sharedUsername;
-			connectionMessage = `Shared folder connected as @${connected.username}. Synchronizing the Inbox…`;
-			await syncFromGoogleDrive(false);
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The shared folder could not be connected.';
-		} finally {
-			sharedBusy = false;
-		}
-	}
-
-	async function chooseSharingFolder(): Promise<void> {
-		sharedBusy = true;
-		connectionMessage = '';
-		try {
-			const folder = await chooseGoogleDriveFolder();
-			if (!folder) return;
-			await connectSharingFolder(folder);
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The Google Drive folder picker could not be opened.';
-		} finally {
-			sharedBusy = false;
-		}
-	}
-
-	async function removeSharedFolderConnection(): Promise<void> {
-		sharedBusy = true;
-		try {
-			await disconnectSharedFolder();
-			sharedConnection = { connected: false };
-			sharedFolderName = '';
-			projection = projection
-				? { ...projection, entries: projection.entries.filter((entry) => entry.origin === 'personal') }
-				: projection;
-			if (projection) await saveLibraryProjection(projection);
-			connectionMessage = 'Shared folder disconnected. Your personal library remains connected.';
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The shared folder could not be disconnected.';
-		} finally {
-			sharedBusy = false;
-		}
-	}
-
-	async function saveSelectedInboxItem(): Promise<void> {
-		const entry = selectedEntry;
-		const referenceID = entry?.inboxReferenceID;
-		if (!entry || !referenceID) return;
-		sharedBusy = true;
-		try {
-			const saved = await saveSharedInboxItem(referenceID);
-			const savedEntry: LibraryEntry = {
-				...entry,
-				id: `personal:${saved.captureID}`,
-				captureID: saved.captureID,
-				origin: 'personal',
-				sharedByUsername: undefined,
-				inboxReferenceID: undefined
-			};
-			projection = projection
-				? {
-						...projection,
-						generatedAt: new Date().toISOString(),
-						entries: projection.entries.map((candidate) =>
-							candidate.id === entry.id ? savedEntry : candidate
-						)
-					}
-				: projection;
-			selectedEntryID = savedEntry.id;
-			if (projection) await saveLibraryProjection(projection);
-			await syncFromGoogleDrive(false);
-			connectionMessage =
-				'Saved to your personal library. The independent copy is now synchronized.';
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The Inbox item could not be saved.';
-		} finally {
-			sharedBusy = false;
-		}
-	}
-
-	async function dismissSelectedInboxItem(): Promise<void> {
-		const entry = selectedEntry;
-		const referenceID = entry?.inboxReferenceID;
-		if (!entry || !referenceID) return;
-		sharedBusy = true;
-		try {
-			await dismissSharedInboxItem(referenceID);
-			projection = projection
-				? {
-						...projection,
-						generatedAt: new Date().toISOString(),
-						entries: projection.entries.filter((candidate) => candidate.id !== entry.id)
-					}
-				: projection;
-			selectedEntryID = projection?.entries[0]?.id ?? null;
-			if (projection) await saveLibraryProjection(projection);
-			connectionMessage = 'Inbox item dismissed. The shared source was left untouched.';
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The Inbox item could not be dismissed.';
-		} finally {
-			sharedBusy = false;
-		}
-	}
-
 	function toggleConnections(): void {
 		connectionsVisible = !connectionsVisible;
 		audioSettingsVisible = false;
@@ -575,85 +429,52 @@
 		sharingVisible = false;
 	}
 
-	async function openSharing(): Promise<void> {
-		const entry = selectedEntry;
+	async function openSharing(entry: LibraryEntry | null = selectedEntry): Promise<void> {
 		if (!entry || entry.origin !== 'personal') return;
-		if (!sharedConnection.connected) {
-			connectionMessage = 'Connect the group folder before sharing a document.';
-			connectionsVisible = true;
-			audioSettingsVisible = false;
-			queueVisible = false;
-			sharingVisible = false;
-			return;
-		}
 		shareTarget = entry;
-		const cached = loadCachedSharedItemStatus(entry.captureID ?? entry.id);
-		selectedRecipientIDs = cached?.recipientIDs ?? [];
-		shareQuery = '';
-		shareWasShared = cached?.shared ?? false;
-		shareOperationStatus = cached?.operationStatus;
-		shareOperationError = cached?.operationError ?? '';
-		if (cached?.people.length) sharePeople = cached.people;
+		shareLink = { shared: false };
+		shareError = '';
 		shareBusy = true;
 		sharingVisible = true;
 		connectionsVisible = false;
 		audioSettingsVisible = false;
 		queueVisible = false;
 		try {
-			const status = await loadSharedItemStatus(entry.captureID ?? entry.id);
+			const status = await loadShareLinkStatus(entry.captureID ?? entry.id);
 			if (shareTarget?.id !== entry.id) return;
-			sharePeople = status.people;
-			selectedRecipientIDs = status.recipientIDs;
-			shareWasShared = status.shared;
-			shareOperationStatus = status.operationStatus;
-			shareOperationError = status.operationError ?? '';
+			shareLink = status;
 		} catch (error) {
-			shareOperationError =
-				error instanceof Error ? error.message : 'Sharing details could not be loaded.';
-			if (sharePeople.length === 0) connectionMessage = shareOperationError;
+			shareError =
+				error instanceof Error ? error.message : 'The share link could not be loaded.';
 		} finally {
 			shareBusy = false;
 		}
-	}
-
-	function toggleShareRecipient(userID: string): void {
-		selectedRecipientIDs = selectedRecipientIDs.includes(userID)
-			? selectedRecipientIDs.filter((candidate) => candidate !== userID)
-			: [...selectedRecipientIDs, userID];
 	}
 
 	async function saveSharing(): Promise<void> {
 		const target = shareTarget;
 		if (!target) return;
 		shareBusy = true;
+		shareError = '';
 		try {
-			const result = await updateSharedItem(
-				target.captureID ?? target.id,
-				selectedRecipientIDs
-			);
-			shareWasShared = result.shared;
-			selectedRecipientIDs = result.recipientIDs;
-			shareOperationStatus = result.operationStatus;
-			shareOperationError = result.operationError ?? '';
-			sharingVisible = false;
-			connectionMessage = result.shared
-				? `Sharing with ${result.recipientIDs.length} ${
-						result.recipientIDs.length === 1 ? 'person' : 'people'
-					} in the background. You can keep browsing.`
-				: 'Removing this item from the group library in the background. Saved Inbox copies remain.';
-			void watchSharingOperation(
-				target.captureID ?? target.id,
-				result.recipientIDs.length
-			);
+			const captureID = target.captureID ?? target.id;
+			const result = await publishShareLink(captureID, openRouterVoice);
+			shareLink = result;
+			if (result.url) {
+				await navigator.clipboard.writeText(result.url);
+				connectionMessage =
+					'Share link copied. The document and existing narration are being prepared.';
+			}
+			void watchShareLink(captureID);
 		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The document could not be shared.';
+			shareError =
+				error instanceof Error ? error.message : 'The share link could not be created.';
 		} finally {
 			shareBusy = false;
 		}
 	}
 
-	async function watchSharingOperation(captureID: string, recipientCount: number): Promise<void> {
+	async function watchShareLink(captureID: string): Promise<void> {
 		const token = crypto.randomUUID();
 		sharingWatchTokens.set(captureID, token);
 		const delays = [1_500, 2_500, 4_000, 6_000, 8_000];
@@ -661,26 +482,43 @@
 			await new Promise((resolve) => window.setTimeout(resolve, delay));
 			if (sharingWatchTokens.get(captureID) !== token) return;
 			try {
-				const operation = await loadSharingOperationStatus(captureID);
+				const status = await loadShareLinkStatus(captureID);
 				if (sharingWatchTokens.get(captureID) !== token) return;
-				if (operation.status === 'failed') {
-					connectionMessage = `Drive sync failed: ${
-						operation.error ?? 'the update did not finish'
-					}. Open Share to retry.`;
+				shareLink = status;
+				if (status.status === 'failed') {
+					shareError = status.error ?? 'The share link could not be prepared.';
 					return;
 				}
-				if (operation.status === 'complete') {
-					connectionMessage =
-						recipientCount > 0
-							? `Shared with ${recipientCount} ${
-									recipientCount === 1 ? 'person' : 'people'
-								}.`
-							: 'Sharing removed from the group library.';
+				if (status.status === 'ready') {
+					connectionMessage = 'Share link ready.';
 					return;
 				}
 			} catch {
-				// The queued state remains locally visible; a later check can still complete it.
+				// The link remains locally available; a later check can still complete it.
 			}
+		}
+	}
+
+	async function copyShareLink(): Promise<void> {
+		if (!shareLink.url) return;
+		await navigator.clipboard.writeText(shareLink.url);
+		connectionMessage = 'Share link copied.';
+	}
+
+	async function stopSharing(): Promise<void> {
+		if (!shareLink.token) return;
+		shareBusy = true;
+		shareError = '';
+		try {
+			await revokeShareLink(shareLink.token);
+			shareLink = { shared: false };
+			sharingVisible = false;
+			connectionMessage = 'Share link revoked. Saved library copies remain.';
+		} catch (error) {
+			shareError =
+				error instanceof Error ? error.message : 'The share link could not be revoked.';
+		} finally {
+			shareBusy = false;
 		}
 	}
 
@@ -848,9 +686,12 @@
 	<meta name="twitter:image" content="/og-v2.png" />
 </svelte:head>
 
-<audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
+{#if publicShareToken}
+	<PublicShareReader token={publicShareToken} />
+{:else}
+	<audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
 
-<div class="app-shell">
+	<div class="app-shell">
 	<!--
 		The former dashboard composition is kept here temporarily as an inert reference while the
 		Mac-window composition below becomes the single web surface.
@@ -1267,16 +1108,6 @@
 								selectOrigin('all');
 							}}>All</button
 						>
-						{#if sharedConnection.connected}
-							<button
-								class="topic-chip inbox-chip"
-								class:active={originFilter === 'shared'}
-								onclick={() => selectOrigin('shared')}
-							>
-								<InboxIcon />
-								Inbox
-							</button>
-						{/if}
 						{#each topics as topic}
 							<button
 								class="topic-chip"
@@ -1343,10 +1174,7 @@
 						</article>
 					</div>
 
-					<footer
-						class="native-document-footer"
-						class:has-inbox-actions={Boolean(selectedEntry.inboxReferenceID)}
-					>
+					<footer class="native-document-footer">
 						<div
 							class="native-player-progress"
 							class:visible={selectedAudioActive}
@@ -1370,26 +1198,6 @@
 						</div>
 
 						<div class="native-footer-actions">
-							{#if selectedEntry.inboxReferenceID}
-								<button
-									class="native-icon-button inbox-dismiss-action"
-									disabled={sharedBusy}
-									aria-label="Dismiss Inbox item"
-									title="Dismiss without saving"
-									onclick={dismissSelectedInboxItem}
-								>
-									<XIcon />
-								</button>
-								<button
-									class="native-icon-button inbox-save-action"
-									disabled={sharedBusy}
-									aria-label="Save Inbox item to personal library"
-									title="Save to Library"
-									onclick={saveSelectedInboxItem}
-								>
-									<CheckIcon />
-								</button>
-							{/if}
 							{#if selectedEntry.sourceURL}
 								<a
 									class="native-icon-button"
@@ -1408,8 +1216,8 @@
 									class="native-icon-button"
 									class:active={sharingVisible && shareTarget?.id === selectedEntry.id}
 									aria-label="Share document"
-									title="Share with people"
-									onclick={openSharing}
+									title="Create share link"
+									onclick={() => openSharing()}
 								>
 									<Share2Icon />
 								</button>
@@ -1569,78 +1377,20 @@
 					{/if}
 				</section>
 
-				<section class="audio-connection" class:connected={sharedConnection.connected}>
+				<section class="audio-connection connected">
 					<div class="audio-connection-heading">
-						<div class="provider-mark"><InboxIcon /></div>
+						<div class="provider-mark"><Share2Icon /></div>
 						<div>
 							<div class="provider-title">
-								<h3>Shared folder</h3>
-								<Badge variant={sharedConnection.connected ? 'secondary' : 'outline'}>
-									{sharedConnection.connected ? 'Connected' : 'Optional'}
-								</Badge>
+								<h3>Share links</h3>
+								<Badge variant="secondary">Built in</Badge>
 							</div>
 							<p>
-								A separate group folder for deliberate shares and your Inbox. It never
-								contains the rest of your personal library.
+								Publish individual documents as hard-to-guess, forwardable links. No
+								shared Drive folder is required.
 							</p>
 						</div>
 					</div>
-
-					{#if sharedConnection.connected}
-						<div class="shared-connection-summary">
-							<strong>@{sharedConnection.username}</strong>
-							<span>{sharedFolderName || sharedConnection.folderID}</span>
-						</div>
-						<Button
-							variant="outline"
-							disabled={sharedBusy}
-							onclick={removeSharedFolderConnection}
-						>
-							<LogOutIcon data-icon="inline-start" />
-							Disconnect shared folder
-						</Button>
-					{:else}
-						<div class="shared-folder-fields">
-							<label>
-								<span>Username</span>
-								<Input
-									bind:value={sharedUsername}
-									placeholder="your-name"
-									autocomplete="username"
-								/>
-							</label>
-						</div>
-						<Button
-							disabled={sharedBusy ||
-								!googleConnection.connected ||
-								!googleConnection.pickerConfigured ||
-								!sharedUsername.trim()}
-							onclick={chooseSharingFolder}
-						>
-							<InboxIcon data-icon="inline-start" />
-							{sharedBusy
-								? 'Opening Google Drive…'
-								: googleConnection.groupFolderConfigured
-									? 'Confirm group folder'
-									: 'Choose shared folder'}
-						</Button>
-						<p class="connection-help">
-							{#if googleConnection.groupFolderConfigured}
-								The group folder is already configured. Google will show it for one-time
-								confirmation; you do not need to find or paste it. Enter the same username
-								you use in the Mac app; an existing profile is reused.
-							{:else}
-								Choose the existing group folder in Google Drive. This explicitly grants
-								Shared Library access to that folder only. Enter the same username you use
-								in the Mac app; an existing profile is reused.
-							{/if}
-						</p>
-						{#if googleConnection.connected && !googleConnection.pickerConfigured}
-							<p class="connection-help">
-								The Google Drive folder picker has not been configured for this deployment.
-							</p>
-						{/if}
-					{/if}
 				</section>
 
 				<div class="audio-privacy">
@@ -1648,9 +1398,10 @@
 					<div>
 						<strong>Your Drive remains the source of truth</strong>
 						<p>
-							OAuth app credentials are configured once for the deployment. Your
-							account tokens are encrypted per signed-in account. Library text and
-							mirrored Markdown files and content-addressed audio are stored in your own Drive.
+							OAuth app credentials are configured once for the deployment. Your account
+							tokens are encrypted per signed-in account. Your private library stays in
+							your Drive; only documents you deliberately publish are copied to the
+							sharing service until you stop sharing them.
 						</p>
 					</div>
 				</div>
@@ -1667,8 +1418,8 @@
 		<aside class="audio-panel share-panel" aria-label="Share document">
 			<div class="audio-header">
 				<div>
-					<p class="eyebrow">Group library</p>
-					<h2>Share</h2>
+					<p class="eyebrow">Shareable reader</p>
+					<h2>Share link</h2>
 				</div>
 				<Button
 					variant="ghost"
@@ -1689,93 +1440,90 @@
 					</div>
 				</div>
 
-				{#if shareOperationStatus}
-					<div
-						class="share-sync-state"
-						class:error={shareOperationStatus === 'failed'}
-						role={shareOperationStatus === 'failed' ? 'alert' : 'status'}
-					>
-						{#if shareOperationStatus === 'failed'}
-							<TriangleAlertIcon />
-							<div>
-								<strong>Drive sync needs another try</strong>
-								<span>{shareOperationError || 'The last background update did not finish.'}</span>
-							</div>
-						{:else}
-							<LoaderCircleIcon class="spin" />
-							<div>
-								<strong>{shareOperationStatus === 'queued' ? 'Update queued' : 'Syncing with Drive'}</strong>
-								<span>You can close this panel and keep browsing.</span>
-							</div>
-						{/if}
-					</div>
-				{:else if shareOperationError}
+				{#if shareError}
 					<div class="share-sync-state error" role="alert">
 						<TriangleAlertIcon />
 						<div>
-							<strong>Could not refresh Drive</strong>
-							<span>{shareOperationError}</span>
+							<strong>Share link needs attention</strong>
+							<span>{shareError}</span>
 						</div>
 					</div>
 				{/if}
 
-				{#if shareBusy && sharePeople.length === 0}
+				{#if shareBusy && !shareLink.shared}
 					<div class="share-loading">
 						<LoaderCircleIcon class="spin" />
-						<span>Loading people…</span>
+						<span>Checking for an existing link…</span>
 					</div>
-				{:else if sharePeople.length === 0}
-					<div class="share-empty">
-						<p>No other people have connected this group folder yet.</p>
-						<span>Their usernames will appear here after they connect once.</span>
+				{:else if shareLink.shared && shareLink.url}
+					<div class="share-link-card">
+						<div class="share-link-status">
+							{#if shareLink.status === 'ready'}
+								<CheckIcon />
+								<span>
+									<strong>Ready to open</strong>
+									<small>Anyone with this link can read and forward it.</small>
+								</span>
+							{:else if shareLink.status === 'failed'}
+								<TriangleAlertIcon />
+								<span>
+									<strong>Preparation failed</strong>
+									<small>{shareLink.error ?? 'Create the link again to retry.'}</small>
+								</span>
+							{:else}
+								<LoaderCircleIcon class="spin" />
+								<span>
+									<strong>Preparing in the background</strong>
+									<small>The link already works and will update automatically.</small>
+								</span>
+							{/if}
+						</div>
+						<div class="share-link-value">
+							<span>{shareLink.url}</span>
+							<Button variant="outline" onclick={copyShareLink}>Copy</Button>
+						</div>
+						{#if shareLink.status === 'ready'}
+							<a href={shareLink.url} target="_blank" rel="noreferrer">
+								Open reader <ArrowUpRightIcon />
+							</a>
+						{/if}
 					</div>
 				{:else}
-					<label class="share-search">
-						<SearchIcon />
-						<Input bind:value={shareQuery} placeholder="Search people" aria-label="Search people" />
-					</label>
-					<div class="share-people" aria-label="People">
-						{#each filteredSharePeople as person (person.userID)}
-							<button
-								class:selected={selectedRecipientIDs.includes(person.userID)}
-								aria-pressed={selectedRecipientIDs.includes(person.userID)}
-								onclick={() => toggleShareRecipient(person.userID)}
-							>
-								<span class="share-avatar">{person.username.slice(0, 1).toUpperCase()}</span>
-								<strong>@{person.username}</strong>
-								<span class="share-check" aria-hidden="true">
-									{#if selectedRecipientIDs.includes(person.userID)}<CheckIcon />{/if}
-								</span>
-							</button>
-						{/each}
-						{#if filteredSharePeople.length === 0}
-							<p class="share-no-results">No matching usernames.</p>
-						{/if}
+					<div class="share-empty">
+						<Share2Icon />
+						<p>Publish this document as an unguessable, forwardable link.</p>
+						<span>
+							The reader includes every summary level and complete narration that has
+							already been generated.
+						</span>
 					</div>
 				{/if}
 			</div>
 
 			<div class="share-actions">
-				<Button
-					variant={shareWasShared && selectedRecipientIDs.length === 0
-						? 'destructive'
-						: 'default'}
-					disabled={shareBusy || (!shareWasShared && selectedRecipientIDs.length === 0)}
-					onclick={saveSharing}
-				>
-					<Share2Icon data-icon="inline-start" />
-					{shareBusy
-						? 'Queueing…'
-						: shareOperationStatus === 'failed'
-							? 'Retry sync'
-						: shareWasShared && selectedRecipientIDs.length === 0
-							? 'Stop sharing'
-							: shareWasShared
-								? 'Update sharing'
-								: `Share with ${selectedRecipientIDs.length}`}
-				</Button>
+				<div class="share-link-actions">
+					{#if shareLink.shared}
+						<Button
+							variant="outline"
+							disabled={shareBusy}
+							onclick={stopSharing}
+						>
+							Stop sharing
+						</Button>
+					{/if}
+					<Button disabled={shareBusy} onclick={saveSharing}>
+						{#if shareBusy}
+							<LoaderCircleIcon class="spin" data-icon="inline-start" />
+							Preparing…
+						{:else}
+							<Share2Icon data-icon="inline-start" />
+							{shareLink.shared ? 'Update link' : 'Create share link'}
+						{/if}
+					</Button>
+				</div>
 				<p>
-					Only this document and its summaries are copied to the group folder.
+					Updating republishes the current snapshot. Revoking prevents future access;
+					copies already saved to another library remain independent.
 				</p>
 			</div>
 		</aside>
@@ -1928,4 +1676,5 @@
 			{/if}
 		</aside>
 	{/if}
-</div>
+	</div>
+{/if}

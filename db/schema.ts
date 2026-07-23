@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const openRouterCredentials = sqliteTable('openrouter_credentials', {
 	userEmail: text('user_email').primaryKey(),
@@ -38,27 +38,57 @@ export const googleOAuthStates = sqliteTable('google_oauth_states', {
 	createdAt: integer('created_at').notNull()
 });
 
-export const sharedFolderConnections = sqliteTable('shared_folder_connections', {
-	userEmail: text('user_email').primaryKey(),
-	folderID: text('folder_id').notNull(),
-	userID: text('user_id').notNull(),
-	username: text('username').notNull(),
-	connectedAt: text('connected_at').notNull(),
-	updatedAt: text('updated_at').notNull()
-});
-
-export const sharingOperations = sqliteTable(
-	'sharing_operations',
+export const shareLinks = sqliteTable(
+	'share_links',
 	{
-		userEmail: text('user_email').notNull(),
+		token: text('token').primaryKey(),
+		ownerEmail: text('owner_email').notNull(),
 		captureID: text('capture_id').notNull(),
-		recipientIDs: text('recipient_ids').notNull(),
 		generation: text('generation').notNull(),
+		revision: integer('revision').notNull().default(1),
 		status: text('status').notNull(),
-		attemptCount: integer('attempt_count').notNull().default(0),
-		lastError: text('last_error'),
+		metadataJSON: text('metadata_json'),
+		sourceFilename: text('source_filename'),
+		voice: text('voice').notNull(),
+		errorMessage: text('error_message'),
 		createdAt: text('created_at').notNull(),
 		updatedAt: text('updated_at').notNull()
 	},
-	(table) => [primaryKey({ columns: [table.userEmail, table.captureID] })]
+	(table) => [
+		uniqueIndex('share_links_owner_capture_unique').on(table.ownerEmail, table.captureID)
+	]
+);
+
+export const shareTexts = sqliteTable(
+	'share_texts',
+	{
+		shareToken: text('share_token').notNull(),
+		generation: text('generation').notNull(),
+		variant: text('variant').notNull(),
+		markdown: text('markdown').notNull(),
+		wordCount: integer('word_count').notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.shareToken, table.generation, table.variant] })
+	]
+);
+
+export const shareAudioSegments = sqliteTable(
+	'share_audio_segments',
+	{
+		shareToken: text('share_token').notNull(),
+		generation: text('generation').notNull(),
+		variant: text('variant').notNull(),
+		segmentIndex: integer('segment_index').notNull(),
+		audioHash: text('audio_hash').notNull(),
+		r2Key: text('r2_key').notNull(),
+		contentType: text('content_type').notNull(),
+		byteCount: integer('byte_count').notNull(),
+		voice: text('voice').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.shareToken, table.generation, table.variant, table.segmentIndex]
+		})
+	]
 );

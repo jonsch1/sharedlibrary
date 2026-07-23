@@ -158,27 +158,47 @@ async function ensureSchema(database) {
 			)`
 		),
 		database.prepare(
-			`CREATE TABLE IF NOT EXISTS shared_folder_connections (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				folder_id TEXT NOT NULL,
-				user_id TEXT NOT NULL,
-				username TEXT NOT NULL,
-				connected_at TEXT NOT NULL,
+			`CREATE TABLE IF NOT EXISTS share_links (
+				token TEXT PRIMARY KEY NOT NULL,
+				owner_email TEXT NOT NULL,
+				capture_id TEXT NOT NULL,
+				generation TEXT NOT NULL,
+				revision INTEGER NOT NULL DEFAULT 1,
+				status TEXT NOT NULL,
+				metadata_json TEXT,
+				source_filename TEXT,
+				voice TEXT NOT NULL,
+				error_message TEXT,
+				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL
 			)`
 		),
 		database.prepare(
-			`CREATE TABLE IF NOT EXISTS sharing_operations (
-				user_email TEXT NOT NULL,
-				capture_id TEXT NOT NULL,
-				recipient_ids TEXT NOT NULL,
+			`CREATE UNIQUE INDEX IF NOT EXISTS share_links_owner_capture_unique
+			 ON share_links (owner_email, capture_id)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS share_texts (
+				share_token TEXT NOT NULL,
 				generation TEXT NOT NULL,
-				status TEXT NOT NULL,
-				attempt_count INTEGER NOT NULL DEFAULT 0,
-				last_error TEXT,
-				created_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL,
-				PRIMARY KEY (user_email, capture_id)
+				variant TEXT NOT NULL,
+				markdown TEXT NOT NULL,
+				word_count INTEGER NOT NULL,
+				PRIMARY KEY (share_token, generation, variant)
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS share_audio_segments (
+				share_token TEXT NOT NULL,
+				generation TEXT NOT NULL,
+				variant TEXT NOT NULL,
+				segment_index INTEGER NOT NULL,
+				audio_hash TEXT NOT NULL,
+				r2_key TEXT NOT NULL,
+				content_type TEXT NOT NULL,
+				byte_count INTEGER NOT NULL,
+				voice TEXT NOT NULL,
+				PRIMARY KEY (share_token, generation, variant, segment_index)
 			)`
 		)
 	]);
@@ -558,44 +578,11 @@ async function googleDriveStatus(request, env) {
 		.bind(email)
 		.first();
 	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
-	const appID = googleCloudProjectNumber(config?.clientID);
-	const groupFolderID = configuredGroupFolderID(env);
 	return json({
 		configured: Boolean(config),
 		connected: Boolean(connection?.encrypted_refresh_token),
 		connectedAt: connection?.connected_at ?? undefined,
-		callbackURL: new URL('/api/google/connect/callback', request.url).toString(),
-		pickerConfigured: Boolean(appID),
-		appID: appID ?? undefined,
-		groupFolderConfigured: Boolean(groupFolderID)
-	});
-}
-
-async function googleDrivePickerConfig(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-	const connection = await googleDriveConnection(env, email);
-	if (!connection?.encrypted_refresh_token) {
-		return json({ error: 'Connect Google Drive before choosing a shared folder.' }, { status: 409 });
-	}
-	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
-	const appID = googleCloudProjectNumber(config?.clientID);
-	if (!appID) {
-		return json(
-			{ error: 'Google Drive Picker is not configured for this deployment.' },
-			{ status: 503 }
-		);
-	}
-	const oauthToken = await googleAccessToken(env, email);
-	if (!oauthToken) {
-		return json({ error: 'Reconnect Google Drive before choosing a folder.' }, { status: 401 });
-	}
-	return json({
-		appID,
-		oauthToken,
-		developerKey: env.GOOGLE_DRIVE_PICKER_API_KEY || undefined,
-		folderID: configuredGroupFolderID(env) ?? undefined
+		callbackURL: new URL('/api/google/connect/callback', request.url).toString()
 	});
 }
 
@@ -1052,6 +1039,532 @@ async function uploadDriveMedia(request, env, media) {
 	}
 	const value = await response.json();
 	return json({ id: value.id, existed: false });
+}
+
+const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive', 'source'];
+const maximumShareSpeechSegmentLength = 360;
+
+function validShareToken(value) {
+	return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
+}
+
+function shareLinkURL(request, token) {
+	const url = new URL('/', request.url);
+	url.searchParams.set('shared', token);
+	return url.toString();
+}
+
+async function shareLinkForOwner(env, email, captureID) {
+	return env.DB.prepare(
+		`SELECT token, owner_email, capture_id, generation, revision, status,
+		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		 FROM share_links
+		 WHERE owner_email = ? AND capture_id = ?`
+	)
+		.bind(email, captureID)
+		.first();
+}
+
+async function shareLinkByToken(env, token) {
+	return env.DB.prepare(
+		`SELECT token, owner_email, capture_id, generation, revision, status,
+		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		 FROM share_links
+		 WHERE token = ?`
+	)
+		.bind(token)
+		.first();
+}
+
+function shareLinkResponse(request, record) {
+	if (!record) return { shared: false };
+	let metadata;
+	try {
+		metadata = record.metadata_json ? JSON.parse(record.metadata_json) : undefined;
+	} catch {
+		metadata = undefined;
+	}
+	return {
+		shared: true,
+		token: record.token,
+		url: shareLinkURL(request, record.token),
+		status: record.status,
+		revision: Number(record.revision ?? 1),
+		error: record.error_message ?? undefined,
+		metadata,
+		voice: record.voice,
+		updatedAt: record.updated_at
+	};
+}
+
+function shareSpokenText(markdown) {
+	return String(markdown ?? '')
+		.replace(/^---[\s\S]*?---\s*/m, '')
+		.replace(/```[\s\S]*?```/g, ' ')
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/^#{1,6}\s+/gm, '')
+		.replace(/^>\s?/gm, '')
+		.replace(/^[*-]\s+/gm, '')
+		.replace(/^\d+\.\s+/gm, '')
+		.replace(/[*_~]/g, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+function shareSpeechChunks(text) {
+	const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text];
+	const chunks = [];
+	let current = '';
+	const flush = () => {
+		if (current.trim()) chunks.push(current.trim());
+		current = '';
+	};
+	for (const sentence of sentences) {
+		const trimmed = sentence.trim();
+		if (!trimmed) continue;
+		if (trimmed.length > maximumShareSpeechSegmentLength) {
+			flush();
+			let remaining = trimmed;
+			while (remaining.length > maximumShareSpeechSegmentLength) {
+				const candidate = remaining.slice(0, maximumShareSpeechSegmentLength + 1);
+				const wordBoundary = candidate.lastIndexOf(' ');
+				const splitAt =
+					wordBoundary >= Math.floor(maximumShareSpeechSegmentLength * 0.6)
+						? wordBoundary
+						: maximumShareSpeechSegmentLength;
+				chunks.push(remaining.slice(0, splitAt).trim());
+				remaining = remaining.slice(splitAt).trim();
+			}
+			if (remaining) current = remaining;
+		} else if (
+			current &&
+			current.length + trimmed.length + 1 > maximumShareSpeechSegmentLength
+		) {
+			flush();
+			current = trimmed;
+		} else {
+			current = current ? `${current} ${trimmed}` : trimmed;
+		}
+	}
+	flush();
+	return chunks;
+}
+
+async function shareAudioFingerprint(text, voice) {
+	return sha256Hex(`${openRouterModel}\n${voice}\n${text}`);
+}
+
+async function driveAudioFilesByHash(env, email) {
+	const files = new Map();
+	let pageToken;
+	do {
+		const url = new URL('https://www.googleapis.com/drive/v3/files');
+		url.searchParams.set(
+			'q',
+			"appProperties has { key='sharedLibraryKind' and value='audio' } and trashed=false"
+		);
+		url.searchParams.set(
+			'fields',
+			'nextPageToken,files(id,mimeType,size,appProperties)'
+		);
+		url.searchParams.set('pageSize', '1000');
+		if (pageToken) url.searchParams.set('pageToken', pageToken);
+		const response = await googleDriveRequest(env, email, url);
+		if (!response.ok) {
+			throw new Error(`Google Drive narration could not be listed (${response.status}).`);
+		}
+		const value = await response.json();
+		for (const file of value.files ?? []) {
+			const hash = file.appProperties?.sharedLibraryHash;
+			if (/^[a-f0-9]{64}$/.test(hash || '')) files.set(hash, file);
+		}
+		pageToken = value.nextPageToken;
+	} while (pageToken);
+	return files;
+}
+
+async function loadPersonalShareAfterDriveSync(env, email, captureID) {
+	let lastError;
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		try {
+			return await loadPersonalSharingItem(env, email, captureID, true);
+		} catch (error) {
+			lastError = error;
+			if (attempt < 4) {
+				const delay = Number(env.SHARE_PREPARE_RETRY_DELAY_MS ?? 1_500);
+				if (delay > 0) {
+					await new Promise((resolve) => setTimeout(resolve, delay));
+				}
+			}
+		}
+	}
+	throw lastError;
+}
+
+async function removeShareGeneration(env, token, generation) {
+	const audio = await env.DB.prepare(
+		`SELECT r2_key FROM share_audio_segments
+		 WHERE share_token = ? AND generation = ?`
+	)
+		.bind(token, generation)
+		.all();
+	if (env.SHARE_MEDIA) {
+		await Promise.all(
+			(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
+		);
+	}
+	await env.DB.batch([
+		env.DB.prepare(
+			'DELETE FROM share_audio_segments WHERE share_token = ? AND generation = ?'
+		).bind(token, generation),
+		env.DB.prepare(
+			'DELETE FROM share_texts WHERE share_token = ? AND generation = ?'
+		).bind(token, generation)
+	]);
+}
+
+async function removeOldShareGenerations(env, token, currentGeneration) {
+	const audio = await env.DB.prepare(
+		`SELECT DISTINCT generation, r2_key FROM share_audio_segments
+		 WHERE share_token = ? AND generation <> ?`
+	)
+		.bind(token, currentGeneration)
+		.all();
+	if (env.SHARE_MEDIA) {
+		await Promise.all(
+			(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
+		);
+	}
+	await env.DB.batch([
+		env.DB.prepare(
+			'DELETE FROM share_audio_segments WHERE share_token = ? AND generation <> ?'
+		).bind(token, currentGeneration),
+		env.DB.prepare(
+			'DELETE FROM share_texts WHERE share_token = ? AND generation <> ?'
+		).bind(token, currentGeneration)
+	]);
+}
+
+async function prepareShareLink(env, email, token, captureID, generation, voice) {
+	try {
+		const personal = await loadPersonalShareAfterDriveSync(env, email, captureID);
+		const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
+		const documents = [];
+		for (const reference of personal.entry.texts ?? []) {
+			if (!shareVariants.includes(reference?.variant) || typeof reference?.path !== 'string') {
+				continue;
+			}
+			const file = personalFiles.get(reference.path);
+			if (!file) continue;
+			const markdown = new TextDecoder().decode(await downloadDriveFile(env, email, file.id));
+			documents.push({
+				variant: reference.variant,
+				markdown,
+				wordCount: wordCount(
+					reference.variant === 'source'
+						? parsedMarkdownDocument(markdown, personal.entry.title).body
+						: markdown
+				)
+			});
+		}
+		if (!documents.some((document) => document.variant === 'source')) {
+			throw new Error('The source document has not synchronized to Google Drive yet.');
+		}
+
+		for (const document of documents) {
+			await env.DB.prepare(
+				`INSERT OR REPLACE INTO share_texts (
+					share_token, generation, variant, markdown, word_count
+				) VALUES (?, ?, ?, ?, ?)`
+			)
+				.bind(
+					token,
+					generation,
+					document.variant,
+					document.markdown,
+					document.wordCount
+				)
+				.run();
+		}
+
+		if (env.SHARE_MEDIA) {
+			const remoteAudio = await driveAudioFilesByHash(env, email);
+			for (const document of documents) {
+				const displayText =
+					document.variant === 'source'
+						? parsedMarkdownDocument(document.markdown, personal.entry.title).body
+						: document.markdown;
+				const chunks = shareSpeechChunks(shareSpokenText(displayText));
+				let matchingVoice;
+				let hashes = [];
+				const candidateVoices = [voice, ...supportedVoices].filter(
+					(candidate, index, values) => values.indexOf(candidate) === index
+				);
+				for (const candidateVoice of candidateVoices) {
+					const candidateHashes = await Promise.all(
+						chunks.map((chunk) => shareAudioFingerprint(chunk, candidateVoice))
+					);
+					if (
+						candidateHashes.length > 0 &&
+						candidateHashes.every((hash) => remoteAudio.has(hash))
+					) {
+						matchingVoice = candidateVoice;
+						hashes = candidateHashes;
+						break;
+					}
+				}
+				if (!matchingVoice) continue;
+				for (let index = 0; index < hashes.length; index += 1) {
+					const hash = hashes[index];
+					const remote = remoteAudio.get(hash);
+					const bytes = await downloadDriveFile(env, email, remote.id);
+					const contentType = remote.mimeType || 'audio/mpeg';
+					const r2Key = `shares/${token}/${generation}/${document.variant}/${index}-${hash}.mp3`;
+					await env.SHARE_MEDIA.put(r2Key, bytes, {
+						httpMetadata: { contentType }
+					});
+					await env.DB.prepare(
+						`INSERT OR REPLACE INTO share_audio_segments (
+							share_token, generation, variant, segment_index, audio_hash,
+							r2_key, content_type, byte_count, voice
+						) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					)
+						.bind(
+							token,
+							generation,
+							document.variant,
+							index,
+							hash,
+							r2Key,
+							contentType,
+							bytes.byteLength,
+							matchingVoice
+						)
+						.run();
+				}
+			}
+		}
+
+		const metadata = {
+			captureID: personal.entry.captureID ?? captureID,
+			title: personal.entry.title,
+			excerpt: personal.entry.excerpt,
+			topicIDs: personal.entry.topicIDs ?? [],
+			topicNames: personal.entry.topicNames ?? [],
+			tags: personal.entry.tags ?? [],
+			sourceURL: personal.entry.sourceURL,
+			createdAt: personal.entry.createdAt,
+			updatedAt: personal.entry.updatedAt
+		};
+		const completed = await env.DB.prepare(
+			`UPDATE share_links
+			 SET status = 'ready', metadata_json = ?, source_filename = ?,
+			     error_message = NULL, updated_at = ?
+			 WHERE token = ? AND generation = ?`
+		)
+			.bind(
+				JSON.stringify(metadata),
+				personal.sourcePath.split('/').at(-1),
+				new Date().toISOString(),
+				token,
+				generation
+			)
+			.run();
+		if (Number(completed?.meta?.changes ?? 0) === 0) {
+			await removeShareGeneration(env, token, generation);
+			return;
+		}
+		await removeOldShareGenerations(env, token, generation);
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : 'The share link could not be prepared.';
+		await env.DB.prepare(
+			`UPDATE share_links
+			 SET status = 'failed', error_message = ?, updated_at = ?
+			 WHERE token = ? AND generation = ?`
+		)
+			.bind(message, new Date().toISOString(), token, generation)
+			.run();
+	}
+}
+
+async function ownerShareLinkStatus(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const captureID = new URL(request.url).searchParams.get('captureID');
+	if (!validCaptureIdentifier(captureID)) {
+		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	return json(shareLinkResponse(request, await shareLinkForOwner(env, email, captureID)));
+}
+
+async function publishShareLink(request, env, context) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid share-link request.' }, { status: 400 });
+	}
+	const captureID = value?.captureID;
+	const voice = supportedVoices.has(value?.voice) ? value.voice : 'eve';
+	if (!validCaptureIdentifier(captureID)) {
+		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	const token = randomBase64URL(24);
+	const generation = crypto.randomUUID();
+	const now = new Date().toISOString();
+	await env.DB.prepare(
+		`INSERT INTO share_links (
+			token, owner_email, capture_id, generation, revision, status,
+			metadata_json, source_filename, voice, error_message, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 1, 'preparing', NULL, NULL, ?, NULL, ?, ?)
+		ON CONFLICT(owner_email, capture_id) DO UPDATE SET
+			generation = excluded.generation,
+			revision = share_links.revision + 1,
+			status = 'preparing',
+			voice = excluded.voice,
+			error_message = NULL,
+			updated_at = excluded.updated_at`
+	)
+		.bind(token, email, captureID, generation, voice, now, now)
+		.run();
+	const record = await shareLinkForOwner(env, email, captureID);
+	scheduleSharingOperation(
+		context,
+		prepareShareLink(env, email, record.token, captureID, generation, voice)
+	);
+	return json(shareLinkResponse(request, record), { status: 202 });
+}
+
+async function revokeShareLink(request, env, token, context) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const record = await shareLinkByToken(env, token);
+	if (!record || record.owner_email !== email) {
+		return json({ error: 'Share link not found.' }, { status: 404 });
+	}
+	const audio = await env.DB.prepare(
+		'SELECT r2_key FROM share_audio_segments WHERE share_token = ?'
+	)
+		.bind(token)
+		.all();
+	await env.DB.batch([
+		env.DB.prepare('DELETE FROM share_audio_segments WHERE share_token = ?').bind(token),
+		env.DB.prepare('DELETE FROM share_texts WHERE share_token = ?').bind(token),
+		env.DB.prepare('DELETE FROM share_links WHERE token = ? AND owner_email = ?').bind(token, email)
+	]);
+	if (env.SHARE_MEDIA) {
+		scheduleSharingOperation(
+			context,
+			Promise.all(
+				(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
+			)
+		);
+	}
+	return json({ revoked: true });
+}
+
+async function publicShareDocument(request, env, token) {
+	await ensureSchema(env.DB);
+	const record = await shareLinkByToken(env, token);
+	if (!record) return json({ error: 'This share link is no longer available.' }, { status: 404 });
+	if (record.status !== 'ready') {
+		return json(
+			{
+				status: record.status,
+				error: record.status === 'failed' ? record.error_message : undefined
+			},
+			{ status: record.status === 'preparing' ? 202 : 409 }
+		);
+	}
+	const [textResult, audioResult] = await Promise.all([
+		env.DB.prepare(
+			`SELECT variant, markdown, word_count FROM share_texts
+			 WHERE share_token = ? AND generation = ?`
+		)
+			.bind(token, record.generation)
+			.all(),
+		env.DB.prepare(
+			`SELECT variant, segment_index, content_type, byte_count, voice
+			 FROM share_audio_segments
+			 WHERE share_token = ? AND generation = ?
+			 ORDER BY variant, segment_index`
+		)
+			.bind(token, record.generation)
+			.all()
+	]);
+	let metadata = {};
+	try {
+		metadata = JSON.parse(record.metadata_json ?? '{}');
+	} catch {
+		metadata = {};
+	}
+	const texts = (textResult.results ?? [])
+		.map((document) => ({
+			variant: document.variant,
+			markdown:
+				document.variant === 'source'
+					? parsedMarkdownDocument(document.markdown, metadata.title ?? 'Shared document').body
+					: document.markdown,
+			wordCount: Number(document.word_count ?? 0)
+		}))
+		.sort(
+			(a, b) => shareVariants.indexOf(a.variant) - shareVariants.indexOf(b.variant)
+		);
+	const audio = (audioResult.results ?? []).map((segment) => ({
+		variant: segment.variant,
+		index: Number(segment.segment_index),
+		contentType: segment.content_type,
+		byteCount: Number(segment.byte_count),
+		voice: segment.voice,
+		url: `/api/public/shares/${token}/audio/${segment.variant}/${segment.segment_index}`
+	}));
+	return json({
+		status: 'ready',
+		token,
+		revision: Number(record.revision ?? 1),
+		...metadata,
+		texts,
+		audio,
+		updatedAt: record.updated_at
+	});
+}
+
+async function publicShareAudio(request, env, token, variant, index) {
+	await ensureSchema(env.DB);
+	const record = await shareLinkByToken(env, token);
+	if (!record || record.status !== 'ready') {
+		return json({ error: 'This narration is no longer available.' }, { status: 404 });
+	}
+	const segment = await env.DB.prepare(
+		`SELECT r2_key, content_type, byte_count FROM share_audio_segments
+		 WHERE share_token = ? AND generation = ? AND variant = ? AND segment_index = ?`
+	)
+		.bind(token, record.generation, variant, index)
+		.first();
+	if (!segment || !env.SHARE_MEDIA) {
+		return json({ error: 'This narration is not available.' }, { status: 404 });
+	}
+	const object = await env.SHARE_MEDIA.get(segment.r2_key);
+	if (!object) return json({ error: 'This narration is not available.' }, { status: 404 });
+	const headers = new Headers({
+		'Content-Type': segment.content_type || 'audio/mpeg',
+		'Cache-Control': 'private, max-age=3600'
+	});
+	const contentLength = Number(segment.byte_count || object.size || 0);
+	if (contentLength > 0) headers.set('Content-Length', String(contentLength));
+	return new Response(object.body, {
+		headers
+	});
 }
 
 function normalizedUsername(value) {
@@ -2256,7 +2769,7 @@ function wordCount(text) {
 	return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
-async function updatePersonalDriveIndexAfterInboxSave(
+async function updatePersonalDriveIndexAfterImport(
 	env,
 	email,
 	{ personalRootID, personalTree, copied, captureID, sourceDestination, sourceText }
@@ -2352,6 +2865,166 @@ async function updatePersonalDriveIndexAfterInboxSave(
 	});
 }
 
+async function storeDriveAudioBytes(env, email, hash, bytes, contentType) {
+	const existing = await findDriveMedia(env, email, { kind: 'audio', hash });
+	if (existing.response) {
+		throw new Error(`Google Drive narration lookup failed (${existing.response.status}).`);
+	}
+	if (existing.file) return existing.file.id;
+	const folderID = await ensureDriveMediaFolder(env, email);
+	const metadata = JSON.stringify({
+		name: `${hash}.mp3`,
+		parents: [folderID],
+		appProperties: {
+			sharedLibraryHash: hash,
+			sharedLibraryKind: 'audio'
+		}
+	});
+	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
+	const body = new Blob([
+		`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
+		metadata,
+		`\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+		bytes,
+		`\r\n--${boundary}--\r\n`
+	]);
+	const response = await googleDriveRequest(
+		env,
+		email,
+		'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+			body
+		}
+	);
+	if (!response.ok) {
+		throw new Error(`Google Drive narration upload failed (${response.status}).`);
+	}
+	return (await response.json()).id;
+}
+
+async function copyShareAudioToDrive(env, email, token, generation) {
+	if (!env.SHARE_MEDIA) return;
+	const result = await env.DB.prepare(
+		`SELECT audio_hash, r2_key, content_type FROM share_audio_segments
+		 WHERE share_token = ? AND generation = ?
+		 ORDER BY variant, segment_index`
+	)
+		.bind(token, generation)
+		.all();
+	for (const segment of result.results ?? []) {
+		const object = await env.SHARE_MEDIA.get(segment.r2_key);
+		if (!object) continue;
+		const bytes = new Uint8Array(await object.arrayBuffer());
+		await storeDriveAudioBytes(
+			env,
+			email,
+			segment.audio_hash,
+			bytes,
+			segment.content_type || 'audio/mpeg'
+		);
+	}
+}
+
+async function importPublicShare(request, env, token, context) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const record = await shareLinkByToken(env, token);
+	if (!record || record.status !== 'ready') {
+		return json({ error: 'This share link is no longer available.' }, { status: 404 });
+	}
+	try {
+		const textResult = await env.DB.prepare(
+			`SELECT variant, markdown FROM share_texts
+			 WHERE share_token = ? AND generation = ?`
+		)
+			.bind(token, record.generation)
+			.all();
+		const documents = new Map(
+			(textResult.results ?? []).map((document) => [document.variant, document.markdown])
+		);
+		const sourceText = documents.get('source');
+		if (!sourceText) throw new Error('The shared source document is unavailable.');
+		const personalRootID = await ensureDriveRootFolder(env, email);
+		const personalTree = await driveFolderTree(
+			env,
+			email,
+			personalRootID,
+			personalWorkspacePath,
+			true
+		);
+		const safeSourceFilename =
+			typeof record.source_filename === 'string' &&
+			/^[^/\\]+\.md$/i.test(record.source_filename)
+				? record.source_filename
+				: `${record.capture_id}.md`;
+		const base = safeSourceFilename.replace(/\.[^.]+$/, '');
+		const extension = safeSourceFilename.includes('.')
+			? `.${safeSourceFilename.split('.').at(-1)}`
+			: '.md';
+		let filename = safeSourceFilename;
+		for (let index = 1; personalTree.files.has(`library/${filename}`); index += 1) {
+			filename = `${base}${index === 1 ? '-shared' : `-shared-${index}`}${extension}`;
+		}
+		const captureID = crypto.randomUUID().toLowerCase();
+		const rewrittenSource = new TextEncoder().encode(
+			rewriteCaptureID(sourceText, captureID, token, record.revision)
+		);
+		const sourceDestination = `library/${filename}`;
+		const copied = [
+			{
+				path: sourceDestination,
+				bytes: rewrittenSource,
+				...(await upsertDriveFile(env, email, {
+					rootFolderID: personalRootID,
+					folders: personalTree.folders,
+					path: sourceDestination,
+					bytes: rewrittenSource,
+					kind: 'workspace'
+				}))
+			}
+		];
+		for (const variant of ['brief', 'concise', 'detailed', 'comprehensive']) {
+			const markdown = documents.get(variant);
+			if (typeof markdown !== 'string') continue;
+			const destination = `library/summaries/${variant}/${filename}`;
+			const bytes = new TextEncoder().encode(markdown);
+			copied.push({
+				path: destination,
+				bytes,
+				...(await upsertDriveFile(env, email, {
+					rootFolderID: personalRootID,
+					folders: personalTree.folders,
+					path: destination,
+					bytes,
+					kind: 'workspace'
+				}))
+			});
+		}
+		await updatePersonalDriveIndexAfterImport(env, email, {
+			personalRootID,
+			personalTree,
+			copied,
+			captureID,
+			sourceDestination,
+			sourceText: new TextDecoder().decode(rewrittenSource)
+		});
+		scheduleSharingOperation(
+			context,
+			copyShareAudioToDrive(env, email, token, record.generation)
+		);
+		return json({ saved: true, path: sourceDestination, captureID });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The shared document could not be saved.' },
+			{ status: 400 }
+		);
+	}
+}
+
 async function saveInboxReference(request, env, referenceID) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = authenticatedEmail(request);
@@ -2428,7 +3101,7 @@ async function saveInboxReference(request, env, referenceID) {
 				}))
 			});
 		}
-		await updatePersonalDriveIndexAfterInboxSave(env, email, {
+		await updatePersonalDriveIndexAfterImport(env, email, {
 			personalRootID,
 			personalTree,
 			copied,
@@ -2449,6 +3122,30 @@ async function saveInboxReference(request, env, referenceID) {
 const worker = {
 	async fetch(request, env, context) {
 		const url = new URL(request.url);
+		const publicShare = url.pathname.match(
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})$/
+		);
+		if (publicShare && request.method === 'GET') {
+			return publicShareDocument(request, env, publicShare[1]);
+		}
+		const publicShareAudioMatch = url.pathname.match(
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(brief|concise|detailed|comprehensive|source)\/(\d+)$/
+		);
+		if (publicShareAudioMatch && request.method === 'GET') {
+			return publicShareAudio(
+				request,
+				env,
+				publicShareAudioMatch[1],
+				publicShareAudioMatch[2],
+				Number(publicShareAudioMatch[3])
+			);
+		}
+		const publicShareImport = url.pathname.match(
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/import$/
+		);
+		if (publicShareImport && request.method === 'POST') {
+			return importPublicShare(request, env, publicShareImport[1], context);
+		}
 
 		if (url.pathname === '/api/openrouter/status' && request.method === 'GET') {
 			return connectionStatus(request, env);
@@ -2471,40 +3168,18 @@ const worker = {
 		if (url.pathname === '/api/library/file' && request.method === 'GET') {
 			return fetchLibraryFile(request, env);
 		}
-		if (url.pathname === '/api/sharing/status' && request.method === 'GET') {
-			return sharedFolderStatus(request, env);
+		if (url.pathname === '/api/share-links' && request.method === 'GET') {
+			return ownerShareLinkStatus(request, env);
 		}
-		if (url.pathname === '/api/sharing/connect' && request.method === 'POST') {
-			return connectSharedFolder(request, env);
+		if (url.pathname === '/api/share-links' && request.method === 'POST') {
+			return publishShareLink(request, env, context);
 		}
-		if (url.pathname === '/api/sharing/disconnect' && request.method === 'POST') {
-			return disconnectSharedFolder(request, env);
-		}
-		if (url.pathname === '/api/sharing/item' && request.method === 'GET') {
-			return sharedItemStatus(request, env, context);
-		}
-		if (url.pathname === '/api/sharing/item' && request.method === 'POST') {
-			return updateSharedItem(request, env, context);
-		}
-		if (url.pathname === '/api/sharing/operation' && request.method === 'GET') {
-			return sharedOperationStatus(request, env, context);
-		}
-		if (url.pathname === '/api/inbox' && request.method === 'GET') {
-			return loadSharedInboxProjection(request, env);
-		}
-		const inboxAction = url.pathname.match(
-			/^\/api\/inbox\/([a-zA-Z0-9_-]{1,256})\/(save|dismiss)$/
-		);
-		if (inboxAction && request.method === 'POST') {
-			return inboxAction[2] === 'save'
-				? saveInboxReference(request, env, inboxAction[1])
-				: dismissInboxReference(request, env, inboxAction[1]);
+		const ownerShare = url.pathname.match(/^\/api\/share-links\/([A-Za-z0-9_-]{32})$/);
+		if (ownerShare && request.method === 'DELETE') {
+			return revokeShareLink(request, env, ownerShare[1], context);
 		}
 		if (url.pathname === '/api/google/status' && request.method === 'GET') {
 			return googleDriveStatus(request, env);
-		}
-		if (url.pathname === '/api/google/picker' && request.method === 'GET') {
-			return googleDrivePickerConfig(request, env);
 		}
 		if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
 			return startGoogleDriveConnection(request, env);

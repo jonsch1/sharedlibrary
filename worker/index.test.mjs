@@ -21,13 +21,41 @@ class MockStatement {
 		if (this.sql.includes('FROM openrouter_credentials')) {
 			return this.database.credential;
 		}
-		if (this.sql.includes('FROM shared_folder_connections')) {
-			return this.database.sharedFolderConnection;
-		}
-		if (this.sql.includes('FROM sharing_operations')) {
-			return this.database.sharingOperation;
+		if (this.sql.includes('FROM share_links')) {
+			if (this.sql.includes('owner_email = ? AND capture_id = ?')) {
+				return (
+					[...this.database.shareLinks.values()].find(
+						(record) =>
+							record.owner_email === this.arguments[0] &&
+							record.capture_id === this.arguments[1]
+					) ?? null
+				);
+			}
+			return this.database.shareLinks.get(this.arguments[0]) ?? null;
 		}
 		return null;
+	}
+
+	async all() {
+		if (this.sql.includes('FROM share_texts')) {
+			return {
+				results: this.database.shareTexts.filter(
+					(row) =>
+						row.share_token === this.arguments[0] &&
+						(this.arguments.length < 2 || row.generation === this.arguments[1])
+				)
+			};
+		}
+		if (this.sql.includes('FROM share_audio_segments')) {
+			return {
+				results: this.database.shareAudioSegments.filter(
+					(row) =>
+						row.share_token === this.arguments[0] &&
+						(this.arguments.length < 2 || row.generation === this.arguments[1])
+				)
+			};
+		}
+		return { results: [] };
 	}
 
 	async run() {
@@ -54,18 +82,44 @@ class MockStatement {
 			};
 			changes = 1;
 		}
-		if (this.sql.includes('INSERT INTO sharing_operations')) {
-			this.database.sharingOperation = {
-				capture_id: this.arguments[1],
-				recipient_ids: this.arguments[2],
+		if (this.sql.includes('INSERT INTO share_links')) {
+			const existing = [...this.database.shareLinks.values()].find(
+				(record) =>
+					record.owner_email === this.arguments[1] &&
+					record.capture_id === this.arguments[2]
+			);
+			const record = {
+				token: existing?.token ?? this.arguments[0],
+				owner_email: this.arguments[1],
+				capture_id: this.arguments[2],
 				generation: this.arguments[3],
-				status:
-					this.database.sharingOperation?.status === 'syncing' ? 'syncing' : 'queued',
-				attempt_count: 0,
-				last_error: null,
-				updated_at: this.arguments[5]
+				revision: (existing?.revision ?? 0) + 1,
+				status: 'preparing',
+				metadata_json: existing?.metadata_json ?? null,
+				source_filename: existing?.source_filename ?? null,
+				voice: this.arguments[4],
+				error_message: null,
+				created_at: existing?.created_at ?? this.arguments[5],
+				updated_at: this.arguments[6]
 			};
+			this.database.shareLinks.set(record.token, record);
 			changes = 1;
+		}
+		if (this.sql.includes("SET status = 'failed'")) {
+			const record = this.database.shareLinks.get(this.arguments[2]);
+			if (record && record.generation === this.arguments[3]) {
+				record.status = 'failed';
+				record.error_message = this.arguments[0];
+				record.updated_at = this.arguments[1];
+				changes = 1;
+			}
+		}
+		if (this.sql.includes('DELETE FROM share_links')) {
+			const record = this.database.shareLinks.get(this.arguments[0]);
+			if (record && record.owner_email === this.arguments[1]) {
+				this.database.shareLinks.delete(this.arguments[0]);
+				changes = 1;
+			}
 		}
 		return { success: true, meta: { changes } };
 	}
@@ -76,8 +130,9 @@ class MockDatabase {
 	oauthState = null;
 	pendingOAuthState = null;
 	savedCredential = null;
-	sharedFolderConnection = null;
-	sharingOperation = null;
+	shareLinks = new Map();
+	shareTexts = [];
+	shareAudioSegments = [];
 
 	prepare(sql) {
 		return new MockStatement(this, sql);
@@ -97,6 +152,7 @@ function environment(database = new MockDatabase()) {
 			'123456789-sharedlibrary.apps.googleusercontent.com',
 		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
 		SHARED_LIBRARY_GROUP_FOLDER_ID: '1ConfiguredGroupFolder234567890',
+		SHARE_PREPARE_RETRY_DELAY_MS: 0,
 		ASSETS: {
 			async fetch() {
 				return new Response('asset', { status: 200 });
@@ -142,65 +198,22 @@ test('Google Drive setup is centrally configured without exposing OAuth credenti
 		googleStatus.callbackURL,
 		'https://library.example/api/google/connect/callback'
 	);
-	assert.equal(googleStatus.pickerConfigured, true);
-	assert.equal(googleStatus.appID, '123456789');
-	assert.equal(googleStatus.groupFolderConfigured, true);
 	assert.equal('clientID' in googleStatus, false);
 	assert.equal('clientSecret' in googleStatus, false);
 });
 
-test('folder picker requires a connected Google Drive account', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/google/picker'),
-		environment()
-	);
-	assert.equal(response.status, 409);
-	assert.deepEqual(await response.json(), {
-		error: 'Connect Google Drive before choosing a shared folder.'
-	});
+test('group-folder sharing endpoints are no longer exposed', async () => {
+	for (const path of ['/api/sharing/status', '/api/inbox']) {
+		const response = await worker.fetch(authenticatedRequest(path), environment());
+		assert.equal(response.status, 404);
+	}
 });
 
-test('shared folder is optional and independent from the personal Drive connection', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/sharing/status'),
-		environment()
-	);
-	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { connected: false });
-});
-
-test('shared folder connection is restricted to the configured group folder', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/sharing/connect', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				folder: '1DifferentGoogleDriveFolder2345',
-				username: 'reader'
-			})
-		}),
-		environment()
-	);
-	assert.equal(response.status, 400);
-	assert.deepEqual(await response.json(), {
-		error: 'Choose the predefined Shared Library group folder.'
-	});
-});
-
-test('sharing updates return immediately and persist a coalescing Drive operation', async () => {
+test('publishing creates a stable 192-bit capability link and returns immediately', async () => {
 	const database = new MockDatabase();
-	database.sharedFolderConnection = {
-		user_email: 'reader@example.com',
-		folder_id: '1ConfiguredGroupFolder234567890',
-		user_id: 'reader-id',
-		username: 'reader'
-	};
 	let backgroundTask;
 	const response = await worker.fetch(
-		authenticatedRequest('/api/sharing/item', {
+		authenticatedRequest('/api/share-links', {
 			method: 'POST',
 			headers: {
 				Origin: 'https://library.example',
@@ -208,7 +221,7 @@ test('sharing updates return immediately and persist a coalescing Drive operatio
 			},
 			body: JSON.stringify({
 				captureID: 'capture-1',
-				recipientIDs: ['reader-id', 'recipient-1', 'recipient-1']
+				voice: 'eve'
 			})
 		}),
 		environment(database),
@@ -219,26 +232,79 @@ test('sharing updates return immediately and persist a coalescing Drive operatio
 		}
 	);
 	assert.equal(response.status, 202);
-	assert.deepEqual(await response.json(), {
-		shared: true,
-		referenceID: 'capture-1',
-		recipientIDs: ['recipient-1'],
-		people: [],
-		operationStatus: 'queued'
-	});
-	assert.deepEqual(JSON.parse(database.sharingOperation.recipient_ids), ['recipient-1']);
-	assert.equal(database.sharingOperation.status, 'queued');
+	const published = await response.json();
+	assert.equal(published.shared, true);
+	assert.equal(published.status, 'preparing');
+	assert.match(published.token, /^[A-Za-z0-9_-]{32}$/);
+	assert.equal(
+		published.url,
+		`https://library.example/?shared=${published.token}`
+	);
 	assert.ok(backgroundTask);
 	await backgroundTask;
+
+	const statusResponse = await worker.fetch(
+		authenticatedRequest('/api/share-links?captureID=capture-1'),
+		environment(database)
+	);
+	assert.equal(statusResponse.status, 200);
+	const status = await statusResponse.json();
+	assert.equal(status.shared, true);
+	assert.equal(status.token, published.token);
 });
 
-test('sharing operation status completes without reading Google Drive', async () => {
+test('a ready share document is readable anonymously at all stored conciseness levels', async () => {
+	const database = new MockDatabase();
+	const token = 'A'.repeat(32);
+	database.shareLinks.set(token, {
+		token,
+		owner_email: 'reader@example.com',
+		capture_id: 'capture-1',
+		generation: 'generation-1',
+		revision: 2,
+		status: 'ready',
+		metadata_json: JSON.stringify({
+			title: 'Shared research',
+			excerpt: 'A short excerpt',
+			topicNames: ['Research']
+		}),
+		source_filename: 'shared-research.md',
+		voice: 'eve',
+		error_message: null,
+		created_at: '2026-07-23T10:00:00Z',
+		updated_at: '2026-07-23T11:00:00Z'
+	});
+	database.shareTexts = [
+		{
+			share_token: token,
+			generation: 'generation-1',
+			variant: 'brief',
+			markdown: 'Brief text',
+			word_count: 2
+		},
+		{
+			share_token: token,
+			generation: 'generation-1',
+			variant: 'source',
+			markdown: '---\ntitle: Shared research\n---\nOriginal text',
+			word_count: 2
+		}
+	];
 	const response = await worker.fetch(
-		authenticatedRequest('/api/sharing/operation?captureID=capture-1'),
-		environment()
+		new Request(`https://library.example/api/public/shares/${token}`),
+		environment(database)
 	);
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { status: 'complete' });
+	const document = await response.json();
+	assert.equal(document.title, 'Shared research');
+	assert.equal(document.revision, 2);
+	assert.deepEqual(
+		document.texts.map((text) => [text.variant, text.markdown]),
+		[
+			['brief', 'Brief text'],
+			['source', 'Original text']
+		]
+	);
 });
 
 test('Google authorization uses the central web client with each user account', async () => {
@@ -344,15 +410,11 @@ test('credential and media mutations reject cross-origin requests', async () => 
 			contentType: 'audio/mpeg'
 		},
 		{
-			path: '/api/sharing/connect',
-			body: { folder: '1AbCdEfGhIjKlMnOpQrStUvWxYz', username: 'reader' }
+			path: '/api/share-links',
+			body: { captureID: 'capture-1', voice: 'eve' }
 		},
 		{
-			path: '/api/sharing/item',
-			body: { captureID: 'capture-1', recipientIDs: ['recipient-1'] }
-		},
-		{
-			path: '/api/inbox/reference-1/dismiss'
+			path: `/api/public/shares/${'A'.repeat(32)}/import`
 		}
 	];
 	for (const mutation of mutations) {
