@@ -976,8 +976,8 @@
 						{/if}
 						<p class="connection-help">
 							{#if githubConnection.configured}
-								Shared Library manages the app credentials. GitHub will ask you to authorize
-								your account; you then choose exactly which repository the app may access.
+								Create a private repository on GitHub first. Shared Library manages the app
+								credentials; when installing it, grant access only to that repository.
 							{:else}
 								This deployment has not been configured with the Shared Library GitHub App.
 								The site administrator needs to add it once—users never paste credentials.
@@ -1017,6 +1017,10 @@
 						{#if githubConnection.installURL}
 							<p class="connection-help">
 								Missing a repository?
+								<a href="https://github.com/new" target="_blank" rel="noreferrer">
+									Create it on GitHub <ArrowUpRightIcon />
+								</a>
+								first, then
 								<a href={githubConnection.installURL} target="_blank" rel="noreferrer">
 									Choose repository access on GitHub <ArrowUpRightIcon />
 								</a>

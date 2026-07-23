@@ -11,8 +11,9 @@ the durable media store.
 
 Create and install one GitHub App with Device Flow enabled. Give it repository
 Contents read/write and Metadata read permissions. Configure its public Client ID and
-installation URL once for the deployment. Users click Connect and select from only the
-repositories exposed by their GitHub App installation; arbitrary repository names are
+installation URL once for the deployment. Do not grant repository Administration
+permission. Users create a private repository first, install the app with access only
+to that repository, then click Connect and select it. Arbitrary repository names are
 rejected. The backend completes Device Flow, encrypts the user token, and fetches
 `.shared-library/library.json` through the GitHub API.
 
