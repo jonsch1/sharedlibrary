@@ -8,6 +8,33 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/Shared Library.app"
 EXTRACTOR_SRC="$ROOT/Tools/extractor"
 EXTRACTOR_DEST="$APP/Contents/Resources/Tools/extractor"
+DESKTOP_PROJECT="$ROOT/Desktop/SharedLibraryDesktop.xcodeproj"
+DERIVED_DATA="$ROOT/.build/SharedLibraryDesktopDerived"
+
+if [ "$CONFIG" = "debug" ]; then
+  XCODE_CONFIG="Debug"
+else
+  XCODE_CONFIG="Release"
+fi
+
+echo "Building a provisioned macOS bundle ($XCODE_CONFIG)…"
+if xcodebuild \
+  -project "$DESKTOP_PROJECT" \
+  -scheme SharedLibraryDesktop \
+  -configuration "$XCODE_CONFIG" \
+  -derivedDataPath "$DERIVED_DATA" \
+  -allowProvisioningUpdates \
+  build; then
+  PROVISIONED_APP="$DERIVED_DATA/Build/Products/$XCODE_CONFIG/Shared Library.app"
+  rm -rf "$APP"
+  ditto "$PROVISIONED_APP" "$APP"
+  echo "Done: $APP"
+  echo "Launch with:  open \"$APP\""
+  exit 0
+fi
+
+echo "WARNING: Xcode provisioning failed; building without iCloud entitlement."
+echo "         The desktop app will run, but Mobile sync will remain unavailable."
 
 echo "Installing extractor dependencies..."
 npm --prefix "$EXTRACTOR_SRC" ci --omit=dev

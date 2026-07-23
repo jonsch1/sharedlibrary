@@ -10,6 +10,7 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     static let includeTranscriptTimestampsKey = "includeTranscriptTimestamps"
+    static let cloudLibrarySyncEnabledKey = "cloudLibrarySyncEnabled"
     static let existingTopicsPromptPlaceholder = "{{existing_topics}}"
     static let sourcePromptPlaceholder = "{{source}}"
     static let workspaceCommandPlaceholder = "{{workspace}}"
@@ -21,6 +22,7 @@ final class AppSettings: ObservableObject {
         static let githubPeopleOrganization = "githubPeopleOrganization"
         static let currentGitHubUserID = "currentGitHubUserID"
         static let githubPeopleLastSyncedAt = "githubPeopleLastSyncedAt"
+        static let cloudLibraryLastPublishedAt = "cloudLibraryLastPublishedAt"
         static let processingPrompt = "processingPrompt"
         static let agentCommand = "agentCommand"
     }
@@ -41,6 +43,7 @@ final class AppSettings: ObservableObject {
         }
         defaults.register(defaults: [
             Keys.githubPeopleOrganization: "saezlab",
+            Self.cloudLibrarySyncEnabledKey: true,
             Keys.processingPrompt: Self.defaultProcessingPrompt,
             Keys.agentCommand: Self.defaultAgentCommand
         ])
@@ -114,6 +117,22 @@ final class AppSettings: ObservableObject {
         set {
             objectWillChange.send()
             defaults.set(newValue, forKey: Keys.githubPeopleLastSyncedAt)
+        }
+    }
+
+    var cloudLibrarySyncEnabled: Bool {
+        get { defaults.bool(forKey: Self.cloudLibrarySyncEnabledKey) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Self.cloudLibrarySyncEnabledKey)
+        }
+    }
+
+    var cloudLibraryLastPublishedAt: Date? {
+        get { defaults.object(forKey: Keys.cloudLibraryLastPublishedAt) as? Date }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.cloudLibraryLastPublishedAt)
         }
     }
 

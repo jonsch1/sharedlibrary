@@ -806,6 +806,10 @@ final class GitSyncCoordinator: ObservableObject {
                 if result.integratedRemoteChanges {
                     NotificationCenter.default.post(name: .libraryDidChange, object: nil)
                 }
+                NotificationCenter.default.post(
+                    name: .workspaceDidSynchronize,
+                    object: workspaceURL
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 repositoryStatus = await engine.inspect(workspaceURL: workspaceURL)

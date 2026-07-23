@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         env.gitSyncCoordinator.refreshStatus()
         env.sharedGitSyncCoordinator.refreshStatus()
         requestBackgroundSync(reason: "app launched")
+        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the mobile library")
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(libraryAppearanceDidChange(_:)),
@@ -388,6 +389,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: .processingDidFail,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(libraryShouldPublishToCloud(_:)),
+            name: .libraryDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(libraryShouldPublishToCloud(_:)),
+            name: .workspaceDidSynchronize,
+            object: nil
+        )
 
         canPostUserNotifications = Bundle.main.bundleURL.pathExtension == "app"
         guard canPostUserNotifications else { return }
@@ -458,6 +471,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             body: topicName.map { "\(sourceTitle) → \($0)" } ?? sourceTitle
         )
         env.gitSyncCoordinator.requestAutomaticSync(reason: "capture processing completed")
+        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
+    }
+
+    @objc private func libraryShouldPublishToCloud(_ notification: Notification) {
+        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
     }
 
     private func refreshSharedCopyAfterProcessing(_ notification: Notification) {

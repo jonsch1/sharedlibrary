@@ -2,6 +2,8 @@
 
 Shared Library is a native macOS menu bar app for capturing, processing, browsing, editing, and synchronizing a local source library.
 
+The repository also contains a native iPhone and iPad companion that browses a private iCloud projection of My Library and plays its summaries as spoken audio.
+
 The default private workspace is `~/Documents/Shared Library`. Its workspace root is a Git repository. Sharing uses a second, separately configured repository that defaults to `~/Documents/Shared Library Shared`.
 
 - `library/` stores capture records and companion summaries.
@@ -69,6 +71,31 @@ The People mode browses sharing activity by GitHub organization member. A person
 
 Settings → People provides the only GitHub roster refresh action. **Sync People from GitHub** reads the configured organization through the existing authenticated GitHub CLI session, creates `people/<login>/`, and triggers normal shared-repository synchronization afterward. The roster is never fetched automatically. Each `profile.json` stores only `githubID` and `displayName`; the login is represented by the directory name. Login changes are detected through the stable ID so the directory and its sharing history move together. Avatars and email addresses are not imported.
 
+## iCloud mobile library
+
+Git remains the source of truth. The macOS app builds a text-only projection containing the personal library plus captures tagged `shared_with` the current stable GitHub ID, then publishes it to the private CloudKit container `iCloud.com.sharedlibrary.app`. Sources and summary variants use CloudKit assets so long documents do not need to fit inside individual record fields. Stable capture and sharing IDs produce deterministic CloudKit record names; removed and unshared records are deleted during the next publication.
+
+Settings → Mobile controls publication and reports iCloud status. Publication is debounced after meaningful library changes and completed Git synchronization, and can also be requested with **Publish Now**. No audio is uploaded: the mobile app downloads text, keeps an offline JSON cache, and uses on-device speech synthesis.
+
+The mobile project is `Mobile/SharedLibraryMobile.xcodeproj`. It provides unified browsing and search, personal/shared provenance, all four summary lengths plus the original, a reorderable listening queue, background spoken-audio playback, and Lock Screen playback controls.
+
+Build the simulator app with:
+
+```bash
+xcodebuild \
+  -project Mobile/SharedLibraryMobile.xcodeproj \
+  -scheme SharedLibraryMobile \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/sharedlibrary-mobile-derived \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+Both the macOS bundle ID (`com.sharedlibrary.app`) and mobile bundle ID (`com.sharedlibrary.mobile`) must be assigned to the same Apple developer team and granted access to `iCloud.com.sharedlibrary.app`. Before distribution, deploy the development CloudKit schema to production in CloudKit Console.
+
+`Desktop/SharedLibraryDesktop.xcodeproj` is the provisioning wrapper used by the normal install script. Its assembly phase embeds the SwiftPM-built executable and extractor resources into an Xcode-signed app so Apple can authorize the CloudKit entitlement. If automatic provisioning is unavailable, the script falls back to the previous certificate-signed bundle without iCloud access and reports that limitation.
+
 ## Hotkeys
 
 | Hotkey | Action |
@@ -81,9 +108,12 @@ Settings → People provides the only GitHub roster refresh action. **Sync Peopl
 | Slice | Files |
 | --- | --- |
 | App shell | `Sources/SharedLibrary/App/` |
+| Provisioned macOS bundle | `Desktop/SharedLibraryDesktop.xcodeproj` |
 | Capture extraction/library | `Sources/SharedLibrary/` |
 | Git/GitHub sync | `Sources/SharedLibrary/Sync/` |
 | Sharing mirror | `Sources/SharedLibrary/Sharing/` |
 | GitHub people | `Sources/SharedLibrary/People/` |
+| CloudKit projection | `Sources/SharedLibrary/Cloud/` |
+| iPhone/iPad companion | `Mobile/SharedLibraryMobile.xcodeproj`, `Mobile/SharedLibraryMobile/` |
 | Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
 | Tests | `Tests/SharedLibraryTests/` |

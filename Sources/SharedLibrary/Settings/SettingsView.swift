@@ -19,10 +19,91 @@ struct SettingsView: View {
                 .tabItem { Label("Sharing", systemImage: "person.2") }
             PeopleSettings(peopleStore: env.peopleStore)
                 .tabItem { Label("People", systemImage: "person.3") }
+            MobileSettings(publisher: env.cloudLibraryPublisher)
+                .tabItem { Label("Mobile", systemImage: "iphone") }
             HotkeySettings()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
         }
         .frame(width: 740, height: 720)
+    }
+}
+
+private struct MobileSettings: View {
+    @EnvironmentObject var env: AppEnvironment
+    @ObservedObject var publisher: CloudLibraryPublisher
+    @AppStorage(AppSettings.cloudLibrarySyncEnabledKey) private var syncEnabled = true
+
+    var body: some View {
+        Form {
+            Section("iCloud mobile library") {
+                Toggle("Publish My Library to iCloud", isOn: $syncEnabled)
+                    .onChange(of: syncEnabled) { _, enabled in
+                        publisher.setEnabled(enabled)
+                    }
+
+                Text("The personal library and captures shared with your stable GitHub ID are published as a private, read-only CloudKit projection. Git remains the source of truth.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Section("Status") {
+                Label(publisher.state.message, systemImage: statusSymbol)
+                    .foregroundStyle(statusColor)
+                    .textSelection(.enabled)
+
+                if let lastPublishedAt = env.settings.cloudLibraryLastPublishedAt {
+                    LabeledContent(
+                        "Last published",
+                        value: lastPublishedAt.formatted(date: .abbreviated, time: .shortened)
+                    )
+                }
+
+                LabeledContent("Container", value: CloudLibrarySchema.containerIdentifier)
+                    .textSelection(.enabled)
+
+                HStack {
+                    Spacer()
+                    Button("Publish Now") {
+                        publisher.publishNow()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!syncEnabled || publisher.state.isBusy)
+                }
+            }
+
+            Section("Mobile behavior") {
+                Text("Only text, metadata, and the four summary variants are uploaded. The iPhone app generates speech on-device and does not store audio in Git or CloudKit.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var statusSymbol: String {
+        switch publisher.state {
+        case .publishing:
+            return "icloud.and.arrow.up"
+        case .succeeded:
+            return "checkmark.icloud.fill"
+        case .failed, .unavailable:
+            return "exclamationmark.icloud.fill"
+        case .disabled:
+            return "icloud.slash"
+        case .idle:
+            return "icloud"
+        }
+    }
+
+    private var statusColor: Color {
+        switch publisher.state {
+        case .succeeded:
+            return .green
+        case .failed, .unavailable:
+            return .red
+        case .idle, .disabled, .publishing:
+            return .secondary
+        }
     }
 }
 

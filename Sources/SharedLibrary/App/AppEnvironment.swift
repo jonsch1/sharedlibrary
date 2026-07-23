@@ -7,6 +7,7 @@ extension Notification.Name {
     static let processingDidFinish = Notification.Name("SharedLibrary.processingDidFinish")
     static let processingDidFail = Notification.Name("SharedLibrary.processingDidFail")
     static let libraryAppearanceDidChange = Notification.Name("SharedLibrary.libraryAppearanceDidChange")
+    static let workspaceDidSynchronize = Notification.Name("SharedLibrary.workspaceDidSynchronize")
 }
 
 @MainActor
@@ -20,6 +21,7 @@ final class AppEnvironment: ObservableObject {
     let sharingStore: SharingStore
     let sharedGitSyncCoordinator: GitSyncCoordinator
     let peopleStore: GitHubPeopleStore
+    let cloudLibraryPublisher: CloudLibraryPublisher
 
     init() {
         settings = AppSettings.shared
@@ -35,6 +37,11 @@ final class AppEnvironment: ObservableObject {
         self.libraryStore = libraryStore
         let knowledgeStore = KnowledgeStore()
         self.knowledgeStore = knowledgeStore
+        cloudLibraryPublisher = CloudLibraryPublisher(
+            settings: settings,
+            knowledgeStore: knowledgeStore,
+            sharingStore: sharingStore
+        )
         extractor = ExtractionService()
         processingCoordinator = ProcessingCoordinator(
             libraryStore: libraryStore,
@@ -80,6 +87,7 @@ final class AppEnvironment: ObservableObject {
             )
         }
         gitSyncCoordinator.setWorkspaceURL(settings.workspaceRootURL)
+        cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed personal workspace")
         objectWillChange.send()
         NotificationCenter.default.post(name: .libraryDidChange, object: nil)
     }
@@ -92,6 +100,7 @@ final class AppEnvironment: ObservableObject {
         settings.sharedWorkspaceRootURL = url
         sharedGitSyncCoordinator.setWorkspaceURL(url)
         peopleStore.setSharedWorkspaceURL(url)
+        cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed shared workspace")
         objectWillChange.send()
     }
 }
