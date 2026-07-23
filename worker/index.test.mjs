@@ -149,6 +149,15 @@ test('library file access rejects paths outside the mirrored workspace', async (
 	assert.deepEqual(await response.json(), { error: 'Invalid library file request.' });
 });
 
+test('audio mirror listing requires an authenticated account', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/api/media/audio'),
+		environment()
+	);
+	assert.equal(response.status, 401);
+	assert.deepEqual(await response.json(), { error: 'Authentication required.' });
+});
+
 test('GitHub endpoints are no longer exposed', async () => {
 	const response = await worker.fetch(
 		authenticatedRequest('/api/github/status'),

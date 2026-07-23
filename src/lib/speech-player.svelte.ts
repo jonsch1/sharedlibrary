@@ -108,17 +108,13 @@ export class SpeechPlayer {
 		this.requiresReconnect = false;
 		this.updateMediaSession();
 
-		if (this.credential && navigator.onLine) {
+		if (this.credential) {
 			this.provider = 'openrouter';
 			this.chunks = openRouterSpeechChunks(cleanText);
 			this.state = 'loading';
 			this.abortController = new AbortController();
 			void this.playOpenRouterChunk(sessionID);
 			return;
-		}
-
-		if (this.credential && !navigator.onLine) {
-			this.notice = 'Offline — using the voice built into this device.';
 		}
 		this.startDeviceSpeech(cleanText);
 	}

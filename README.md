@@ -2,8 +2,10 @@
 
 The mobile Shared Library client is a private SvelteKit reader hosted with OpenAI
 Sites. Google Drive supplies a lightweight file index, mirrored Markdown documents,
-and generated audio. IndexedDB keeps the index and downloaded documents available
-offline, and narration is cached locally.
+and generated audio. IndexedDB keeps a complete path-preserving Markdown mirror
+available offline, and existing narration is mirrored into the local audio cache.
+The previous complete mirror opens immediately while synchronization continues in
+the background.
 
 ## Google Drive
 

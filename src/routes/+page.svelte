@@ -53,6 +53,7 @@
 		loadVoicePreference,
 		openRouterVoices,
 		saveVoicePreference,
+		synchronizeOpenRouterAudioCache,
 		type OpenRouterCredential,
 		type OpenRouterVoice
 	} from '$lib/openrouter.js';
@@ -67,6 +68,7 @@
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
 	type OriginFilter = 'all' | LibraryOrigin;
+	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 
 	const variantNames: Record<LibraryVariant, string> = {
 		brief: 'Brief',
@@ -102,6 +104,9 @@
 	});
 	let googleBusy = $state(false);
 	let googleSyncing = $state(false);
+	let googleSyncPhase = $state<GoogleSyncPhase>('checking');
+	let googleSyncCompleted = $state(0);
+	let googleSyncTotal = $state(0);
 	let textRevision = $state(0);
 	let loadingText = $state(false);
 	let installedAppleWebApp = $state(false);
@@ -194,15 +199,17 @@
 				void initializeConnections(() => active);
 			});
 		const automaticallySync = (): void => {
-			if (document.visibilityState !== 'visible' || Date.now() - lastAutomaticSync < 30_000) return;
+			if (!navigator.onLine || Date.now() - lastAutomaticSync < 30_000) return;
 			lastAutomaticSync = Date.now();
 			void syncFromGoogleDrive(false);
 		};
+		const syncInterval = window.setInterval(automaticallySync, 5 * 60 * 1000);
 		window.addEventListener('online', automaticallySync);
 		window.addEventListener('focus', automaticallySync);
 		document.addEventListener('visibilitychange', automaticallySync);
 		return () => {
 			active = false;
+			window.clearInterval(syncInterval);
 			window.removeEventListener('online', automaticallySync);
 			window.removeEventListener('focus', automaticallySync);
 			document.removeEventListener('visibilitychange', automaticallySync);
@@ -217,13 +224,17 @@
 			if (!isActive()) return;
 			googleConnection = google;
 			if (googleResult === 'connected') {
-				connectionMessage = 'Google Drive connected. Your library and narration are synchronized here.';
+				connectionMessage =
+					'Google Drive connected. The complete library and existing narration are being saved on this device.';
 				connectionsVisible = true;
 			} else if (googleResult) {
 				connectionMessage = 'Google Drive sign-in could not be completed. Check the callback URL.';
 				connectionsVisible = true;
 			}
-			if (google.connected) await syncFromGoogleDrive(false);
+			if (google.connected) {
+				void requestPersistentOfflineStorage();
+				await syncFromGoogleDrive(false);
+			}
 		} catch (error) {
 			if (!isActive()) return;
 			connectionMessage =
@@ -275,11 +286,25 @@
 	async function syncFromGoogleDrive(showError = true): Promise<void> {
 		if (!googleConnection.connected || googleSyncing) return;
 		googleSyncing = true;
+		googleSyncPhase = 'checking';
+		googleSyncCompleted = 0;
+		googleSyncTotal = 0;
 		try {
-			const nextProjection = await syncGoogleDriveLibrary();
+			const nextProjection = await syncGoogleDriveLibrary((completed, total) => {
+				googleSyncPhase = 'library';
+				googleSyncCompleted = completed;
+				googleSyncTotal = total;
+			});
 			applySyncedProjection(nextProjection);
+			googleSyncPhase = 'audio';
+			googleSyncCompleted = 0;
+			googleSyncTotal = 0;
+			await synchronizeOpenRouterAudioCache((completed, total) => {
+				googleSyncCompleted = completed;
+				googleSyncTotal = total;
+			});
 			connectionMessage = showError
-				? `Library updated from Google Drive at ${new Intl.DateTimeFormat(undefined, {
+				? `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
 						hour: 'numeric',
 						minute: '2-digit'
 					}).format(new Date())}.`
@@ -295,6 +320,25 @@
 			googleSyncing = false;
 			loading = false;
 		}
+	}
+
+	async function requestPersistentOfflineStorage(): Promise<void> {
+		try {
+			await navigator.storage?.persist?.();
+		} catch {
+			// The offline mirror still works when the browser does not grant persistent storage.
+		}
+	}
+
+	function googleSyncDescription(): string {
+		if (!googleSyncing) return '';
+		if (googleSyncTotal > 0) {
+			const noun = googleSyncPhase === 'audio' ? 'audio files' : 'files';
+			return `Saving ${googleSyncCompleted} of ${googleSyncTotal} ${noun} locally…`;
+		}
+		return googleSyncPhase === 'audio'
+			? 'Checking offline audio…'
+			: 'Checking Google Drive…';
 	}
 
 	function showDemo(): void {
@@ -510,7 +554,7 @@
 					<span class="status-dot" aria-hidden="true"></span>
 					<span>{isDemo ? 'Sample library' : 'Available offline'}</span>
 					<span class="status-time">
-						{googleSyncing ? 'Fetching from Google Drive…' : `Updated ${formatGeneratedAt(projection.generatedAt)}`}
+						{googleSyncing ? googleSyncDescription() : `Updated ${formatGeneratedAt(projection.generatedAt)}`}
 					</span>
 				</div>
 			{/if}
@@ -550,24 +594,30 @@
 					<span class="empty-check"><CheckIcon /></span>
 				</div>
 				<p class="eyebrow">Your library, everywhere</p>
-				<h1>Connect your Google Drive</h1>
-				<p class="empty-copy">
-					Shared Library reads the private file index written by the Mac app, downloads
-					Markdown documents on demand, and keeps them in this browser for offline reading.
-				</p>
-				<div class="empty-actions">
-					<Button size="lg" onclick={() => (connectionsVisible = true)}>
-						<CloudIcon data-icon="inline-start" />
-						Connect Google Drive
-					</Button>
-					<Button size="lg" variant="ghost" onclick={showDemo}>
-						<BookOpenIcon data-icon="inline-start" />
-						Explore a sample
-					</Button>
-				</div>
+				{#if googleConnection.connected && googleSyncing}
+					<h1>Saving your library for offline use</h1>
+					<p class="empty-copy">{googleSyncDescription()}</p>
+				{:else}
+					<h1>Connect your Google Drive</h1>
+					<p class="empty-copy">
+						Shared Library mirrors the complete folder written by the Mac app, saves every
+						Markdown document and existing narration locally, and keeps it synchronized in
+						the background.
+					</p>
+					<div class="empty-actions">
+						<Button size="lg" onclick={() => (connectionsVisible = true)}>
+							<CloudIcon data-icon="inline-start" />
+							Connect Google Drive
+						</Button>
+						<Button size="lg" variant="ghost" onclick={showDemo}>
+							<BookOpenIcon data-icon="inline-start" />
+							Explore a sample
+						</Button>
+					</div>
+				{/if}
 				<div class="privacy-note">
 					<CheckIcon />
-					<span>Library text and generated audio stay in your own Google Drive.</span>
+					<span>Library text and generated audio stay in your Drive and private device cache.</span>
 				</div>
 				{#if importMessage}<p class="import-message error">{importMessage}</p>{/if}
 			</div>
@@ -877,7 +927,7 @@
 									{googleConnection.connected ? 'Connected' : 'Required'}
 								</Badge>
 							</div>
-							<p>Your mirrored Markdown library and generated audio, with a fast cache on each device.</p>
+							<p>Your complete Markdown library and generated audio, mirrored locally on every device.</p>
 						</div>
 					</div>
 
@@ -1023,8 +1073,8 @@
 					<div>
 						<h3>Offline audio</h3>
 						<p>
-							Generated segments are cached here and backed up to Google Drive when
-							connected.
+							Generated segments are kept here, backed up to Google Drive, and mirrored
+							to your other connected clients in the background.
 						</p>
 					</div>
 					<Button variant="ghost" size="sm" onclick={clearAudioCache}>
@@ -1047,8 +1097,8 @@
 				</div>
 
 				<p class="device-fallback">
-					Without a connection—or while offline—Shared Library uses the speech voice built
-					into this device.
+					Previously generated Grok narration plays offline. If a segment has not been
+					generated yet, Shared Library can fall back to the speech voice built into this device.
 				</p>
 			</div>
 		</aside>

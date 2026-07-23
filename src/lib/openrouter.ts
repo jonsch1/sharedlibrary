@@ -1,4 +1,8 @@
-import { loadGoogleDriveAudio, storeGoogleDriveAudio } from '$lib/google-drive.js';
+import {
+	listGoogleDriveAudio,
+	loadGoogleDriveAudio,
+	storeGoogleDriveAudio
+} from '$lib/google-drive.js';
 
 export const openRouterModel = 'x-ai/grok-voice-tts-1.0';
 
@@ -211,6 +215,40 @@ async function cacheSpeech(hash: string, audio: Blob): Promise<void> {
 			headers: {
 				'Content-Type': audio.type || 'audio/mpeg',
 				'Cache-Control': 'private, max-age=31536000'
+			}
+		})
+	);
+}
+
+export async function synchronizeOpenRouterAudioCache(
+	onProgress?: (completed: number, total: number) => void
+): Promise<void> {
+	if (!('caches' in globalThis)) return;
+	const files = await listGoogleDriveAudio();
+	const cache = await caches.open(audioCacheName);
+	const missing: typeof files = [];
+	let completed = 0;
+	for (const file of files) {
+		if (await cache.match(audioCacheRequest(file.hash))) {
+			completed += 1;
+		} else {
+			missing.push(file);
+		}
+	}
+	onProgress?.(completed, files.length);
+
+	let nextIndex = 0;
+	const workerCount = Math.min(2, missing.length);
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (nextIndex < missing.length) {
+				const file = missing[nextIndex];
+				nextIndex += 1;
+				const audio = await loadGoogleDriveAudio(file.hash);
+				if (!audio) throw new Error('A Google Drive audio file could not be downloaded.');
+				await cacheSpeech(file.hash, audio);
+				completed += 1;
+				onProgress?.(completed, files.length);
 			}
 		})
 	);

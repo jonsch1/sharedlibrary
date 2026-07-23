@@ -861,6 +861,46 @@ function mediaPath(url) {
 	return match ? { kind: 'audio', hash: match[1] } : null;
 }
 
+async function listDriveAudio(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const files = [];
+	let pageToken;
+	do {
+		const url = new URL('https://www.googleapis.com/drive/v3/files');
+		url.searchParams.set(
+			'q',
+			"appProperties has { key='sharedLibraryKind' and value='audio' } and trashed=false"
+		);
+		url.searchParams.set(
+			'fields',
+			'nextPageToken,files(id,mimeType,size,appProperties)'
+		);
+		url.searchParams.set('pageSize', '1000');
+		if (pageToken) url.searchParams.set('pageToken', pageToken);
+		const response = await googleDriveRequest(env, email, url);
+		if (!response.ok) {
+			return json(
+				{ error: response.status === 401 ? 'Connect Google Drive first.' : 'Google Drive audio could not be listed.' },
+				{ status: response.status }
+			);
+		}
+		const value = await response.json();
+		for (const file of value.files ?? []) {
+			const hash = file.appProperties?.sharedLibraryHash;
+			if (!/^[a-f0-9]{64}$/.test(hash || '')) continue;
+			files.push({
+				hash,
+				byteCount: Number(file.size || 0),
+				contentType: file.mimeType || 'audio/mpeg'
+			});
+		}
+		pageToken = value.nextPageToken;
+	} while (pageToken);
+	return json({ files });
+}
+
 async function downloadDriveMedia(request, env, media) {
 	const email = authenticatedEmail(request);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
@@ -976,6 +1016,9 @@ const worker = {
 		}
 		if (url.pathname === '/api/google/disconnect' && request.method === 'POST') {
 			return disconnectGoogleDrive(request, env);
+		}
+		if (url.pathname === '/api/media/audio' && request.method === 'GET') {
+			return listDriveAudio(request, env);
 		}
 		const media = mediaPath(url);
 		if (media && request.method === 'GET') {
