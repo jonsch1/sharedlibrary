@@ -5,8 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
-		"build:sites": "npm run build && node scripts/prepare-sites.mjs",
+		"build": "vite build && node scripts/prepare-sites.mjs",
+		"build:sites": "npm run build",
 		"db:generate": "drizzle-kit generate",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
