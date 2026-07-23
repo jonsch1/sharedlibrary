@@ -11,134 +11,14 @@ export const openRouterVoices = [
 export type OpenRouterVoice = (typeof openRouterVoices)[number]['id'];
 
 export interface OpenRouterCredential {
-	apiKey: string;
+	connected: true;
 	userID?: string;
-	connectedAt: string;
+	connectedAt?: string;
 }
 
-const credentialDatabaseName = 'shared-library-openrouter';
-const credentialStoreName = 'credentials';
-const credentialKey = 'active';
-const verifierSessionKey = 'shared-library-openrouter-code-verifier';
 const audioCacheName = 'shared-library-openrouter-audio-v1';
 const voicePreferenceKey = 'shared-library-openrouter-voice';
 const maximumInputLength = 14_000;
-
-function openCredentialDatabase(): Promise<IDBDatabase> {
-	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(credentialDatabaseName, 1);
-		request.onupgradeneeded = () => {
-			if (!request.result.objectStoreNames.contains(credentialStoreName)) {
-				request.result.createObjectStore(credentialStoreName);
-			}
-		};
-		request.onsuccess = () => resolve(request.result);
-		request.onerror = () =>
-			reject(request.error ?? new Error('Could not open OpenRouter storage.'));
-	});
-}
-
-async function writeCredential(credential: OpenRouterCredential): Promise<void> {
-	const database = await openCredentialDatabase();
-	try {
-		await new Promise<void>((resolve, reject) => {
-			const transaction = database.transaction(credentialStoreName, 'readwrite');
-			transaction.objectStore(credentialStoreName).put(credential, credentialKey);
-			transaction.oncomplete = () => resolve();
-			transaction.onerror = () =>
-				reject(transaction.error ?? new Error('Could not save the OpenRouter connection.'));
-			transaction.onabort = () =>
-				reject(transaction.error ?? new Error('Saving the OpenRouter connection was interrupted.'));
-		});
-	} finally {
-		database.close();
-	}
-}
-
-export async function loadOpenRouterCredential(): Promise<OpenRouterCredential | null> {
-	const database = await openCredentialDatabase();
-	try {
-		return await new Promise<OpenRouterCredential | null>((resolve, reject) => {
-			const request = database
-				.transaction(credentialStoreName, 'readonly')
-				.objectStore(credentialStoreName)
-				.get(credentialKey);
-			request.onsuccess = () => {
-				const value = request.result;
-				if (
-					typeof value === 'object' &&
-					value !== null &&
-					typeof value.apiKey === 'string' &&
-					typeof value.connectedAt === 'string'
-				) {
-					resolve(value as OpenRouterCredential);
-				} else {
-					resolve(null);
-				}
-			};
-			request.onerror = () =>
-				reject(request.error ?? new Error('Could not read the OpenRouter connection.'));
-		});
-	} finally {
-		database.close();
-	}
-}
-
-export async function disconnectOpenRouter(): Promise<void> {
-	const database = await openCredentialDatabase();
-	try {
-		await new Promise<void>((resolve, reject) => {
-			const transaction = database.transaction(credentialStoreName, 'readwrite');
-			transaction.objectStore(credentialStoreName).delete(credentialKey);
-			transaction.oncomplete = () => resolve();
-			transaction.onerror = () =>
-				reject(transaction.error ?? new Error('Could not remove the OpenRouter connection.'));
-		});
-	} finally {
-		database.close();
-	}
-}
-
-function base64URL(bytes: Uint8Array): string {
-	let binary = '';
-	for (const byte of bytes) binary += String.fromCharCode(byte);
-	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-async function sha256Base64URL(value: string): Promise<string> {
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-	return base64URL(new Uint8Array(digest));
-}
-
-function callbackURL(): string {
-	const url = new URL(window.location.href);
-	url.search = '';
-	url.hash = '';
-	return url.toString();
-}
-
-export async function beginOpenRouterConnection(): Promise<void> {
-	const random = new Uint8Array(64);
-	crypto.getRandomValues(random);
-	const verifier = base64URL(random);
-	const challenge = await sha256Base64URL(verifier);
-	sessionStorage.setItem(verifierSessionKey, verifier);
-
-	const authorizationURL = new URL('https://openrouter.ai/auth');
-	authorizationURL.searchParams.set('callback_url', callbackURL());
-	authorizationURL.searchParams.set('code_challenge', challenge);
-	authorizationURL.searchParams.set('code_challenge_method', 'S256');
-	window.location.assign(authorizationURL);
-}
-
-function consumeAuthorizationCode(): string | null {
-	const url = new URL(window.location.href);
-	const code = url.searchParams.get('code');
-	if (!code) return null;
-	url.searchParams.delete('code');
-	window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-	return code;
-}
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
 	try {
@@ -155,44 +35,66 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
 	return fallback;
 }
 
-export async function completeOpenRouterConnection(): Promise<OpenRouterCredential | null> {
-	const code = consumeAuthorizationCode();
-	if (!code) return null;
-
-	const verifier = sessionStorage.getItem(verifierSessionKey);
-	sessionStorage.removeItem(verifierSessionKey);
-	if (!verifier) {
+export async function loadOpenRouterCredential(): Promise<OpenRouterCredential | null> {
+	const response = await fetch('/api/openrouter/status', {
+		headers: { Accept: 'application/json' },
+		cache: 'no-store'
+	});
+	if (response.status === 401 || response.status === 404) return null;
+	if (!response.ok) {
 		throw new Error(
-			'OpenRouter sign-in returned to a different browser session. Open Audio settings and connect again.'
+			await errorMessage(response, `Could not read the OpenRouter connection (${response.status}).`)
 		);
 	}
+	const value = (await response.json()) as {
+		connected?: unknown;
+		userID?: unknown;
+		connectedAt?: unknown;
+	};
+	if (value.connected !== true) return null;
+	return {
+		connected: true,
+		userID: typeof value.userID === 'string' ? value.userID : undefined,
+		connectedAt: typeof value.connectedAt === 'string' ? value.connectedAt : undefined
+	};
+}
 
-	const response = await fetch('https://openrouter.ai/api/v1/auth/keys', {
+export async function disconnectOpenRouter(): Promise<void> {
+	const response = await fetch('/api/openrouter/disconnect', {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			code,
-			code_verifier: verifier,
-			code_challenge_method: 'S256'
-		})
+		headers: { Accept: 'application/json' }
 	});
 	if (!response.ok) {
 		throw new Error(
-			await errorMessage(response, `OpenRouter sign-in failed (${response.status}).`)
+			await errorMessage(response, `Could not disconnect OpenRouter (${response.status}).`)
 		);
 	}
+}
 
-	const value = (await response.json()) as { key?: unknown; user_id?: unknown };
-	if (typeof value.key !== 'string' || !value.key) {
-		throw new Error('OpenRouter did not return a usable connection key.');
+export async function beginOpenRouterConnection(): Promise<void> {
+	window.location.assign('/api/openrouter/connect/start');
+}
+
+function consumeConnectionResult(): string | null {
+	const url = new URL(window.location.href);
+	const result = url.searchParams.get('openrouter');
+	if (!result) return null;
+	url.searchParams.delete('openrouter');
+	window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+	return result;
+}
+
+export async function completeOpenRouterConnection(): Promise<OpenRouterCredential | null> {
+	const result = consumeConnectionResult();
+	if (!result) return null;
+	if (result === 'expired') {
+		throw new Error('The OpenRouter sign-in expired. Open Audio settings and connect again.');
 	}
-
-	const credential: OpenRouterCredential = {
-		apiKey: value.key,
-		userID: typeof value.user_id === 'string' ? value.user_id : undefined,
-		connectedAt: new Date().toISOString()
-	};
-	await writeCredential(credential);
+	if (result !== 'connected') {
+		throw new Error('OpenRouter sign-in could not be completed. Please try again.');
+	}
+	const credential = await loadOpenRouterCredential();
+	if (!credential) throw new Error('OpenRouter connected, but the saved connection was not found.');
 	return credential;
 }
 
@@ -294,7 +196,7 @@ export class OpenRouterSpeechError extends Error {
 }
 
 export async function createOpenRouterSpeech(
-	credential: OpenRouterCredential,
+	_credential: OpenRouterCredential,
 	text: string,
 	voice: OpenRouterVoice,
 	signal?: AbortSignal
@@ -302,19 +204,13 @@ export async function createOpenRouterSpeech(
 	const cached = await loadCachedSpeech(text, voice);
 	if (cached) return cached;
 
-	const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+	const response = await fetch('/api/tts', {
 		method: 'POST',
 		headers: {
-			Authorization: `Bearer ${credential.apiKey}`,
 			'Content-Type': 'application/json',
-			'X-Title': 'Shared Library'
+			Accept: 'audio/mpeg'
 		},
-		body: JSON.stringify({
-			model: openRouterModel,
-			input: text,
-			voice,
-			response_format: 'mp3'
-		}),
+		body: JSON.stringify({ input: text, voice }),
 		signal
 	});
 	if (!response.ok) {

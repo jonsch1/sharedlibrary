@@ -23,7 +23,7 @@ worker.addEventListener('activate', (event) => {
 
 worker.addEventListener('fetch', (event) => {
 	const url = new URL(event.request.url);
-	if (event.request.method !== 'GET' || url.search) return;
+	if (event.request.method !== 'GET' || url.search || url.pathname.startsWith('/api/')) return;
 	event.respondWith(
 		caches.match(event.request).then((cached) => {
 			if (cached) return cached;

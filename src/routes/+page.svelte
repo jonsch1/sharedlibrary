@@ -769,12 +769,13 @@
 				</section>
 
 				<div class="audio-privacy">
-					<ShieldCheckIcon />
+						<ShieldCheckIcon />
 					<div>
-						<strong>Your key is device-local</strong>
+						<strong>Your key stays encrypted</strong>
 						<p>
-							OpenRouter creates a connection for this browser. The key is never added to
-							your snapshot or repository. Text is sent to OpenRouter and xAI only when
+							OpenRouter creates a user-controlled key that Shared Library stores
+							encrypted for your private account. It is never added to your snapshot,
+							iCloud Drive, or repository. Text is sent to OpenRouter and xAI only when
 							you request narration.
 						</p>
 					</div>
