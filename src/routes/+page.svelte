@@ -7,7 +7,8 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
-	import FileUpIcon from '@lucide/svelte/icons/file-up';
+	import CopyIcon from '@lucide/svelte/icons/copy';
+	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LibraryBigIcon from '@lucide/svelte/icons/library-big';
 	import ListMusicIcon from '@lucide/svelte/icons/list-music';
@@ -17,6 +18,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
 	import SquareIcon from '@lucide/svelte/icons/square';
@@ -35,10 +37,8 @@
 		demoProjection,
 		libraryVariants,
 		loadLibraryProjection,
-		parseLibraryProjection,
 		preferredVariant,
 		readingMinutes,
-		saveLibraryProjection,
 		textFor,
 		type LibraryEntry,
 		type LibraryOrigin,
@@ -57,6 +57,24 @@
 		type OpenRouterCredential,
 		type OpenRouterVoice
 	} from '$lib/openrouter.js';
+	import {
+		beginGitHubConnection,
+		configureGitHubRepository,
+		disconnectGitHub,
+		loadGitHubConnection,
+		pollGitHubConnection,
+		syncGitHubLibrary,
+		type GitHubConnection,
+		type GitHubDeviceAuthorization
+	} from '$lib/github.js';
+	import {
+		beginGoogleDriveConnection,
+		configureGoogleDrive,
+		consumeGoogleDriveConnectionResult,
+		disconnectGoogleDrive,
+		loadGoogleDriveConnection,
+		type GoogleDriveConnection
+	} from '$lib/google-drive.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
 	type OriginFilter = 'all' | LibraryOrigin;
@@ -81,13 +99,27 @@
 	let mobileReaderVisible = $state(false);
 	let queueVisible = $state(false);
 	let audioSettingsVisible = $state(false);
-	let fileInput = $state<HTMLInputElement>();
+	let connectionsVisible = $state(false);
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
 	let openRouterVoice = $state<OpenRouterVoice>('eve');
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
+	let connectionMessage = $state('');
+	let githubConnection = $state<GitHubConnection>({ connected: false });
+	let githubClientID = $state('');
+	let githubRepository = $state('');
+	let githubDevice = $state<GitHubDeviceAuthorization | null>(null);
+	let githubBusy = $state(false);
+	let githubSyncing = $state(false);
+	let googleConnection = $state<GoogleDriveConnection>({
+		configured: false,
+		connected: false
+	});
+	let googleClientID = $state('');
+	let googleClientSecret = $state('');
+	let googleBusy = $state(false);
 	let installedAppleWebApp = $state(false);
 	const player = new SpeechPlayer();
 
@@ -135,7 +167,7 @@
 			player.provider === 'openrouter' &&
 			player.state === 'paused'
 	);
-	let toastMessage = $derived(audioMessage || player.notice || importMessage);
+	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
@@ -145,6 +177,7 @@
 
 	onMount(() => {
 		let active = true;
+		let lastAutomaticSync = 0;
 		if (narrationAudio) player.attachAudioElement(narrationAudio);
 		const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
 		const isAppleMobile =
@@ -166,12 +199,52 @@
 			})
 			.finally(() => {
 				loading = false;
+				void initializeConnections(() => active);
 			});
+		const automaticallySync = (): void => {
+			if (document.visibilityState !== 'visible' || Date.now() - lastAutomaticSync < 30_000) return;
+			lastAutomaticSync = Date.now();
+			void syncFromGitHub(false);
+		};
+		window.addEventListener('online', automaticallySync);
+		window.addEventListener('focus', automaticallySync);
+		document.addEventListener('visibilitychange', automaticallySync);
 		return () => {
 			active = false;
+			window.removeEventListener('online', automaticallySync);
+			window.removeEventListener('focus', automaticallySync);
+			document.removeEventListener('visibilitychange', automaticallySync);
 			player.dispose();
 		};
 	});
+
+	async function initializeConnections(isActive: () => boolean): Promise<void> {
+		try {
+			const googleResult = consumeGoogleDriveConnectionResult();
+			const [github, google] = await Promise.all([
+				loadGitHubConnection(),
+				loadGoogleDriveConnection()
+			]);
+			if (!isActive()) return;
+			githubConnection = github;
+			githubClientID = github.clientID ?? '';
+			githubRepository = github.repository ?? '';
+			googleConnection = google;
+			googleClientID = google.clientID ?? '';
+			if (googleResult === 'connected') {
+				connectionMessage = 'Google Drive connected. New narration is backed up automatically.';
+				connectionsVisible = true;
+			} else if (googleResult) {
+				connectionMessage = 'Google Drive sign-in could not be completed. Check the callback URL.';
+				connectionsVisible = true;
+			}
+			if (github.connected && github.repository) await syncFromGitHub(false);
+		} catch (error) {
+			if (!isActive()) return;
+			connectionMessage =
+				error instanceof Error ? error.message : 'Connections could not be loaded.';
+		}
+	}
 
 	async function initializeOpenRouter(isActive: () => boolean): Promise<void> {
 		try {
@@ -204,26 +277,161 @@
 		mobileReaderVisible = false;
 	}
 
-	async function importSnapshot(event: Event): Promise<void> {
-		const input = event.currentTarget as HTMLInputElement;
-		const file = input.files?.[0];
-		if (!file) return;
-		importMessage = '';
+	function applySyncedProjection(nextProjection: LibraryProjection): void {
+		const previousSelection = selectedEntryID;
+		projection = nextProjection;
+		isDemo = false;
+		selectedEntryID =
+			nextProjection.entries.some((entry) => entry.id === previousSelection)
+				? previousSelection
+				: (nextProjection.entries[0]?.id ?? null);
+	}
+
+	async function syncFromGitHub(showError = true): Promise<void> {
+		if (!githubConnection.connected || !githubConnection.repository || githubSyncing) return;
+		githubSyncing = true;
 		try {
-			const parsed = parseLibraryProjection(JSON.parse(await file.text()));
-			await saveLibraryProjection(parsed);
-			setProjection(parsed, false);
-			importMessage = `Imported ${parsed.entries.length} ${parsed.entries.length === 1 ? 'item' : 'items'} for offline use.`;
+			const nextProjection = await syncGitHubLibrary();
+			applySyncedProjection(nextProjection);
+			connectionMessage = showError
+				? `Library updated from GitHub at ${new Intl.DateTimeFormat(undefined, {
+						hour: 'numeric',
+						minute: '2-digit'
+					}).format(new Date())}.`
+				: '';
 		} catch (error) {
-			importMessage = error instanceof Error ? error.message : 'The snapshot could not be imported.';
+			if (showError || !projection) {
+				connectionMessage =
+					error instanceof Error ? error.message : 'The library could not be synced from GitHub.';
+			}
 		} finally {
-			input.value = '';
+			githubSyncing = false;
+			loading = false;
 		}
 	}
 
 	function showDemo(): void {
 		setProjection(demoProjection, true);
-		importMessage = 'This is sample content. Import your snapshot when you are ready.';
+		importMessage = 'This is sample content. Connect GitHub when you are ready.';
+	}
+
+	async function connectGitHubApp(): Promise<void> {
+		githubBusy = true;
+		connectionMessage = '';
+		try {
+			githubDevice = await beginGitHubConnection(githubClientID.trim());
+			connectionMessage = `Enter code ${githubDevice.userCode} on GitHub.`;
+			void waitForGitHubAuthorization();
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Could not start GitHub authorization.';
+			githubBusy = false;
+		}
+	}
+
+	async function waitForGitHubAuthorization(): Promise<void> {
+		const expiresAt = Date.now() + (githubDevice?.expiresIn ?? 900) * 1000;
+		let retryAfter = githubDevice?.interval ?? 5;
+		while (githubDevice && Date.now() < expiresAt) {
+			await new Promise((resolve) => window.setTimeout(resolve, retryAfter * 1000));
+			try {
+				const result = await pollGitHubConnection();
+				if (result.state === 'pending') {
+					retryAfter = result.retryAfter ?? retryAfter;
+					continue;
+				}
+				if (result.state === 'connected') {
+					githubDevice = null;
+					githubConnection = await loadGitHubConnection();
+					githubClientID = githubConnection.clientID ?? githubClientID;
+					connectionMessage = `GitHub connected as ${result.login ?? githubConnection.login}.`;
+					githubBusy = false;
+					return;
+				}
+				break;
+			} catch (error) {
+				connectionMessage =
+					error instanceof Error ? error.message : 'GitHub authorization failed.';
+				githubDevice = null;
+				githubBusy = false;
+				return;
+			}
+		}
+		githubDevice = null;
+		githubBusy = false;
+		connectionMessage = 'GitHub authorization expired. Start it again.';
+	}
+
+	async function saveGitHubRepository(): Promise<void> {
+		githubBusy = true;
+		connectionMessage = '';
+		try {
+			const configured = await configureGitHubRepository(githubRepository.trim());
+			githubConnection = { ...githubConnection, ...configured, connected: true };
+			githubRepository = configured.repository ?? githubRepository.trim();
+			await syncFromGitHub(true);
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Could not open the GitHub repository.';
+		} finally {
+			githubBusy = false;
+		}
+	}
+
+	async function removeGitHubConnection(): Promise<void> {
+		githubBusy = true;
+		try {
+			await disconnectGitHub();
+			githubConnection = { connected: false };
+			githubDevice = null;
+			githubRepository = '';
+			connectionMessage = 'GitHub disconnected. The downloaded library remains available offline.';
+		} catch (error) {
+			connectionMessage = error instanceof Error ? error.message : 'Could not disconnect GitHub.';
+		} finally {
+			githubBusy = false;
+		}
+	}
+
+	async function connectGoogleDrive(): Promise<void> {
+		googleBusy = true;
+		connectionMessage = '';
+		try {
+			await configureGoogleDrive(googleClientID.trim(), googleClientSecret.trim());
+			googleClientSecret = '';
+			beginGoogleDriveConnection();
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Could not start Google Drive sign-in.';
+			googleBusy = false;
+		}
+	}
+
+	async function removeGoogleDriveConnection(): Promise<void> {
+		googleBusy = true;
+		try {
+			await disconnectGoogleDrive();
+			googleConnection = { configured: false, connected: false };
+			googleClientID = '';
+			googleClientSecret = '';
+			connectionMessage = 'Google Drive disconnected. Local audio remains on this device.';
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Could not disconnect Google Drive.';
+		} finally {
+			googleBusy = false;
+		}
+	}
+
+	async function copyText(value: string): Promise<void> {
+		await navigator.clipboard.writeText(value);
+		connectionMessage = 'Copied to the clipboard.';
+	}
+
+	function toggleConnections(): void {
+		connectionsVisible = !connectionsVisible;
+		audioSettingsVisible = false;
+		queueVisible = false;
 	}
 
 	function selectEntry(entry: LibraryEntry): void {
@@ -300,12 +508,14 @@
 
 	function toggleAudioSettings(): void {
 		audioSettingsVisible = !audioSettingsVisible;
+		connectionsVisible = false;
 		queueVisible = false;
 	}
 
 	function dismissToast(): void {
 		importMessage = '';
 		audioMessage = '';
+		connectionMessage = '';
 		player.notice = '';
 	}
 
@@ -332,31 +542,24 @@
 	<title>Shared Library</title>
 	<meta
 		name="description"
-		content="A private, offline-friendly reader for your Shared Library snapshots."
+		content="A private, offline-friendly reader synced through GitHub with media backed up to Google Drive."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:title" content="Shared Library" />
 	<meta
 		property="og:description"
-		content="Read, search, and listen to your private Shared Library snapshot anywhere."
+		content="Read, search, and listen to your private library anywhere."
 	/>
-	<meta property="og:image" content="/og.png" />
+	<meta property="og:image" content="/og-v2.png" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Shared Library" />
 	<meta
 		name="twitter:description"
-		content="Read, search, and listen to your private Shared Library snapshot anywhere."
+		content="Read, search, and listen to your private library anywhere."
 	/>
-	<meta name="twitter:image" content="/og.png" />
+	<meta name="twitter:image" content="/og-v2.png" />
 </svelte:head>
 
-<input
-	bind:this={fileInput}
-	class="sr-only"
-	type="file"
-	accept=".json,application/json"
-	onchange={importSnapshot}
-/>
 <audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
 
 <div class="app-shell">
@@ -374,7 +577,9 @@
 				<div class="snapshot-status">
 					<span class="status-dot" aria-hidden="true"></span>
 					<span>{isDemo ? 'Sample library' : 'Available offline'}</span>
-					<span class="status-time">Updated {formatGeneratedAt(projection.generatedAt)}</span>
+					<span class="status-time">
+						{githubSyncing ? 'Fetching from GitHub…' : `Updated ${formatGeneratedAt(projection.generatedAt)}`}
+					</span>
 				</div>
 			{/if}
 			<Button
@@ -389,10 +594,13 @@
 					></span>
 				{/if}
 			</Button>
-			<Button variant="outline" onclick={() => fileInput?.click()}>
-				<FileUpIcon data-icon="inline-start" />
-				<span class="desktop-label">Import snapshot</span>
-				<span class="mobile-label">Import</span>
+			<Button
+				variant={connectionsVisible ? 'secondary' : 'outline'}
+				onclick={toggleConnections}
+			>
+				<Settings2Icon data-icon="inline-start" />
+				<span class="desktop-label">Connections</span>
+				<span class="mobile-label">Setup</span>
 			</Button>
 		</div>
 	</header>
@@ -409,17 +617,16 @@
 					<CloudIcon />
 					<span class="empty-check"><CheckIcon /></span>
 				</div>
-				<p class="eyebrow">Your library, on this device</p>
-				<h1>Bring in your Shared Library snapshot</h1>
+				<p class="eyebrow">Your library, everywhere</p>
+				<h1>Connect your personal GitHub repository</h1>
 				<p class="empty-copy">
-					In the Mac app, open Settings → Mobile and export the web snapshot to iCloud
-					Drive. Then choose that JSON file here. It stays in this browser for offline
-					reading.
+					Shared Library reads the private snapshot written by the Mac app and keeps a copy
+					in this browser for offline reading. GitHub credentials never enter your library.
 				</p>
 				<div class="empty-actions">
-					<Button size="lg" onclick={() => fileInput?.click()}>
-						<FileUpIcon data-icon="inline-start" />
-						Choose snapshot
+					<Button size="lg" onclick={() => (connectionsVisible = true)}>
+						<GitBranchIcon data-icon="inline-start" />
+						Connect GitHub
 					</Button>
 					<Button size="lg" variant="ghost" onclick={showDemo}>
 						<BookOpenIcon data-icon="inline-start" />
@@ -428,7 +635,7 @@
 				</div>
 				<div class="privacy-note">
 					<CheckIcon />
-					<span>Your snapshot stays on this device. OpenRouter speech is optional.</span>
+					<span>GitHub syncs text. Google Drive stores optional generated media.</span>
 				</div>
 				{#if importMessage}<p class="import-message error">{importMessage}</p>{/if}
 			</div>
@@ -691,6 +898,7 @@
 					onclick={() => {
 						queueVisible = !queueVisible;
 						audioSettingsVisible = false;
+						connectionsVisible = false;
 					}}
 				>
 					<ListMusicIcon data-icon="inline-start" />
@@ -700,6 +908,182 @@
 			</div>
 			<div class="player-progress" style={`--progress: ${player.progress * 100}%`}></div>
 		</footer>
+	{/if}
+
+	{#if connectionsVisible}
+		<div
+			class="audio-backdrop"
+			role="presentation"
+			onclick={() => (connectionsVisible = false)}
+		></div>
+		<aside class="audio-panel connections-panel" aria-label="Connections">
+			<div class="audio-header">
+				<div>
+					<p class="eyebrow">Storage</p>
+					<h2>Connections</h2>
+				</div>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Close connections"
+					onclick={() => (connectionsVisible = false)}
+				>
+					<XIcon />
+				</Button>
+			</div>
+
+			<div class="audio-content">
+				<section class="audio-connection" class:connected={githubConnection.connected}>
+					<div class="audio-connection-heading">
+						<div class="provider-mark"><GitBranchIcon /></div>
+						<div>
+							<div class="provider-title">
+								<h3>GitHub App</h3>
+								<Badge variant={githubConnection.connected ? 'secondary' : 'outline'}>
+									{githubConnection.connected ? `@${githubConnection.login}` : 'Required'}
+								</Badge>
+							</div>
+							<p>Private text sync through GitHub Device Flow—no CLI or PEM key.</p>
+						</div>
+					</div>
+
+					{#if !githubConnection.connected}
+						<label class="connection-field">
+							<span>GitHub App Client ID</span>
+							<Input bind:value={githubClientID} autocomplete="off" placeholder="Iv23li…" />
+						</label>
+						<Button disabled={githubBusy || !githubClientID.trim()} onclick={connectGitHubApp}>
+							<GitBranchIcon data-icon="inline-start" />
+							{githubBusy ? 'Waiting for GitHub…' : 'Connect GitHub'}
+						</Button>
+						{#if githubDevice}
+							<div class="device-code-card">
+								<span>Your one-time code</span>
+								<strong>{githubDevice.userCode}</strong>
+								<a href={githubDevice.verificationURI} target="_blank" rel="noreferrer">
+									Open GitHub to authorize <ArrowUpRightIcon />
+								</a>
+							</div>
+						{/if}
+						<p class="connection-help">
+							Create a GitHub App, enable Device Flow, give it repository Contents
+							read/write permission, and install it on the personal library repository.
+							<a href="https://github.com/settings/apps/new" target="_blank" rel="noreferrer">
+								Create GitHub App <ArrowUpRightIcon />
+							</a>
+						</p>
+					{:else}
+						<label class="connection-field">
+							<span>Personal repository</span>
+							<Input bind:value={githubRepository} placeholder="owner/shared-library" />
+						</label>
+						<div class="connection-actions">
+							<Button
+								disabled={githubBusy || !githubRepository.trim()}
+								onclick={saveGitHubRepository}
+							>
+								{githubBusy ? 'Checking…' : 'Use repository'}
+							</Button>
+							<Button variant="outline" disabled={githubBusy} onclick={removeGitHubConnection}>
+								<LogOutIcon data-icon="inline-start" />
+								Disconnect
+							</Button>
+						</div>
+						{#if githubConnection.repository}
+							<p class="connection-detail">
+								Automatically fetches <code>.shared-library/library.json</code> when the
+								app opens or returns online.
+							</p>
+						{/if}
+					{/if}
+				</section>
+
+				<section class="audio-connection" class:connected={googleConnection.connected}>
+					<div class="audio-connection-heading">
+						<div class="provider-mark"><CloudIcon /></div>
+						<div>
+							<div class="provider-title">
+								<h3>Google Drive</h3>
+								<Badge variant={googleConnection.connected ? 'secondary' : 'outline'}>
+									{googleConnection.connected ? 'Connected' : 'Media backup'}
+								</Badge>
+							</div>
+							<p>Durable audio and image objects with a fast local cache on each device.</p>
+						</div>
+					</div>
+
+					{#if googleConnection.connected}
+						<Button variant="outline" disabled={googleBusy} onclick={removeGoogleDriveConnection}>
+							<LogOutIcon data-icon="inline-start" />
+							Disconnect
+						</Button>
+					{:else}
+						<label class="connection-field">
+							<span>Google Web OAuth Client ID</span>
+							<Input
+								bind:value={googleClientID}
+								autocomplete="off"
+								placeholder="….apps.googleusercontent.com"
+							/>
+						</label>
+						<label class="connection-field">
+							<span>Google Web OAuth Client Secret</span>
+							<Input
+								bind:value={googleClientSecret}
+								type="password"
+								autocomplete="off"
+								placeholder="GOCSPX-…"
+							/>
+						</label>
+						{#if googleConnection.callbackURL}
+							<div class="callback-field">
+								<span>Authorized redirect URI</span>
+								<code>{googleConnection.callbackURL}</code>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label="Copy callback URL"
+									onclick={() => copyText(googleConnection.callbackURL ?? '')}
+								>
+									<CopyIcon />
+								</Button>
+							</div>
+						{/if}
+						<Button
+							disabled={googleBusy || !googleClientID.trim() || !googleClientSecret.trim()}
+							onclick={connectGoogleDrive}
+						>
+							<CloudIcon data-icon="inline-start" />
+							{googleBusy ? 'Opening Google…' : 'Save and connect'}
+						</Button>
+						<p class="connection-help">
+							Enable the Drive API and create a Web application OAuth client. Add the
+							redirect URI shown above. The secret is encrypted on the Shared Library
+							backend and never sent back to the browser.
+							<a
+								href="https://console.cloud.google.com/apis/credentials"
+								target="_blank"
+								rel="noreferrer"
+							>
+								Google Cloud Console <ArrowUpRightIcon />
+							</a>
+						</p>
+					{/if}
+				</section>
+
+				<div class="audio-privacy">
+					<ShieldCheckIcon />
+					<div>
+						<strong>Credentials stay outside the repository</strong>
+						<p>
+							The GitHub App private key is never used by this app. Short-lived user
+							tokens and the Google secret are encrypted per signed-in account. Only
+							library text is stored in GitHub; media is content-addressed in Drive.
+						</p>
+					</div>
+				</div>
+			</div>
+		</aside>
 	{/if}
 
 	{#if audioSettingsVisible}
@@ -802,7 +1186,10 @@
 				<section class="audio-section audio-cache-section">
 					<div>
 						<h3>Offline audio</h3>
-						<p>Generated segments are cached only in this browser for replay.</p>
+						<p>
+							Generated segments are cached here and backed up to Google Drive when
+							connected.
+						</p>
 					</div>
 					<Button variant="ghost" size="sm" onclick={clearAudioCache}>
 						<Trash2Icon data-icon="inline-start" />
@@ -817,7 +1204,7 @@
 						<p>
 							OpenRouter creates a user-controlled key that Shared Library stores
 							encrypted for your private account. It is never added to your snapshot,
-							iCloud Drive, or repository. Text is sent to OpenRouter and xAI only when
+							Google Drive, or repository. Text is sent to OpenRouter and xAI only when
 							you request narration.
 						</p>
 					</div>

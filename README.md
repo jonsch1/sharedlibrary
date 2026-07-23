@@ -1,38 +1,53 @@
 # Shared Library Web
 
-Shared Library Web is a private, installable SvelteKit reader for the JSON snapshot exported by the Shared Library macOS app. It uses shadcn-svelte components, optional OpenRouter narration, and browser-native speech synthesis as an offline fallback.
+The mobile Shared Library client is a private SvelteKit reader hosted with OpenAI
+Sites. It syncs text from a user-selected GitHub repository, keeps the most recent
+library projection in IndexedDB, and caches generated speech locally. Google Drive is
+the durable media store.
 
-## Data flow
+## Connections
 
-1. The Mac app builds a unified projection of the personal library and captures shared with the configured stable GitHub ID.
-2. It writes `Shared Library Web.json` to the iCloud Drive folder configured under Settings → Mobile.
-3. The web app imports that file through the browser's Files picker.
-4. The validated snapshot is stored in IndexedDB for offline reading.
+### GitHub
 
-The hosted web app contains no personal library content. Re-import the snapshot to pick up a newer iCloud Drive copy.
+Create and install a GitHub App with Device Flow enabled. Give it repository
+Contents read/write and Metadata read permissions, then enter its public Client ID in
+the Connections panel. The backend completes Device Flow, encrypts the user token, and
+fetches `.shared-library/library.json` through the GitHub API.
 
-## Narration
+The app never accepts or stores the GitHub App PEM private key.
 
-Audio settings connect the signed-in Shared Library user to OpenRouter through its OAuth PKCE flow. The user-controlled API key is encrypted with AES-GCM and stored in the site's private D1 database, allowing the connection to survive Safari-to-Home-Screen handoffs on iOS without exposing the key to browser JavaScript. It is never added to the library snapshot, iCloud Drive, or Git.
+### Google Drive
 
-Narration uses `x-ai/grok-voice-tts-1.0`. Long documents are generated as short MP3 segments; playback starts after the first segment is ready while the next segment is prepared in the background. Completed segments are kept in the browser Cache API for later replay. Disconnecting removes the encrypted credential for the signed-in user; clearing the device-local audio cache is a separate action.
+Enable the Google Drive API and create a Web application OAuth client. Enter the
+Client ID and Client Secret in Connections, then register the exact callback URL shown
+by the app as an authorized redirect URI. The backend encrypts the client secret and
+tokens. It requests the narrow `drive.file` scope and stores content-addressed objects
+under a visible `Shared Library Media` folder.
 
-When OpenRouter is not connected or the device is offline, the reader falls back to browser-native speech synthesis. Text is sent to OpenRouter and xAI only when the user requests narration.
+### OpenRouter
 
-On Apple mobile devices, generated audio waits for an explicit Play tap after the first segment is ready. The manifest intentionally opens Home Screen shortcuts in browser mode because current iOS WebKit releases can report successful playback while producing silence in standalone Home Screen web apps.
+OpenRouter OAuth is optional and account-scoped. Its key is encrypted in D1 and used
+only by the server-side speech route. Audio playback waits for a complete MP3 response,
+then starts immediately from the local blob. New segments are cached in the browser
+and copied to Google Drive in the background.
 
 ## Development
 
 ```bash
 npm install
-npm run dev
-```
-
-Validation and production build:
-
-```bash
 npm run check
-npm run build
+npm run test:worker
+npm run db:generate
+npm run build:sites
 ```
 
-The static output is written to `build/`.
+Database definitions live in `db/schema.ts`; generated migrations live in `drizzle/`.
+The worker creates missing tables defensively during requests as well.
+
+The deployment needs:
+
+- a D1 binding named `DB`;
+- an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
+  64 hexadecimal characters;
+- Sites authentication enabled so every credential row is scoped to
+  `oai-authenticated-user-email`.

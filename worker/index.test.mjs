@@ -148,14 +148,36 @@ test('OAuth callback encrypts the user-controlled key before storage', async (co
 	assert.ok(database.savedCredential?.initializationVector);
 });
 
-test('speech and disconnect mutations reject cross-origin requests', async () => {
+test('credential and media mutations reject cross-origin requests', async () => {
 	const env = environment();
-	for (const path of ['/api/tts', '/api/openrouter/disconnect']) {
+	const mutations = [
+		{ path: '/api/tts', body: { input: 'Hello', voice: 'eve' } },
+		{ path: '/api/openrouter/disconnect' },
+		{ path: '/api/github/connect/start', body: { clientID: 'Iv23li12345678' } },
+		{ path: '/api/github/connect/poll' },
+		{ path: '/api/github/disconnect' },
+		{ path: '/api/github/repository', body: { repository: 'owner/library' } },
+		{
+			path: `/api/media/audio/${'a'.repeat(64)}`,
+			body: new Uint8Array([1, 2, 3]),
+			contentType: 'audio/mpeg'
+		}
+	];
+	for (const mutation of mutations) {
+		const body =
+			mutation.body instanceof Uint8Array
+				? mutation.body
+				: mutation.body
+					? JSON.stringify(mutation.body)
+					: undefined;
 		const response = await worker.fetch(
-			authenticatedRequest(path, {
-				method: 'POST',
-				headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' },
-				body: path === '/api/tts' ? JSON.stringify({ input: 'Hello', voice: 'eve' }) : undefined
+			authenticatedRequest(mutation.path, {
+				method: mutation.path.startsWith('/api/media/') ? 'PUT' : 'POST',
+				headers: {
+					Origin: 'https://attacker.example',
+					'Content-Type': mutation.contentType ?? 'application/json'
+				},
+				body
 			}),
 			env
 		);

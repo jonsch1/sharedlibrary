@@ -1,3 +1,5 @@
+import { loadGoogleDriveAudio, storeGoogleDriveAudio } from '$lib/google-drive.js';
+
 export const openRouterModel = 'x-ai/grok-voice-tts-1.0';
 
 export const openRouterVoices = [
@@ -159,14 +161,20 @@ export function openRouterSpeechChunks(text: string): string[] {
 	return chunks;
 }
 
-async function audioCacheRequest(text: string, voice: OpenRouterVoice): Promise<Request> {
+export async function audioFingerprint(
+	text: string,
+	voice: OpenRouterVoice
+): Promise<string> {
 	const fingerprint = await crypto.subtle.digest(
 		'SHA-256',
 		new TextEncoder().encode(`${openRouterModel}\n${voice}\n${text}`)
 	);
-	const hash = Array.from(new Uint8Array(fingerprint), (byte) =>
+	return Array.from(new Uint8Array(fingerprint), (byte) =>
 		byte.toString(16).padStart(2, '0')
 	).join('');
+}
+
+function audioCacheRequest(hash: string): Request {
 	return new Request(`${window.location.origin}/__openrouter-audio-cache/${hash}.mp3`);
 }
 
@@ -174,21 +182,31 @@ export async function loadCachedSpeech(
 	text: string,
 	voice: OpenRouterVoice
 ): Promise<Blob | null> {
-	if (!('caches' in globalThis)) return null;
+	const hash = await audioFingerprint(text, voice);
 	try {
-		const cache = await caches.open(audioCacheName);
-		const response = await cache.match(await audioCacheRequest(text, voice));
-		return response ? await response.blob() : null;
+		if ('caches' in globalThis) {
+			const cache = await caches.open(audioCacheName);
+			const response = await cache.match(audioCacheRequest(hash));
+			if (response) return response.blob();
+		}
 	} catch {
-		return null;
+		// Fall through to the durable Google Drive copy.
 	}
+	const driveAudio = await loadGoogleDriveAudio(hash);
+	if (!driveAudio) return null;
+	try {
+		await cacheSpeech(hash, driveAudio);
+	} catch {
+		// Playback can continue when local storage is unavailable.
+	}
+	return driveAudio;
 }
 
-async function cacheSpeech(text: string, voice: OpenRouterVoice, audio: Blob): Promise<void> {
+async function cacheSpeech(hash: string, audio: Blob): Promise<void> {
 	if (!('caches' in globalThis)) return;
 	const cache = await caches.open(audioCacheName);
 	await cache.put(
-		await audioCacheRequest(text, voice),
+		audioCacheRequest(hash),
 		new Response(audio, {
 			headers: {
 				'Content-Type': audio.type || 'audio/mpeg',
@@ -257,10 +275,14 @@ export async function createOpenRouterSpeechSource(
 
 	const audio = await response.blob();
 	if (!audio.size) throw new OpenRouterSpeechError('OpenRouter returned empty audio.', 502);
+	const hash = await audioFingerprint(text, voice);
 	try {
-		await cacheSpeech(text, voice, audio);
+		await cacheSpeech(hash, audio);
 	} catch {
 		// Playback should still succeed when browser storage is full or unavailable.
 	}
+	void storeGoogleDriveAudio(hash, audio).catch(() => {
+		// Google Drive is optional; playback should not wait for or fail with its upload.
+	});
 	return blobSpeechSource(audio);
 }
