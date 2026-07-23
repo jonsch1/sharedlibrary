@@ -5,31 +5,25 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
-	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import LibraryBigIcon from '@lucide/svelte/icons/library-big';
 	import ListMusicIcon from '@lucide/svelte/icons/list-music';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
-	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
-	import SquareIcon from '@lucide/svelte/icons/square';
+	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import Volume2Icon from '@lucide/svelte/icons/volume-2';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '$lib/MarkdownText.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as NativeSelect from '$lib/components/ui/native-select/index.js';
-	import { Separator } from '$lib/components/ui/separator/index.js';
-	import { Slider } from '$lib/components/ui/slider/index.js';
 	import {
 		demoProjection,
 		libraryVariants,
@@ -65,7 +59,6 @@
 	} from '$lib/google-drive.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
-	type OriginFilter = 'all' | LibraryOrigin;
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 
 	const variantNames: Record<LibraryVariant, string> = {
@@ -80,7 +73,6 @@
 	let selectedEntryID = $state<string | null>(null);
 	let selectedVariant = $state<LibraryVariant>('concise');
 	let query = $state('');
-	let originFilter = $state<OriginFilter>('all');
 	let topicFilter = $state('all');
 	let loading = $state(true);
 	let importMessage = $state('');
@@ -123,7 +115,6 @@
 	let normalizedQuery = $derived(query.trim().toLocaleLowerCase());
 	let filteredEntries = $derived(
 		entries.filter((entry) => {
-			if (originFilter !== 'all' && entry.origin !== originFilter) return false;
 			if (topicFilter !== 'all' && !entry.topicNames.includes(topicFilter)) return false;
 			if (!normalizedQuery) return true;
 			const searchable = [
@@ -147,20 +138,28 @@
 			? libraryVariants.filter((variant) => textFor(selectedEntry as LibraryEntry, variant))
 			: []
 	);
+	let selectedVariantIndex = $derived(Math.max(0, availableVariants.indexOf(selectedVariant)));
+	let selectedWordCount = $derived(
+		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
+	);
 	let currentVoiceName = $derived(
 		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? 'Eve'
 	);
-	let selectedAudioReady = $derived(
+	let selectedAudioActive = $derived(
 		player.currentEntry?.id === selectedEntry?.id &&
-			player.currentVariant === selectedVariant &&
-			player.provider === 'openrouter' &&
-			player.state === 'paused'
+			player.currentVariant === selectedVariant
 	);
 	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
 			selectedVariant = preferredVariant(selectedEntry);
+		}
+	});
+
+	$effect(() => {
+		if (topicFilter !== 'all' && !topics.includes(topicFilter)) {
+			topicFilter = 'all';
 		}
 	});
 
@@ -266,8 +265,14 @@
 		selectedEntryID = firstEntry?.id ?? null;
 		selectedVariant = firstEntry ? preferredVariant(firstEntry) : 'concise';
 		query = '';
-		originFilter = 'all';
-		topicFilter = 'all';
+		const savedTopic =
+			typeof localStorage === 'undefined'
+				? null
+				: localStorage.getItem('shared-library-selected-topic');
+		topicFilter =
+			savedTopic && nextProjection.entries.some((entry) => entry.topicNames.includes(savedTopic))
+				? savedTopic
+				: 'all';
 		mobileReaderVisible = false;
 	}
 
@@ -376,6 +381,19 @@
 		mobileReaderVisible = true;
 	}
 
+	function selectTopic(topic: string): void {
+		topicFilter = topic;
+		if (typeof localStorage !== 'undefined') {
+			localStorage.setItem('shared-library-selected-topic', topic);
+		}
+	}
+
+	function selectVariantFromSlider(event: Event): void {
+		const index = Number((event.currentTarget as HTMLInputElement).value);
+		const variant = availableVariants[index];
+		if (variant) selectedVariant = variant;
+	}
+
 	async function ensureTextLoaded(
 		entry: LibraryEntry,
 		variant: LibraryVariant,
@@ -414,7 +432,7 @@
 			audioSettingsVisible = true;
 			return;
 		}
-		if (selectedAudioReady) {
+		if (selectedAudioActive && player.state !== 'idle') {
 			player.toggle();
 			return;
 		}
@@ -433,6 +451,12 @@
 	function updateRate(rate: number): void {
 		playbackRate = rate;
 		player.setRate(rate);
+	}
+
+	function cyclePlaybackRate(): void {
+		const rates = [1, 1.2, 1.5, 0.8];
+		const currentIndex = rates.findIndex((rate) => rate === playbackRate);
+		updateRate(rates[(currentIndex + 1) % rates.length]);
 	}
 
 	async function connectOpenRouter(): Promise<void> {
@@ -484,23 +508,6 @@
 		player.notice = '';
 	}
 
-	function formatDate(value?: string): string {
-		if (!value) return '';
-		return new Intl.DateTimeFormat(undefined, {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric'
-		}).format(new Date(value));
-	}
-
-	function formatGeneratedAt(value: string): string {
-		return new Intl.DateTimeFormat(undefined, {
-			day: 'numeric',
-			month: 'short',
-			hour: 'numeric',
-			minute: '2-digit'
-		}).format(new Date(value));
-	}
 </script>
 
 <svelte:head>
@@ -528,6 +535,9 @@
 <audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
 
 <div class="app-shell">
+	<!--
+		The former dashboard composition is kept here temporarily as an inert reference while the
+		Mac-window composition below becomes the single web surface.
 	<header class="app-header">
 		<div class="brand">
 			<div class="brand-mark" aria-hidden="true"><LibraryBigIcon /></div>
@@ -881,6 +891,264 @@
 			</div>
 			<div class="player-progress" style={`--progress: ${player.progress * 100}%`}></div>
 		</footer>
+	{/if}
+	-->
+
+	{#if loading}
+		<main class="center-stage" aria-live="polite">
+			<div class="loading-mark"><BookOpenIcon /></div>
+			<p>Opening your offline library…</p>
+		</main>
+	{:else if !projection}
+		<main class="center-stage">
+			<section class="empty-card">
+				<div class="window-controls" aria-hidden="true">
+					<span class="window-dot close-dot"></span>
+					<span class="window-dot minimize-dot"></span>
+					<span class="window-dot expand-dot"></span>
+				</div>
+				<div class="empty-illustration">
+					<CloudIcon />
+					<span class="empty-check"><CheckIcon /></span>
+				</div>
+				<p class="eyebrow">Shared Library</p>
+				{#if googleConnection.connected && googleSyncing}
+					<h1>Making your library available</h1>
+					<p class="empty-copy">{googleSyncDescription()}</p>
+				{:else}
+					<h1>Connect your library</h1>
+					<p class="empty-copy">
+						Connect Google Drive to mirror the same local-first library used by the Mac app.
+					</p>
+					<div class="empty-actions">
+						<Button size="lg" onclick={() => (connectionsVisible = true)}>
+							<CloudIcon data-icon="inline-start" />
+							Connect Google Drive
+						</Button>
+						<Button size="lg" variant="ghost" onclick={showDemo}>
+							<BookOpenIcon data-icon="inline-start" />
+							Explore a sample
+						</Button>
+					</div>
+				{/if}
+			</section>
+		</main>
+	{:else}
+		<div class="native-workspace" class:reader-open={mobileReaderVisible}>
+			<aside class="native-library-pane">
+				<div class="window-controls" aria-hidden="true">
+					<span class="window-dot close-dot"></span>
+					<span class="window-dot minimize-dot"></span>
+					<span class="window-dot expand-dot"></span>
+				</div>
+
+				<div class="native-library-toolbar">
+					<div class="native-search-field">
+						<SearchIcon aria-hidden="true" />
+						<Input bind:value={query} aria-label="Search library" placeholder="Search" />
+						{#if query}
+							<button class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
+								<XIcon />
+							</button>
+						{/if}
+					</div>
+
+					<div class="topic-strip" aria-label="Topic filter">
+						<button
+							class="topic-chip"
+							class:active={topicFilter === 'all'}
+							onclick={() => selectTopic('all')}>All</button
+						>
+						{#each topics as topic}
+							<button
+								class="topic-chip"
+								class:active={topicFilter === topic}
+								onclick={() => selectTopic(topic)}>{topic}</button
+							>
+						{/each}
+					</div>
+				</div>
+
+				<div class="native-entry-list">
+					{#if filteredEntries.length === 0}
+						<div class="native-no-results">
+							<FileTextIcon />
+							<p>No matching documents</p>
+							<button
+								onclick={() => {
+									query = '';
+									selectTopic('all');
+								}}>Clear filters</button
+							>
+						</div>
+					{:else}
+						{#each filteredEntries as entry (entry.id)}
+							<button
+								class="native-entry-row"
+								class:selected={selectedEntry?.id === entry.id}
+								onclick={() => selectEntry(entry)}
+							>
+								<FileTextIcon aria-hidden="true" />
+								<span>{entry.title}</span>
+							</button>
+						{/each}
+					{/if}
+				</div>
+
+				<div class="native-sidebar-footer">
+					<button class="agent-button" title="Agent is available in the Mac app">
+						<SparklesIcon />
+						<span>Agent</span>
+					</button>
+				</div>
+			</aside>
+
+			<main class="native-reader-pane">
+				{#if selectedEntry}
+					<div class="native-mobile-reader-bar">
+						<button onclick={() => (mobileReaderVisible = false)}>
+							<ChevronLeftIcon />
+							<span>Library</span>
+						</button>
+					</div>
+
+					<div class="native-document-scroll">
+						<article class="native-document-body">
+							{#if selectedText}
+								<MarkdownText text={selectedText} />
+							{:else if loadingText}
+								<p class="missing-text">Loading document from Google Drive…</p>
+							{:else}
+								<p class="missing-text">This version is not available.</p>
+							{/if}
+						</article>
+					</div>
+
+					<footer class="native-document-footer">
+						<div
+							class="native-player-progress"
+							class:visible={selectedAudioActive}
+							style={`--progress: ${player.progress * 100}%`}
+						></div>
+
+						<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
+
+						<div class="native-variant-control">
+							<span>Concise</span>
+							<input
+								type="range"
+								min="0"
+								max={Math.max(availableVariants.length - 1, 0)}
+								step="1"
+								value={selectedVariantIndex}
+								aria-label={`Document version: ${variantNames[selectedVariant]}`}
+								oninput={selectVariantFromSlider}
+							/>
+							<span>Original</span>
+						</div>
+
+						<div class="native-footer-actions">
+							{#if selectedEntry.sourceURL}
+								<a
+									class="native-icon-button"
+									href={selectedEntry.sourceURL}
+									target="_blank"
+									rel="noreferrer"
+									aria-label="Open original source"
+									title="Open original source"
+								>
+									<ArrowUpRightIcon />
+								</a>
+							{/if}
+
+							<button
+								class="native-icon-button"
+								class:active={audioSettingsVisible}
+								aria-label="Audio settings"
+								title="Audio settings"
+								onclick={toggleAudioSettings}
+							>
+								<HeadphonesIcon />
+								{#if openRouterCredential}
+									<span class="connection-dot" aria-hidden="true"></span>
+								{/if}
+							</button>
+
+							<button
+								class="native-play-button"
+								aria-label={player.state === 'loading' && selectedAudioActive
+									? 'Cancel audio generation'
+									: player.state === 'playing' && selectedAudioActive
+										? 'Pause'
+										: 'Play'}
+								title={player.state === 'loading' && selectedAudioActive
+									? 'Preparing audio'
+									: player.state === 'playing' && selectedAudioActive
+										? 'Pause'
+										: 'Play'}
+								onclick={listen}
+							>
+								{#if player.state === 'loading' && selectedAudioActive}
+									<LoaderCircleIcon class="spin" />
+								{:else if player.state === 'playing' && selectedAudioActive}
+									<PauseIcon />
+								{:else}
+									<PlayIcon />
+								{/if}
+							</button>
+
+							<button
+								class="native-rate-button"
+								aria-label={`Playback speed ${playbackRate.toFixed(1)} times`}
+								title="Change playback speed"
+								onclick={cyclePlaybackRate}
+							>
+								{playbackRate.toFixed(1)}×
+							</button>
+
+							<button
+								class="native-icon-button queue-action"
+								aria-label="Add to listening queue"
+								title="Add to listening queue"
+								onclick={async () => {
+									await queueSelectedEntry();
+									queueVisible = true;
+									audioSettingsVisible = false;
+									connectionsVisible = false;
+								}}
+							>
+								<ListMusicIcon />
+								{#if player.queue.length}
+									<span class="native-queue-count">{player.queue.length}</span>
+								{/if}
+							</button>
+
+							<button
+								class="native-icon-button"
+								class:active={connectionsVisible}
+								aria-label="Connections"
+								title="Connections"
+								onclick={toggleConnections}
+							>
+								<Settings2Icon />
+							</button>
+						</div>
+					</footer>
+				{/if}
+			</main>
+		</div>
+
+		{#if toastMessage}
+			<div
+				class="toast"
+				class:error={toastMessage.includes('failed') ||
+					toastMessage.includes('could not') ||
+					toastMessage.includes('unavailable')}
+			>
+				{toastMessage}
+				<button aria-label="Dismiss message" onclick={dismissToast}><XIcon /></button>
+			</div>
+		{/if}
 	{/if}
 
 	{#if connectionsVisible}
