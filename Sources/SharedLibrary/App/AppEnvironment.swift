@@ -22,6 +22,7 @@ final class AppEnvironment: ObservableObject {
     let sharedGitSyncCoordinator: GitSyncCoordinator
     let peopleStore: GitHubPeopleStore
     let cloudLibraryPublisher: CloudLibraryPublisher
+    let webLibraryExporter: WebLibraryExporter
 
     init() {
         settings = AppSettings.shared
@@ -38,6 +39,11 @@ final class AppEnvironment: ObservableObject {
         let knowledgeStore = KnowledgeStore()
         self.knowledgeStore = knowledgeStore
         cloudLibraryPublisher = CloudLibraryPublisher(
+            settings: settings,
+            knowledgeStore: knowledgeStore,
+            sharingStore: sharingStore
+        )
+        webLibraryExporter = WebLibraryExporter(
             settings: settings,
             knowledgeStore: knowledgeStore,
             sharingStore: sharingStore
@@ -88,6 +94,7 @@ final class AppEnvironment: ObservableObject {
         }
         gitSyncCoordinator.setWorkspaceURL(settings.workspaceRootURL)
         cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed personal workspace")
+        webLibraryExporter.requestAutomaticExport(reason: "the changed personal workspace")
         objectWillChange.send()
         NotificationCenter.default.post(name: .libraryDidChange, object: nil)
     }
@@ -101,6 +108,7 @@ final class AppEnvironment: ObservableObject {
         sharedGitSyncCoordinator.setWorkspaceURL(url)
         peopleStore.setSharedWorkspaceURL(url)
         cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed shared workspace")
+        webLibraryExporter.requestAutomaticExport(reason: "the changed shared workspace")
         objectWillChange.send()
     }
 }

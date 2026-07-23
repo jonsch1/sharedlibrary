@@ -11,6 +11,7 @@ final class AppSettings: ObservableObject {
 
     static let includeTranscriptTimestampsKey = "includeTranscriptTimestamps"
     static let cloudLibrarySyncEnabledKey = "cloudLibrarySyncEnabled"
+    static let webLibraryExportEnabledKey = "webLibraryExportEnabled"
     static let existingTopicsPromptPlaceholder = "{{existing_topics}}"
     static let sourcePromptPlaceholder = "{{source}}"
     static let workspaceCommandPlaceholder = "{{workspace}}"
@@ -23,6 +24,8 @@ final class AppSettings: ObservableObject {
         static let currentGitHubUserID = "currentGitHubUserID"
         static let githubPeopleLastSyncedAt = "githubPeopleLastSyncedAt"
         static let cloudLibraryLastPublishedAt = "cloudLibraryLastPublishedAt"
+        static let webLibraryExportFolderPath = "webLibraryExportFolderPath"
+        static let webLibraryLastExportedAt = "webLibraryLastExportedAt"
         static let processingPrompt = "processingPrompt"
         static let agentCommand = "agentCommand"
     }
@@ -44,6 +47,7 @@ final class AppSettings: ObservableObject {
         defaults.register(defaults: [
             Keys.githubPeopleOrganization: "saezlab",
             Self.cloudLibrarySyncEnabledKey: true,
+            Self.webLibraryExportEnabledKey: true,
             Keys.processingPrompt: Self.defaultProcessingPrompt,
             Keys.agentCommand: Self.defaultAgentCommand
         ])
@@ -133,6 +137,45 @@ final class AppSettings: ObservableObject {
         set {
             objectWillChange.send()
             defaults.set(newValue, forKey: Keys.cloudLibraryLastPublishedAt)
+        }
+    }
+
+    var defaultWebLibraryExportFolderURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
+            .appendingPathComponent("Shared Library Web", isDirectory: true)
+    }
+
+    var webLibraryExportFolderURL: URL {
+        get {
+            let path = defaults.string(forKey: Keys.webLibraryExportFolderPath) ?? ""
+            guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return defaultWebLibraryExportFolderURL
+            }
+            return URL(
+                fileURLWithPath: NSString(string: path).expandingTildeInPath,
+                isDirectory: true
+            )
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue.path, forKey: Keys.webLibraryExportFolderPath)
+        }
+    }
+
+    var webLibraryExportEnabled: Bool {
+        get { defaults.bool(forKey: Self.webLibraryExportEnabledKey) }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Self.webLibraryExportEnabledKey)
+        }
+    }
+
+    var webLibraryLastExportedAt: Date? {
+        get { defaults.object(forKey: Keys.webLibraryLastExportedAt) as? Date }
+        set {
+            objectWillChange.send()
+            defaults.set(newValue, forKey: Keys.webLibraryLastExportedAt)
         }
     }
 

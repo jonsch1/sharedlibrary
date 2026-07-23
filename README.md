@@ -2,7 +2,7 @@
 
 Shared Library is a native macOS menu bar app for capturing, processing, browsing, editing, and synchronizing a local source library.
 
-The repository also contains a native iPhone and iPad companion that browses a private iCloud projection of My Library and plays its summaries as spoken audio.
+The repository also contains two mobile readers: a native iPhone/iPad companion backed by private CloudKit, and a Svelte web app that imports an ordinary JSON snapshot through iCloud Drive without requiring Apple developer provisioning.
 
 The default private workspace is `~/Documents/Shared Library`. Its workspace root is a Git repository. Sharing uses a second, separately configured repository that defaults to `~/Documents/Shared Library Shared`.
 
@@ -96,6 +96,27 @@ Both the macOS bundle ID (`com.sharedlibrary.app`) and mobile bundle ID (`com.sh
 
 `Desktop/SharedLibraryDesktop.xcodeproj` is the provisioning wrapper used by the normal install script. Its assembly phase embeds the SwiftPM-built executable and extractor resources into an Xcode-signed app so Apple can authorize the CloudKit entitlement. If automatic provisioning is unavailable, the script falls back to the previous certificate-signed bundle without iCloud access and reports that limitation.
 
+## Web reader
+
+The SvelteKit web app in `Web/` is the no-developer-account companion. Settings → Mobile → Web app via iCloud Drive keeps `Shared Library Web.json` updated after meaningful library changes and completed repository synchronization. The default destination is:
+
+```text
+~/Library/Mobile Documents/com~apple~CloudDocs/Shared Library Web/
+```
+
+The snapshot uses the same unified, text-only projection as the native app: the personal library plus captures shared with the current stable GitHub ID. It contains source text, available summary variants, metadata, and provenance, but no images or audio.
+
+On iPhone or iPad, open the deployed web reader, choose **Import snapshot**, and select `Shared Library Web.json` in Files. The snapshot is stored in IndexedDB for offline browsing. Re-import the file after iCloud Drive receives an updated snapshot. Browser speech synthesis provides listening, rate control, and a queue; native iOS background playback remains more reliable when the screen is locked.
+
+Build the web app with:
+
+```bash
+cd Web
+npm install
+npm run check
+npm run build
+```
+
 ## Hotkeys
 
 | Hotkey | Action |
@@ -114,6 +135,8 @@ Both the macOS bundle ID (`com.sharedlibrary.app`) and mobile bundle ID (`com.sh
 | Sharing mirror | `Sources/SharedLibrary/Sharing/` |
 | GitHub people | `Sources/SharedLibrary/People/` |
 | CloudKit projection | `Sources/SharedLibrary/Cloud/` |
+| iCloud Drive web export | `Sources/SharedLibrary/Web/` |
 | iPhone/iPad companion | `Mobile/SharedLibraryMobile.xcodeproj`, `Mobile/SharedLibraryMobile/` |
+| Svelte web reader | `Web/` |
 | Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
 | Tests | `Tests/SharedLibraryTests/` |

@@ -19,7 +19,10 @@ struct SettingsView: View {
                 .tabItem { Label("Sharing", systemImage: "person.2") }
             PeopleSettings(peopleStore: env.peopleStore)
                 .tabItem { Label("People", systemImage: "person.3") }
-            MobileSettings(publisher: env.cloudLibraryPublisher)
+            MobileSettings(
+                publisher: env.cloudLibraryPublisher,
+                webExporter: env.webLibraryExporter
+            )
                 .tabItem { Label("Mobile", systemImage: "iphone") }
             HotkeySettings()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
@@ -31,10 +34,54 @@ struct SettingsView: View {
 private struct MobileSettings: View {
     @EnvironmentObject var env: AppEnvironment
     @ObservedObject var publisher: CloudLibraryPublisher
+    @ObservedObject var webExporter: WebLibraryExporter
     @AppStorage(AppSettings.cloudLibrarySyncEnabledKey) private var syncEnabled = true
+    @AppStorage(AppSettings.webLibraryExportEnabledKey) private var webExportEnabled = true
 
     var body: some View {
         Form {
+            Section("Web app via iCloud Drive") {
+                Toggle("Keep Web Library Snapshot Updated", isOn: $webExportEnabled)
+                    .onChange(of: webExportEnabled) { _, enabled in
+                        webExporter.setEnabled(enabled)
+                    }
+
+                Text("Shared Library writes one private JSON snapshot to an ordinary iCloud Drive folder. The web app imports it through the Files picker and keeps an offline copy on that device.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Label(webExporter.state.message, systemImage: webStatusSymbol)
+                    .foregroundStyle(webStatusColor)
+                    .textSelection(.enabled)
+
+                if let lastExportedAt = env.settings.webLibraryLastExportedAt {
+                    LabeledContent(
+                        "Last exported",
+                        value: lastExportedAt.formatted(date: .abbreviated, time: .shortened)
+                    )
+                }
+
+                LabeledContent("Snapshot") {
+                    Text(webExporter.snapshotURL.path)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .textSelection(.enabled)
+                }
+
+                HStack {
+                    Button("Choose Folder...") {
+                        chooseWebExportFolder()
+                    }
+                    Spacer()
+                    Button("Export Now") {
+                        webExporter.exportNow()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!webExportEnabled || webExporter.state.isBusy)
+                }
+            }
+
             Section("iCloud mobile library") {
                 Toggle("Publish My Library to iCloud", isOn: $syncEnabled)
                     .onChange(of: syncEnabled) { _, enabled in
@@ -78,6 +125,45 @@ private struct MobileSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var webStatusSymbol: String {
+        switch webExporter.state {
+        case .exporting:
+            return "arrow.triangle.2.circlepath"
+        case .succeeded:
+            return "checkmark.circle.fill"
+        case .failed, .unavailable:
+            return "exclamationmark.triangle.fill"
+        case .disabled:
+            return "pause.circle"
+        case .idle:
+            return "doc.badge.arrow.up"
+        }
+    }
+
+    private var webStatusColor: Color {
+        switch webExporter.state {
+        case .succeeded:
+            return .green
+        case .failed, .unavailable:
+            return .red
+        case .idle, .disabled, .exporting:
+            return .secondary
+        }
+    }
+
+    private func chooseWebExportFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Web Library Export Folder"
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = webExporter.exportFolderURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        webExporter.setExportFolder(url)
     }
 
     private var statusSymbol: String {

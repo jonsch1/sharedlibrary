@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         env.sharedGitSyncCoordinator.refreshStatus()
         requestBackgroundSync(reason: "app launched")
         env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the mobile library")
+        env.webLibraryExporter.requestAutomaticExport(reason: "the web library")
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(libraryAppearanceDidChange(_:)),
@@ -391,13 +392,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(libraryShouldPublishToCloud(_:)),
+            selector: #selector(libraryShouldUpdateMobileExports(_:)),
             name: .libraryDidChange,
             object: nil
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(libraryShouldPublishToCloud(_:)),
+            selector: #selector(libraryShouldUpdateMobileExports(_:)),
             name: .workspaceDidSynchronize,
             object: nil
         )
@@ -472,10 +473,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         env.gitSyncCoordinator.requestAutomaticSync(reason: "capture processing completed")
         env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
+        env.webLibraryExporter.requestAutomaticExport(reason: "the updated library")
     }
 
-    @objc private func libraryShouldPublishToCloud(_ notification: Notification) {
+    @objc private func libraryShouldUpdateMobileExports(_ notification: Notification) {
         env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
+        env.webLibraryExporter.requestAutomaticExport(reason: "the updated library")
     }
 
     private func refreshSharedCopyAfterProcessing(_ notification: Notification) {
