@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import worker from './index.js';
+import worker, { selectAccessibleRepository } from './index.js';
 
 class MockStatement {
 	constructor(database, sql) {
@@ -68,6 +68,11 @@ function environment(database = new MockDatabase()) {
 	return {
 		DB: database,
 		OPENROUTER_CREDENTIAL_KEY: '0'.repeat(64),
+		GITHUB_APP_CLIENT_ID: 'Iv23liCentralSharedLibrary',
+		GITHUB_APP_INSTALL_URL: 'https://github.com/apps/shared-library/installations/new',
+		GOOGLE_DRIVE_WEB_CLIENT_ID:
+			'123456789-sharedlibrary.apps.googleusercontent.com',
+		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
 		ASSETS: {
 			async fetch() {
 				return new Response('asset', { status: 200 });
@@ -100,6 +105,93 @@ test('connection status never exposes the stored credential', async () => {
 		userID: 'user_123',
 		connectedAt: '2026-07-23T07:00:00Z'
 	});
+});
+
+test('connection setup is centrally configured without exposing OAuth credentials', async () => {
+	const env = environment();
+	const [githubResponse, googleResponse] = await Promise.all([
+		worker.fetch(authenticatedRequest('/api/github/status'), env),
+		worker.fetch(authenticatedRequest('/api/google/status'), env)
+	]);
+	assert.equal(githubResponse.status, 200);
+	assert.deepEqual(await githubResponse.json(), {
+		configured: true,
+		connected: false,
+		installURL: 'https://github.com/apps/shared-library/installations/new'
+	});
+	assert.equal(googleResponse.status, 200);
+	const googleStatus = await googleResponse.json();
+	assert.equal(googleStatus.configured, true);
+	assert.equal(googleStatus.connected, false);
+	assert.equal(
+		googleStatus.callbackURL,
+		'https://library.example/api/google/connect/callback'
+	);
+	assert.equal('clientID' in googleStatus, false);
+	assert.equal('clientSecret' in googleStatus, false);
+});
+
+test('GitHub Device Flow always uses the centrally configured app', async (context) => {
+	context.mock.method(globalThis, 'fetch', async (input, init) => {
+		assert.equal(String(input), 'https://github.com/login/device/code');
+		const body = new URLSearchParams(init.body);
+		assert.equal(body.get('client_id'), 'Iv23liCentralSharedLibrary');
+		return Response.json({
+			device_code: 'device-secret',
+			user_code: 'ABCD-EFGH',
+			verification_uri: 'https://github.com/login/device',
+			expires_in: 900,
+			interval: 5
+		});
+	});
+	const response = await worker.fetch(
+		authenticatedRequest('/api/github/connect/start', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ clientID: 'attacker-controlled-client' })
+		}),
+		environment()
+	);
+	assert.equal(response.status, 200);
+	assert.equal((await response.json()).userCode, 'ABCD-EFGH');
+});
+
+test('Google authorization uses the central web client with each user account', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/google/connect/start'),
+		environment()
+	);
+	assert.equal(response.status, 302);
+	const authorizationURL = new URL(response.headers.get('location'));
+	assert.equal(authorizationURL.hostname, 'accounts.google.com');
+	assert.equal(
+		authorizationURL.searchParams.get('client_id'),
+		'123456789-sharedlibrary.apps.googleusercontent.com'
+	);
+	assert.equal(
+		authorizationURL.searchParams.get('scope'),
+		'https://www.googleapis.com/auth/drive.file'
+	);
+});
+
+test('repository selection accepts only repositories returned by the app installation', () => {
+	const repositories = [
+		{
+			id: 1,
+			fullName: 'saezlab/shared-library',
+			defaultBranch: 'main',
+			private: true
+		}
+	];
+	assert.equal(
+		selectAccessibleRepository(repositories, 'SAEZLAB/shared-library')?.id,
+		1
+	);
+	assert.equal(selectAccessibleRepository(repositories, 'other/private-library'), null);
+	assert.equal(selectAccessibleRepository(repositories, '../private-library'), null);
 });
 
 test('OAuth start keeps the verifier server-side and sends only its challenge', async () => {

@@ -7,7 +7,6 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import Clock3Icon from '@lucide/svelte/icons/clock-3';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
-	import CopyIcon from '@lucide/svelte/icons/copy';
 	import GitBranchIcon from '@lucide/svelte/icons/git-branch';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LibraryBigIcon from '@lucide/svelte/icons/library-big';
@@ -62,14 +61,15 @@
 		configureGitHubRepository,
 		disconnectGitHub,
 		loadGitHubConnection,
+		loadGitHubRepositories,
 		pollGitHubConnection,
 		syncGitHubLibrary,
 		type GitHubConnection,
-		type GitHubDeviceAuthorization
+		type GitHubDeviceAuthorization,
+		type GitHubRepository
 	} from '$lib/github.js';
 	import {
 		beginGoogleDriveConnection,
-		configureGoogleDrive,
 		consumeGoogleDriveConnectionResult,
 		disconnectGoogleDrive,
 		loadGoogleDriveConnection,
@@ -107,9 +107,9 @@
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
 	let connectionMessage = $state('');
-	let githubConnection = $state<GitHubConnection>({ connected: false });
-	let githubClientID = $state('');
+	let githubConnection = $state<GitHubConnection>({ configured: false, connected: false });
 	let githubRepository = $state('');
+	let githubRepositories = $state<GitHubRepository[]>([]);
 	let githubDevice = $state<GitHubDeviceAuthorization | null>(null);
 	let githubBusy = $state(false);
 	let githubSyncing = $state(false);
@@ -117,8 +117,6 @@
 		configured: false,
 		connected: false
 	});
-	let googleClientID = $state('');
-	let googleClientSecret = $state('');
 	let googleBusy = $state(false);
 	let installedAppleWebApp = $state(false);
 	const player = new SpeechPlayer();
@@ -227,10 +225,8 @@
 			]);
 			if (!isActive()) return;
 			githubConnection = github;
-			githubClientID = github.clientID ?? '';
 			githubRepository = github.repository ?? '';
 			googleConnection = google;
-			googleClientID = google.clientID ?? '';
 			if (googleResult === 'connected') {
 				connectionMessage = 'Google Drive connected. New narration is backed up automatically.';
 				connectionsVisible = true;
@@ -238,7 +234,10 @@
 				connectionMessage = 'Google Drive sign-in could not be completed. Check the callback URL.';
 				connectionsVisible = true;
 			}
-			if (github.connected && github.repository) await syncFromGitHub(false);
+			if (github.connected) {
+				await refreshGitHubRepositories(false);
+				if (github.repository) await syncFromGitHub(false);
+			}
 		} catch (error) {
 			if (!isActive()) return;
 			connectionMessage =
@@ -319,7 +318,7 @@
 		githubBusy = true;
 		connectionMessage = '';
 		try {
-			githubDevice = await beginGitHubConnection(githubClientID.trim());
+			githubDevice = await beginGitHubConnection();
 			connectionMessage = `Enter code ${githubDevice.userCode} on GitHub.`;
 			void waitForGitHubAuthorization();
 		} catch (error) {
@@ -343,9 +342,9 @@
 				if (result.state === 'connected') {
 					githubDevice = null;
 					githubConnection = await loadGitHubConnection();
-					githubClientID = githubConnection.clientID ?? githubClientID;
 					connectionMessage = `GitHub connected as ${result.login ?? githubConnection.login}.`;
 					githubBusy = false;
+					await refreshGitHubRepositories(true);
 					return;
 				}
 				break;
@@ -360,6 +359,27 @@
 		githubDevice = null;
 		githubBusy = false;
 		connectionMessage = 'GitHub authorization expired. Start it again.';
+	}
+
+	async function refreshGitHubRepositories(autoSelect: boolean): Promise<void> {
+		try {
+			const result = await loadGitHubRepositories();
+			githubRepositories = result.repositories;
+			if (!githubConnection.installURL && result.installURL) {
+				githubConnection = { ...githubConnection, installURL: result.installURL };
+			}
+			if (
+				autoSelect &&
+				!githubConnection.repository &&
+				result.repositories.length === 1
+			) {
+				githubRepository = result.repositories[0].fullName;
+				await saveGitHubRepository();
+			}
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Could not read the installed repositories.';
+		}
 	}
 
 	async function saveGitHubRepository(): Promise<void> {
@@ -382,9 +402,14 @@
 		githubBusy = true;
 		try {
 			await disconnectGitHub();
-			githubConnection = { connected: false };
+			githubConnection = {
+				configured: githubConnection.configured,
+				connected: false,
+				installURL: githubConnection.installURL
+			};
 			githubDevice = null;
 			githubRepository = '';
+			githubRepositories = [];
 			connectionMessage = 'GitHub disconnected. The downloaded library remains available offline.';
 		} catch (error) {
 			connectionMessage = error instanceof Error ? error.message : 'Could not disconnect GitHub.';
@@ -396,24 +421,14 @@
 	async function connectGoogleDrive(): Promise<void> {
 		googleBusy = true;
 		connectionMessage = '';
-		try {
-			await configureGoogleDrive(googleClientID.trim(), googleClientSecret.trim());
-			googleClientSecret = '';
-			beginGoogleDriveConnection();
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'Could not start Google Drive sign-in.';
-			googleBusy = false;
-		}
+		beginGoogleDriveConnection();
 	}
 
 	async function removeGoogleDriveConnection(): Promise<void> {
 		googleBusy = true;
 		try {
 			await disconnectGoogleDrive();
-			googleConnection = { configured: false, connected: false };
-			googleClientID = '';
-			googleClientSecret = '';
+			googleConnection = { configured: googleConnection.configured, connected: false };
 			connectionMessage = 'Google Drive disconnected. Local audio remains on this device.';
 		} catch (error) {
 			connectionMessage =
@@ -421,11 +436,6 @@
 		} finally {
 			googleBusy = false;
 		}
-	}
-
-	async function copyText(value: string): Promise<void> {
-		await navigator.clipboard.writeText(value);
-		connectionMessage = 'Copied to the clipboard.';
 	}
 
 	function toggleConnections(): void {
@@ -948,11 +958,10 @@
 					</div>
 
 					{#if !githubConnection.connected}
-						<label class="connection-field">
-							<span>GitHub App Client ID</span>
-							<Input bind:value={githubClientID} autocomplete="off" placeholder="Iv23li…" />
-						</label>
-						<Button disabled={githubBusy || !githubClientID.trim()} onclick={connectGitHubApp}>
+						<Button
+							disabled={githubBusy || !githubConnection.configured}
+							onclick={connectGitHubApp}
+						>
 							<GitBranchIcon data-icon="inline-start" />
 							{githubBusy ? 'Waiting for GitHub…' : 'Connect GitHub'}
 						</Button>
@@ -966,16 +975,25 @@
 							</div>
 						{/if}
 						<p class="connection-help">
-							Create a GitHub App, enable Device Flow, give it repository Contents
-							read/write permission, and install it on the personal library repository.
-							<a href="https://github.com/settings/apps/new" target="_blank" rel="noreferrer">
-								Create GitHub App <ArrowUpRightIcon />
-							</a>
+							{#if githubConnection.configured}
+								Shared Library manages the app credentials. GitHub will ask you to authorize
+								your account; you then choose exactly which repository the app may access.
+							{:else}
+								This deployment has not been configured with the Shared Library GitHub App.
+								The site administrator needs to add it once—users never paste credentials.
+							{/if}
 						</p>
 					{:else}
 						<label class="connection-field">
 							<span>Personal repository</span>
-							<Input bind:value={githubRepository} placeholder="owner/shared-library" />
+							<NativeSelect.Root bind:value={githubRepository} class="w-full">
+								<NativeSelect.Option value="">Choose an installed repository</NativeSelect.Option>
+								{#each githubRepositories as repository (repository.id)}
+									<NativeSelect.Option value={repository.fullName}>
+										{repository.fullName}{repository.private ? ' · Private' : ''}
+									</NativeSelect.Option>
+								{/each}
+							</NativeSelect.Root>
 						</label>
 						<div class="connection-actions">
 							<Button
@@ -984,11 +1002,27 @@
 							>
 								{githubBusy ? 'Checking…' : 'Use repository'}
 							</Button>
+							<Button
+								variant="outline"
+								disabled={githubBusy}
+								onclick={() => refreshGitHubRepositories(false)}
+							>
+								Refresh list
+							</Button>
 							<Button variant="outline" disabled={githubBusy} onclick={removeGitHubConnection}>
 								<LogOutIcon data-icon="inline-start" />
 								Disconnect
 							</Button>
 						</div>
+						{#if githubConnection.installURL}
+							<p class="connection-help">
+								Missing a repository?
+								<a href={githubConnection.installURL} target="_blank" rel="noreferrer">
+									Choose repository access on GitHub <ArrowUpRightIcon />
+								</a>
+								, then refresh the list.
+							</p>
+						{/if}
 						{#if githubConnection.repository}
 							<p class="connection-detail">
 								Automatically fetches <code>.shared-library/library.json</code> when the
@@ -1008,7 +1042,7 @@
 									{googleConnection.connected ? 'Connected' : 'Media backup'}
 								</Badge>
 							</div>
-							<p>Durable audio and image objects with a fast local cache on each device.</p>
+							<p>Durable generated audio in your own Drive, with a fast cache on each device.</p>
 						</div>
 					</div>
 
@@ -1018,55 +1052,22 @@
 							Disconnect
 						</Button>
 					{:else}
-						<label class="connection-field">
-							<span>Google Web OAuth Client ID</span>
-							<Input
-								bind:value={googleClientID}
-								autocomplete="off"
-								placeholder="….apps.googleusercontent.com"
-							/>
-						</label>
-						<label class="connection-field">
-							<span>Google Web OAuth Client Secret</span>
-							<Input
-								bind:value={googleClientSecret}
-								type="password"
-								autocomplete="off"
-								placeholder="GOCSPX-…"
-							/>
-						</label>
-						{#if googleConnection.callbackURL}
-							<div class="callback-field">
-								<span>Authorized redirect URI</span>
-								<code>{googleConnection.callbackURL}</code>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label="Copy callback URL"
-									onclick={() => copyText(googleConnection.callbackURL ?? '')}
-								>
-									<CopyIcon />
-								</Button>
-							</div>
-						{/if}
 						<Button
-							disabled={googleBusy || !googleClientID.trim() || !googleClientSecret.trim()}
+							disabled={googleBusy || !googleConnection.configured}
 							onclick={connectGoogleDrive}
 						>
 							<CloudIcon data-icon="inline-start" />
-							{googleBusy ? 'Opening Google…' : 'Save and connect'}
+							{googleBusy ? 'Opening Google…' : 'Connect your Google Drive'}
 						</Button>
 						<p class="connection-help">
-							Enable the Drive API and create a Web application OAuth client. Add the
-							redirect URI shown above. The secret is encrypted on the Shared Library
-							backend and never sent back to the browser.
-							<a
-								href="https://console.cloud.google.com/apis/credentials"
-								target="_blank"
-								rel="noreferrer"
-							>
-								Google Cloud Console <ArrowUpRightIcon />
-							</a>
+							{#if googleConnection.configured}
+								You sign in to your own Google account. Shared Library uses the narrow
+								<code>drive.file</code> permission, so it can access only media it creates
+								for you—not the rest of your Drive.
+							{:else}
+								This deployment has not been configured with Google OAuth yet. The site
+								administrator needs to add it once—users never paste a client secret.
+							{/if}
 						</p>
 					{/if}
 				</section>
@@ -1076,9 +1077,9 @@
 					<div>
 						<strong>Credentials stay outside the repository</strong>
 						<p>
-							The GitHub App private key is never used by this app. Short-lived user
-							tokens and the Google secret are encrypted per signed-in account. Only
-							library text is stored in GitHub; media is content-addressed in Drive.
+							OAuth app credentials are configured once for the deployment. Your
+							account tokens are encrypted per signed-in account. Only library text is
+							stored in GitHub; generated audio is content-addressed in your Drive.
 						</p>
 					</div>
 				</div>

@@ -9,20 +9,23 @@ the durable media store.
 
 ### GitHub
 
-Create and install a GitHub App with Device Flow enabled. Give it repository
-Contents read/write and Metadata read permissions, then enter its public Client ID in
-the Connections panel. The backend completes Device Flow, encrypts the user token, and
-fetches `.shared-library/library.json` through the GitHub API.
+Create and install one GitHub App with Device Flow enabled. Give it repository
+Contents read/write and Metadata read permissions. Configure its public Client ID and
+installation URL once for the deployment. Users click Connect and select from only the
+repositories exposed by their GitHub App installation; arbitrary repository names are
+rejected. The backend completes Device Flow, encrypts the user token, and fetches
+`.shared-library/library.json` through the GitHub API.
 
 The app never accepts or stores the GitHub App PEM private key.
 
 ### Google Drive
 
-Enable the Google Drive API and create a Web application OAuth client. Enter the
-Client ID and Client Secret in Connections, then register the exact callback URL shown
-by the app as an authorized redirect URI. The backend encrypts the client secret and
-tokens. It requests the narrow `drive.file` scope and stores content-addressed objects
-under a visible `Shared Library Media` folder.
+Enable the Google Drive API and create one Web application OAuth client. Configure its
+Client ID and Client Secret once for the deployment, then register
+`https://<production-origin>/api/google/connect/callback` as an authorized redirect
+URI. Each user connects their own Google account. The backend encrypts account tokens,
+requests the narrow `drive.file` scope, and stores content-addressed audio under a
+visible `Shared Library Media` folder in that user’s own Drive.
 
 ### OpenRouter
 
@@ -49,5 +52,7 @@ The deployment needs:
 - a D1 binding named `DB`;
 - an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
   64 hexadecimal characters;
+- `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_INSTALL_URL` environment values;
+- `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
 - Sites authentication enabled so every credential row is scoped to
   `oai-authenticated-user-email`.

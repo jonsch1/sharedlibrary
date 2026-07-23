@@ -390,6 +390,22 @@ function validGitHubClientID(value) {
 	return typeof value === 'string' && /^[A-Za-z0-9._-]{8,128}$/.test(value);
 }
 
+function githubClientID(env) {
+	const value = env.GITHUB_APP_CLIENT_ID?.trim();
+	return validGitHubClientID(value) ? value : null;
+}
+
+function githubInstallURL(env) {
+	const value = env.GITHUB_APP_INSTALL_URL?.trim();
+	if (!value) return null;
+	try {
+		const url = new URL(value);
+		return url.protocol === 'https:' && url.hostname === 'github.com' ? url.toString() : null;
+	} catch {
+		return null;
+	}
+}
+
 function validRepository(value) {
 	return (
 		typeof value === 'string' &&
@@ -410,12 +426,13 @@ async function githubStatus(request, env) {
 		.bind(email)
 		.first();
 	return json({
+		configured: Boolean(githubClientID(env)),
 		connected: Boolean(connection),
-		clientID: connection?.client_id ?? undefined,
 		login: connection?.login ?? undefined,
 		repository: connection?.repository ?? undefined,
 		defaultBranch: connection?.default_branch ?? undefined,
-		connectedAt: connection?.connected_at ?? undefined
+		connectedAt: connection?.connected_at ?? undefined,
+		installURL: githubInstallURL(env) ?? undefined
 	});
 }
 
@@ -425,15 +442,12 @@ async function startGitHubDeviceFlow(request, env) {
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 
-	let body;
-	try {
-		body = await request.json();
-	} catch {
-		return json({ error: 'Enter a GitHub App Client ID.' }, { status: 400 });
-	}
-	const clientID = body.clientID?.trim();
-	if (!validGitHubClientID(clientID)) {
-		return json({ error: 'Enter the Client ID from the GitHub App settings page.' }, { status: 400 });
+	const clientID = githubClientID(env);
+	if (!clientID) {
+		return json(
+			{ error: 'Shared Library has not been configured with its GitHub App yet.' },
+			{ status: 503 }
+		);
 	}
 
 	const response = await fetch('https://github.com/login/device/code', {
@@ -726,6 +740,84 @@ async function githubAPIRequest(env, email, path, init = {}) {
 	return new Response('GitHub connection expired.', { status: 401 });
 }
 
+async function installationRepositories(env, email) {
+	const installationsResponse = await githubAPIRequest(
+		env,
+		email,
+		'/user/installations?per_page=100'
+	);
+	let installations;
+	try {
+		installations = await installationsResponse.json();
+	} catch {
+		installations = {};
+	}
+	if (!installationsResponse.ok) {
+		throw new Error(installations.message || 'GitHub App installations could not be read.');
+	}
+	const repositories = [];
+	for (const installation of installations.installations ?? []) {
+		if (!Number.isInteger(installation.id)) continue;
+		const response = await githubAPIRequest(
+			env,
+			email,
+			`/user/installations/${installation.id}/repositories?per_page=100`
+		);
+		let value;
+		try {
+			value = await response.json();
+		} catch {
+			value = {};
+		}
+		if (!response.ok) {
+			throw new Error(value.message || 'The repositories available to Shared Library could not be read.');
+		}
+		for (const repository of value.repositories ?? []) {
+			if (
+				typeof repository.full_name !== 'string' ||
+				typeof repository.default_branch !== 'string'
+			) {
+				continue;
+			}
+			repositories.push({
+				id: repository.id,
+				fullName: repository.full_name,
+				defaultBranch: repository.default_branch,
+				private: Boolean(repository.private)
+			});
+		}
+	}
+	return repositories.sort((left, right) => left.fullName.localeCompare(right.fullName));
+}
+
+function selectAccessibleRepository(repositories, requestedRepository) {
+	const normalized = requestedRepository?.trim();
+	if (!validRepository(normalized)) return null;
+	return (
+		repositories.find(
+			(repository) =>
+				repository.fullName.toLocaleLowerCase() === normalized.toLocaleLowerCase()
+		) ?? null
+	);
+}
+
+async function listGitHubRepositories(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	try {
+		return json({
+			repositories: await installationRepositories(env, email),
+			installURL: githubInstallURL(env) ?? undefined
+		});
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'GitHub repositories could not be read.' },
+			{ status: 502 }
+		);
+	}
+}
+
 async function configureGitHubRepository(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = authenticatedEmail(request);
@@ -741,23 +833,40 @@ async function configureGitHubRepository(request, env) {
 	if (!validRepository(repository)) {
 		return json({ error: 'Enter the repository as owner/name.' }, { status: 400 });
 	}
-	const response = await githubAPIRequest(
-		env,
-		email,
-		`/repos/${repository.split('/').map(encodeURIComponent).join('/')}`
-	);
-	const value = await response.json();
-	if (!response.ok) {
-		return json({ error: value.message || 'The GitHub repository could not be opened.' }, { status: response.status });
+	let selectedRepository;
+	try {
+		selectedRepository = selectAccessibleRepository(
+			await installationRepositories(env, email),
+			repository
+		);
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'GitHub repositories could not be read.' },
+			{ status: 502 }
+		);
+	}
+	if (!selectedRepository) {
+		return json(
+			{ error: 'Choose a repository installed for the Shared Library GitHub App.' },
+			{ status: 403 }
+		);
 	}
 	await env.DB.prepare(
 		`UPDATE github_connections
 		 SET repository = ?, default_branch = ?, updated_at = ?
 		 WHERE user_email = ?`
 	)
-		.bind(repository, value.default_branch || 'main', new Date().toISOString(), email)
+		.bind(
+			selectedRepository.fullName,
+			selectedRepository.defaultBranch,
+			new Date().toISOString(),
+			email
+		)
 		.run();
-	return json({ repository, defaultBranch: value.default_branch || 'main' });
+	return json({
+		repository: selectedRepository.fullName,
+		defaultBranch: selectedRepository.defaultBranch
+	});
 }
 
 async function fetchLibrarySnapshot(request, env) {
@@ -808,6 +917,29 @@ function validGoogleClientID(value) {
 	);
 }
 
+function googleOAuthConfig(env) {
+	const clientID = env.GOOGLE_DRIVE_WEB_CLIENT_ID?.trim();
+	const clientSecret = env.GOOGLE_DRIVE_WEB_CLIENT_SECRET?.trim();
+	if (!validGoogleClientID(clientID) || typeof clientSecret !== 'string' || clientSecret.length < 8) {
+		return null;
+	}
+	return { clientID, clientSecret };
+}
+
+async function storedGoogleOAuthConfig(env, connection) {
+	if (!connection?.client_id || !connection.encrypted_client_secret || !connection.client_secret_iv) {
+		return null;
+	}
+	return {
+		clientID: connection.client_id,
+		clientSecret: await decryptCredential(
+			env,
+			connection.encrypted_client_secret,
+			connection.client_secret_iv
+		)
+	};
+}
+
 async function googleDriveStatus(request, env) {
 	const email = authenticatedEmail(request);
 	if (!email) return json({ configured: false, connected: false }, { status: 401 });
@@ -820,59 +952,11 @@ async function googleDriveStatus(request, env) {
 		.bind(email)
 		.first();
 	return json({
-		configured: Boolean(connection),
+		configured: Boolean(googleOAuthConfig(env) || connection),
 		connected: Boolean(connection?.encrypted_refresh_token),
-		clientID: connection?.client_id ?? undefined,
 		connectedAt: connection?.connected_at ?? undefined,
 		callbackURL: new URL('/api/google/connect/callback', request.url).toString()
 	});
-}
-
-async function configureGoogleDrive(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-	let body;
-	try {
-		body = await request.json();
-	} catch {
-		return json({ error: 'Enter the Google Web OAuth client credentials.' }, { status: 400 });
-	}
-	const clientID = body.clientID?.trim();
-	const clientSecret = body.clientSecret?.trim();
-	if (!validGoogleClientID(clientID) || typeof clientSecret !== 'string' || clientSecret.length < 8) {
-		return json({ error: 'Enter a valid Google Web OAuth Client ID and Client Secret.' }, { status: 400 });
-	}
-	const encryptedSecret = await encryptCredential(env, clientSecret);
-	await env.DB.prepare(
-		`INSERT INTO google_drive_connections (
-			user_email, client_id, encrypted_client_secret, client_secret_iv,
-			encrypted_access_token, access_token_iv, encrypted_refresh_token,
-			refresh_token_iv, access_token_expires_at, folder_id, connected_at, updated_at
-		) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?)
-		ON CONFLICT(user_email) DO UPDATE SET
-			client_id = excluded.client_id,
-			encrypted_client_secret = excluded.encrypted_client_secret,
-			client_secret_iv = excluded.client_secret_iv,
-			encrypted_access_token = NULL,
-			access_token_iv = NULL,
-			encrypted_refresh_token = NULL,
-			refresh_token_iv = NULL,
-			access_token_expires_at = NULL,
-			folder_id = NULL,
-			connected_at = NULL,
-			updated_at = excluded.updated_at`
-	)
-		.bind(
-			email,
-			clientID,
-			encryptedSecret.encryptedAPIKey,
-			encryptedSecret.initializationVector,
-			new Date().toISOString()
-		)
-		.run();
-	return json({ configured: true, connected: false });
 }
 
 async function startGoogleDriveConnection(request, env) {
@@ -880,11 +964,18 @@ async function startGoogleDriveConnection(request, env) {
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await env.DB.prepare(
-		`SELECT client_id FROM google_drive_connections WHERE user_email = ?`
+		`SELECT client_id, encrypted_client_secret, client_secret_iv
+		 FROM google_drive_connections WHERE user_email = ?`
 	)
 		.bind(email)
 		.first();
-	if (!connection) return json({ error: 'Save the Google OAuth client first.' }, { status: 409 });
+	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	if (!config) {
+		return json(
+			{ error: 'Shared Library has not been configured with Google Drive OAuth yet.' },
+			{ status: 503 }
+		);
+	}
 
 	const state = randomBase64URL();
 	const verifier = randomBase64URL(64);
@@ -903,7 +994,7 @@ async function startGoogleDriveConnection(request, env) {
 	]);
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-	authorizationURL.searchParams.set('client_id', connection.client_id);
+	authorizationURL.searchParams.set('client_id', config.clientID);
 	authorizationURL.searchParams.set('redirect_uri', callbackURL.toString());
 	authorizationURL.searchParams.set('response_type', 'code');
 	authorizationURL.searchParams.set('scope', 'https://www.googleapis.com/auth/drive.file');
@@ -942,19 +1033,15 @@ async function finishGoogleDriveConnection(request, env) {
 	)
 		.bind(email)
 		.first();
-	if (!connection) return redirectWithProviderResult(request, 'google', 'error');
-	const clientSecret = await decryptCredential(
-		env,
-		connection.encrypted_client_secret,
-		connection.client_secret_iv
-	);
+	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	if (!config) return redirectWithProviderResult(request, 'google', 'error');
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const response = await fetch('https://oauth2.googleapis.com/token', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 		body: new URLSearchParams({
-			client_id: connection.client_id,
-			client_secret: clientSecret,
+			client_id: config.clientID,
+			client_secret: config.clientSecret,
 			code,
 			code_verifier: pending.code_verifier,
 			grant_type: 'authorization_code',
@@ -971,15 +1058,31 @@ async function finishGoogleDriveConnection(request, env) {
 	}
 	const encryptedAccess = await encryptCredential(env, value.access_token);
 	const encryptedRefresh = await encryptCredential(env, value.refresh_token);
+	const encryptedSecret = await encryptCredential(env, config.clientSecret);
 	const timestamp = new Date().toISOString();
 	await env.DB.batch([
 		env.DB.prepare(
-			`UPDATE google_drive_connections SET
-				encrypted_access_token = ?, access_token_iv = ?,
-				encrypted_refresh_token = ?, refresh_token_iv = ?,
-				access_token_expires_at = ?, connected_at = ?, updated_at = ?
-			 WHERE user_email = ?`
+			`INSERT INTO google_drive_connections (
+				user_email, client_id, encrypted_client_secret, client_secret_iv,
+				encrypted_access_token, access_token_iv, encrypted_refresh_token,
+				refresh_token_iv, access_token_expires_at, folder_id, connected_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			ON CONFLICT(user_email) DO UPDATE SET
+				client_id = excluded.client_id,
+				encrypted_client_secret = excluded.encrypted_client_secret,
+				client_secret_iv = excluded.client_secret_iv,
+				encrypted_access_token = excluded.encrypted_access_token,
+				access_token_iv = excluded.access_token_iv,
+				encrypted_refresh_token = excluded.encrypted_refresh_token,
+				refresh_token_iv = excluded.refresh_token_iv,
+				access_token_expires_at = excluded.access_token_expires_at,
+				connected_at = excluded.connected_at,
+				updated_at = excluded.updated_at`
 		).bind(
+			email,
+			config.clientID,
+			encryptedSecret.encryptedAPIKey,
+			encryptedSecret.initializationVector,
 			encryptedAccess.encryptedAPIKey,
 			encryptedAccess.initializationVector,
 			encryptedRefresh.encryptedAPIKey,
@@ -987,7 +1090,6 @@ async function finishGoogleDriveConnection(request, env) {
 			Date.now() + Number(value.expires_in || 3600) * 1000,
 			timestamp,
 			timestamp,
-			email
 		),
 		env.DB.prepare('DELETE FROM google_oauth_states WHERE state = ?').bind(state)
 	]);
@@ -1009,7 +1111,7 @@ async function disconnectGoogleDrive(request, env) {
 		env.DB.prepare('DELETE FROM google_drive_connections WHERE user_email = ?').bind(email),
 		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email)
 	]);
-	return json({ configured: false, connected: false });
+	return json({ configured: Boolean(googleOAuthConfig(env)), connected: false });
 }
 
 async function googleDriveConnection(env, email) {
@@ -1036,14 +1138,23 @@ async function googleAccessToken(env, email, forceRefresh = false) {
 		return decryptCredential(env, connection.encrypted_access_token, connection.access_token_iv);
 	}
 	const [clientSecret, refreshToken] = await Promise.all([
-		decryptCredential(env, connection.encrypted_client_secret, connection.client_secret_iv),
+		Promise.resolve(googleOAuthConfig(env)?.clientSecret).then(
+			(secret) =>
+				secret ??
+				decryptCredential(
+					env,
+					connection.encrypted_client_secret,
+					connection.client_secret_iv
+				)
+		),
 		decryptCredential(env, connection.encrypted_refresh_token, connection.refresh_token_iv)
 	]);
+	const clientID = googleOAuthConfig(env)?.clientID ?? connection.client_id;
 	const response = await fetch('https://oauth2.googleapis.com/token', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 		body: new URLSearchParams({
-			client_id: connection.client_id,
+			client_id: clientID,
 			client_secret: clientSecret,
 			refresh_token: refreshToken,
 			grant_type: 'refresh_token'
@@ -1133,8 +1244,8 @@ async function ensureDriveMediaFolder(env, email) {
 }
 
 function mediaPath(url) {
-	const match = url.pathname.match(/^\/api\/media\/(audio|image)\/([a-f0-9]{64})$/);
-	return match ? { kind: match[1], hash: match[2] } : null;
+	const match = url.pathname.match(/^\/api\/media\/audio\/([a-f0-9]{64})$/);
+	return match ? { kind: 'audio', hash: match[1] } : null;
 }
 
 async function downloadDriveMedia(request, env, media) {
@@ -1174,22 +1285,17 @@ async function uploadDriveMedia(request, env, media) {
 	if (existing.response) return existing.response;
 	if (existing.file) return json({ id: existing.file.id, existed: true });
 	const contentType =
-		request.headers.get('Content-Type') ||
-		(media.kind === 'audio' ? 'audio/mpeg' : 'application/octet-stream');
-	if (
-		(media.kind === 'audio' && !contentType.startsWith('audio/')) ||
-		(media.kind === 'image' && !contentType.startsWith('image/'))
-	) {
-		return json({ error: 'The media Content-Type does not match its kind.' }, { status: 400 });
+		request.headers.get('Content-Type') || 'audio/mpeg';
+	if (!contentType.startsWith('audio/')) {
+		return json({ error: 'Only audio media is supported.' }, { status: 400 });
 	}
 	const bytes = await request.arrayBuffer();
 	if (!bytes.byteLength || bytes.byteLength > 25_000_000) {
 		return json({ error: 'Media files must be between 1 byte and 25 MB.' }, { status: 413 });
 	}
 	const folderID = await ensureDriveMediaFolder(env, email);
-	const extension = media.kind === 'audio' ? 'mp3' : contentType.split('/')[1]?.split(';')[0] || 'bin';
 	const metadata = JSON.stringify({
-		name: `${media.hash}.${extension}`,
+		name: `${media.hash}.mp3`,
 		parents: [folderID],
 		appProperties: {
 			sharedLibraryHash: media.hash,
@@ -1249,23 +1355,23 @@ const worker = {
 		if (url.pathname === '/api/github/connect/poll' && request.method === 'POST') {
 			return pollGitHubDeviceFlow(request, env);
 		}
-		if (url.pathname === '/api/github/disconnect' && request.method === 'POST') {
-			return disconnectGitHub(request, env);
-		}
-		if (url.pathname === '/api/github/repository' && request.method === 'POST') {
-			return configureGitHubRepository(request, env);
-		}
+			if (url.pathname === '/api/github/disconnect' && request.method === 'POST') {
+				return disconnectGitHub(request, env);
+			}
+			if (url.pathname === '/api/github/repositories' && request.method === 'GET') {
+				return listGitHubRepositories(request, env);
+			}
+			if (url.pathname === '/api/github/repository' && request.method === 'POST') {
+				return configureGitHubRepository(request, env);
+			}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
 			return fetchLibrarySnapshot(request, env);
 		}
 		if (url.pathname === '/api/google/status' && request.method === 'GET') {
 			return googleDriveStatus(request, env);
 		}
-		if (url.pathname === '/api/google/configure' && request.method === 'POST') {
-			return configureGoogleDrive(request, env);
-		}
-		if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
-			return startGoogleDriveConnection(request, env);
+			if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
+				return startGoogleDriveConnection(request, env);
 		}
 		if (url.pathname === '/api/google/connect/callback' && request.method === 'GET') {
 			return finishGoogleDriveConnection(request, env);
@@ -1292,4 +1398,5 @@ const worker = {
 	}
 };
 
+export { selectAccessibleRepository };
 export default worker;

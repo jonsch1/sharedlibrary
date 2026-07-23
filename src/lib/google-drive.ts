@@ -1,7 +1,6 @@
 export interface GoogleDriveConnection {
 	configured: boolean;
 	connected: boolean;
-	clientID?: string;
 	connectedAt?: string;
 	callbackURL?: string;
 }
@@ -29,20 +28,6 @@ export async function loadGoogleDriveConnection(): Promise<GoogleDriveConnection
 		throw new Error(await errorMessage(response, 'Could not read the Google Drive connection.'));
 	}
 	return (await response.json()) as GoogleDriveConnection;
-}
-
-export async function configureGoogleDrive(
-	clientID: string,
-	clientSecret: string
-): Promise<void> {
-	const response = await fetch('/api/google/configure', {
-		method: 'POST',
-		headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-		body: JSON.stringify({ clientID, clientSecret })
-	});
-	if (!response.ok) {
-		throw new Error(await errorMessage(response, 'Could not save the Google OAuth client.'));
-	}
 }
 
 export function beginGoogleDriveConnection(): void {

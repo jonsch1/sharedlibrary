@@ -5,12 +5,20 @@ import {
 } from '$lib/library.js';
 
 export interface GitHubConnection {
+	configured: boolean;
 	connected: boolean;
-	clientID?: string;
 	login?: string;
 	repository?: string;
 	defaultBranch?: string;
 	connectedAt?: string;
+	installURL?: string;
+}
+
+export interface GitHubRepository {
+	id: number;
+	fullName: string;
+	defaultBranch: string;
+	private: boolean;
 }
 
 export interface GitHubDeviceAuthorization {
@@ -42,25 +50,41 @@ export async function loadGitHubConnection(): Promise<GitHubConnection> {
 		headers: { Accept: 'application/json' },
 		cache: 'no-store'
 	});
-	if (response.status === 401 || response.status === 404) return { connected: false };
+	if (response.status === 401 || response.status === 404) {
+		return { configured: false, connected: false };
+	}
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not read the GitHub connection.'));
 	}
 	return (await response.json()) as GitHubConnection;
 }
 
-export async function beginGitHubConnection(
-	clientID: string
-): Promise<GitHubDeviceAuthorization> {
+export async function beginGitHubConnection(): Promise<GitHubDeviceAuthorization> {
 	const response = await fetch('/api/github/connect/start', {
 		method: 'POST',
-		headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-		body: JSON.stringify({ clientID })
+		headers: { Accept: 'application/json' }
 	});
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not start GitHub authorization.'));
 	}
 	return (await response.json()) as GitHubDeviceAuthorization;
+}
+
+export async function loadGitHubRepositories(): Promise<{
+	repositories: GitHubRepository[];
+	installURL?: string;
+}> {
+	const response = await fetch('/api/github/repositories', {
+		headers: { Accept: 'application/json' },
+		cache: 'no-store'
+	});
+	if (!response.ok) {
+		throw new Error(await errorMessage(response, 'Could not read the installed repositories.'));
+	}
+	return (await response.json()) as {
+		repositories: GitHubRepository[];
+		installURL?: string;
+	};
 }
 
 export async function pollGitHubConnection(): Promise<GitHubDevicePollResult> {
