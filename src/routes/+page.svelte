@@ -16,6 +16,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
+	import Share2Icon from '@lucide/svelte/icons/share-2';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
@@ -67,10 +68,13 @@
 		connectSharedFolder,
 		dismissSharedInboxItem,
 		disconnectSharedFolder,
+		loadSharedItemStatus,
 		loadSharedFolderConnection,
 		loadSharedInbox,
 		saveSharedInboxItem,
-		type SharedFolderConnection
+		updateSharedItem,
+		type SharedFolderConnection,
+		type SharedPerson
 	} from '$lib/sharing.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 
@@ -98,6 +102,13 @@
 	let queueVisible = $state(false);
 	let audioSettingsVisible = $state(false);
 	let connectionsVisible = $state(false);
+	let sharingVisible = $state(false);
+	let shareTarget = $state<LibraryEntry | null>(null);
+	let sharePeople = $state<SharedPerson[]>([]);
+	let selectedRecipientIDs = $state<string[]>([]);
+	let shareQuery = $state('');
+	let shareBusy = $state(false);
+	let shareWasShared = $state(false);
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
@@ -172,6 +183,14 @@
 			player.currentVariant === selectedVariant
 	);
 	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
+	let normalizedShareQuery = $derived(shareQuery.trim().toLocaleLowerCase());
+	let filteredSharePeople = $derived(
+		sharePeople.filter((person) =>
+			normalizedShareQuery
+				? person.username.toLocaleLowerCase().includes(normalizedShareQuery)
+				: true
+		)
+	);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
@@ -545,6 +564,74 @@
 		connectionsVisible = !connectionsVisible;
 		audioSettingsVisible = false;
 		queueVisible = false;
+		sharingVisible = false;
+	}
+
+	async function openSharing(): Promise<void> {
+		const entry = selectedEntry;
+		if (!entry || entry.origin !== 'personal') return;
+		if (!sharedConnection.connected) {
+			connectionMessage = 'Connect the group folder before sharing a document.';
+			connectionsVisible = true;
+			audioSettingsVisible = false;
+			queueVisible = false;
+			sharingVisible = false;
+			return;
+		}
+		shareTarget = entry;
+		sharePeople = [];
+		selectedRecipientIDs = [];
+		shareQuery = '';
+		shareWasShared = false;
+		shareBusy = true;
+		sharingVisible = true;
+		connectionsVisible = false;
+		audioSettingsVisible = false;
+		queueVisible = false;
+		try {
+			const status = await loadSharedItemStatus(entry.captureID ?? entry.id);
+			if (shareTarget?.id !== entry.id) return;
+			sharePeople = status.people;
+			selectedRecipientIDs = status.recipientIDs;
+			shareWasShared = status.shared;
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'Sharing details could not be loaded.';
+			sharingVisible = false;
+		} finally {
+			shareBusy = false;
+		}
+	}
+
+	function toggleShareRecipient(userID: string): void {
+		selectedRecipientIDs = selectedRecipientIDs.includes(userID)
+			? selectedRecipientIDs.filter((candidate) => candidate !== userID)
+			: [...selectedRecipientIDs, userID];
+	}
+
+	async function saveSharing(): Promise<void> {
+		const target = shareTarget;
+		if (!target) return;
+		shareBusy = true;
+		try {
+			const result = await updateSharedItem(
+				target.captureID ?? target.id,
+				selectedRecipientIDs
+			);
+			shareWasShared = result.shared;
+			selectedRecipientIDs = result.recipientIDs;
+			sharingVisible = false;
+			connectionMessage = result.shared
+				? `Shared with ${result.recipientIDs.length} ${
+						result.recipientIDs.length === 1 ? 'person' : 'people'
+					}. Their Inbox will update in the background.`
+				: 'Sharing stopped. Existing recipient Inbox records were revoked.';
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The document could not be shared.';
+		} finally {
+			shareBusy = false;
+		}
 	}
 
 	function selectEntry(entry: LibraryEntry): void {
@@ -677,6 +764,7 @@
 		audioSettingsVisible = !audioSettingsVisible;
 		connectionsVisible = false;
 		queueVisible = false;
+		sharingVisible = false;
 	}
 
 	function dismissToast(): void {
@@ -1265,6 +1353,18 @@
 								</a>
 							{/if}
 
+							{#if selectedEntry.origin === 'personal'}
+								<button
+									class="native-icon-button"
+									class:active={sharingVisible && shareTarget?.id === selectedEntry.id}
+									aria-label="Share document"
+									title="Share with people"
+									onclick={openSharing}
+								>
+									<Share2Icon />
+								</button>
+							{/if}
+
 							<button
 								class="native-icon-button"
 								class:active={audioSettingsVisible}
@@ -1319,6 +1419,7 @@
 									queueVisible = true;
 									audioSettingsVisible = false;
 									connectionsVisible = false;
+									sharingVisible = false;
 								}}
 							>
 								<ListMusicIcon />
@@ -1503,6 +1604,97 @@
 						</p>
 					</div>
 				</div>
+			</div>
+		</aside>
+	{/if}
+
+	{#if sharingVisible && shareTarget}
+		<div
+			class="audio-backdrop"
+			role="presentation"
+			onclick={() => (sharingVisible = false)}
+		></div>
+		<aside class="audio-panel share-panel" aria-label="Share document">
+			<div class="audio-header">
+				<div>
+					<p class="eyebrow">Group library</p>
+					<h2>Share</h2>
+				</div>
+				<Button
+					variant="ghost"
+					size="icon"
+					aria-label="Close sharing"
+					onclick={() => (sharingVisible = false)}
+				>
+					<XIcon />
+				</Button>
+			</div>
+
+			<div class="share-content">
+				<div class="share-document">
+					<FileTextIcon />
+					<div>
+						<span>Document</span>
+						<strong>{shareTarget.title}</strong>
+					</div>
+				</div>
+
+				{#if shareBusy && sharePeople.length === 0}
+					<div class="share-loading">
+						<LoaderCircleIcon class="spin" />
+						<span>Loading people…</span>
+					</div>
+				{:else if sharePeople.length === 0}
+					<div class="share-empty">
+						<p>No other people have connected this group folder yet.</p>
+						<span>Their usernames will appear here after they connect once.</span>
+					</div>
+				{:else}
+					<label class="share-search">
+						<SearchIcon />
+						<Input bind:value={shareQuery} placeholder="Search people" aria-label="Search people" />
+					</label>
+					<div class="share-people" aria-label="People">
+						{#each filteredSharePeople as person (person.userID)}
+							<button
+								class:selected={selectedRecipientIDs.includes(person.userID)}
+								aria-pressed={selectedRecipientIDs.includes(person.userID)}
+								onclick={() => toggleShareRecipient(person.userID)}
+							>
+								<span class="share-avatar">{person.username.slice(0, 1).toUpperCase()}</span>
+								<strong>@{person.username}</strong>
+								<span class="share-check" aria-hidden="true">
+									{#if selectedRecipientIDs.includes(person.userID)}<CheckIcon />{/if}
+								</span>
+							</button>
+						{/each}
+						{#if filteredSharePeople.length === 0}
+							<p class="share-no-results">No matching usernames.</p>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<div class="share-actions">
+				<Button
+					variant={shareWasShared && selectedRecipientIDs.length === 0
+						? 'destructive'
+						: 'default'}
+					disabled={shareBusy || (!shareWasShared && selectedRecipientIDs.length === 0)}
+					onclick={saveSharing}
+				>
+					<Share2Icon data-icon="inline-start" />
+					{shareBusy
+						? 'Saving…'
+						: shareWasShared && selectedRecipientIDs.length === 0
+							? 'Stop sharing'
+							: shareWasShared
+								? 'Update sharing'
+								: `Share with ${selectedRecipientIDs.length}`}
+				</Button>
+				<p>
+					Only this document and its summaries are copied to the group folder.
+				</p>
 			</div>
 		</aside>
 	{/if}

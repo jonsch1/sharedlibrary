@@ -9,6 +9,18 @@ export interface SharedFolderConnection {
 	connectedAt?: string;
 }
 
+export interface SharedPerson {
+	userID: string;
+	username: string;
+}
+
+export interface SharedItemStatus {
+	shared: boolean;
+	referenceID?: string;
+	recipientIDs: string[];
+	people: SharedPerson[];
+}
+
 async function errorMessage(response: Response, fallback: string): Promise<string> {
 	try {
 		const value = (await response.json()) as { error?: string; message?: string };
@@ -55,6 +67,35 @@ export async function disconnectSharedFolder(): Promise<void> {
 	if (!response.ok) {
 		throw new Error(await errorMessage(response, 'Could not disconnect the shared folder.'));
 	}
+}
+
+export async function loadSharedItemStatus(captureID: string): Promise<SharedItemStatus> {
+	const response = await fetch(
+		`/api/sharing/item?captureID=${encodeURIComponent(captureID)}`,
+		{
+			headers: { Accept: 'application/json' },
+			cache: 'no-store'
+		}
+	);
+	if (!response.ok) {
+		throw new Error(await errorMessage(response, 'Could not load sharing details.'));
+	}
+	return (await response.json()) as SharedItemStatus;
+}
+
+export async function updateSharedItem(
+	captureID: string,
+	recipientIDs: string[]
+): Promise<SharedItemStatus> {
+	const response = await fetch('/api/sharing/item', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify({ captureID, recipientIDs })
+	});
+	if (!response.ok) {
+		throw new Error(await errorMessage(response, 'Could not update sharing.'));
+	}
+	return (await response.json()) as SharedItemStatus;
 }
 
 export async function loadSharedInbox(): Promise<LibraryProjection> {

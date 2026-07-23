@@ -1281,6 +1281,22 @@ async function upsertDriveFile(
 	return { id: (await response.json()).id, contentHash, byteCount: bytes.byteLength };
 }
 
+async function trashDriveFile(env, email, fileID) {
+	const response = await googleDriveRequest(
+		env,
+		email,
+		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileID)}?supportsAllDrives=true`,
+		{
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ trashed: true })
+		}
+	);
+	if (!response.ok) {
+		throw new Error(`A shared Google Drive file could not be removed (${response.status}).`);
+	}
+}
+
 async function registerSharedProfile(env, email, rootFolderID, username) {
 	const tree = await driveFolderTree(env, email, rootFolderID);
 	const profilePath = `people/${username}/profile.json`;
@@ -1426,6 +1442,356 @@ function parsedMarkdownDocument(text, fallbackTitle) {
 		createdAt,
 		excerpt: body.replace(/\s+/g, ' ').trim().slice(0, 260)
 	};
+}
+
+function validCaptureIdentifier(value) {
+	return (
+		typeof value === 'string' &&
+		value.length >= 1 &&
+		value.length <= 256 &&
+		/^[a-zA-Z0-9:_-]+$/.test(value)
+	);
+}
+
+function validSharedUserID(value) {
+	return (
+		typeof value === 'string' &&
+		value.length >= 1 &&
+		value.length <= 128 &&
+		/^[a-zA-Z0-9_-]+$/.test(value)
+	);
+}
+
+async function loadSharedPeople(env, email, tree) {
+	const people = [];
+	const profileFiles = [...tree.files.values()].filter((file) =>
+		/^people\/[^/]+\/profile\.json$/.test(file.path)
+	);
+	await Promise.all(
+		profileFiles.map(async (file) => {
+			try {
+				const profile = JSON.parse(
+					new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+				);
+				if (
+					profile?.schemaVersion === 1 &&
+					validSharedUserID(profile.userID) &&
+					validUsername(profile.username)
+				) {
+					people.push({
+						userID: profile.userID,
+						username: normalizedUsername(profile.username)
+					});
+				}
+			} catch {
+				// Invalid profiles never become sharing targets.
+			}
+		})
+	);
+	return [...new Map(people.map((person) => [person.userID, person])).values()].sort(
+		(a, b) => a.username.localeCompare(b.username)
+	);
+}
+
+async function loadPersonalSharingItem(env, email, captureID) {
+	const indexFile = await driveFileByKind(env, email, 'library-index');
+	if (!indexFile) {
+		throw new Error('Your personal library has not synchronized to Google Drive yet.');
+	}
+	let index;
+	try {
+		index = JSON.parse(
+			new TextDecoder().decode(await downloadDriveFile(env, email, indexFile.id))
+		);
+	} catch {
+		throw new Error('The personal library index in Google Drive is invalid.');
+	}
+	const entry = Array.isArray(index?.entries)
+		? index.entries.find(
+				(candidate) =>
+					candidate?.origin === 'personal' &&
+					(candidate.captureID === captureID || candidate.id === captureID)
+			)
+		: null;
+	if (!entry) throw new Error('This document is no longer in your personal library.');
+	const sourceReference = Array.isArray(entry.texts)
+		? entry.texts.find(
+				(text) =>
+					text?.variant === 'source' &&
+					typeof text.path === 'string' &&
+					/^library\/[^/]+$/.test(text.path)
+			)
+		: null;
+	if (!sourceReference) {
+		throw new Error('This document has no synchronized source file to share.');
+	}
+	const personalRootID = await ensureDriveRootFolder(env, email);
+	const tree = await driveFolderTree(
+		env,
+		email,
+		personalRootID,
+		personalWorkspacePath,
+		true
+	);
+	const paths = [
+		...new Set(
+			entry.texts
+				.map((text) => text?.path)
+				.filter((path) => typeof path === 'string' && personalWorkspacePath(path))
+		)
+	];
+	const files = paths
+		.map((path) => ({ path, file: tree.files.get(path) }))
+		.filter((item) => item.file);
+	if (!files.some((item) => item.path === sourceReference.path)) {
+		throw new Error('The source file has not synchronized to Google Drive yet.');
+	}
+	return { entry, sourcePath: sourceReference.path, files };
+}
+
+async function sharingReferenceForItem(env, email, tree, connection, contentPath) {
+	const prefix = `people/${connection.username}/shared/`;
+	const files = [...tree.files.values()].filter(
+		(file) => file.path.startsWith(prefix) && file.path.endsWith('.json')
+	);
+	for (const file of files) {
+		try {
+			const reference = JSON.parse(
+				new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+			);
+			if (
+				validSharedUserID(reference?.id) &&
+				reference.contentPath === contentPath &&
+				reference.sharedByID === connection.user_id &&
+				Array.isArray(reference.sharedWithIDs)
+			) {
+				return reference;
+			}
+		} catch {
+			// A malformed unrelated reference does not hide other valid shares.
+		}
+	}
+	return null;
+}
+
+async function sharedItemContext(env, email, connection, captureID) {
+	const [personal, tree] = await Promise.all([
+		loadPersonalSharingItem(env, email, captureID),
+		driveFolderTree(env, email, connection.folder_id)
+	]);
+	const [people, reference] = await Promise.all([
+		loadSharedPeople(env, email, tree),
+		sharingReferenceForItem(env, email, tree, connection, personal.sourcePath)
+	]);
+	return { personal, tree, people, reference };
+}
+
+function sharedCompanionPaths(sourcePath) {
+	const filename = sourcePath.split('/').at(-1);
+	return [
+		sourcePath,
+		`library/summaries/brief/${filename}`,
+		`library/summaries/concise/${filename}`,
+		`library/summaries/detailed/${filename}`,
+		`library/summaries/comprehensive/${filename}`,
+		`library/summaries/${filename}`
+	];
+}
+
+async function sharedItemStatus(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
+	const captureID = new URL(request.url).searchParams.get('captureID');
+	if (!validCaptureIdentifier(captureID)) {
+		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	try {
+		const context = await sharedItemContext(env, email, connection, captureID);
+		return json({
+			shared: Boolean(context.reference),
+			referenceID: context.reference?.id,
+			recipientIDs: context.reference?.sharedWithIDs ?? [],
+			people: context.people.filter((person) => person.userID !== connection.user_id)
+		});
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'Sharing details could not be loaded.' },
+			{ status: 400 }
+		);
+	}
+}
+
+async function updateSharedItem(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const connection = await sharedFolderConnection(env, email);
+	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid sharing request.' }, { status: 400 });
+	}
+	const captureID = value?.captureID;
+	if (!validCaptureIdentifier(captureID) || !Array.isArray(value?.recipientIDs)) {
+		return json({ error: 'Choose a valid document and recipients.' }, { status: 400 });
+	}
+	const requestedIDs = [...new Set(value.recipientIDs)];
+	if (requestedIDs.length > 100 || requestedIDs.some((id) => !validSharedUserID(id))) {
+		return json({ error: 'One or more sharing recipients are invalid.' }, { status: 400 });
+	}
+	try {
+		const { personal, tree, people, reference: existing } = await sharedItemContext(
+			env,
+			email,
+			connection,
+			captureID
+		);
+		const peopleByID = new Map(people.map((person) => [person.userID, person]));
+		const recipients = requestedIDs
+			.filter((id) => id !== connection.user_id)
+			.map((id) => peopleByID.get(id));
+		if (recipients.some((person) => !person)) {
+			throw new Error('One or more people are no longer available in the shared folder.');
+		}
+		recipients.sort((a, b) => a.username.localeCompare(b.username));
+		const referenceID = existing?.id ?? crypto.randomUUID().toLowerCase();
+		const previousRecipientIDs = new Set(existing?.sharedWithIDs ?? []);
+		const nextRecipientIDs = new Set(recipients.map((person) => person.userID));
+		const now = new Date().toISOString();
+
+		for (const recipientID of previousRecipientIDs) {
+			if (nextRecipientIDs.has(recipientID)) continue;
+			const path = `inbox/${recipientID}/${referenceID}.json`;
+			const file = tree.files.get(path);
+			if (!file) continue;
+			try {
+				const inbox = JSON.parse(
+					new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
+				);
+				inbox.disposition = 'revoked';
+				inbox.updatedAt = now;
+				await upsertDriveFile(env, email, {
+					rootFolderID: connection.folder_id,
+					folders: tree.folders,
+					path,
+					bytes: new TextEncoder().encode(JSON.stringify(inbox, null, 2)),
+					existingID: file.id
+				});
+			} catch {
+				// Revocation continues even if an old Inbox record is malformed.
+			}
+		}
+
+		const referenceFilename = `${referenceID}.json`;
+		const oldReferenceFiles = [...tree.files.values()].filter(
+			(file) =>
+				file.path.endsWith(`/${referenceFilename}`) &&
+				/^people\/[^/]+\/(shared|shared_with)\//.test(file.path)
+		);
+		await Promise.all(oldReferenceFiles.map((file) => trashDriveFile(env, email, file.id)));
+
+		const companionPaths = sharedCompanionPaths(personal.sourcePath);
+		if (recipients.length === 0) {
+			await Promise.all(
+				companionPaths
+					.map((path) => tree.files.get(path))
+					.filter(Boolean)
+					.map((file) => trashDriveFile(env, email, file.id))
+			);
+			return json({ shared: false, recipientIDs: [], people: [] });
+		}
+
+		const desiredPaths = new Set(personal.files.map((item) => item.path));
+		await Promise.all(
+			companionPaths
+				.filter((path) => !desiredPaths.has(path))
+				.map((path) => tree.files.get(path))
+				.filter(Boolean)
+				.map((file) => trashDriveFile(env, email, file.id))
+		);
+		for (const item of personal.files) {
+			const bytes = await downloadDriveFile(env, email, item.file.id);
+			await upsertDriveFile(env, email, {
+				rootFolderID: connection.folder_id,
+				folders: tree.folders,
+				path: item.path,
+				bytes,
+				existingID: tree.files.get(item.path)?.id ?? null
+			});
+		}
+
+		const sharedReference = {
+			id: referenceID,
+			contentPath: personal.sourcePath,
+			sharedByID: connection.user_id,
+			sharedWithIDs: recipients.map((person) => person.userID)
+		};
+		const referenceBytes = new TextEncoder().encode(JSON.stringify(sharedReference, null, 2));
+		await upsertDriveFile(env, email, {
+			rootFolderID: connection.folder_id,
+			folders: tree.folders,
+			path: `people/${connection.username}/shared/${referenceFilename}`,
+			bytes: referenceBytes
+		});
+		for (const recipient of recipients) {
+			await upsertDriveFile(env, email, {
+				rootFolderID: connection.folder_id,
+				folders: tree.folders,
+				path: `people/${recipient.username}/shared_with/${referenceFilename}`,
+				bytes: referenceBytes
+			});
+			const inboxPath = `inbox/${recipient.userID}/${referenceFilename}`;
+			const existingInboxFile = tree.files.get(inboxPath);
+			let existingInbox;
+			if (existingInboxFile) {
+				try {
+					existingInbox = JSON.parse(
+						new TextDecoder().decode(
+							await downloadDriveFile(env, email, existingInboxFile.id)
+						)
+					);
+				} catch {
+					existingInbox = null;
+				}
+			}
+			const inbox = {
+				schemaVersion: 1,
+				id: referenceID,
+				contentPath: personal.sourcePath,
+				sharedByID: connection.user_id,
+				recipientID: recipient.userID,
+				disposition: previousRecipientIDs.has(recipient.userID)
+					? (existingInbox?.disposition ?? 'pending')
+					: 'pending',
+				sharedAt: existingInbox?.sharedAt ?? now,
+				updatedAt: now
+			};
+			await upsertDriveFile(env, email, {
+				rootFolderID: connection.folder_id,
+				folders: tree.folders,
+				path: inboxPath,
+				bytes: new TextEncoder().encode(JSON.stringify(inbox, null, 2)),
+				existingID: existingInboxFile?.id ?? null
+			});
+		}
+		return json({
+			shared: true,
+			referenceID,
+			recipientIDs: recipients.map((person) => person.userID),
+			people: recipients
+		});
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The document could not be shared.' },
+			{ status: 400 }
+		);
+	}
 }
 
 async function loadSharedInboxProjection(request, env) {
@@ -1851,6 +2217,12 @@ const worker = {
 		}
 		if (url.pathname === '/api/sharing/disconnect' && request.method === 'POST') {
 			return disconnectSharedFolder(request, env);
+		}
+		if (url.pathname === '/api/sharing/item' && request.method === 'GET') {
+			return sharedItemStatus(request, env);
+		}
+		if (url.pathname === '/api/sharing/item' && request.method === 'POST') {
+			return updateSharedItem(request, env);
 		}
 		if (url.pathname === '/api/inbox' && request.method === 'GET') {
 			return loadSharedInboxProjection(request, env);

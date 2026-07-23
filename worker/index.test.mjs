@@ -272,6 +272,10 @@ test('credential and media mutations reject cross-origin requests', async () => 
 			body: { folder: '1AbCdEfGhIjKlMnOpQrStUvWxYz', username: 'reader' }
 		},
 		{
+			path: '/api/sharing/item',
+			body: { captureID: 'capture-1', recipientIDs: ['recipient-1'] }
+		},
+		{
 			path: '/api/inbox/reference-1/dismiss'
 		}
 	];
