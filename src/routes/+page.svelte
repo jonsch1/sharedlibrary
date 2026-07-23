@@ -902,11 +902,6 @@
 	{:else if !projection}
 		<main class="center-stage">
 			<section class="empty-card">
-				<div class="window-controls" aria-hidden="true">
-					<span class="window-dot close-dot"></span>
-					<span class="window-dot minimize-dot"></span>
-					<span class="window-dot expand-dot"></span>
-				</div>
 				<div class="empty-illustration">
 					<CloudIcon />
 					<span class="empty-check"><CheckIcon /></span>
@@ -936,12 +931,6 @@
 	{:else}
 		<div class="native-workspace" class:reader-open={mobileReaderVisible}>
 			<aside class="native-library-pane">
-				<div class="window-controls" aria-hidden="true">
-					<span class="window-dot close-dot"></span>
-					<span class="window-dot minimize-dot"></span>
-					<span class="window-dot expand-dot"></span>
-				</div>
-
 				<div class="native-library-toolbar">
 					<div class="native-search-field">
 						<SearchIcon aria-hidden="true" />
