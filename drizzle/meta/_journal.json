@@ -15,6 +15,13 @@
       "when": 1784799763664,
       "tag": "0001_happy_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784806980445,
+      "tag": "0002_jittery_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

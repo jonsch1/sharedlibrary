@@ -52,6 +52,13 @@ async function sha256Base64URL(value) {
 	return bytesToBase64URL(new Uint8Array(digest));
 }
 
+async function sha256Hex(value) {
+	const digest = new Uint8Array(
+		await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+	);
+	return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 async function credentialEncryptionKey(env) {
 	if (!env.OPENROUTER_CREDENTIAL_KEY) {
 		throw new Error('OpenRouter credential encryption is not configured.');
@@ -110,36 +117,6 @@ async function ensureSchema(database) {
 					created_at INTEGER NOT NULL
 				)`
 			),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS github_connections (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				client_id TEXT NOT NULL,
-				encrypted_access_token TEXT NOT NULL,
-				access_token_iv TEXT NOT NULL,
-				encrypted_refresh_token TEXT,
-				refresh_token_iv TEXT,
-				access_token_expires_at INTEGER,
-				refresh_token_expires_at INTEGER,
-				login TEXT NOT NULL,
-				repository TEXT,
-				default_branch TEXT,
-				connected_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS github_device_states (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				client_id TEXT NOT NULL,
-				encrypted_device_code TEXT NOT NULL,
-				device_code_iv TEXT NOT NULL,
-				user_code TEXT NOT NULL,
-				verification_uri TEXT NOT NULL,
-				expires_at INTEGER NOT NULL,
-				interval_seconds INTEGER NOT NULL,
-				next_poll_at INTEGER NOT NULL
-			)`
-		),
 		database.prepare(
 			`CREATE TABLE IF NOT EXISTS google_drive_connections (
 				user_email TEXT PRIMARY KEY NOT NULL,
@@ -386,508 +363,40 @@ async function createSpeech(request, env) {
 	return new Response(response.body, { status: 200, headers });
 }
 
-function validGitHubClientID(value) {
-	return typeof value === 'string' && /^[A-Za-z0-9._-]{8,128}$/.test(value);
-}
-
-function githubClientID(env) {
-	const value = env.GITHUB_APP_CLIENT_ID?.trim();
-	return validGitHubClientID(value) ? value : null;
-}
-
-function githubInstallURL(env) {
-	const value = env.GITHUB_APP_INSTALL_URL?.trim();
-	if (!value) return null;
-	try {
-		const url = new URL(value);
-		return url.protocol === 'https:' && url.hostname === 'github.com' ? url.toString() : null;
-	} catch {
-		return null;
-	}
-}
-
-function validRepository(value) {
-	return (
-		typeof value === 'string' &&
-		/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) &&
-		!value.split('/').some((part) => part === '.' || part === '..')
-	);
-}
-
-async function githubStatus(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ connected: false }, { status: 401 });
-	await ensureSchema(env.DB);
-	const connection = await env.DB.prepare(
-		`SELECT client_id, login, repository, default_branch, connected_at
-		 FROM github_connections
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	return json({
-		configured: Boolean(githubClientID(env)),
-		connected: Boolean(connection),
-		login: connection?.login ?? undefined,
-		repository: connection?.repository ?? undefined,
-		defaultBranch: connection?.default_branch ?? undefined,
-		connectedAt: connection?.connected_at ?? undefined,
-		installURL: githubInstallURL(env) ?? undefined
-	});
-}
-
-async function startGitHubDeviceFlow(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-
-	const clientID = githubClientID(env);
-	if (!clientID) {
-		return json(
-			{ error: 'Shared Library has not been configured with its GitHub App yet.' },
-			{ status: 503 }
-		);
-	}
-
-	const response = await fetch('https://github.com/login/device/code', {
-		method: 'POST',
-		headers: {
-			Accept: 'application/json',
-			'Content-Type': 'application/x-www-form-urlencoded'
-		},
-		body: new URLSearchParams({ client_id: clientID })
-	});
-	const value = await response.json();
-	if (!response.ok || typeof value.device_code !== 'string') {
-		const message =
-			value.error === 'device_flow_disabled'
-				? 'Device Flow is disabled for this GitHub App.'
-				: value.error_description || 'GitHub could not start device authorization.';
-		return json({ error: message }, { status: 400 });
-	}
-
-	const encrypted = await encryptCredential(env, value.device_code);
-	const now = Date.now();
-	const interval = Math.max(1, Number(value.interval) || 5);
-	await env.DB.prepare(
-		`INSERT INTO github_device_states (
-			user_email, client_id, encrypted_device_code, device_code_iv,
-			user_code, verification_uri, expires_at, interval_seconds, next_poll_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_email) DO UPDATE SET
-			client_id = excluded.client_id,
-			encrypted_device_code = excluded.encrypted_device_code,
-			device_code_iv = excluded.device_code_iv,
-			user_code = excluded.user_code,
-			verification_uri = excluded.verification_uri,
-			expires_at = excluded.expires_at,
-			interval_seconds = excluded.interval_seconds,
-			next_poll_at = excluded.next_poll_at`
-	)
-		.bind(
-			email,
-			clientID,
-			encrypted.encryptedAPIKey,
-			encrypted.initializationVector,
-			value.user_code,
-			value.verification_uri,
-			now + Number(value.expires_in) * 1000,
-			interval,
-			now + interval * 1000
-		)
-		.run();
-	return json({
-		userCode: value.user_code,
-		verificationURI: value.verification_uri,
-		expiresIn: Number(value.expires_in),
-		interval
-	});
-}
-
-async function pollGitHubDeviceFlow(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-
-	const pending = await env.DB.prepare(
-		`SELECT client_id, encrypted_device_code, device_code_iv, expires_at,
-		        interval_seconds, next_poll_at
-		 FROM github_device_states
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	if (!pending) return json({ state: 'expired' }, { status: 404 });
-	const now = Date.now();
-	if (pending.expires_at <= now) {
-		await env.DB.prepare('DELETE FROM github_device_states WHERE user_email = ?').bind(email).run();
-		return json({ state: 'expired' }, { status: 410 });
-	}
-	if (pending.next_poll_at > now) {
-		return json({
-			state: 'pending',
-			retryAfter: Math.max(1, Math.ceil((pending.next_poll_at - now) / 1000))
-		});
-	}
-
-	const deviceCode = await decryptCredential(
-		env,
-		pending.encrypted_device_code,
-		pending.device_code_iv
-	);
-	const response = await fetch('https://github.com/login/oauth/access_token', {
-		method: 'POST',
-		headers: {
-			Accept: 'application/json',
-			'Content-Type': 'application/x-www-form-urlencoded'
-		},
-		body: new URLSearchParams({
-			client_id: pending.client_id,
-			device_code: deviceCode,
-			grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-		})
-	});
-	const value = await response.json();
-	if (value.error === 'authorization_pending' || value.error === 'slow_down') {
-		const interval =
-			value.error === 'slow_down'
-				? Math.max(Number(value.interval) || 0, pending.interval_seconds + 5)
-				: pending.interval_seconds;
-		await env.DB.prepare(
-			`UPDATE github_device_states
-			 SET interval_seconds = ?, next_poll_at = ?
-			 WHERE user_email = ?`
-		)
-			.bind(interval, Date.now() + interval * 1000, email)
-			.run();
-		return json({ state: 'pending', retryAfter: interval });
-	}
-	if (value.error) {
-		await env.DB.prepare('DELETE FROM github_device_states WHERE user_email = ?').bind(email).run();
-		return json(
-			{ error: value.error_description || 'GitHub authorization failed.', state: 'failed' },
-			{ status: 400 }
-		);
-	}
-	if (!response.ok || typeof value.access_token !== 'string') {
-		return json({ error: 'GitHub returned an invalid access token.' }, { status: 502 });
-	}
-
-	const profileResponse = await fetch('https://api.github.com/user', {
-		headers: githubHeaders(value.access_token)
-	});
-	const profile = await profileResponse.json();
-	if (!profileResponse.ok || typeof profile.login !== 'string') {
-		return json({ error: 'GitHub connected, but the user profile could not be read.' }, { status: 502 });
-	}
-
-	const encryptedAccess = await encryptCredential(env, value.access_token);
-	const encryptedRefresh =
-		typeof value.refresh_token === 'string'
-			? await encryptCredential(env, value.refresh_token)
-			: null;
-	const timestamp = new Date().toISOString();
-	await env.DB.batch([
-		env.DB.prepare(
-			`INSERT INTO github_connections (
-				user_email, client_id, encrypted_access_token, access_token_iv,
-				encrypted_refresh_token, refresh_token_iv, access_token_expires_at,
-				refresh_token_expires_at, login, repository, default_branch,
-				connected_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
-			ON CONFLICT(user_email) DO UPDATE SET
-				client_id = excluded.client_id,
-				encrypted_access_token = excluded.encrypted_access_token,
-				access_token_iv = excluded.access_token_iv,
-				encrypted_refresh_token = excluded.encrypted_refresh_token,
-				refresh_token_iv = excluded.refresh_token_iv,
-				access_token_expires_at = excluded.access_token_expires_at,
-				refresh_token_expires_at = excluded.refresh_token_expires_at,
-				login = excluded.login,
-				connected_at = excluded.connected_at,
-				updated_at = excluded.updated_at`
-		).bind(
-			email,
-			pending.client_id,
-			encryptedAccess.encryptedAPIKey,
-			encryptedAccess.initializationVector,
-			encryptedRefresh?.encryptedAPIKey ?? null,
-			encryptedRefresh?.initializationVector ?? null,
-			value.expires_in ? Date.now() + Number(value.expires_in) * 1000 : null,
-			value.refresh_token_expires_in
-				? Date.now() + Number(value.refresh_token_expires_in) * 1000
-				: null,
-			profile.login,
-			timestamp,
-			timestamp
-		),
-		env.DB.prepare('DELETE FROM github_device_states WHERE user_email = ?').bind(email)
-	]);
-	return json({ state: 'connected', login: profile.login });
-}
-
-async function disconnectGitHub(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-	await env.DB.batch([
-		env.DB.prepare('DELETE FROM github_connections WHERE user_email = ?').bind(email),
-		env.DB.prepare('DELETE FROM github_device_states WHERE user_email = ?').bind(email)
-	]);
-	return json({ connected: false });
-}
-
-function githubHeaders(token, additional = {}) {
-	const headers = new Headers(additional);
-	headers.set('Authorization', `Bearer ${token}`);
-	headers.set('Accept', headers.get('Accept') || 'application/vnd.github+json');
-	headers.set('X-GitHub-Api-Version', '2022-11-28');
-	headers.set('User-Agent', 'Shared-Library-Web');
-	return headers;
-}
-
-async function githubConnection(env, email) {
-	return env.DB.prepare(
-		`SELECT client_id, encrypted_access_token, access_token_iv,
-		        encrypted_refresh_token, refresh_token_iv, access_token_expires_at,
-		        refresh_token_expires_at, login, repository, default_branch
-		 FROM github_connections
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-}
-
-async function githubAccessToken(env, email, forceRefresh = false) {
-	let connection = await githubConnection(env, email);
-	if (!connection) return null;
-	const shouldRefresh =
-		forceRefresh ||
-		(connection.access_token_expires_at &&
-			connection.access_token_expires_at <= Date.now() + 90_000);
-	if (!shouldRefresh) {
-		return decryptCredential(env, connection.encrypted_access_token, connection.access_token_iv);
-	}
-	if (
-		!connection.encrypted_refresh_token ||
-		!connection.refresh_token_iv ||
-		(connection.refresh_token_expires_at && connection.refresh_token_expires_at <= Date.now())
-	) {
-		return null;
-	}
-	const refreshToken = await decryptCredential(
-		env,
-		connection.encrypted_refresh_token,
-		connection.refresh_token_iv
-	);
-	const response = await fetch('https://github.com/login/oauth/access_token', {
-		method: 'POST',
-		headers: {
-			Accept: 'application/json',
-			'Content-Type': 'application/x-www-form-urlencoded'
-		},
-		body: new URLSearchParams({
-			client_id: connection.client_id,
-			grant_type: 'refresh_token',
-			refresh_token: refreshToken
-		})
-	});
-	const value = await response.json();
-	if (!response.ok || typeof value.access_token !== 'string') return null;
-	const encryptedAccess = await encryptCredential(env, value.access_token);
-	const encryptedRefresh = await encryptCredential(
-		env,
-		typeof value.refresh_token === 'string' ? value.refresh_token : refreshToken
-	);
-	await env.DB.prepare(
-		`UPDATE github_connections SET
-			encrypted_access_token = ?, access_token_iv = ?,
-			encrypted_refresh_token = ?, refresh_token_iv = ?,
-			access_token_expires_at = ?, refresh_token_expires_at = ?,
-			updated_at = ?
-		 WHERE user_email = ?`
-	)
-		.bind(
-			encryptedAccess.encryptedAPIKey,
-			encryptedAccess.initializationVector,
-			encryptedRefresh.encryptedAPIKey,
-			encryptedRefresh.initializationVector,
-			value.expires_in ? Date.now() + Number(value.expires_in) * 1000 : null,
-			value.refresh_token_expires_in
-				? Date.now() + Number(value.refresh_token_expires_in) * 1000
-				: connection.refresh_token_expires_at,
-			new Date().toISOString(),
-			email
-		)
-		.run();
-	return value.access_token;
-}
-
-async function githubAPIRequest(env, email, path, init = {}) {
-	for (const forceRefresh of [false, true]) {
-		const token = await githubAccessToken(env, email, forceRefresh);
-		if (!token) return new Response('GitHub connection expired.', { status: 401 });
-		const response = await fetch(`https://api.github.com${path}`, {
-			...init,
-			headers: githubHeaders(token, init.headers)
-		});
-		if (response.status === 401 && !forceRefresh) continue;
-		return response;
-	}
-	return new Response('GitHub connection expired.', { status: 401 });
-}
-
-async function installationRepositories(env, email) {
-	const installationsResponse = await githubAPIRequest(
-		env,
-		email,
-		'/user/installations?per_page=100'
-	);
-	let installations;
-	try {
-		installations = await installationsResponse.json();
-	} catch {
-		installations = {};
-	}
-	if (!installationsResponse.ok) {
-		throw new Error(installations.message || 'GitHub App installations could not be read.');
-	}
-	const repositories = [];
-	for (const installation of installations.installations ?? []) {
-		if (!Number.isInteger(installation.id)) continue;
-		const response = await githubAPIRequest(
-			env,
-			email,
-			`/user/installations/${installation.id}/repositories?per_page=100`
-		);
-		let value;
-		try {
-			value = await response.json();
-		} catch {
-			value = {};
-		}
-		if (!response.ok) {
-			throw new Error(value.message || 'The repositories available to Shared Library could not be read.');
-		}
-		for (const repository of value.repositories ?? []) {
-			if (
-				typeof repository.full_name !== 'string' ||
-				typeof repository.default_branch !== 'string'
-			) {
-				continue;
-			}
-			repositories.push({
-				id: repository.id,
-				fullName: repository.full_name,
-				defaultBranch: repository.default_branch,
-				private: Boolean(repository.private)
-			});
-		}
-	}
-	return repositories.sort((left, right) => left.fullName.localeCompare(right.fullName));
-}
-
-function selectAccessibleRepository(repositories, requestedRepository) {
-	const normalized = requestedRepository?.trim();
-	if (!validRepository(normalized)) return null;
-	return (
-		repositories.find(
-			(repository) =>
-				repository.fullName.toLocaleLowerCase() === normalized.toLocaleLowerCase()
-		) ?? null
-	);
-}
-
-async function listGitHubRepositories(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-	try {
-		return json({
-			repositories: await installationRepositories(env, email),
-			installURL: githubInstallURL(env) ?? undefined
-		});
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'GitHub repositories could not be read.' },
-			{ status: 502 }
-		);
-	}
-}
-
-async function configureGitHubRepository(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
-	let body;
-	try {
-		body = await request.json();
-	} catch {
-		return json({ error: 'Enter the repository as owner/name.' }, { status: 400 });
-	}
-	const repository = body.repository?.trim();
-	if (!validRepository(repository)) {
-		return json({ error: 'Enter the repository as owner/name.' }, { status: 400 });
-	}
-	let selectedRepository;
-	try {
-		selectedRepository = selectAccessibleRepository(
-			await installationRepositories(env, email),
-			repository
-		);
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'GitHub repositories could not be read.' },
-			{ status: 502 }
-		);
-	}
-	if (!selectedRepository) {
-		return json(
-			{ error: 'Choose a repository installed for the Shared Library GitHub App.' },
-			{ status: 403 }
-		);
-	}
-	await env.DB.prepare(
-		`UPDATE github_connections
-		 SET repository = ?, default_branch = ?, updated_at = ?
-		 WHERE user_email = ?`
-	)
-		.bind(
-			selectedRepository.fullName,
-			selectedRepository.defaultBranch,
-			new Date().toISOString(),
-			email
-		)
-		.run();
-	return json({
-		repository: selectedRepository.fullName,
-		defaultBranch: selectedRepository.defaultBranch
-	});
-}
-
 async function fetchLibrarySnapshot(request, env) {
 	const email = authenticatedEmail(request);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
-	const connection = await githubConnection(env, email);
-	if (!connection?.repository) {
-		return json({ error: 'Choose the personal GitHub repository first.' }, { status: 409 });
+	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
+	listURL.searchParams.set(
+		'q',
+		"appProperties has { key='sharedLibraryKind' and value='library-index' } and trashed=false"
+	);
+	listURL.searchParams.set('fields', 'files(id,name,mimeType)');
+	listURL.searchParams.set('pageSize', '1');
+	let response = await googleDriveRequest(env, email, listURL);
+	if (!response.ok) {
+		return json(
+			{ error: response.status === 401 ? 'Connect Google Drive first.' : 'Google Drive could not be searched.' },
+			{ status: response.status }
+		);
 	}
-	const repositoryPath = connection.repository.split('/').map(encodeURIComponent).join('/');
-	const branch = encodeURIComponent(connection.default_branch || 'main');
-	const response = await githubAPIRequest(
+	const value = await response.json();
+	const file = value.files?.[0];
+	if (!file) {
+		return json(
+			{ error: 'Google Drive does not contain the library index yet. Open the Mac app and let it synchronize.' },
+			{ status: 404 }
+		);
+	}
+	response = await googleDriveRequest(
 		env,
 		email,
-		`/repos/${repositoryPath}/contents/.shared-library/library.json?ref=${branch}`,
-		{ headers: { Accept: 'application/vnd.github.raw+json' } }
+		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`
 	);
 	if (response.status === 404) {
 		return json(
-			{ error: 'The repository does not contain .shared-library/library.json yet. Update the snapshot in the Mac app and let it sync.' },
+			{ error: 'The Google Drive library could not be found. Open the Mac app and let it upload again.' },
 			{ status: 404 }
 		);
 	}
@@ -898,12 +407,69 @@ async function fetchLibrarySnapshot(request, env) {
 		} catch {
 			value = {};
 		}
-		return json({ error: value.message || 'The GitHub library could not be downloaded.' }, { status: response.status });
+		return json({ error: value.message || 'The Google Drive library could not be downloaded.' }, { status: response.status });
 	}
 	return new Response(response.body, {
 		headers: {
 			'Content-Type': 'application/json',
 			'Cache-Control': 'private, no-store'
+		}
+	});
+}
+
+function validLibraryPath(path) {
+	return (
+		typeof path === 'string' &&
+		path.length > 0 &&
+		path.length <= 1024 &&
+		(path === 'topics.md' || path.startsWith('library/')) &&
+		!path.split('/').some((component) => !component || component === '.' || component === '..')
+	);
+}
+
+async function fetchLibraryFile(request, env) {
+	const email = authenticatedEmail(request);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const url = new URL(request.url);
+	const path = url.searchParams.get('path');
+	const expectedHash = url.searchParams.get('hash');
+	if (!validLibraryPath(path) || !/^[a-f0-9]{64}$/.test(expectedHash || '')) {
+		return json({ error: 'Invalid library file request.' }, { status: 400 });
+	}
+
+	const pathHash = await sha256Hex(path);
+	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
+	listURL.searchParams.set(
+		'q',
+		`appProperties has { key='sharedLibraryKind' and value='workspace' } and appProperties has { key='sharedLibraryPathHash' and value='${pathHash}' } and trashed=false`
+	);
+	listURL.searchParams.set(
+		'fields',
+		'files(id,mimeType,appProperties)'
+	);
+	listURL.searchParams.set('pageSize', '1');
+	let response = await googleDriveRequest(env, email, listURL);
+	if (!response.ok) {
+		return json({ error: 'Google Drive could not be searched.' }, { status: response.status });
+	}
+	const file = (await response.json()).files?.[0];
+	if (!file || file.appProperties?.sharedLibraryContentHash !== expectedHash) {
+		return json({ error: 'The requested library file is not available.' }, { status: 404 });
+	}
+	response = await googleDriveRequest(
+		env,
+		email,
+		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`
+	);
+	if (!response.ok) {
+		return json({ error: 'The library file could not be downloaded.' }, { status: response.status });
+	}
+	return new Response(response.body, {
+		headers: {
+			'Content-Type': file.mimeType || 'text/markdown; charset=utf-8',
+			'Cache-Control': 'private, max-age=86400',
+			'X-Content-Hash': expectedHash
 		}
 	});
 }
@@ -1205,18 +771,27 @@ async function findDriveMedia(env, email, media) {
 	return { file: value.files?.[0] ?? null };
 }
 
-async function ensureDriveMediaFolder(env, email) {
+async function ensureDriveRootFolder(env, email) {
 	const connection = await googleDriveConnection(env, email);
 	if (connection?.folder_id) return connection.folder_id;
-	const query = "name='Shared Library Media' and mimeType='application/vnd.google-apps.folder' and trashed=false";
 	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
-	listURL.searchParams.set('q', query);
 	listURL.searchParams.set('fields', 'files(id)');
 	listURL.searchParams.set('pageSize', '1');
-	let response = await googleDriveRequest(env, email, listURL);
-	if (!response.ok) throw new Error(`Google Drive folder lookup failed (${response.status}).`);
-	let value = await response.json();
-	let folderID = value.files?.[0]?.id;
+	let folderID;
+	let response;
+	let value;
+	for (const query of [
+		"appProperties has { key='sharedLibraryRoot' and value='true' } and mimeType='application/vnd.google-apps.folder' and trashed=false",
+		"name='Shared Library' and mimeType='application/vnd.google-apps.folder' and trashed=false",
+		"name='Shared Library Media' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+	]) {
+		listURL.searchParams.set('q', query);
+		response = await googleDriveRequest(env, email, listURL);
+		if (!response.ok) throw new Error(`Google Drive folder lookup failed (${response.status}).`);
+		value = await response.json();
+		folderID = value.files?.[0]?.id;
+		if (folderID) break;
+	}
 	if (!folderID) {
 		response = await googleDriveRequest(
 			env,
@@ -1226,8 +801,9 @@ async function ensureDriveMediaFolder(env, email) {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					name: 'Shared Library Media',
-					mimeType: 'application/vnd.google-apps.folder'
+					name: 'Shared Library',
+					mimeType: 'application/vnd.google-apps.folder',
+					appProperties: { sharedLibraryRoot: 'true' }
 				})
 			}
 		);
@@ -1241,6 +817,43 @@ async function ensureDriveMediaFolder(env, email) {
 		.bind(folderID, new Date().toISOString(), email)
 		.run();
 	return folderID;
+}
+
+async function ensureDriveMediaFolder(env, email) {
+	const rootID = await ensureDriveRootFolder(env, email);
+	const pathHash = await sha256Hex('audio');
+	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
+	listURL.searchParams.set(
+		'q',
+		`appProperties has { key='sharedLibraryKind' and value='folder' } and appProperties has { key='sharedLibraryPathHash' and value='${pathHash}' } and trashed=false`
+	);
+	listURL.searchParams.set('fields', 'files(id)');
+	listURL.searchParams.set('pageSize', '1');
+	let response = await googleDriveRequest(env, email, listURL);
+	if (!response.ok) throw new Error(`Google Drive audio folder lookup failed (${response.status}).`);
+	let value = await response.json();
+	if (value.files?.[0]?.id) return value.files[0].id;
+	response = await googleDriveRequest(
+		env,
+		email,
+		'https://www.googleapis.com/drive/v3/files?fields=id',
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: 'audio',
+				mimeType: 'application/vnd.google-apps.folder',
+				parents: [rootID],
+				appProperties: {
+					sharedLibraryKind: 'folder',
+					sharedLibraryPathHash: pathHash
+				}
+			})
+		}
+	);
+	if (!response.ok) throw new Error(`Google Drive audio folder creation failed (${response.status}).`);
+	value = await response.json();
+	return value.id;
 }
 
 function mediaPath(url) {
@@ -1346,26 +959,11 @@ const worker = {
 		if (url.pathname === '/api/tts' && request.method === 'POST') {
 			return createSpeech(request, env);
 		}
-		if (url.pathname === '/api/github/status' && request.method === 'GET') {
-			return githubStatus(request, env);
-		}
-		if (url.pathname === '/api/github/connect/start' && request.method === 'POST') {
-			return startGitHubDeviceFlow(request, env);
-		}
-		if (url.pathname === '/api/github/connect/poll' && request.method === 'POST') {
-			return pollGitHubDeviceFlow(request, env);
-		}
-			if (url.pathname === '/api/github/disconnect' && request.method === 'POST') {
-				return disconnectGitHub(request, env);
-			}
-			if (url.pathname === '/api/github/repositories' && request.method === 'GET') {
-				return listGitHubRepositories(request, env);
-			}
-			if (url.pathname === '/api/github/repository' && request.method === 'POST') {
-				return configureGitHubRepository(request, env);
-			}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
 			return fetchLibrarySnapshot(request, env);
+		}
+		if (url.pathname === '/api/library/file' && request.method === 'GET') {
+			return fetchLibraryFile(request, env);
 		}
 		if (url.pathname === '/api/google/status' && request.method === 'GET') {
 			return googleDriveStatus(request, env);
@@ -1398,5 +996,4 @@ const worker = {
 	}
 };
 
-export { selectAccessibleRepository };
 export default worker;

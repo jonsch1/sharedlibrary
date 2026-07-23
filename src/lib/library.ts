@@ -1,4 +1,4 @@
-export const librarySchemaVersion = 1;
+export const librarySchemaVersion = 2;
 
 export const libraryVariants = [
 	'brief',
@@ -13,7 +13,10 @@ export type LibraryOrigin = 'personal' | 'shared';
 
 export interface LibraryText {
 	variant: LibraryVariant;
-	text: string;
+	path?: string;
+	contentHash?: string;
+	wordCount?: number;
+	text?: string;
 }
 
 export interface LibraryEntry {
@@ -29,7 +32,6 @@ export interface LibraryEntry {
 	updatedAt?: string;
 	reviewedAt?: string;
 	origin: LibraryOrigin;
-	sharedByGitHubID?: string;
 	sharedByDisplayName?: string;
 	texts: LibraryText[];
 }
@@ -41,7 +43,8 @@ export interface LibraryProjection {
 }
 
 const databaseName = 'shared-library-web';
-const storeName = 'snapshots';
+const snapshotStoreName = 'snapshots';
+const textStoreName = 'texts';
 const activeSnapshotKey = 'active';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -57,7 +60,10 @@ function isLibraryText(value: unknown): value is LibraryText {
 		isObject(value) &&
 		typeof value.variant === 'string' &&
 		libraryVariants.includes(value.variant as LibraryVariant) &&
-		typeof value.text === 'string'
+		(typeof value.text === 'string' ||
+			(typeof value.path === 'string' &&
+				typeof value.contentHash === 'string' &&
+				typeof value.wordCount === 'number'))
 	);
 }
 
@@ -86,7 +92,7 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
 		!value.entries.every(isLibraryEntry)
 	) {
 		throw new Error(
-			'This file is not a compatible Shared Library web snapshot. Export a new snapshot from the Mac app and try again.'
+			'This is not a compatible Shared Library Drive index. Open the Mac app and let it synchronize again.'
 		);
 	}
 	return value as unknown as LibraryProjection;
@@ -94,10 +100,13 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
 
 function openDatabase(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(databaseName, 1);
+		const request = indexedDB.open(databaseName, 2);
 		request.onupgradeneeded = () => {
-			if (!request.result.objectStoreNames.contains(storeName)) {
-				request.result.createObjectStore(storeName);
+			if (!request.result.objectStoreNames.contains(snapshotStoreName)) {
+				request.result.createObjectStore(snapshotStoreName);
+			}
+			if (!request.result.objectStoreNames.contains(textStoreName)) {
+				request.result.createObjectStore(textStoreName);
 			}
 		};
 		request.onsuccess = () => resolve(request.result);
@@ -109,8 +118,8 @@ export async function saveLibraryProjection(projection: LibraryProjection): Prom
 	const database = await openDatabase();
 	try {
 		await new Promise<void>((resolve, reject) => {
-			const transaction = database.transaction(storeName, 'readwrite');
-			transaction.objectStore(storeName).put(projection, activeSnapshotKey);
+			const transaction = database.transaction(snapshotStoreName, 'readwrite');
+			transaction.objectStore(snapshotStoreName).put(projection, activeSnapshotKey);
 			transaction.oncomplete = () => resolve();
 			transaction.onerror = () =>
 				reject(transaction.error ?? new Error('Could not save the offline library.'));
@@ -127,8 +136,8 @@ export async function loadLibraryProjection(): Promise<LibraryProjection | null>
 	try {
 		return await new Promise<LibraryProjection | null>((resolve, reject) => {
 			const request = database
-				.transaction(storeName, 'readonly')
-				.objectStore(storeName)
+				.transaction(snapshotStoreName, 'readonly')
+				.objectStore(snapshotStoreName)
 				.get(activeSnapshotKey);
 			request.onsuccess = () => {
 				if (request.result === undefined) {
@@ -154,6 +163,76 @@ export function textFor(
 	variant: LibraryVariant
 ): LibraryText | undefined {
 	return entry.texts.find((text) => text.variant === variant);
+}
+
+function textCacheKey(reference: LibraryText): string | null {
+	if (!reference.path || !reference.contentHash) return null;
+	return `${reference.contentHash}:${reference.path}`;
+}
+
+async function cachedLibraryText(reference: LibraryText): Promise<string | null> {
+	const key = textCacheKey(reference);
+	if (!key) return reference.text ?? null;
+	const database = await openDatabase();
+	try {
+		return await new Promise<string | null>((resolve, reject) => {
+			const request = database
+				.transaction(textStoreName, 'readonly')
+				.objectStore(textStoreName)
+				.get(key);
+			request.onsuccess = () =>
+				resolve(typeof request.result === 'string' ? request.result : null);
+			request.onerror = () =>
+				reject(request.error ?? new Error('Could not read the offline document.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+async function cacheLibraryText(reference: LibraryText, text: string): Promise<void> {
+	const key = textCacheKey(reference);
+	if (!key) return;
+	const database = await openDatabase();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const transaction = database.transaction(textStoreName, 'readwrite');
+			transaction.objectStore(textStoreName).put(text, key);
+			transaction.oncomplete = () => resolve();
+			transaction.onerror = () =>
+				reject(transaction.error ?? new Error('Could not cache the document.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+export async function loadLibraryText(reference: LibraryText): Promise<string> {
+	if (typeof reference.text === 'string') return reference.text;
+	const cached = await cachedLibraryText(reference);
+	if (cached !== null) return cached;
+	if (!reference.path || !reference.contentHash) return '';
+	const parameters = new URLSearchParams({
+		path: reference.path,
+		hash: reference.contentHash
+	});
+	const response = await fetch(`/api/library/file?${parameters.toString()}`, {
+		headers: { Accept: 'text/markdown, text/plain' },
+		cache: 'no-store'
+	});
+	if (!response.ok) {
+		throw new Error(
+			response.status === 404
+				? 'This document is not available in Google Drive yet.'
+				: 'The document could not be downloaded from Google Drive.'
+		);
+	}
+	let text = await response.text();
+	if (reference.variant === 'source') {
+		text = text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+	}
+	await cacheLibraryText(reference, text);
+	return text;
 }
 
 export function preferredVariant(entry: LibraryEntry): LibraryVariant {
@@ -242,7 +321,6 @@ export const demoProjection: LibraryProjection = {
 			tags: ['communication', 'ligand-receptor'],
 			createdAt: '2026-07-10T11:45:00Z',
 			origin: 'shared',
-			sharedByGitHubID: '1042',
 			sharedByDisplayName: 'Alex Morgan',
 			texts: [
 				{
@@ -258,7 +336,7 @@ export const demoProjection: LibraryProjection = {
 				{
 					variant: 'source',
 					text:
-						'This item demonstrates how a document shared with your stable GitHub identity appears beside personal library content.'
+						'This item demonstrates how a document shared with you appears beside personal library content.'
 				}
 			]
 		}

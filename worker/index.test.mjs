@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import worker, { selectAccessibleRepository } from './index.js';
+import worker from './index.js';
 
 class MockStatement {
 	constructor(database, sql) {
@@ -68,8 +68,6 @@ function environment(database = new MockDatabase()) {
 	return {
 		DB: database,
 		OPENROUTER_CREDENTIAL_KEY: '0'.repeat(64),
-		GITHUB_APP_CLIENT_ID: 'Iv23liCentralSharedLibrary',
-		GITHUB_APP_INSTALL_URL: 'https://github.com/apps/shared-library/installations/new',
 		GOOGLE_DRIVE_WEB_CLIENT_ID:
 			'123456789-sharedlibrary.apps.googleusercontent.com',
 		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
@@ -107,18 +105,9 @@ test('connection status never exposes the stored credential', async () => {
 	});
 });
 
-test('connection setup is centrally configured without exposing OAuth credentials', async () => {
+test('Google Drive setup is centrally configured without exposing OAuth credentials', async () => {
 	const env = environment();
-	const [githubResponse, googleResponse] = await Promise.all([
-		worker.fetch(authenticatedRequest('/api/github/status'), env),
-		worker.fetch(authenticatedRequest('/api/google/status'), env)
-	]);
-	assert.equal(githubResponse.status, 200);
-	assert.deepEqual(await githubResponse.json(), {
-		configured: true,
-		connected: false,
-		installURL: 'https://github.com/apps/shared-library/installations/new'
-	});
+	const googleResponse = await worker.fetch(authenticatedRequest('/api/google/status'), env);
 	assert.equal(googleResponse.status, 200);
 	const googleStatus = await googleResponse.json();
 	assert.equal(googleStatus.configured, true);
@@ -129,34 +118,6 @@ test('connection setup is centrally configured without exposing OAuth credential
 	);
 	assert.equal('clientID' in googleStatus, false);
 	assert.equal('clientSecret' in googleStatus, false);
-});
-
-test('GitHub Device Flow always uses the centrally configured app', async (context) => {
-	context.mock.method(globalThis, 'fetch', async (input, init) => {
-		assert.equal(String(input), 'https://github.com/login/device/code');
-		const body = new URLSearchParams(init.body);
-		assert.equal(body.get('client_id'), 'Iv23liCentralSharedLibrary');
-		return Response.json({
-			device_code: 'device-secret',
-			user_code: 'ABCD-EFGH',
-			verification_uri: 'https://github.com/login/device',
-			expires_in: 900,
-			interval: 5
-		});
-	});
-	const response = await worker.fetch(
-		authenticatedRequest('/api/github/connect/start', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({ clientID: 'attacker-controlled-client' })
-		}),
-		environment()
-	);
-	assert.equal(response.status, 200);
-	assert.equal((await response.json()).userCode, 'ABCD-EFGH');
 });
 
 test('Google authorization uses the central web client with each user account', async () => {
@@ -177,21 +138,23 @@ test('Google authorization uses the central web client with each user account', 
 	);
 });
 
-test('repository selection accepts only repositories returned by the app installation', () => {
-	const repositories = [
-		{
-			id: 1,
-			fullName: 'saezlab/shared-library',
-			defaultBranch: 'main',
-			private: true
-		}
-	];
-	assert.equal(
-		selectAccessibleRepository(repositories, 'SAEZLAB/shared-library')?.id,
-		1
+test('library file access rejects paths outside the mirrored workspace', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest(
+			`/api/library/file?path=${encodeURIComponent('../secrets.md')}&hash=${'a'.repeat(64)}`
+		),
+		environment()
 	);
-	assert.equal(selectAccessibleRepository(repositories, 'other/private-library'), null);
-	assert.equal(selectAccessibleRepository(repositories, '../private-library'), null);
+	assert.equal(response.status, 400);
+	assert.deepEqual(await response.json(), { error: 'Invalid library file request.' });
+});
+
+test('GitHub endpoints are no longer exposed', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/github/status'),
+		environment()
+	);
+	assert.equal(response.status, 404);
 });
 
 test('OAuth start keeps the verifier server-side and sends only its challenge', async () => {
@@ -245,10 +208,6 @@ test('credential and media mutations reject cross-origin requests', async () => 
 	const mutations = [
 		{ path: '/api/tts', body: { input: 'Hello', voice: 'eve' } },
 		{ path: '/api/openrouter/disconnect' },
-		{ path: '/api/github/connect/start', body: { clientID: 'Iv23li12345678' } },
-		{ path: '/api/github/connect/poll' },
-		{ path: '/api/github/disconnect' },
-		{ path: '/api/github/repository', body: { repository: 'owner/library' } },
 		{
 			path: `/api/media/audio/${'a'.repeat(64)}`,
 			body: new Uint8Array([1, 2, 3]),

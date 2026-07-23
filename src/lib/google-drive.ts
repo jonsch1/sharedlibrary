@@ -53,6 +53,21 @@ export async function disconnectGoogleDrive(): Promise<void> {
 	}
 }
 
+export async function syncGoogleDriveLibrary(): Promise<LibraryProjection> {
+	const response = await fetch('/api/library', {
+		headers: { Accept: 'application/json' },
+		cache: 'no-store'
+	});
+	if (!response.ok) {
+		throw new Error(
+			await errorMessage(response, 'Could not sync the library from Google Drive.')
+		);
+	}
+	const projection = parseLibraryProjection(await response.json());
+	await saveLibraryProjection(projection);
+	return projection;
+}
+
 export async function loadGoogleDriveAudio(hash: string): Promise<Blob | null> {
 	const response = await fetch(`/api/media/audio/${hash}`);
 	if (response.status === 401 || response.status === 404) return null;
@@ -71,3 +86,8 @@ export async function storeGoogleDriveAudio(hash: string, audio: Blob): Promise<
 		throw new Error(await errorMessage(response, 'Could not save audio to Google Drive.'));
 	}
 }
+import {
+	parseLibraryProjection,
+	saveLibraryProjection,
+	type LibraryProjection
+} from '$lib/library.js';
