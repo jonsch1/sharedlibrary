@@ -2866,13 +2866,13 @@ html {
 	bottom: max(18px, env(safe-area-inset-bottom));
 	left: 20px;
 	display: grid;
-	width: min(calc(100% - 40px), 680px);
+	width: min(calc(100% - 40px), 780px);
 	min-height: 64px;
-	grid-template-columns: minmax(0, 1fr) 44px;
+	grid-template-columns: auto minmax(0, 1fr) 44px;
 	align-items: center;
-	gap: 22px;
+	gap: 18px;
 	margin: 0 auto;
-	padding: 9px 10px 9px 22px;
+	padding: 9px 10px;
 	border: 1px solid rgb(55 54 49 / 18%);
 	border-radius: 20px;
 	background: rgb(218 218 210 / 88%);
@@ -2880,6 +2880,44 @@ html {
 		0 16px 42px rgb(38 36 32 / 16%),
 		inset 0 1px 0 rgb(255 255 255 / 48%);
 	backdrop-filter: blur(20px) saturate(125%);
+}
+
+.public-share-add {
+	display: inline-flex;
+	height: 38px;
+	align-items: center;
+	gap: 7px;
+	padding: 0 12px;
+	border: 1px solid rgb(50 50 46 / 18%);
+	border-radius: 12px;
+	background: rgb(245 244 238 / 58%);
+	color: rgb(45 44 40 / 82%);
+	font-size: 11px;
+	font-weight: 630;
+	white-space: nowrap;
+	transition:
+		background 150ms ease,
+		border-color 150ms ease,
+		color 150ms ease;
+}
+
+.public-share-add:hover:not(:disabled) {
+	border-color: rgb(38 97 76 / 28%);
+	background: rgb(246 247 242 / 84%);
+	color: rgb(27 79 61);
+}
+
+.public-share-add.saved {
+	color: rgb(30 98 73);
+}
+
+.public-share-add svg {
+	width: 15px;
+	height: 15px;
+}
+
+.public-share-add-short {
+	display: none;
 }
 
 .public-share-slider {
@@ -3038,9 +3076,20 @@ html {
 		bottom: max(10px, env(safe-area-inset-bottom));
 		left: 10px;
 		width: calc(100% - 20px);
-		gap: 12px;
-		padding-left: 16px;
+		gap: 9px;
 		border-radius: 18px;
+	}
+
+	.public-share-add {
+		padding: 0 9px;
+	}
+
+	.public-share-add-long {
+		display: none;
+	}
+
+	.public-share-add-short {
+		display: inline;
 	}
 
 	.public-share-slider {
