@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
+	import CheckIcon from '@lucide/svelte/icons/check';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
+	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MarkdownText from '$lib/MarkdownText.svelte';
-	import { loadPublicShare, type PublicShareDocument } from '$lib/share-links.js';
+	import {
+		importPublicShare,
+		loadPublicShare,
+		type PublicShareDocument
+	} from '$lib/share-links.js';
 	import { libraryVariants, type LibraryVariant } from '$lib/library.js';
 
 	let { token }: { token: string } = $props();
@@ -23,6 +29,8 @@
 	let loading = $state(true);
 	let preparing = $state(false);
 	let errorMessage = $state('');
+	let importBusy = $state(false);
+	let saved = $state(false);
 	let audio = $state<HTMLAudioElement>();
 	let audioState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
 	let audioSegmentIndex = 0;
@@ -64,6 +72,9 @@
 						: result.texts[0]?.variant ?? 'source';
 					loading = false;
 					preparing = false;
+					if (new URL(window.location.href).searchParams.get('import') === '1') {
+						void addToLibrary();
+					}
 					return;
 				}
 				if (result.status === 'failed') {
@@ -178,6 +189,25 @@
 		audioState = 'idle';
 		audioSegmentIndex = 0;
 	}
+
+	async function addToLibrary(): Promise<void> {
+		if (importBusy || saved) return;
+		importBusy = true;
+		errorMessage = '';
+		try {
+			await importPublicShare(token);
+			saved = true;
+			const url = new URL(window.location.href);
+			url.searchParams.delete('import');
+			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+		} catch (error) {
+			if (error instanceof Error && error.message === 'Opening sign in…') return;
+			errorMessage =
+				error instanceof Error ? error.message : 'The document could not be added.';
+		} finally {
+			importBusy = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -212,6 +242,25 @@
 		</main>
 
 		<footer class="public-share-player" aria-label="Document playback">
+			<button
+				class="public-share-add"
+				class:saved
+				disabled={importBusy || saved}
+				onclick={addToLibrary}
+			>
+				{#if importBusy}
+					<LoaderCircleIcon class="spin" />
+					<span>Add</span>
+				{:else if saved}
+					<CheckIcon />
+					<span>Added</span>
+				{:else}
+					<PlusIcon />
+					<span class="public-share-add-long">Add to Library</span>
+					<span class="public-share-add-short">Add</span>
+				{/if}
+			</button>
+
 			<div class="public-share-slider">
 				<span>Brief</span>
 				<input
