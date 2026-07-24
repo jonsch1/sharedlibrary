@@ -669,7 +669,7 @@
                   <span class="skeleton-line short"></span>
                 </div>
               {:else if selectedText}
-                <MarkdownView text={selectedText} />
+                <MarkdownView text={selectedText} plain={selectedVariant === 'source'} />
               {:else}
                 <p class="missing-text">This version is not available.</p>
               {/if}

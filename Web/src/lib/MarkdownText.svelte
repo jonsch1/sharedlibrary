@@ -2,11 +2,12 @@
 	import { browser } from '$app/environment';
 	import DOMPurify from 'dompurify';
 	import { marked } from 'marked';
+	import { sourceTextParagraphs } from '$lib/source-text.js';
 
-	let { text }: { text: string } = $props();
+	let { text, plain = false }: { text: string; plain?: boolean } = $props();
 
 	let html = $derived(
-		browser
+		browser && !plain
 			? DOMPurify.sanitize(
 					marked.parse(text, {
 						gfm: true,
@@ -19,8 +20,17 @@
 				)
 			: ''
 	);
+	let paragraphs = $derived(plain ? sourceTextParagraphs(text) : []);
 </script>
 
-<div class="library-prose prose prose-stone max-w-none dark:prose-invert">
-	{@html html}
-</div>
+{#if plain}
+	<div class="library-prose prose prose-stone max-w-none dark:prose-invert">
+		{#each paragraphs as paragraph}
+			<p>{paragraph}</p>
+		{/each}
+	</div>
+{:else}
+	<div class="library-prose prose prose-stone max-w-none dark:prose-invert">
+		{@html html}
+	</div>
+{/if}

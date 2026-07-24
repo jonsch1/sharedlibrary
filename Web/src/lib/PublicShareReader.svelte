@@ -222,7 +222,7 @@
 	{:else if document}
 		<main class="public-share-reader">
 			<article class="public-share-body">
-				<MarkdownText text={selectedText} />
+				<MarkdownText text={selectedText} plain={selectedVariant === 'source'} />
 			</article>
 		</main>
 

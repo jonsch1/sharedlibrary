@@ -800,7 +800,7 @@
 									<span class="skeleton-line short"></span>
 								</div>
 							{:else if selectedText}
-								<MarkdownText text={selectedText} />
+								<MarkdownText text={selectedText} plain={selectedVariant === 'source'} />
 							{:else}
 								<p class="missing-text">This version is not available.</p>
 							{/if}
