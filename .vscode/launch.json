@@ -1,24 +1,19 @@
 {
+    "version": "0.2.0",
     "configurations": [
         {
-            "type": "swift",
+            "type": "node-terminal",
             "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}",
-            "name": "Debug SharedLibrary",
-            "target": "SharedLibrary",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug SharedLibrary"
+            "name": "Run Shared Library Desktop",
+            "command": "npm run dev",
+            "cwd": "${workspaceFolder}/Electron"
         },
         {
-            "type": "swift",
+            "type": "node-terminal",
             "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}",
-            "name": "Release SharedLibrary",
-            "target": "SharedLibrary",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release SharedLibrary"
+            "name": "Run Shared Library Web",
+            "command": "npm run dev",
+            "cwd": "${workspaceFolder}/Web"
         }
     ]
 }

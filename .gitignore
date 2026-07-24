@@ -1,10 +1,3 @@
-# Swift Package Manager
-.build/
-.swiftpm/
-
-# Built app bundle (produced by Scripts/make_app.sh)
-Shared Library.app/
-
 # Node dependencies for the capture extractor helper
 Tools/extractor/node_modules/
 
@@ -21,11 +14,6 @@ Electron/release/
 
 # macOS
 .DS_Store
-
-# Xcode
-*.xcworkspace
-xcuserdata/
-DerivedData/
 
 # Local tool settings
 .claude/settings.local.json

@@ -1,7 +1,6 @@
 # Shared Library Electron
 
-This directory contains the cross-platform desktop rewrite. The Swift app remains
-available in `Desktop/` until the Electron client reaches feature parity.
+This directory contains the cross-platform Shared Library desktop application.
 
 ## Current baseline
 

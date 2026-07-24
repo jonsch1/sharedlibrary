@@ -1,16 +1,14 @@
 # Shared Library
 
-Shared Library is a native macOS menu bar app for capturing, processing, browsing,
-editing, and listening to a local text library. A private Svelte web reader provides
-mobile access, narration, offline caching, and deliberate public share links.
-Google Drive is the private-library synchronization service; the sharing service
-stores only documents the user explicitly publishes.
+Shared Library is a cross-platform Electron desktop app for capturing, processing,
+browsing, editing, and listening to a local text library. A Svelte web reader
+provides mobile access, narration, offline caching, and deliberate public share
+links. Google Drive is the private-library synchronization service; the sharing
+service stores only documents the user explicitly publishes.
 
-`Electron/` contains the cross-platform desktop rewrite for macOS, Windows, and
-Linux. It opens the same workspace directly and now includes capture extraction,
-Codex processing, Google Drive synchronization, OpenRouter narration, share links,
-editing, and coordinated Trash while the native app remains available during the
-migration.
+The desktop app supports macOS, Windows, and Linux. It opens the workspace directly
+and includes capture extraction, Codex processing, Google Drive synchronization,
+OpenRouter narration, share links, editing, and coordinated Trash.
 
 The default workspace is `~/Documents/Shared Library`.
 
@@ -23,17 +21,16 @@ The default workspace is `~/Documents/Shared Library`.
 
 There is no `output/` folder and source images are not ingested or stored.
 
-## Build, test, and install
+## Build and test
+
+Build and package the desktop app:
 
 ```bash
-swift test
-./Scripts/install.sh release
-```
-
-For development:
-
-```bash
-swift run SharedLibrary
+cd Electron
+npm install
+npm test
+npm run typecheck
+npm run package
 ```
 
 Build the web reader:
@@ -46,15 +43,7 @@ npm run test:worker
 npm run build:sites
 ```
 
-Run the cross-platform desktop client:
-
-```bash
-cd Electron
-npm install
-npm test
-npm run typecheck
-npm run dev
-```
+For desktop development, run `npm run dev` from `Electron/`.
 
 ## Capture library
 
@@ -105,14 +94,12 @@ integration requests `openid`, `email`, and the narrow `drive.file` scope, so it
 identify the account and access only files created by Shared Library or explicitly
 selected by the user—not the rest of the user's Drive.
 
-For the macOS app, create a Google OAuth **Desktop app** client and set
-`SHARED_LIBRARY_GOOGLE_DESKTOP_CLIENT_ID` when building. Authorization uses PKCE with
-a temporary loopback callback; the user's refresh token is stored in Keychain.
-
 For the web reader, create a Google OAuth **Web application** client. Set
 `GOOGLE_DRIVE_WEB_CLIENT_ID` and the `GOOGLE_DRIVE_WEB_CLIENT_SECRET` deployment
 secret, then add `/api/google/connect/callback` on the production origin to the
-client's authorized redirect URIs. Account tokens are encrypted per signed-in user.
+client's authorized redirect URIs. The Electron app uses the same hosted account
+connection, so Drive is configured once per account. Account tokens are encrypted
+per signed-in user.
 
 ## OpenRouter narration
 
@@ -125,19 +112,17 @@ are cached locally and, when Drive is connected, uploaded automatically.
 
 | Hotkey | Action |
 | --- | --- |
-| `Option-Shift-Space` | Toggle Shared Library |
-| `Command-G` | Capture clipboard URL or text into `library/` |
+| `CommandOrControl-G` | Capture clipboard URL or text into `library/` |
 
 ## Architecture
 
 | Slice | Files |
 | --- | --- |
-| App shell | `Sources/SharedLibrary/App/` |
-| Provisioned macOS bundle | `Desktop/SharedLibraryDesktop.xcodeproj` |
-| Cross-platform desktop rewrite | `Electron/` |
-| Capture extraction/library | `Sources/SharedLibrary/` |
-| Drive mirror and lightweight index | `Sources/SharedLibrary/Cloud/`, `Sources/SharedLibrary/Web/` |
-| Google Drive library and audio | `Sources/SharedLibrary/Media/` |
+| Cross-platform desktop app | `Electron/` |
+| Desktop services and local library | `Electron/src/main/` |
+| Desktop UI | `Electron/src/renderer/` |
+| Capture extraction | `Tools/extractor/` |
+| Google Drive library and audio | `Electron/src/main/sync.ts` |
 | Svelte web reader and backend | `Web/` |
-| Settings/support | `Sources/SharedLibrary/Settings/`, `Sources/SharedLibrary/Support/` |
-| Tests | `Tests/SharedLibraryTests/` |
+| Desktop tests | `Electron/src/main/*.test.ts` |
+| Web worker tests | `Web/worker/index.test.mjs` |
