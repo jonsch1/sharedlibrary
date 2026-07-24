@@ -754,16 +754,15 @@
 					<h1>Saving your library for offline use</h1>
 					<p class="empty-copy">{googleSyncDescription()}</p>
 				{:else}
-					<h1>Connect your Google Drive</h1>
+					<h1>Sign in with Google</h1>
 					<p class="empty-copy">
-						Shared Library mirrors the complete folder written by the Mac app, saves every
-						Markdown document and existing narration locally, and keeps it synchronized in
-						the background.
+						Your account’s Shared Library folder is configured once, mirrored locally on
+						every client, and synchronized in the background.
 					</p>
 					<div class="empty-actions">
 						<Button size="lg" onclick={() => (connectionsVisible = true)}>
 							<CloudIcon data-icon="inline-start" />
-							Connect Google Drive
+							Sign in with Google
 						</Button>
 						<Button size="lg" variant="ghost" onclick={showDemo}>
 							<BookOpenIcon data-icon="inline-start" />
@@ -1068,14 +1067,15 @@
 					<h1>Making your library available</h1>
 					<p class="empty-copy">{googleSyncDescription()}</p>
 				{:else}
-					<h1>Connect your library</h1>
+					<h1>Sign in with Google</h1>
 					<p class="empty-copy">
-						Connect Google Drive to mirror the same local-first library used by the Mac app.
+						Configure one personal Drive location for the account, then mirror the complete
+						local-first library on every client.
 					</p>
 					<div class="empty-actions">
 						<Button size="lg" onclick={() => (connectionsVisible = true)}>
 							<CloudIcon data-icon="inline-start" />
-							Connect Google Drive
+							Sign in with Google
 						</Button>
 						<Button size="lg" variant="ghost" onclick={showDemo}>
 							<BookOpenIcon data-icon="inline-start" />
@@ -1362,13 +1362,13 @@
 							onclick={connectGoogleDrive}
 						>
 							<CloudIcon data-icon="inline-start" />
-							{googleBusy ? 'Opening Google…' : 'Connect your Google Drive'}
+							{googleBusy ? 'Opening Google…' : 'Sign in with Google'}
 						</Button>
 						<p class="connection-help">
 							{#if googleConnection.configured}
-								You sign in to your own Google account. Shared Library uses the narrow
-								<code>drive.file</code> permission, so it can access only the library and
-								audio files it creates for you—not the rest of your Drive.
+								Shared Library remembers one personal folder for this Google account.
+								The narrow <code>drive.file</code> permission limits access to the
+								library and audio files the app creates or you explicitly select.
 							{:else}
 								This deployment has not been configured with Google OAuth yet. The site
 								administrator needs to add it once—users never paste a client secret.

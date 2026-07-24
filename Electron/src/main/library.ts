@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   mkdir,
   readFile,
@@ -26,6 +26,50 @@ interface IndexedEntry {
   entry: DesktopLibraryEntry;
   sourcePath: string;
   variantPaths: Partial<Record<LibraryVariant, string>>;
+}
+
+export interface DriveLibraryFile {
+  path: string;
+  contentHash: string;
+  byteCount: number;
+}
+
+export interface DriveLibraryText {
+  variant: LibraryVariant;
+  path: string;
+  contentHash: string;
+  wordCount: number;
+}
+
+export interface DriveLibraryIndex {
+  schemaVersion: 3;
+  generatedAt: string;
+  files: DriveLibraryFile[];
+  entries: Array<{
+    id: string;
+    captureID: string;
+    title: string;
+    excerpt: string;
+    topicIDs: string[];
+    topicNames: string[];
+    tags: string[];
+    sourceURL?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    origin: 'personal';
+    texts: DriveLibraryText[];
+  }>;
+}
+
+export interface DriveLibraryMirror {
+  index: DriveLibraryIndex;
+  files: Array<DriveLibraryFile & { content: string }>;
+}
+
+export interface ProcessingSuggestion {
+  shortFilename: string;
+  topicName: string;
+  summaries: Record<(typeof summaryVariants)[number], string>;
 }
 
 type TrashHandler = (path: string) => Promise<void>;
@@ -126,14 +170,20 @@ export class LibraryService {
     this.indexedEntries.delete(entryID);
   }
 
-  async captureText(clipboardText: string): Promise<string> {
+  async captureText(
+    clipboardText: string,
+    extracted?: { title?: string; content?: string; sourceURL?: string }
+  ): Promise<string> {
     const text = clipboardText.trim();
     if (!text) throw new Error('Clipboard does not contain text.');
     await this.ensureWorkspace();
     const captureID = randomUUID().toUpperCase();
     const now = new Date().toISOString();
-    const sourceURL = safeHTTPURL(text);
-    const title = sourceURL ? sourceURL.hostname.replace(/^www\./, '') : firstUsefulLine(text);
+    const sourceURL = safeHTTPURL(extracted?.sourceURL ?? text);
+    const content = extracted?.content?.trim() || text;
+    const title =
+      extracted?.title?.trim() ||
+      (sourceURL ? sourceURL.hostname.replace(/^www\./, '') : firstUsefulLine(content));
     const filename = await this.availableFilename(slug(title || 'capture'));
     const quoted = (value: string) => JSON.stringify(value);
     const metadata = [
@@ -149,11 +199,189 @@ export class LibraryService {
       '---',
       '',
       '',
-      text,
+      content,
       ''
     ].join('\n');
     await atomicWrite(join(this.workspacePath, 'library', filename), metadata);
     return captureID;
+  }
+
+  async processingInput(entryID: string): Promise<{
+    title: string;
+    sourceURL?: string;
+    sourceText: string;
+    topics: string[];
+  }> {
+    const indexed = await this.requireEntry(entryID);
+    const raw = await readFile(indexed.sourcePath, 'utf8');
+    const parsed = parseMarkdown(raw);
+    return {
+      title: indexed.entry.title,
+      sourceURL: indexed.entry.sourceURL,
+      sourceText: parsed.body.trim(),
+      topics: (await this.snapshot()).topics
+    };
+  }
+
+  async applyProcessingSuggestion(
+    entryID: string,
+    suggestion: ProcessingSuggestion
+  ): Promise<string> {
+    const indexed = await this.requireEntry(entryID);
+    const topicID = await this.ensureTopic(suggestion.topicName);
+    const originalRaw = await readFile(indexed.sourcePath, 'utf8');
+    const parsed = parseMarkdown(originalRaw);
+    const currentFilename = basename(indexed.sourcePath);
+    const requestedBase = slug(suggestion.shortFilename);
+    const requestedFilename = `${requestedBase}.md`;
+    const nextFilename =
+      requestedFilename === currentFilename
+        ? currentFilename
+        : await this.availableFilename(requestedBase);
+    const nextSourcePath = join(this.workspacePath, 'library', nextFilename);
+    const metadata = {
+      ...parsed.metadata,
+      title: indexed.entry.title,
+      updated_at: new Date().toISOString(),
+      topics: [topicID]
+    };
+    await atomicWrite(
+      nextSourcePath,
+      `${serializeFrontmatter(metadata)}\n\n${parsed.body.trim()}\n`
+    );
+    if (nextSourcePath !== indexed.sourcePath) {
+      await this.trash(indexed.sourcePath);
+    }
+
+    for (const variant of summaryVariants) {
+      const text = suggestion.summaries[variant]?.trim();
+      if (!text) throw new Error(`Processing did not return the ${variant} summary.`);
+      await atomicWrite(
+        join(this.workspacePath, 'library', 'summaries', variant, nextFilename),
+        `${text}\n`
+      );
+    }
+    await atomicWrite(
+      join(this.workspacePath, 'library', 'summaries', nextFilename),
+      `${suggestion.summaries.concise.trim()}\n`
+    );
+    for (const oldPath of Object.values(indexed.variantPaths)) {
+      if (oldPath && basename(oldPath) !== nextFilename && oldPath !== indexed.sourcePath) {
+        await this.trash(oldPath);
+      }
+    }
+    this.indexedEntries.clear();
+    return `personal:${indexed.entry.captureID}`;
+  }
+
+  async buildDriveMirror(): Promise<DriveLibraryMirror> {
+    const snapshot = await this.snapshot();
+    const paths = await this.mirroredPaths();
+    const files = await Promise.all(
+      paths.map(async (relativePath) => {
+        const content = await readFile(join(this.workspacePath, relativePath), 'utf8');
+        return {
+          path: relativePath,
+          contentHash: sha256(content),
+          byteCount: Buffer.byteLength(content),
+          content
+        };
+      })
+    );
+    const filesByPath = new Map(files.map((file) => [file.path, file]));
+    const entries = snapshot.entries.map((entry) => {
+      const texts = entry.availableVariants.flatMap((variant) => {
+        const path =
+          variant === 'source'
+            ? `library/${entry.filename}`
+            : `library/summaries/${variant}/${entry.filename}`;
+        const file = filesByPath.get(path);
+        if (!file) return [];
+        const text =
+          variant === 'source' ? parseMarkdown(file.content).body : file.content;
+        return [{
+          variant,
+          path,
+          contentHash: file.contentHash,
+          wordCount: countWords(text)
+        }];
+      });
+      return {
+        id: entry.id,
+        captureID: entry.captureID,
+        title: entry.title,
+        excerpt: entry.excerpt,
+        topicIDs: entry.topicIDs,
+        topicNames: entry.topicNames,
+        tags: entry.tags,
+        sourceURL: entry.sourceURL,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        origin: 'personal' as const,
+        texts
+      };
+    });
+    return {
+      index: {
+        schemaVersion: 3,
+        generatedAt: new Date().toISOString(),
+        files: files.map(({ path, contentHash, byteCount }) => ({
+          path,
+          contentHash,
+          byteCount
+        })),
+        entries
+      },
+      files
+    };
+  }
+
+  async mergeRemoteMirror(
+    index: DriveLibraryIndex,
+    download: (file: DriveLibraryFile) => Promise<string>
+  ): Promise<number> {
+    const baseline = await this.readSyncBaseline();
+    const local = await this.buildDriveMirror();
+    const localHashes = new Map(local.files.map((file) => [file.path, file.contentHash]));
+    let downloaded = 0;
+    for (const remote of index.files) {
+      if (!validMirroredPath(remote.path)) continue;
+      const localHash = localHashes.get(remote.path);
+      const previousHash = baseline[remote.path];
+      const locallyDeleted = !localHash && Boolean(previousHash);
+      const localChanged = Boolean(localHash && (!previousHash || localHash !== previousHash));
+      if (
+        locallyDeleted ||
+        localChanged ||
+        localHash === remote.contentHash
+      ) {
+        continue;
+      }
+      const content = await download(remote);
+      if (sha256(content) !== remote.contentHash) {
+        throw new Error(`Google Drive returned an invalid copy of ${remote.path}.`);
+      }
+      await atomicWrite(join(this.workspacePath, remote.path), content);
+      downloaded += 1;
+    }
+    if (downloaded > 0) this.indexedEntries.clear();
+    return downloaded;
+  }
+
+  async saveSyncBaseline(files: DriveLibraryFile[]): Promise<void> {
+    const path = join(this.workspacePath, '.shared-library', 'electron-sync-state.json');
+    await atomicWrite(
+      path,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          updatedAt: new Date().toISOString(),
+          files: Object.fromEntries(files.map((file) => [file.path, file.contentHash]))
+        },
+        null,
+        2
+      )}\n`
+    );
   }
 
   private async indexSource(
@@ -253,6 +481,80 @@ export class LibraryService {
     for (let suffix = 0; ; suffix += 1) {
       const filename = `${base}${suffix === 0 ? '' : `-${suffix + 1}`}.md`;
       if (!(await isFile(join(this.workspacePath, 'library', filename)))) return filename;
+    }
+  }
+
+  private async ensureTopic(name: string): Promise<string> {
+    const title = name.trim().replace(/\s+/g, ' ').slice(0, 48);
+    if (!title) throw new Error('Processing did not return a topic.');
+    const existing = await this.readTopicNames();
+    for (const [id, currentTitle] of existing) {
+      if (currentTitle.toLowerCase() === title.toLowerCase()) return id;
+    }
+    let id = slug(title);
+    let suffix = 2;
+    while (existing.has(id)) {
+      id = `${slug(title)}-${suffix}`;
+      suffix += 1;
+    }
+    const path = join(this.workspacePath, 'topics.md');
+    let text = '';
+    try {
+      text = await readFile(path, 'utf8');
+    } catch {
+      text = 'topics:\n';
+    }
+    if (!text.trim()) text = 'topics:\n';
+    if (!/^topics:\s*$/m.test(text)) text = `topics:\n${text}`;
+    const separator = text.endsWith('\n') ? '' : '\n';
+    await atomicWrite(
+      path,
+      `${text}${separator}  - id: ${JSON.stringify(id)}\n    title: ${JSON.stringify(title)}\n`
+    );
+    return id;
+  }
+
+  private async mirroredPaths(): Promise<string[]> {
+    const paths: string[] = [];
+    if (await isFile(join(this.workspacePath, 'topics.md'))) paths.push('topics.md');
+    const walk = async (directory: string, relative: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+        const childPath = join(directory, entry.name);
+        if (entry.isDirectory()) await walk(childPath, childRelative);
+        else if (entry.isFile() && childRelative.toLowerCase().endsWith('.md')) {
+          paths.push(`library/${childRelative}`);
+        }
+      }
+    };
+    await walk(join(this.workspacePath, 'library'), '');
+    return paths.sort((left, right) => left.localeCompare(right));
+  }
+
+  private async readSyncBaseline(): Promise<Record<string, string>> {
+    try {
+      const value = JSON.parse(
+        await readFile(
+          join(this.workspacePath, '.shared-library', 'electron-sync-state.json'),
+          'utf8'
+        )
+      ) as { schemaVersion?: number; files?: unknown };
+      if (value.schemaVersion !== 1 || typeof value.files !== 'object' || !value.files) {
+        return {};
+      }
+      return Object.fromEntries(
+        Object.entries(value.files).filter(
+          ([path, hash]) => validMirroredPath(path) && typeof hash === 'string'
+        )
+      ) as Record<string, string>;
+    } catch {
+      return {};
     }
   }
 }
@@ -382,6 +684,54 @@ function titleize(value: string): string {
   return value
     .replace(/[-_]+/g, ' ')
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function countWords(value: string): number {
+  return value.trim() ? value.trim().split(/\s+/u).length : 0;
+}
+
+function validMirroredPath(value: string): boolean {
+  if (value === 'topics.md') return true;
+  if (!value.startsWith('library/') || !value.toLowerCase().endsWith('.md')) return false;
+  return !value.split('/').some((component) => !component || component === '.' || component === '..');
+}
+
+function serializeFrontmatter(metadata: Record<string, string | string[]>): string {
+  const preferred = [
+    'id',
+    'type',
+    'title',
+    'created_at',
+    'updated_at',
+    'tags',
+    'topics',
+    'source_url'
+  ];
+  const keys = [
+    ...preferred.filter((key) => metadata[key] !== undefined),
+    ...Object.keys(metadata)
+      .filter((key) => !preferred.includes(key))
+      .sort()
+  ];
+  const lines = ['---'];
+  for (const key of keys) {
+    const value = metadata[key];
+    if (Array.isArray(value)) {
+      if (value.length === 0) lines.push(`${key}: []`);
+      else {
+        lines.push(`${key}:`);
+        for (const item of value) lines.push(`  - ${JSON.stringify(item)}`);
+      }
+    } else {
+      lines.push(`${key}: ${JSON.stringify(value)}`);
+    }
+  }
+  lines.push('---');
+  return lines.join('\n');
 }
 
 async function isFile(path: string): Promise<boolean> {

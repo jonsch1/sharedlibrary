@@ -202,6 +202,62 @@ test('Google Drive setup is centrally configured without exposing OAuth credenti
 	assert.equal('clientSecret' in googleStatus, false);
 });
 
+test('Google sign-in is available without an existing Sites account session', async () => {
+	const env = environment();
+	const statusResponse = await worker.fetch(
+		new Request('https://library.example/api/google/status'),
+		env
+	);
+	assert.equal(statusResponse.status, 401);
+	assert.deepEqual(await statusResponse.json(), {
+		configured: true,
+		connected: false,
+		authenticated: false
+	});
+	const startResponse = await worker.fetch(
+		new Request('https://library.example/api/auth/google/start'),
+		env
+	);
+	assert.equal(startResponse.status, 302);
+	assert.equal(new URL(startResponse.headers.get('location')).hostname, 'accounts.google.com');
+});
+
+test('desktop library uploads validate the index before touching Drive', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/library/sync', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				schemaVersion: 1,
+				index: {
+					schemaVersion: 3,
+					generatedAt: new Date().toISOString(),
+					files: [
+						{
+							path: 'library/example.md',
+							contentHash: 'a'.repeat(64),
+							byteCount: 7
+						}
+					],
+					entries: []
+				},
+				files: [
+					{
+						path: 'library/example.md',
+						contentHash: 'a'.repeat(64),
+						content: 'example'
+					}
+				]
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 413);
+});
+
 test('group-folder sharing endpoints are no longer exposed', async () => {
 	for (const path of ['/api/sharing/status', '/api/inbox']) {
 		const response = await worker.fetch(authenticatedRequest(path), environment());
@@ -321,7 +377,7 @@ test('Google authorization uses the central web client with each user account', 
 	);
 	assert.equal(
 		authorizationURL.searchParams.get('scope'),
-		'https://www.googleapis.com/auth/drive.file'
+		'openid email https://www.googleapis.com/auth/drive.file'
 	);
 });
 

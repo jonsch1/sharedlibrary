@@ -27,7 +27,15 @@ export async function loadGoogleDriveConnection(): Promise<GoogleDriveConnection
 		headers: { Accept: 'application/json' },
 		cache: 'no-store'
 	});
-	if (response.status === 401 || response.status === 404) {
+	if (response.status === 401) {
+		try {
+			const value = (await response.json()) as { configured?: unknown };
+			return { configured: value.configured === true, connected: false };
+		} catch {
+			return { configured: true, connected: false };
+		}
+	}
+	if (response.status === 404) {
 		return { configured: false, connected: false };
 	}
 	if (!response.ok) {

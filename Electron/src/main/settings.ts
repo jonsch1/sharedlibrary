@@ -1,8 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-interface DesktopSettings {
+import type { OpenRouterVoice } from '../shared/contracts.js';
+
+export interface DesktopSettings {
   workspacePath?: string;
+  voice?: OpenRouterVoice;
 }
 
 export class SettingsStore {
@@ -25,5 +28,11 @@ export class SettingsStore {
     const temporaryPath = `${this.filePath}.tmp`;
     await writeFile(temporaryPath, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
     await rename(temporaryPath, this.filePath);
+  }
+
+  async update(patch: Partial<DesktopSettings>): Promise<DesktopSettings> {
+    const next = { ...(await this.load()), ...patch };
+    await this.save(next);
+    return next;
   }
 }

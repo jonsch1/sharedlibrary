@@ -14,4 +14,4 @@
   );
 </script>
 
-<div class="markdown-body">{@html html}</div>
+<div class="library-prose">{@html html}</div>

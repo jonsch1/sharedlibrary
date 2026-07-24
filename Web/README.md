@@ -9,11 +9,11 @@ the background.
 
 ## Google Drive
 
-Enable the Google Drive and Google Picker APIs and create one Web application OAuth client. Configure
+Enable the Google Drive API and create one Web application OAuth client. Configure
 its Client ID and Client Secret once for the deployment, then register
 `https://<production-origin>/api/google/connect/callback` as an authorized redirect
-URI. Set `SHARED_LIBRARY_GROUP_FOLDER_ID` to the administrator-selected group folder.
-Each user connects their own Google account and confirms that predefined folder once.
+URI. Google sign-in creates an app session and configures one personal library
+folder for the account. The web and Electron clients reuse that saved location.
 
 The backend encrypts account tokens and requests only `drive.file`. It can therefore
 access only files Shared Library creates or that the user explicitly opens with it,
@@ -47,6 +47,6 @@ The deployment needs:
 - an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
   64 hexadecimal characters;
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
-- `SHARED_LIBRARY_GROUP_FOLDER_ID` containing the predefined group folder ID;
-- Sites authentication enabled so every credential row is scoped to
-  `oai-authenticated-user-email`.
+- public access to the Google sign-in and capability-link routes. Provider
+  credentials and library operations remain account-scoped by the app's secure,
+  HTTP-only Google session cookie.

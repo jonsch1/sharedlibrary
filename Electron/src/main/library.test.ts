@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -76,6 +77,54 @@ Original body.
         'library/example.md',
         'library/summaries/brief/example.md'
       ]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('builds a folder-preserving Drive mirror and keeps local files on the first merge', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'shared-library-electron-sync-'));
+  try {
+    await mkdir(join(root, 'library'), { recursive: true });
+    await writeFile(
+      join(root, 'library', 'local.md'),
+      `---\nid: "local-1"\ntitle: "Local"\ntopics: []\ntags: []\n---\n\nLocal text.\n`
+    );
+    const service = new LibraryService(root, 'linux', async () => {});
+    const local = await service.buildDriveMirror();
+    assert.deepEqual(local.files.map((file) => file.path), ['library/local.md']);
+    assert.equal(local.index.schemaVersion, 3);
+    assert.equal(local.index.entries[0].texts[0].path, 'library/local.md');
+
+    const remoteText = `---\nid: "local-1"\ntitle: "Remote"\ntopics: []\ntags: []\n---\n\nRemote text.\n`;
+    const remoteOnly = `---\nid: "remote-2"\ntitle: "Remote only"\ntopics: []\ntags: []\n---\n\nNew remote text.\n`;
+    const remoteFiles = [
+      {
+        path: 'library/local.md',
+        contentHash: createHash('sha256').update(remoteText).digest('hex'),
+        byteCount: Buffer.byteLength(remoteText)
+      },
+      {
+        path: 'library/remote-only.md',
+        contentHash: createHash('sha256').update(remoteOnly).digest('hex'),
+        byteCount: Buffer.byteLength(remoteOnly)
+      }
+    ];
+    const downloaded = await service.mergeRemoteMirror(
+      {
+        schemaVersion: 3,
+        generatedAt: new Date().toISOString(),
+        files: remoteFiles,
+        entries: []
+      },
+      async (file) => (file.path.endsWith('remote-only.md') ? remoteOnly : remoteText)
+    );
+    assert.equal(downloaded, 1);
+    assert.match(await readFile(join(root, 'library', 'local.md'), 'utf8'), /Local text/);
+    assert.match(
+      await readFile(join(root, 'library', 'remote-only.md'), 'utf8'),
+      /New remote text/
     );
   } finally {
     await rm(root, { recursive: true, force: true });

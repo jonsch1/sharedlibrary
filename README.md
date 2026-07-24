@@ -6,10 +6,11 @@ mobile access, narration, offline caching, and deliberate public share links.
 Google Drive is the private-library synchronization service; the sharing service
 stores only documents the user explicitly publishes.
 
-`Electron/` contains the in-progress cross-platform desktop rewrite for macOS,
-Windows, and Linux. Its first runnable baseline opens the same workspace directly
-and supports local browsing, search, editing, clipboard capture, and coordinated
-Trash while the native app remains available during the migration.
+`Electron/` contains the cross-platform desktop rewrite for macOS, Windows, and
+Linux. It opens the same workspace directly and now includes capture extraction,
+Codex processing, Google Drive synchronization, OpenRouter narration, share links,
+editing, and coordinated Trash while the native app remains available during the
+migration.
 
 The default workspace is `~/Documents/Shared Library`.
 
@@ -79,11 +80,11 @@ Google Drive and copies published narration into their private audio mirror.
 
 ## Google Drive synchronization
 
-The Mac app remains the editing source. After meaningful changes—captures, edits,
-reorganizations, deletions, launch, wake, or restored connectivity—it mirrors
-`library/` and `topics.md` to the same folder structure in Drive. Files are compared
-by SHA-256 hash, so unchanged files are not uploaded. Deletions are moved to Drive
-Trash, and the lightweight index is updated last.
+Every desktop client is an editing source. After meaningful changes—captures, edits,
+processing, deletions, launch, wake, or restored connectivity—it mirrors `library/`
+and `topics.md` to the same folder structure in Drive. Files are compared by SHA-256
+hash, so unchanged files are not uploaded. Deletions are moved to Drive Trash, and
+the lightweight index is updated last.
 
 The web reader checks Drive when it opens, every few minutes while running, when it
 regains focus, and when it returns online. It downloads every changed Markdown file
@@ -97,8 +98,12 @@ cached locally on every connected client and stored under `audio/` in the visibl
 `Shared Library Media` folders are reused so earlier audio is not orphaned. Existing
 audio is mirrored in the background and remains playable offline.
 
-The integration requests only the `drive.file` scope, so it can access files created
-by Shared Library rather than the user's entire Drive.
+Google is the account boundary for the web and Electron clients. The first sign-in
+creates or reuses one visible `Shared Library` folder and saves that folder ID for
+the account; later clients discover the same location after Google sign-in. The
+integration requests `openid`, `email`, and the narrow `drive.file` scope, so it can
+identify the account and access only files created by Shared Library or explicitly
+selected by the user—not the rest of the user's Drive.
 
 For the macOS app, create a Google OAuth **Desktop app** client and set
 `SHARED_LIBRARY_GOOGLE_DESKTOP_CLIENT_ID` when building. Authorization uses PKCE with

@@ -31,7 +31,7 @@
     "vite": "7.3.6"
   },
   "build": {
-    "appId": "com.sharedlibrary.app",
+    "appId": "com.sharedlibrary.desktop.electron",
     "productName": "Shared Library",
     "directories": {
       "output": "release"
@@ -39,6 +39,15 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../Tools/extractor",
+        "to": "Tools/extractor",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

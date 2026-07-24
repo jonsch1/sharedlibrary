@@ -6,17 +6,49 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  net,
+  protocol,
   shell
 } from 'electron';
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
+import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import type { LibraryVariant } from '../shared/contracts.js';
+import type {
+  ConnectionProvider,
+  DesktopConnectionStatus,
+  LibraryVariant,
+  OpenRouterVoice
+} from '../shared/contracts.js';
+import { BackendClient } from './backend.js';
+import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
+import { NarrationService } from './narration.js';
+import { ProcessingService } from './processing.js';
 import { SettingsStore } from './settings.js';
+import { SyncCoordinator } from './sync.js';
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'shared-library-audio',
+    privileges: {
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true
+    }
+  }
+]);
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
 let library: LibraryService;
 let settings: SettingsStore;
+let backend: BackendClient;
+let extraction: ExtractionService;
+let processing: ProcessingService;
+let narration: NarrationService;
+let sync: SyncCoordinator;
+let voice: OpenRouterVoice = 'eve';
 
 function defaultWorkspacePath(): string {
   return join(app.getPath('documents'), 'Shared Library');
@@ -28,6 +60,43 @@ async function snapshotAndNotify() {
   return snapshot;
 }
 
+function sendOperationMessage(message: string, selectedEntryID?: string): void {
+  mainWindow?.webContents.send('desktop:operation-message', {
+    message,
+    selectedEntryID
+  });
+}
+
+async function connectionStatus(): Promise<DesktopConnectionStatus> {
+  const account = await backend.accountStatus();
+  const [google, openrouter] = account.authenticated
+    ? await Promise.all([
+        backend.providerStatus('google'),
+        backend.providerStatus('openrouter')
+      ])
+    : [{ configured: true, connected: false }, { connected: false }];
+  return {
+    authenticated: account.authenticated,
+    google: {
+      configured: google.configured !== false,
+      connected: google.connected === true,
+      connectedAt:
+        typeof google.connectedAt === 'string' ? google.connectedAt : undefined
+    },
+    openrouter: {
+      connected: openrouter.connected === true,
+      connectedAt:
+        typeof openrouter.connectedAt === 'string'
+          ? openrouter.connectedAt
+          : undefined,
+      userID:
+        typeof openrouter.userID === 'string' ? openrouter.userID : undefined
+    },
+    sync: sync.currentStatus(),
+    voice
+  };
+}
+
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     title: 'Shared Library',
@@ -36,7 +105,7 @@ async function createWindow(): Promise<void> {
     minWidth: 920,
     minHeight: 620,
     backgroundColor: '#dadbd4',
-    show: false,
+    show: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -44,7 +113,6 @@ async function createWindow(): Promise<void> {
       sandbox: true
     }
   });
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -74,7 +142,7 @@ function registerIPC(): void {
     const path = result.filePaths[0];
     if (result.canceled || !path) return null;
     library.setWorkspacePath(path);
-    await settings.save({ workspacePath: path });
+    await settings.update({ workspacePath: path });
     return snapshotAndNotify();
   });
   ipcMain.handle(
@@ -86,6 +154,7 @@ function registerIPC(): void {
     'library:write-text',
     async (_event, entryID: string, variant: LibraryVariant, text: string) => {
       await library.writeText(entryID, variant, text);
+      sync.request('document edits');
       return {
         snapshot: await snapshotAndNotify(),
         message: 'Document saved.',
@@ -95,20 +164,13 @@ function registerIPC(): void {
   );
   ipcMain.handle('library:trash-capture', async (_event, entryID: string) => {
     await library.trashCapture(entryID);
+    sync.request('deleted documents');
     return {
       snapshot: await snapshotAndNotify(),
       message: 'The source and its summaries were moved to Trash.'
     };
   });
-  ipcMain.handle('library:capture-clipboard', async () => {
-    const captureID = await library.captureText(clipboard.readText());
-    const snapshot = await snapshotAndNotify();
-    return {
-      snapshot,
-      message: 'Clipboard captured. Extraction and summary processing will be ported next.',
-      selectedEntryID: snapshot.entries.find((entry) => entry.captureID === captureID)?.id
-    };
-  });
+  ipcMain.handle('library:capture-clipboard', () => captureClipboard());
   ipcMain.handle('library:open-external', async (_event, value: string) => {
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -122,6 +184,80 @@ function registerIPC(): void {
     if (!entry) throw new Error('The selected item no longer exists.');
     shell.showItemInFolder(join(library.getWorkspacePath(), 'library', entry.filename));
   });
+  ipcMain.handle('services:get-status', () => connectionStatus());
+  ipcMain.handle(
+    'services:connect',
+    async (_event, provider: ConnectionProvider) => {
+      if (provider !== 'google' && provider !== 'openrouter') {
+        throw new Error('Unknown connection provider.');
+      }
+      await backend.connect(provider, mainWindow);
+      if (provider === 'google') await sync.synchronize('Google Drive');
+      return connectionStatus();
+    }
+  );
+  ipcMain.handle(
+    'services:disconnect',
+    async (_event, provider: ConnectionProvider) => {
+      if (provider !== 'google' && provider !== 'openrouter') {
+        throw new Error('Unknown connection provider.');
+      }
+      await backend.disconnect(provider);
+      return connectionStatus();
+    }
+  );
+  ipcMain.handle('services:sync-now', async () => {
+    await sync.synchronize('the library');
+    return connectionStatus();
+  });
+  ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
+    if (!['eve', 'ara', 'leo', 'rex', 'sal'].includes(nextVoice)) {
+      throw new Error('Unknown narration voice.');
+    }
+    voice = nextVoice;
+    await settings.update({ voice });
+    return connectionStatus();
+  });
+  ipcMain.handle(
+    'narration:start',
+    async (_event, entryID: string, variant: LibraryVariant, selectedVoice: OpenRouterVoice) => {
+      const text = await library.readText(entryID, variant);
+      return narration.start(text, selectedVoice);
+    }
+  );
+  ipcMain.handle('sharing:get', async (_event, entryID: string) => {
+    const entry = await entryForID(entryID);
+    return backend.shareStatus(entry.captureID);
+  });
+  ipcMain.handle(
+    'sharing:publish',
+    async (_event, entryID: string, selectedVoice: OpenRouterVoice) => {
+      const entry = await entryForID(entryID);
+      const syncStatus = await sync.synchronize('the document');
+      if (syncStatus.phase === 'error') throw new Error(syncStatus.message);
+      let result = await backend.publishShare(entry.captureID, selectedVoice);
+      for (let attempt = 0; result.status === 'preparing' && attempt < 30; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        result = await backend.shareStatus(entry.captureID);
+      }
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'The share link could not be prepared.');
+      }
+      if (result.url) clipboard.writeText(result.url);
+      return result;
+    }
+  );
+  ipcMain.handle('sharing:revoke', async (_event, token: string) => {
+    if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new Error('Invalid share link.');
+    await backend.revokeShare(token);
+  });
+}
+
+async function entryForID(entryID: string) {
+  const snapshot = await library.snapshot();
+  const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
+  if (!entry) throw new Error('The selected library item no longer exists.');
+  return entry;
 }
 
 function installMenu(): void {
@@ -192,33 +328,87 @@ function installMenu(): void {
 
 async function captureFromMenu(): Promise<void> {
   try {
-    const captureID = await library.captureText(clipboard.readText());
-    const snapshot = await snapshotAndNotify();
+    const result = await captureClipboard();
     mainWindow?.show();
     mainWindow?.focus();
-    mainWindow?.webContents.send('desktop:operation-message', {
-      message: 'Clipboard captured.',
-      selectedEntryID: snapshot.entries.find((entry) => entry.captureID === captureID)?.id
-    });
+    sendOperationMessage(result.message, result.selectedEntryID);
   } catch (error) {
-    mainWindow?.webContents.send('desktop:operation-message', {
-      message: error instanceof Error ? error.message : 'Clipboard capture failed.'
-    });
+    sendOperationMessage(error instanceof Error ? error.message : 'Clipboard capture failed.');
+  }
+}
+
+async function captureClipboard() {
+  const text = clipboard.readText();
+  let extracted;
+  try {
+    extracted = await extraction.extractClipboard(text);
+  } catch {
+    extracted = undefined;
+  }
+  const captureID = await library.captureText(text, extracted);
+  const entryID = `personal:${captureID}`;
+  const snapshot = await snapshotAndNotify();
+  sync.request('the new capture');
+  void processCapture(entryID);
+  return {
+    snapshot,
+    message: 'Captured. Summaries are being prepared in the background.',
+    selectedEntryID: entryID
+  };
+}
+
+async function processCapture(entryID: string): Promise<void> {
+  try {
+    sendOperationMessage('Processing the new capture…', entryID);
+    const processedID = await processing.process(entryID, library);
+    await snapshotAndNotify();
+    sendOperationMessage('Capture processed and added to the library.', processedID);
+    sync.request('processed summaries');
+  } catch (error) {
+    sendOperationMessage(
+      error instanceof Error ? error.message : 'The capture could not be processed.',
+      entryID
+    );
   }
 }
 
 app.whenReady().then(async () => {
   settings = new SettingsStore(app.getPath('userData'));
   const saved = await settings.load();
+  voice = saved.voice ?? 'eve';
   library = new LibraryService(
     saved.workspacePath ?? defaultWorkspacePath(),
     process.platform,
     (path) => shell.trashItem(path)
   );
+  backend = new BackendClient();
+  extraction = new ExtractionService();
+  processing = new ProcessingService();
+  narration = new NarrationService(
+    join(app.getPath('userData'), 'audio'),
+    backend,
+    (segment) => mainWindow?.webContents.send('narration:segment', segment)
+  );
+  protocol.handle('shared-library-audio', (request) => {
+    const path = narration.pathForURL(request.url);
+    return path
+      ? net.fetch(pathToFileURL(path).toString())
+      : Promise.resolve(new Response('Not found.', { status: 404 }));
+  });
+  sync = new SyncCoordinator(
+    backend,
+    library,
+    (status) => mainWindow?.webContents.send('sync:status', status),
+    async () => {
+      await snapshotAndNotify();
+    }
+  );
   registerIPC();
   installMenu();
   await createWindow();
   globalShortcut.register('CommandOrControl+G', () => void captureFromMenu());
+  sync.request('the library', 1500);
+  setInterval(() => sync.request('background changes', 100), 5 * 60 * 1000).unref();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
