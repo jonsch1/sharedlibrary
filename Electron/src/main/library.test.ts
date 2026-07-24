@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import test from 'node:test';
 import { LibraryService, parseMarkdown } from './library.js';
 
@@ -132,10 +132,10 @@ Original body.
 
     await service.trashCapture(initial.entries[0].id);
     assert.deepEqual(
-      trashed.map((path) => path.slice(root.length + 1)).sort(),
+      trashed.map((path) => relative(root, path)).sort(),
       [
-        'library/example.md',
-        'library/summaries/brief/example.md'
+        join('library', 'example.md'),
+        join('library', 'summaries', 'brief', 'example.md')
       ]
     );
   } finally {
