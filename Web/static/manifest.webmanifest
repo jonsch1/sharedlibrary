@@ -1,7 +1,7 @@
 {
-	"name": "Shared Library",
-	"short_name": "Library",
-	"description": "A private, offline-friendly reader for Shared Library snapshots.",
+	"name": "Briefly",
+	"short_name": "Briefly",
+	"description": "A private, offline-friendly reader for Briefly.",
 	"id": "/",
 	"start_url": "/",
 	"scope": "/",

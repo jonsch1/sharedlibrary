@@ -1,12 +1,12 @@
 ---
-name: shared-library-deep-research
-description: Plan and conduct deep research through the Shared Library desktop app. Use when the user wants an agent to identify relevant web sources, request approval for an exact URL list, import only approved URLs under a named topic, wait for automatic summaries, and synthesize or continue working from those summaries.
+name: briefly-deep-research
+description: Plan and conduct deep research through the Briefly desktop app. Use when the user wants an agent to identify relevant web sources, request approval for an exact URL list, import only approved URLs under a named topic, wait for automatic summaries, and synthesize or continue working from those summaries.
 ---
 
-# Shared Library Deep Research
+# Briefly Deep Research
 
-Use the app-managed CLI in `scripts/shared_library.py`. It discovers the
-loopback API connection written by the running Shared Library app. Use
+Use the app-managed CLI in `scripts/briefly.py`. It discovers the loopback API
+connection written by the running Briefly app. Use
 `python3` on macOS/Linux and `py -3` on Windows; examples below use `python3`.
 
 ## Workflow
@@ -22,25 +22,25 @@ loopback API connection written by the running Shared Library app. Use
 4. After approval, check the app:
 
    ```bash
-   python3 <skill-dir>/scripts/shared_library.py status
+   python3 <skill-dir>/scripts/briefly.py status
    ```
 
-   A sandbox may block `127.0.0.1` even when Shared Library is running. If the
+   A sandbox may block `127.0.0.1` even when Briefly is running. If the
    workspace connection file exists but this command cannot connect, retry the
    exact CLI command with narrowly scoped localhost/network permission. Never
    print the connection file or bearer token. Ask the user to open or restart
-   Shared Library only if the permitted retry also fails. Do not bypass the app
+   Briefly only if the permitted retry also fails. Do not bypass the app
    by writing directly to `library/` or `topics.md`.
 5. Create or reuse the topic:
 
    ```bash
-   python3 <skill-dir>/scripts/shared_library.py create-topic --title "<topic>"
+   python3 <skill-dir>/scripts/briefly.py create-topic --title "<topic>"
    ```
 
 6. Submit the approved URLs using the returned topic ID:
 
    ```bash
-   python3 <skill-dir>/scripts/shared_library.py add-urls \
+   python3 <skill-dir>/scripts/briefly.py add-urls \
      --topic "<topic-id>" --approved "<url-1>" "<url-2>"
    ```
 
@@ -49,7 +49,7 @@ loopback API connection written by the running Shared Library app. Use
 7. Poll the returned job until `status` is `completed`:
 
    ```bash
-   python3 <skill-dir>/scripts/shared_library.py job "<job-id>"
+   python3 <skill-dir>/scripts/briefly.py job "<job-id>"
    ```
 
    Report per-source failures. Do not silently replace failed URLs; propose
@@ -57,7 +57,7 @@ loopback API connection written by the running Shared Library app. Use
 8. Retrieve the app-generated summaries:
 
    ```bash
-   python3 <skill-dir>/scripts/shared_library.py items \
+   python3 <skill-dir>/scripts/briefly.py items \
      --topic "<topic-id>" --variant detailed
    ```
 

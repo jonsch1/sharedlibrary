@@ -586,7 +586,7 @@
 		if (!selectedEntry) return;
 		if (installedAppleWebApp) {
 			audioMessage =
-				'Apple currently blocks audio in installed iPhone web apps. Delete this Home Screen icon, reopen Shared Library in Safari, then add it again with “Open as Web App” turned off.';
+				'Apple currently blocks audio in installed iPhone web apps. Delete this Home Screen icon, reopen Briefly in Safari, then add it again with “Open as Web App” turned off.';
 			connectionsVisible = true;
 			return;
 		}
@@ -682,25 +682,25 @@
 </script>
 
 <svelte:head>
-	<title>Shared Library</title>
+	<title>Briefly</title>
 	<meta
 		name="description"
 		content="A private, offline-friendly reader synchronized through your Google Drive."
 	/>
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Shared Library" />
+	<meta property="og:title" content="Briefly" />
 	<meta
 		property="og:description"
 		content="Read, search, and listen to your private library anywhere."
 	/>
-	<meta property="og:image" content="/og-v2.png" />
+	<meta property="og:image" content="https://www.readbriefly.fyi/og.png" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Shared Library" />
+	<meta name="twitter:title" content="Briefly" />
 	<meta
 		name="twitter:description"
 		content="Read, search, and listen to your private library anywhere."
 	/>
-	<meta name="twitter:image" content="/og-v2.png" />
+	<meta name="twitter:image" content="https://www.readbriefly.fyi/og.png" />
 </svelte:head>
 
 {#if publicShareToken}
@@ -729,7 +729,7 @@
 					<CloudIcon />
 					<span class="empty-check"><CheckIcon /></span>
 				</div>
-				<p class="eyebrow">Shared Library</p>
+				<p class="eyebrow">Briefly</p>
 				{#if googleConnection.connected && googleSyncing}
 					<h1>Making your library available</h1>
 					<p class="empty-copy">{googleSyncDescription()}</p>
@@ -1003,7 +1003,7 @@
 						</Button>
 						<p class="connection-help">
 							{#if googleConnection.configured}
-								Shared Library remembers one personal folder for this Google account.
+								Briefly remembers one personal folder for this Google account.
 								The narrow <code>drive.file</code> permission limits access to the
 								library and audio files the app creates or you explicitly select.
 							{:else}
@@ -1021,7 +1021,7 @@
 							<strong>Listening needs Safari on this iPhone</strong>
 							<p>
 								Apple has an audio bug in installed Home Screen web apps. Delete this
-								icon, open Shared Library in Safari, then add it again. If shown, turn
+								icon, open Briefly in Safari, then add it again. If shown, turn
 								off “Open as Web App.”
 							</p>
 						</div>

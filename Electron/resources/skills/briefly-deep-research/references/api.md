@@ -1,4 +1,4 @@
-# Shared Library agent API
+# Briefly agent API
 
 The desktop app binds an ephemeral HTTP server to `127.0.0.1` and writes its
 connection details to `.shared-library/agent-api.json` in the selected

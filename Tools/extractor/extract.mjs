@@ -9,13 +9,20 @@ if (!url) {
   process.exit(2);
 }
 
-const requestedFirecrawlMode = process.env.SHARED_LIBRARY_FIRECRAWL_MODE?.trim();
+const requestedFirecrawlMode = (
+  process.env.BRIEFLY_FIRECRAWL_MODE ??
+  process.env.SHARED_LIBRARY_FIRECRAWL_MODE
+)?.trim();
 const firecrawlMode = ["off", "auto", "always"].includes(requestedFirecrawlMode)
   ? requestedFirecrawlMode
   : process.env.FIRECRAWL_API_KEY
     ? "auto"
     : "off";
-const includeTranscriptTimestamps = parseBoolean(process.env.SHARED_LIBRARY_TRANSCRIPT_TIMESTAMPS) ?? false;
+const includeTranscriptTimestamps =
+  parseBoolean(
+    process.env.BRIEFLY_TRANSCRIPT_TIMESTAMPS ??
+      process.env.SHARED_LIBRARY_TRANSCRIPT_TIMESTAMPS
+  ) ?? false;
 
 const client = createLinkPreviewClient({
   env: process.env,
@@ -143,7 +150,7 @@ async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
       "Accept": "application/json",
-      "User-Agent": "SharedLibrary/1.0"
+      "User-Agent": "Briefly/1.0"
     }
   });
   if (!response.ok) {

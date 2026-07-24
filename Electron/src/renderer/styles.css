@@ -919,13 +919,19 @@ button:disabled {
   color: var(--destructive);
 }
 
-.toast {
+.notification-stack {
   position: fixed;
   z-index: 90;
   top: 24px;
   right: 24px;
+  display: grid;
+  width: min(420px, calc(100% - 48px));
+  gap: 8px;
+}
+
+.toast,
+.ingestion-indicator {
   display: flex;
-  max-width: 420px;
   align-items: center;
   gap: 12px;
   padding: 11px 12px 11px 14px;
@@ -934,6 +940,18 @@ button:disabled {
   background: var(--popover);
   box-shadow: 0 12px 35px rgb(31 31 29 / 18%);
   font-size: 12px;
+}
+
+.ingestion-indicator {
+  border-color: rgb(57 103 86 / 34%);
+  background: rgb(242 247 241);
+  color: rgb(40 74 61);
+}
+
+.ingestion-indicator svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
 }
 
 .toast.error {
@@ -1130,6 +1148,35 @@ button:disabled {
 .voice-field select:focus,
 .voice-field input:focus {
   box-shadow: 0 0 0 2px rgb(80 82 77 / 12%);
+}
+
+.shortcut-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.shortcut-controls input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: none;
+  padding: 0 11px;
+  background: rgb(245 244 237);
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.shortcut-controls input.recording {
+  border-color: rgb(57 103 86 / 58%);
+  background: rgb(240 246 240);
+  box-shadow: 0 0 0 2px rgb(57 103 86 / 12%);
+}
+
+.settings-card .shortcut-status {
+  margin-top: 9px;
 }
 
 .processing-field-heading {
@@ -1550,10 +1597,11 @@ button:disabled {
     border-radius: 16px;
   }
 
-  .toast {
+  .notification-stack {
     top: 18px;
     right: 14px;
     left: 14px;
+    width: auto;
   }
 }
 
@@ -1722,7 +1770,8 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-.toast {
+.toast,
+.ingestion-indicator {
   animation: toast-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 

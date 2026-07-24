@@ -43,7 +43,7 @@ export async function fetchXContent(rawUrl, { fetchImpl = fetch } = {}) {
   const response = await fetchImpl(parsed.apiUrl, {
     headers: {
       "Accept": "application/json",
-      "User-Agent": "SharedLibrary/1.0"
+      "User-Agent": "Briefly/1.0"
     }
   });
   if (!response.ok) {

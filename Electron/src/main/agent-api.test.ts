@@ -24,12 +24,22 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
   const skillSource = join(root, 'skill-source');
   await mkdir(skillSource, { recursive: true });
   await writeFile(join(skillSource, 'SKILL.md'), '---\nname: test\n---\n');
+  const legacySkillPath = join(
+    workspace,
+    '.agents',
+    'skills',
+    'shared-library-deep-research'
+  );
+  await mkdir(legacySkillPath, { recursive: true });
+  await writeFile(join(legacySkillPath, 'SKILL.md'), 'legacy');
   const library = new LibraryService(
     workspace,
     'linux',
     (path) => rm(path, { force: true })
   );
   const syncReasons: string[] = [];
+  let activeIngestions = 0;
+  let completedIngestions = 0;
   const server = new AgentApiServer(
     {
       library,
@@ -43,7 +53,14 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       onLibraryChanged: async () => {
         await library.snapshot();
       },
-      onSyncRequested: (reason) => syncReasons.push(reason)
+      onSyncRequested: (reason) => syncReasons.push(reason),
+      onIngestionStarted: () => {
+        activeIngestions += 1;
+        return () => {
+          activeIngestions -= 1;
+          completedIngestions += 1;
+        };
+      }
     },
     skillSource
   );
@@ -54,6 +71,7 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
     const config = JSON.parse(await readFile(configPath, 'utf8')) as AgentApiConnection;
     assert.equal(config.baseURL, connection.baseURL);
     assert.equal(config.token, connection.token);
+    assert.equal(config.skill, 'briefly-deep-research');
     if (process.platform !== 'win32') {
       assert.equal((await stat(configPath)).mode & 0o777, 0o600);
     }
@@ -63,13 +81,14 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
           workspace,
           '.agents',
           'skills',
-          'shared-library-deep-research',
+          'briefly-deep-research',
           'SKILL.md'
         ),
         'utf8'
       ),
       /name: test/
     );
+    await assert.rejects(stat(legacySkillPath));
 
     const unauthorized = await fetch(`${connection.baseURL}/v1/status`);
     assert.equal(unauthorized.status, 401);
@@ -132,6 +151,8 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
     );
     assert.ok(syncReasons.includes('agent capture'));
     assert.ok(syncReasons.includes('agent summaries'));
+    assert.equal(activeIngestions, 0);
+    assert.equal(completedIngestions, 2);
 
     const duplicate = await api(
       connection,

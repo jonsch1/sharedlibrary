@@ -119,7 +119,7 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
 		!value.entries.every(isLibraryEntry)
 	) {
 		throw new Error(
-			'This is not a compatible Shared Library Drive index. Open the Mac app and let it synchronize again.'
+			'This is not a compatible Briefly Drive index. Open the desktop app and let it synchronize again.'
 		);
 	}
 	const projection = value as unknown as LibraryProjection & {
@@ -422,7 +422,7 @@ export const demoProjection: LibraryProjection = {
 				{
 					variant: 'source',
 					text:
-						'This sample document illustrates the format exported by Shared Library. Your real snapshot includes the original source text and every available summary level.'
+						'This sample document illustrates the format exported by Briefly. Your real snapshot includes the original source text and every available summary level.'
 				}
 			]
 		},

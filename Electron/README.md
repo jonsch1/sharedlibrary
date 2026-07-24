@@ -1,6 +1,6 @@
-# Shared Library Electron
+# Briefly Electron
 
-This directory contains the cross-platform Shared Library desktop application.
+This directory contains the cross-platform Briefly desktop application.
 
 ## Current baseline
 
@@ -10,11 +10,14 @@ This directory contains the cross-platform Shared Library desktop application.
   reading, editing, folder reveal, coordinated Trash, and clipboard capture.
 - Secure Electron boundary: sandboxed renderer, context isolation, no renderer
   Node.js access, and a narrow preload API keyed by library entry IDs.
-- `CommandOrControl-G` capture shortcut.
+- Configurable system-wide clipboard capture shortcut (default:
+  `CommandOrControl-G`).
 - Google sign-in configures one personal Drive location per account. Folder-structured
   Markdown and content-addressed audio are mirrored locally on every client.
 - Clipboard URLs use the bundled extractor, then the local Codex CLI creates four
-  summaries and assigns a topic in the background.
+  summaries and assigns a topic in the background. The app shows persistent ingest
+  status and mirrors active work on the dock/taskbar progress indicator; macOS also
+  shows the number of active ingests as a dock badge.
 - A bearer-authenticated agent API on `127.0.0.1` supports explicit topic creation,
   approved batch URL ingestion, job polling, and summary retrieval. Its bundled
   deep-research skill is installed into the selected workspace automatically.

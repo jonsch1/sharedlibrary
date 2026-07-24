@@ -1,4 +1,4 @@
-# Shared Library Sharing
+# Briefly Sharing
 
 ## Principle
 

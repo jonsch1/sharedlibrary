@@ -26,7 +26,7 @@ export class ExtractionService {
     const helper = this.helperPath();
     if (!helper) {
       throw new Error(
-        'The web extractor is missing from Shared Library. Reinstall the application.'
+        'The web extractor is missing from Briefly. Reinstall the application.'
       );
     }
 

@@ -1,8 +1,8 @@
 {
-  "name": "shared-library-electron",
+  "name": "briefly-electron",
   "version": "0.1.0",
   "private": true,
-  "description": "Cross-platform Shared Library desktop client",
+  "description": "Cross-platform Briefly desktop client",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -34,8 +34,8 @@
     "vite": "7.3.6"
   },
   "build": {
-    "appId": "com.sharedlibrary.desktop.electron",
-    "productName": "Shared Library",
+    "appId": "fyi.readbriefly.desktop",
+    "productName": "Briefly",
     "directories": {
       "output": "release"
     },
@@ -66,8 +66,8 @@
         "to": "icon.png"
       },
       {
-        "from": "resources/skills/shared-library-deep-research",
-        "to": "skills/shared-library-deep-research",
+        "from": "resources/skills/briefly-deep-research",
+        "to": "skills/briefly-deep-research",
         "filter": [
           "**/*"
         ]

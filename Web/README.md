@@ -1,6 +1,6 @@
-# Shared Library Web
+# Briefly Web
 
-The mobile Shared Library client is a private SvelteKit reader hosted with OpenAI
+The mobile Briefly client is a private SvelteKit reader hosted with OpenAI
 Sites. Google Drive supplies a lightweight file index, mirrored Markdown documents,
 and generated audio. IndexedDB keeps a complete path-preserving Markdown mirror
 available offline, and existing narration is mirrored into the local audio cache.
@@ -17,11 +17,11 @@ library folder for the account. The web and Electron clients reuse that saved
 location.
 
 The backend encrypts account tokens and requests only `drive.file`. It can therefore
-access only files Shared Library creates or that the user explicitly opens with it,
+access only files Briefly creates or that the user explicitly opens with it,
 not the rest of the user's Drive. The app mirrors `library/` and `topics.md`, stores a
 rebuildable metadata-only index under `.shared-library/`, and keeps content-addressed
-audio under `audio/` in a visible `Shared Library` folder. It reuses an existing
-`Shared Library Media` folder during migration.
+audio under `audio/` in a visible `Briefly` folder. It reuses existing
+`Shared Library` and `Shared Library Media` folders during migration.
 
 ## OpenRouter
 

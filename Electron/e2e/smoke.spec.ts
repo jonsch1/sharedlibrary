@@ -32,7 +32,7 @@ test(
         cwd: electronRoot,
         env: {
           ...process.env,
-          SHARED_LIBRARY_E2E_USER_DATA: userDataPath
+          BRIEFLY_E2E_USER_DATA: userDataPath
         }
       });
       electronApp.process().stdout?.on('data', (chunk) => {
@@ -61,7 +61,7 @@ test(
         if (message.type() === 'error') rendererErrors.push(message.text());
       });
 
-      await expect(page).toHaveTitle('Shared Library');
+      await expect(page).toHaveTitle('Briefly');
       await expect(
         page.getByRole('button', { name: 'Electron smoke fixture' })
       ).toBeVisible();

@@ -6,7 +6,7 @@ import { join, relative } from 'node:path';
 import test from 'node:test';
 import { LibraryService, parseMarkdown } from './library.js';
 
-test('parses Shared Library frontmatter lists and keeps the body separate', () => {
+test('parses Briefly frontmatter lists and keeps the body separate', () => {
   const parsed = parseMarkdown(`---
 id: "capture-1"
 title: "Example"

@@ -7,6 +7,7 @@ export interface DesktopSettings {
   workspacePath?: string;
   voice?: OpenRouterVoice;
   ttsModel?: string;
+  captureShortcut?: string;
   processingPrompt?: string;
 }
 

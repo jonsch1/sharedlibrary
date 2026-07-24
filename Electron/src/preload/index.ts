@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   DesktopLibrarySnapshot,
+  DesktopIngestionStatus,
   DesktopOperationResult,
   DesktopSyncStatus,
   LibraryVariant,
@@ -33,6 +34,10 @@ const api: SharedLibraryDesktopAPI = {
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
   setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
   setTTSModel: (model: string) => ipcRenderer.invoke('services:set-tts-model', model),
+  getShortcutPreferences: () => ipcRenderer.invoke('shortcuts:get-preferences'),
+  setCaptureShortcut: (accelerator: string) =>
+    ipcRenderer.invoke('shortcuts:set-capture', accelerator),
+  getIngestionStatus: () => ipcRenderer.invoke('ingestion:get-status'),
   getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
   updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>
     ipcRenderer.invoke('processing:update-preferences', preferences),
@@ -52,6 +57,12 @@ const api: SharedLibraryDesktopAPI = {
       listener(snapshot);
     ipcRenderer.on('library:changed', callback);
     return () => ipcRenderer.removeListener('library:changed', callback);
+  },
+  onIngestionStatus: (listener: (status: DesktopIngestionStatus) => void) => {
+    const callback = (_event: Electron.IpcRendererEvent, status: DesktopIngestionStatus) =>
+      listener(status);
+    ipcRenderer.on('ingestion:status', callback);
+    return () => ipcRenderer.removeListener('ingestion:status', callback);
   },
   onSyncStatus: (listener: (status: DesktopSyncStatus) => void) => {
     const callback = (_event: Electron.IpcRendererEvent, status: DesktopSyncStatus) =>

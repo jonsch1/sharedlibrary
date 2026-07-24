@@ -40,6 +40,18 @@ export interface DesktopOperationResult {
   selectedEntryID?: string;
 }
 
+export interface DesktopShortcutPreferences {
+  captureShortcut: string;
+  defaultCaptureShortcut: string;
+  registered: boolean;
+}
+
+export interface DesktopIngestionStatus {
+  phase: 'idle' | 'processing';
+  activeCount: number;
+  message: string;
+}
+
 export interface TopicDefinition {
   id: string;
   title: string;
@@ -177,6 +189,9 @@ export interface SharedLibraryDesktopAPI {
   syncNow(): Promise<DesktopConnectionStatus>;
   setVoice(voice: OpenRouterVoice): Promise<DesktopConnectionStatus>;
   setTTSModel(model: string): Promise<DesktopConnectionStatus>;
+  getShortcutPreferences(): Promise<DesktopShortcutPreferences>;
+  setCaptureShortcut(accelerator: string): Promise<DesktopShortcutPreferences>;
+  getIngestionStatus(): Promise<DesktopIngestionStatus>;
   getProcessingPreferences(): Promise<ProcessingPreferences>;
   updateProcessingPreferences(
     preferences: ProcessingPreferencesUpdate
@@ -190,6 +205,7 @@ export interface SharedLibraryDesktopAPI {
   publishShareLink(entryID: string, voice: OpenRouterVoice): Promise<ShareLinkStatus>;
   revokeShareLink(token: string): Promise<void>;
   onLibraryChanged(listener: (snapshot: DesktopLibrarySnapshot) => void): () => void;
+  onIngestionStatus(listener: (status: DesktopIngestionStatus) => void): () => void;
   onSyncStatus(listener: (status: DesktopSyncStatus) => void): () => void;
   onNarrationStatus(listener: (status: NarrationStatus) => void): () => void;
   onNarrationSegment(listener: (segment: NarrationSegment) => void): () => void;

@@ -196,10 +196,10 @@
 </script>
 
 <svelte:head>
-	<title>{document?.title ?? 'Shared document'} · Shared Library</title>
+	<title>{document?.title ?? 'Shared document'} · Briefly</title>
 	<meta
 		name="description"
-		content={document?.excerpt ?? 'A document shared with you through Shared Library.'}
+		content={document?.excerpt ?? 'A document shared with you through Briefly.'}
 	/>
 	<meta name="robots" content="noindex, nofollow, noarchive" />
 	<meta name="referrer" content="no-referrer" />

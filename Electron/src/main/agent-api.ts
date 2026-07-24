@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   rename,
+  rm,
   unlink,
   writeFile
 } from 'node:fs/promises';
@@ -33,6 +34,11 @@ const maximumURLsPerJob = 24;
 const jobConcurrency = 1;
 const connectionRelativePath = join('.shared-library', 'agent-api.json');
 const installedSkillRelativePath = join(
+  '.agents',
+  'skills',
+  'briefly-deep-research'
+);
+const legacyInstalledSkillRelativePath = join(
   '.agents',
   'skills',
   'shared-library-deep-research'
@@ -70,6 +76,7 @@ export interface AgentApiDependencies {
   onLibraryChanged(): Promise<void>;
   onSyncRequested(reason: string): void;
   onOperationMessage?(message: string, entryID?: string): void;
+  onIngestionStarted?(): () => void;
 }
 
 export interface AgentApiConnection {
@@ -77,7 +84,7 @@ export interface AgentApiConnection {
   baseURL: string;
   token: string;
   workspacePath: string;
-  skill: 'shared-library-deep-research';
+  skill: 'briefly-deep-research';
   pid: number;
   startedAt: string;
 }
@@ -160,7 +167,7 @@ export class AgentApiServer {
       baseURL: this.baseURL,
       token: this.token,
       workspacePath: this.dependencies.library.getWorkspacePath(),
-      skill: 'shared-library-deep-research',
+      skill: 'briefly-deep-research',
       pid: process.pid,
       startedAt: this.startedAt
     };
@@ -170,6 +177,10 @@ export class AgentApiServer {
     const workspacePath = this.dependencies.library.getWorkspacePath();
     await this.dependencies.library.ensureWorkspace();
     if (this.skillSourcePath) {
+      await rm(join(workspacePath, legacyInstalledSkillRelativePath), {
+        recursive: true,
+        force: true
+      });
       await mkdir(dirname(join(workspacePath, installedSkillRelativePath)), {
         recursive: true
       });
@@ -401,6 +412,7 @@ export class AgentApiServer {
   }
 
   private async runSource(job: AgentJob, source: AgentJobSource): Promise<void> {
+    const finishIngestion = this.dependencies.onIngestionStarted?.();
     try {
       source.status = 'extracting';
       touch(job);
@@ -428,6 +440,8 @@ export class AgentApiServer {
       source.error =
         error instanceof Error ? error.message : 'The source could not be imported.';
       touch(job);
+    } finally {
+      finishIngestion?.();
     }
   }
 

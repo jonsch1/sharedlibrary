@@ -1,8 +1,11 @@
 import { app, session } from 'electron';
 
-const userDataPath = process.env.SHARED_LIBRARY_E2E_USER_DATA?.trim();
+const userDataPath = (
+  process.env.BRIEFLY_E2E_USER_DATA ??
+  process.env.SHARED_LIBRARY_E2E_USER_DATA
+)?.trim();
 if (!userDataPath) {
-  throw new Error('SHARED_LIBRARY_E2E_USER_DATA must point to an isolated directory.');
+  throw new Error('BRIEFLY_E2E_USER_DATA must point to an isolated directory.');
 }
 
 app.setPath('userData', userDataPath);

@@ -90,7 +90,9 @@ function googleCloudProjectNumber(clientID) {
 }
 
 function configuredGroupFolderID(env) {
-	const value = String(env.SHARED_LIBRARY_GROUP_FOLDER_ID || '').trim();
+	const value = String(
+		env.BRIEFLY_GROUP_FOLDER_ID || env.SHARED_LIBRARY_GROUP_FOLDER_ID || ''
+	).trim();
 	return /^[A-Za-z0-9_-]{10,256}$/.test(value) ? value : null;
 }
 
@@ -491,7 +493,7 @@ async function createSpeech(request, env) {
 		headers: {
 			Authorization: `Bearer ${apiKey}`,
 			'Content-Type': 'application/json',
-			'X-Title': 'Shared Library'
+			'X-Title': 'Briefly'
 		},
 		body: JSON.stringify({
 			model,
@@ -851,7 +853,7 @@ async function startGoogleDriveConnection(request, env) {
 	const config = googleOAuthConfig(env);
 	if (!config) {
 		return json(
-			{ error: 'Shared Library has not been configured with Google Drive OAuth yet.' },
+			{ error: 'Briefly has not been configured with Google Drive OAuth yet.' },
 			{ status: 503 }
 		);
 	}
@@ -1192,6 +1194,7 @@ async function ensureDriveRootFolder(env, email) {
 	let value;
 	for (const query of [
 		"appProperties has { key='sharedLibraryRoot' and value='true' } and mimeType='application/vnd.google-apps.folder' and trashed=false",
+		"name='Briefly' and mimeType='application/vnd.google-apps.folder' and trashed=false",
 		"name='Shared Library' and mimeType='application/vnd.google-apps.folder' and trashed=false",
 		"name='Shared Library Media' and mimeType='application/vnd.google-apps.folder' and trashed=false"
 	]) {
@@ -1211,7 +1214,7 @@ async function ensureDriveRootFolder(env, email) {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					name: 'Shared Library',
+					name: 'Briefly',
 					mimeType: 'application/vnd.google-apps.folder',
 					appProperties: { sharedLibraryRoot: 'true' }
 				})
@@ -1994,7 +1997,7 @@ async function driveFolderMetadata(env, email, folderID) {
 	if (!response.ok) {
 		throw new Error(
 			response.status === 404
-				? 'Google Drive has not granted Shared Library access to that folder. Choose it with the folder picker, then try again.'
+				? 'Google Drive has not granted Briefly access to that folder. Choose it with the folder picker, then try again.'
 				: `The shared Google Drive folder could not be opened (${response.status}).`
 		);
 	}
@@ -2295,7 +2298,7 @@ async function connectSharedFolder(request, env) {
 	const groupFolderID = configuredGroupFolderID(env);
 	if (groupFolderID && folderID !== groupFolderID) {
 		return json(
-			{ error: 'Choose the predefined Shared Library group folder.' },
+			{ error: 'Choose the predefined Briefly group folder.' },
 			{ status: 400 }
 		);
 	}

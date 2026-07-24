@@ -14,16 +14,23 @@ import {
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
 import type { MessageBoxOptions } from 'electron';
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import type {
   ConnectionProvider,
   DesktopConnectionStatus,
+  DesktopIngestionStatus,
+  DesktopShortcutPreferences,
   LibraryVariant,
   OpenRouterVoice,
   ProcessingPreferences,
   ProcessingPreferencesUpdate
 } from '../shared/contracts.js';
+import {
+  defaultCaptureShortcut,
+  normalizeCaptureShortcut
+} from '../shared/shortcuts.js';
 import {
   defaultOpenRouterTTSModel,
   migrateVoiceForTTSModel,
@@ -54,6 +61,14 @@ protocol.registerSchemesAsPrivileged([
     }
   }
 ]);
+app.setName('Briefly');
+// Preserve the existing profile so the rebrand keeps settings, sessions, and audio.
+if (
+  !process.env.BRIEFLY_E2E_USER_DATA &&
+  !process.env.SHARED_LIBRARY_E2E_USER_DATA
+) {
+  app.setPath('userData', join(app.getPath('appData'), 'shared-library-electron'));
+}
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
@@ -67,9 +82,18 @@ let narration: NarrationService;
 let sync: SyncCoordinator;
 let voice: OpenRouterVoice = 'af_heart';
 let ttsModel = defaultOpenRouterTTSModel;
+let captureShortcut = defaultCaptureShortcut;
+let activeIngestionCount = 0;
 
-function defaultWorkspacePath(): string {
-  return join(app.getPath('documents'), 'Shared Library');
+async function defaultWorkspacePath(): Promise<string> {
+  const preferred = join(app.getPath('documents'), 'Briefly');
+  const legacy = join(app.getPath('documents'), 'Shared Library');
+  try {
+    if ((await stat(legacy)).isDirectory()) return legacy;
+  } catch {
+    // New installations use the Briefly workspace name.
+  }
+  return preferred;
 }
 
 function applicationIconPath(): string {
@@ -80,12 +104,12 @@ function applicationIconPath(): string {
 
 function bundledAgentSkillPath(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'skills', 'shared-library-deep-research')
+    ? join(process.resourcesPath, 'skills', 'briefly-deep-research')
     : join(
         app.getAppPath(),
         'resources',
         'skills',
-        'shared-library-deep-research'
+        'briefly-deep-research'
       );
 }
 
@@ -100,6 +124,83 @@ function sendOperationMessage(message: string, selectedEntryID?: string): void {
     message,
     selectedEntryID
   });
+}
+
+function ingestionStatus(): DesktopIngestionStatus {
+  return activeIngestionCount > 0
+    ? {
+        phase: 'processing',
+        activeCount: activeIngestionCount,
+        message:
+          activeIngestionCount === 1
+            ? 'Ingesting 1 source…'
+            : `Ingesting ${activeIngestionCount} sources…`
+      }
+    : {
+        phase: 'idle',
+        activeCount: 0,
+        message: 'All sources are ready.'
+      };
+}
+
+function updateIngestionPresentation(): void {
+  const status = ingestionStatus();
+  mainWindow?.setProgressBar(
+    status.phase === 'processing' ? 2 : -1,
+    status.phase === 'processing' ? { mode: 'indeterminate' } : undefined
+  );
+  if (process.platform === 'darwin') {
+    app.dock?.setBadge(status.activeCount > 0 ? String(status.activeCount) : '');
+  }
+  mainWindow?.webContents.send('ingestion:status', status);
+}
+
+function beginIngestion(): () => void {
+  activeIngestionCount += 1;
+  updateIngestionPresentation();
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    activeIngestionCount = Math.max(0, activeIngestionCount - 1);
+    updateIngestionPresentation();
+  };
+}
+
+function shortcutPreferences(): DesktopShortcutPreferences {
+  return {
+    captureShortcut,
+    defaultCaptureShortcut,
+    registered: globalShortcut.isRegistered(captureShortcut)
+  };
+}
+
+function activateCaptureShortcut(next: string): boolean {
+  const previous = captureShortcut;
+  if (next === previous && globalShortcut.isRegistered(next)) return true;
+  if (next !== previous && globalShortcut.isRegistered(previous)) {
+    globalShortcut.unregister(previous);
+  }
+
+  let registered = false;
+  try {
+    registered = globalShortcut.register(next, () => void captureFromMenu());
+  } catch {
+    registered = false;
+  }
+  if (registered) {
+    captureShortcut = next;
+    return true;
+  }
+
+  if (next !== previous) {
+    try {
+      globalShortcut.register(previous, () => void captureFromMenu());
+    } catch {
+      // The menu command remains available if the OS will not restore the shortcut.
+    }
+  }
+  return false;
 }
 
 async function connectionStatus(): Promise<DesktopConnectionStatus> {
@@ -174,7 +275,7 @@ function normalizeProcessingPreferences(value: unknown): ProcessingPreferencesUp
 
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
-    title: 'Shared Library',
+    title: 'Briefly',
     icon: applicationIconPath(),
     width: 1280,
     height: 780,
@@ -205,6 +306,7 @@ async function createWindow(): Promise<void> {
   } else {
     await mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
+  updateIngestionPresentation();
 }
 
 function registerIPC(): void {
@@ -212,7 +314,7 @@ function registerIPC(): void {
   ipcMain.handle('library:refresh', () => snapshotAndNotify());
   ipcMain.handle('library:choose-workspace', async () => {
     const options: OpenDialogOptions = {
-      title: 'Choose your Shared Library workspace',
+      title: 'Choose your Briefly workspace',
       properties: ['openDirectory', 'createDirectory']
     };
     const result = mainWindow
@@ -340,6 +442,26 @@ function registerIPC(): void {
     await settings.update({ ttsModel, voice });
     return connectionStatus();
   });
+  ipcMain.handle('shortcuts:get-preferences', () => shortcutPreferences());
+  ipcMain.handle('shortcuts:set-capture', async (_event, value: unknown) => {
+    const next = normalizeCaptureShortcut(value);
+    if (!next) {
+      throw new Error('Choose a shortcut with Ctrl, Command, or Alt plus another key.');
+    }
+    const previous = captureShortcut;
+    if (!activateCaptureShortcut(next)) {
+      throw new Error('That shortcut is already in use by the operating system or another app.');
+    }
+    try {
+      await settings.update({ captureShortcut: next });
+    } catch (error) {
+      activateCaptureShortcut(previous);
+      throw error;
+    }
+    installMenu();
+    return shortcutPreferences();
+  });
+  ipcMain.handle('ingestion:get-status', () => ingestionStatus());
   ipcMain.handle('processing:get-preferences', () => processingPreferences());
   ipcMain.handle(
     'processing:update-preferences',
@@ -464,7 +586,7 @@ function installMenu(): void {
       submenu: [
         {
           label: 'Capture Clipboard',
-          accelerator: 'CommandOrControl+G',
+          accelerator: captureShortcut,
           click: () => void captureFromMenu()
         },
         {
@@ -520,18 +642,24 @@ async function captureFromMenu(): Promise<void> {
 }
 
 async function captureClipboard() {
-  const text = clipboard.readText();
-  const extracted = await extraction.extractClipboard(text);
-  const captureID = await library.captureText(text, extracted);
-  const entryID = `personal:${captureID}`;
-  const snapshot = await snapshotAndNotify();
-  sync.request('the new capture');
-  void processCapture(entryID);
-  return {
-    snapshot,
-    message: 'Captured. Summaries are being prepared in the background.',
-    selectedEntryID: entryID
-  };
+  const finishIngestion = beginIngestion();
+  try {
+    const text = clipboard.readText();
+    const extracted = await extraction.extractClipboard(text);
+    const captureID = await library.captureText(text, extracted);
+    const entryID = `personal:${captureID}`;
+    const snapshot = await snapshotAndNotify();
+    sync.request('the new capture');
+    void processCapture(entryID).finally(finishIngestion);
+    return {
+      snapshot,
+      message: 'Captured. Summaries are being prepared in the background.',
+      selectedEntryID: entryID
+    };
+  } catch (error) {
+    finishIngestion();
+    throw error;
+  }
 }
 
 async function processCapture(entryID: string): Promise<void> {
@@ -556,12 +684,25 @@ app.whenReady().then(async () => {
   }
   settings = new SettingsStore(app.getPath('userData'));
   const saved = await settings.load();
+  const savedCaptureShortcut =
+    normalizeCaptureShortcut(saved.captureShortcut) ?? defaultCaptureShortcut;
+  captureShortcut = savedCaptureShortcut;
+  if (!activateCaptureShortcut(savedCaptureShortcut)) {
+    captureShortcut = defaultCaptureShortcut;
+    activateCaptureShortcut(defaultCaptureShortcut);
+  }
   const savedModel = normalizeOpenRouterTTSModel(saved.ttsModel);
   ttsModel = savedModel ?? defaultOpenRouterTTSModel;
   voice = migrateVoiceForTTSModel(ttsModel, savedModel ? saved.voice : undefined);
-  if (!savedModel || voice !== saved.voice) await settings.update({ ttsModel, voice });
+  if (
+    !savedModel ||
+    voice !== saved.voice ||
+    captureShortcut !== saved.captureShortcut
+  ) {
+    await settings.update({ ttsModel, voice, captureShortcut });
+  }
   library = new LibraryService(
-    saved.workspacePath ?? defaultWorkspacePath(),
+    saved.workspacePath ?? (await defaultWorkspacePath()),
     process.platform,
     (path) => shell.trashItem(path)
   );
@@ -601,7 +742,8 @@ app.whenReady().then(async () => {
         await snapshotAndNotify();
       },
       onSyncRequested: (reason) => sync.request(reason),
-      onOperationMessage: sendOperationMessage
+      onOperationMessage: sendOperationMessage,
+      onIngestionStarted: beginIngestion
     },
     bundledAgentSkillPath()
   );
@@ -609,7 +751,6 @@ app.whenReady().then(async () => {
   registerIPC();
   installMenu();
   await createWindow();
-  globalShortcut.register('CommandOrControl+G', () => void captureFromMenu());
   sync.request('the library', 1500);
   setInterval(() => sync.request('background changes', 100), 5 * 60 * 1000).unref();
   app.on('activate', () => {

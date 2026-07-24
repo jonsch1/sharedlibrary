@@ -424,7 +424,7 @@ export class SpeechPlayer {
 			audio.pause();
 			this.state = 'paused';
 			this.notice =
-				'Playback was blocked by iOS. Open Shared Library in Safari instead of as an installed web app.';
+				'Playback was blocked by iOS. Open Briefly in Safari instead of as an installed web app.';
 			if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
 		}, 2_500);
 	}
@@ -442,7 +442,7 @@ export class SpeechPlayer {
 			artist:
 				this.currentEntry.origin === 'shared'
 					? `Shared by @${this.currentEntry.sharedByUsername ?? 'a collaborator'}`
-					: 'Shared Library',
+					: 'Briefly',
 			album: this.currentVariant === 'source' ? 'Original' : `${this.currentVariant} summary`
 		});
 		navigator.mediaSession.playbackState = this.state === 'paused' ? 'paused' : 'playing';

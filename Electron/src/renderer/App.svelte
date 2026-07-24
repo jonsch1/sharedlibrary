@@ -10,6 +10,7 @@
     FileText,
     FolderOpen,
     Headphones,
+    Keyboard,
     Link,
     LoaderCircle,
     LogIn,
@@ -34,6 +35,8 @@
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
     DesktopConnectionStatus,
+    DesktopIngestionStatus,
+    DesktopShortcutPreferences,
     DesktopSyncStatus,
     LibraryVariant,
     NarrationLoadingPhase,
@@ -44,6 +47,10 @@
     TopicDefinition,
     ShareLinkStatus
   } from '../shared/contracts';
+  import {
+    captureShortcutFromKeyboardEvent,
+    formatCaptureShortcut
+  } from '../shared/shortcuts';
 
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let selectedID = $state('');
@@ -81,6 +88,14 @@
   let processingPreferences = $state<ProcessingPreferences | null>(null);
   let processingPromptDraft = $state('');
   let processingTopicsDraft = $state<TopicDefinition[]>([]);
+  let shortcutPreferences = $state<DesktopShortcutPreferences | null>(null);
+  let shortcutRecording = $state(false);
+  let shortcutSaving = $state(false);
+  let ingestion = $state<DesktopIngestionStatus>({
+    phase: 'idle',
+    activeCount: 0,
+    message: 'All sources are ready.'
+  });
 
   let entries = $derived(snapshot?.entries ?? []);
   let selectedEntry = $derived(
@@ -110,6 +125,14 @@
       : narrationLoadingPhase === 'downloading'
         ? 'Downloading audio'
         : 'Checking audio'
+  );
+  let captureShortcutLabel = $derived(
+    shortcutRecording
+      ? 'Press your shortcut…'
+      : formatCaptureShortcut(
+          shortcutPreferences?.captureShortcut ?? 'CommandOrControl+G',
+          snapshot?.platform ?? 'darwin'
+        )
   );
 
   $effect(() => {
@@ -152,6 +175,8 @@
       applyProcessingPreferences(
         await window.sharedLibrary.getProcessingPreferences()
       );
+      shortcutPreferences = await window.sharedLibrary.getShortcutPreferences();
+      ingestion = await window.sharedLibrary.getIngestionStatus();
       const savedTopic = window.localStorage.getItem('shared-library-selected-topic');
       if (savedTopic && snapshot?.topics.includes(savedTopic)) selectedTopic = savedTopic;
       const removeLibraryListener = window.sharedLibrary.onLibraryChanged(applySnapshot);
@@ -169,6 +194,10 @@
         syncStatus = status;
         if (status.phase === 'error') message = status.message;
       });
+      const removeIngestionListener =
+        window.sharedLibrary.onIngestionStatus((status) => {
+          ingestion = status;
+        });
       const removeNarrationListener =
         window.sharedLibrary.onNarrationSegment(receiveNarrationSegment);
       const removeNarrationStatusListener =
@@ -188,6 +217,7 @@
           removeWorkspaceListener();
           removeMessageListener();
           removeSyncListener();
+          removeIngestionListener();
           removeNarrationListener();
           removeNarrationStatusListener();
           narrationAudio?.pause();
@@ -393,6 +423,47 @@
     }
   }
 
+  function recordCaptureShortcut(event: KeyboardEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      shortcutRecording = false;
+      (event.currentTarget as HTMLInputElement).blur();
+      return;
+    }
+    const next = captureShortcutFromKeyboardEvent(
+      event,
+      snapshot?.platform ?? 'darwin'
+    );
+    if (!next) {
+      if (!['Meta', 'Control', 'Alt', 'Shift'].includes(event.key)) {
+        message = 'Use Ctrl, Command, or Alt with a letter, number, F-key, or navigation key.';
+      }
+      return;
+    }
+    shortcutRecording = false;
+    (event.currentTarget as HTMLInputElement).blur();
+    void saveCaptureShortcut(next);
+  }
+
+  async function saveCaptureShortcut(accelerator: string): Promise<void> {
+    if (shortcutSaving) return;
+    shortcutSaving = true;
+    try {
+      shortcutPreferences =
+        await window.sharedLibrary.setCaptureShortcut(accelerator);
+      message = `Capture shortcut changed to ${formatCaptureShortcut(
+        shortcutPreferences.captureShortcut,
+        snapshot?.platform ?? 'darwin'
+      )}.`;
+    } catch (error) {
+      message =
+        error instanceof Error ? error.message : 'The capture shortcut could not be changed.';
+    } finally {
+      shortcutSaving = false;
+    }
+  }
+
   function applyProcessingPreferences(next: ProcessingPreferences): void {
     processingPreferences = next;
     processingPromptDraft = next.prompt;
@@ -567,7 +638,7 @@
 </script>
 
 <svelte:head>
-  <title>Shared Library</title>
+  <title>Briefly</title>
 </svelte:head>
 
 <div class="app-shell">
@@ -590,10 +661,10 @@
           <Archive />
           <span class="empty-check"><Check /></span>
         </div>
-        <p class="eyebrow">Shared Library</p>
+        <p class="eyebrow">Briefly</p>
         <h1>Your library is ready</h1>
         <p class="empty-copy">
-          Capture clipboard text or choose the existing Shared Library workspace.
+          Capture clipboard text or choose an existing Briefly workspace.
         </p>
         <div class="empty-actions">
           <button class="primary-button" onclick={captureClipboard}>
@@ -797,15 +868,25 @@
     </div>
   {/if}
 
-  {#if message}
-    <div
-      class="toast"
-      class:error={message.includes('failed') || message.includes('could not')}
-      role="status"
-      aria-live="polite"
-    >
-      <span>{message}</span>
-      <button aria-label="Dismiss message" onclick={() => (message = '')}><X /></button>
+  {#if ingestion.phase === 'processing' || message}
+    <div class="notification-stack">
+      {#if ingestion.phase === 'processing'}
+        <div class="ingestion-indicator" role="status" aria-live="polite">
+          <LoaderCircle class="spin" />
+          <span>{ingestion.message} Extracting and preparing summaries.</span>
+        </div>
+      {/if}
+      {#if message}
+        <div
+          class="toast"
+          class:error={message.includes('failed') || message.includes('could not')}
+          role="status"
+          aria-live="polite"
+        >
+          <span>{message}</span>
+          <button aria-label="Dismiss message" onclick={() => (message = '')}><X /></button>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -843,6 +924,50 @@
             <Clipboard /> Capture
           </button>
         </div>
+      </section>
+
+      <section class="settings-card">
+        <div class="settings-card-heading">
+          <div class="provider-mark"><Keyboard /></div>
+          <div>
+            <h3>Capture shortcut</h3>
+            <p>Press a new key combination to capture the clipboard from anywhere.</p>
+          </div>
+        </div>
+        <div class="shortcut-controls">
+          <input
+            class:recording={shortcutRecording}
+            aria-label="Capture shortcut"
+            value={captureShortcutLabel}
+            readonly
+            onfocus={() => (shortcutRecording = true)}
+            onblur={() => (shortcutRecording = false)}
+            onkeydown={recordCaptureShortcut}
+          />
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={shortcutSaving ||
+              !shortcutPreferences ||
+              shortcutPreferences.captureShortcut ===
+                shortcutPreferences.defaultCaptureShortcut}
+            onclick={() => {
+              if (shortcutPreferences) {
+                void saveCaptureShortcut(shortcutPreferences.defaultCaptureShortcut);
+              }
+            }}
+          >
+            {#if shortcutSaving}<LoaderCircle class="spin" />{/if}
+            Reset
+          </button>
+        </div>
+        <p class="shortcut-status">
+          {#if shortcutPreferences?.registered}
+            Active system-wide. Click the field and press the replacement shortcut.
+          {:else}
+            The system-wide shortcut is unavailable; Capture remains in the File menu.
+          {/if}
+        </p>
       </section>
 
       <section class="settings-card">

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small standard-library client for the Shared Library desktop agent API."""
+"""Small standard-library client for the Briefly desktop agent API."""
 
 from __future__ import annotations
 
@@ -26,7 +26,9 @@ def connection_path(explicit: str | None) -> Path:
     candidates: list[Path] = []
     if explicit:
         candidates.append(Path(explicit).expanduser())
-    configured = os.environ.get("SHARED_LIBRARY_API_CONFIG")
+    configured = os.environ.get("BRIEFLY_API_CONFIG") or os.environ.get(
+        "SHARED_LIBRARY_API_CONFIG"
+    )
     if configured:
         candidates.append(Path(configured).expanduser())
     for origin in (Path.cwd(), Path(__file__).resolve()):
@@ -45,7 +47,7 @@ def connection_path(explicit: str | None) -> Path:
         if resolved.is_file():
             return resolved
     raise RuntimeError(
-        "Shared Library API connection not found. Open or restart the desktop app "
+        "Briefly API connection not found. Open or restart the desktop app "
         "with this workspace selected."
     )
 
@@ -89,10 +91,10 @@ def request_json(
             message = value.get("error", {}).get("message")
         except (json.JSONDecodeError, AttributeError):
             message = None
-        raise RuntimeError(message or f"Shared Library returned HTTP {error.code}.") from error
+        raise RuntimeError(message or f"Briefly returned HTTP {error.code}.") from error
     except (URLError, TimeoutError) as error:
         raise RuntimeError(
-            "Could not reach Shared Library. Make sure the desktop app is running."
+            "Could not reach Briefly. Make sure the desktop app is running."
         ) from error
 
 
@@ -179,7 +181,7 @@ def main() -> int:
                 raise RuntimeError("Timed out waiting for the import job.")
             counts = job.get("counts", {})
             print(
-                "Waiting for Shared Library: "
+                "Waiting for Briefly: "
                 f"{counts.get('completed', 0)} complete, "
                 f"{counts.get('failed', 0)} failed...",
                 file=sys.stderr,

@@ -1,6 +1,6 @@
-# Shared Library
+# Briefly
 
-Shared Library is a cross-platform Electron desktop app for capturing, processing,
+Briefly is a cross-platform Electron desktop app for capturing, processing,
 browsing, editing, and listening to a local text library. A Svelte web reader
 provides mobile access, narration, offline caching, and deliberate public share
 links. Google Drive is the private-library synchronization service; the sharing
@@ -10,7 +10,7 @@ The desktop app supports macOS, Windows, and Linux. It opens the workspace direc
 and includes capture extraction, Codex processing, Google Drive synchronization,
 OpenRouter narration, share links, editing, and coordinated Trash.
 
-The default workspace is `~/Documents/Shared Library`.
+The default workspace is `~/Documents/Briefly`.
 
 - `library/` stores sources and their brief, concise, detailed, and comprehensive
   summaries.
@@ -56,7 +56,7 @@ together.
 ## Agent research API
 
 While the desktop app is running it exposes an authenticated, loopback-only API for
-deep-research agents. The app installs the `shared-library-deep-research` skill into
+deep-research agents. The app installs the `briefly-deep-research` skill into
 the selected workspace at `.agents/skills/` and writes the ephemeral connection to
 `.shared-library/agent-api.json`. Neither file is included in the Drive mirror.
 
@@ -100,15 +100,15 @@ complete mirror opens immediately while the next sync runs in the background.
 
 Generated narration is content-addressed by its model, voice, and text hash. It is
 cached locally on every connected client and stored under `audio/` in the visible
-`Shared Library` folder in the user's own Google Drive. Existing
-`Shared Library Media` folders are reused so earlier audio is not orphaned. Existing
-audio is mirrored in the background and remains playable offline.
+`Briefly` folder in the user's own Google Drive. Existing `Shared Library` and
+`Shared Library Media` folders are reused so earlier content is not orphaned.
+Existing audio is mirrored in the background and remains playable offline.
 
 Google is the account boundary for the web and Electron clients. The first sign-in
-creates or reuses one visible `Shared Library` folder and saves that folder ID for
-the account; later clients discover the same location after Google sign-in. The
+creates one visible `Briefly` folder or reuses a legacy folder and saves that folder
+ID for the account; later clients discover the same location after Google sign-in. The
 integration requests `openid`, `email`, and the narrow `drive.file` scope, so it can
-identify the account and access only files created by Shared Library or explicitly
+identify the account and access only files created by Briefly or explicitly
 selected by the user—not the rest of the user's Drive.
 
 For the web reader, create a Google OAuth **Web application** client. Set
