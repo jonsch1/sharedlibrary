@@ -1,0 +1,99 @@
+{
+  "name": "shared-library-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-platform Shared Library desktop client",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json && svelte-check --tsconfig tsconfig.web.json",
+    "test": "node --import tsx --test src/main/*.test.ts",
+    "test:e2e": "npm run build && playwright test",
+    "extractor:install": "npm --prefix ../Tools/extractor ci --omit=dev",
+    "package": "npm run extractor:install && npm run build && electron-builder --dir",
+    "dist": "npm run extractor:install && npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@lucide/svelte": "1.26.0",
+    "dompurify": "3.4.12",
+    "marked": "18.0.7",
+    "svelte": "5.56.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@types/node": "24.10.4",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "svelte-check": "4.6.0",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "vite": "7.3.6"
+  },
+  "build": {
+    "appId": "com.sharedlibrary.desktop.electron",
+    "productName": "Shared Library",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../Tools/extractor",
+        "to": "Tools/extractor",
+        "filter": [
+          "extract.mjs",
+          "x-article.mjs",
+          "package.json",
+          "package-lock.json"
+        ]
+      },
+      {
+        "from": "../Tools/extractor/node_modules",
+        "to": "Tools/extractor/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      },
+      {
+        "from": "resources/skills/shared-library-deep-research",
+        "to": "skills/shared-library-deep-research",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Office",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}

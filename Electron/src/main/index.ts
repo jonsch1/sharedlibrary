@@ -1,0 +1,630 @@
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  net,
+  nativeImage,
+  protocol,
+  shell
+} from 'electron';
+import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
+import type { MessageBoxOptions } from 'electron';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import type {
+  ConnectionProvider,
+  DesktopConnectionStatus,
+  LibraryVariant,
+  OpenRouterVoice,
+  ProcessingPreferences,
+  ProcessingPreferencesUpdate
+} from '../shared/contracts.js';
+import {
+  defaultOpenRouterTTSModel,
+  migrateVoiceForTTSModel,
+  normalizeOpenRouterVoice,
+  normalizeOpenRouterTTSModel,
+  recommendedVoiceForTTSModel
+} from '../shared/contracts.js';
+import { AgentApiServer } from './agent-api.js';
+import { BackendClient } from './backend.js';
+import { ExtractionService } from './extraction.js';
+import { LibraryService } from './library.js';
+import { NarrationService } from './narration.js';
+import {
+  defaultProcessingPrompt,
+  ProcessingService
+} from './processing.js';
+import { SettingsStore } from './settings.js';
+import { SyncCoordinator } from './sync.js';
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'shared-library-audio',
+    privileges: {
+      secure: true,
+      standard: true,
+      stream: true,
+      supportFetchAPI: true
+    }
+  }
+]);
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+let mainWindow: BrowserWindow | null = null;
+let agentApi: AgentApiServer;
+let library: LibraryService;
+let settings: SettingsStore;
+let backend: BackendClient;
+let extraction: ExtractionService;
+let processing: ProcessingService;
+let narration: NarrationService;
+let sync: SyncCoordinator;
+let voice: OpenRouterVoice = 'af_heart';
+let ttsModel = defaultOpenRouterTTSModel;
+
+function defaultWorkspacePath(): string {
+  return join(app.getPath('documents'), 'Shared Library');
+}
+
+function applicationIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'build', 'icon.png');
+}
+
+function bundledAgentSkillPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'skills', 'shared-library-deep-research')
+    : join(
+        app.getAppPath(),
+        'resources',
+        'skills',
+        'shared-library-deep-research'
+      );
+}
+
+async function snapshotAndNotify() {
+  const snapshot = await library.snapshot();
+  mainWindow?.webContents.send('library:changed', snapshot);
+  return snapshot;
+}
+
+function sendOperationMessage(message: string, selectedEntryID?: string): void {
+  mainWindow?.webContents.send('desktop:operation-message', {
+    message,
+    selectedEntryID
+  });
+}
+
+async function connectionStatus(): Promise<DesktopConnectionStatus> {
+  const account = await backend.accountStatus();
+  const [google, openrouter] = account.authenticated
+    ? await Promise.all([
+        backend.providerStatus('google'),
+        backend.providerStatus('openrouter')
+      ])
+    : [{ configured: true, connected: false }, { connected: false }];
+  return {
+    authenticated: account.authenticated,
+    google: {
+      configured: google.configured !== false,
+      connected: google.connected === true,
+      connectedAt:
+        typeof google.connectedAt === 'string' ? google.connectedAt : undefined
+    },
+    openrouter: {
+      connected: openrouter.connected === true,
+      connectedAt:
+        typeof openrouter.connectedAt === 'string'
+          ? openrouter.connectedAt
+          : undefined,
+      userID:
+        typeof openrouter.userID === 'string' ? openrouter.userID : undefined
+    },
+    sync: sync.currentStatus(),
+    voice,
+    ttsModel
+  };
+}
+
+async function processingPreferences(): Promise<ProcessingPreferences> {
+  const saved = await settings.load();
+  return {
+    topics: await library.topicDefinitions(),
+    prompt: saved.processingPrompt ?? defaultProcessingPrompt,
+    defaultPrompt: defaultProcessingPrompt
+  };
+}
+
+function normalizeProcessingPreferences(value: unknown): ProcessingPreferencesUpdate {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Processing settings are invalid.');
+  }
+  const candidate = value as Partial<ProcessingPreferencesUpdate>;
+  const prompt = typeof candidate.prompt === 'string' ? candidate.prompt.trim() : '';
+  if (!prompt) throw new Error('The processing prompt cannot be empty.');
+  if (prompt.length > 50_000) {
+    throw new Error('The processing prompt must be 50,000 characters or fewer.');
+  }
+  if (!prompt.includes('{{topics}}') || !prompt.includes('{{source}}')) {
+    throw new Error('The processing prompt must include {{topics}} and {{source}}.');
+  }
+  if (!Array.isArray(candidate.topics)) {
+    throw new Error('The topic list is invalid.');
+  }
+  const topics = candidate.topics.map((topic) => {
+    if (
+      !topic ||
+      typeof topic !== 'object' ||
+      typeof topic.id !== 'string' ||
+      typeof topic.title !== 'string'
+    ) {
+      throw new Error('The topic list is invalid.');
+    }
+    return { id: topic.id, title: topic.title };
+  });
+  return { topics, prompt };
+}
+
+async function createWindow(): Promise<void> {
+  mainWindow = new BrowserWindow({
+    title: 'Shared Library',
+    icon: applicationIconPath(),
+    width: 1280,
+    height: 780,
+    minWidth: 920,
+    minHeight: 620,
+    backgroundColor: '#dadbd4',
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+  } else {
+    await mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+  }
+}
+
+function registerIPC(): void {
+  ipcMain.handle('library:get-snapshot', () => library.snapshot());
+  ipcMain.handle('library:refresh', () => snapshotAndNotify());
+  ipcMain.handle('library:choose-workspace', async () => {
+    const options: OpenDialogOptions = {
+      title: 'Choose your Shared Library workspace',
+      properties: ['openDirectory', 'createDirectory']
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    const path = result.filePaths[0];
+    if (result.canceled || !path) return null;
+    const previousWorkspacePath = library.getWorkspacePath();
+    library.setWorkspacePath(path);
+    await settings.update({ workspacePath: path });
+    await agentApi.refreshWorkspace(previousWorkspacePath);
+    return snapshotAndNotify();
+  });
+  ipcMain.handle(
+    'library:read-text',
+    (_event, entryID: string, variant: LibraryVariant) =>
+      library.readText(entryID, variant)
+  );
+  ipcMain.handle(
+    'library:write-text',
+    async (_event, entryID: string, variant: LibraryVariant, text: string) => {
+      await library.writeText(entryID, variant, text);
+      sync.request('document edits');
+      return {
+        snapshot: await snapshotAndNotify(),
+        message: 'Document saved.',
+        selectedEntryID: entryID
+      };
+    }
+  );
+  ipcMain.handle('library:trash-capture', async (_event, entryID: string) => {
+    await library.trashCapture(entryID);
+    sync.request('deleted documents');
+    return {
+      snapshot: await snapshotAndNotify(),
+      message: 'The source and its summaries were moved to Trash.'
+    };
+  });
+  ipcMain.handle('library:capture-clipboard', () => captureClipboard());
+  ipcMain.handle('library:open-external', async (_event, value: string) => {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Only web links can be opened.');
+    }
+    await shell.openExternal(url.toString());
+  });
+  ipcMain.handle('library:open-agent', () => openAgentWorkspace());
+  ipcMain.handle('library:reveal-entry', async (_event, entryID: string) => {
+    const snapshot = await library.snapshot();
+    const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
+    if (!entry) throw new Error('The selected item no longer exists.');
+    shell.showItemInFolder(join(library.getWorkspacePath(), 'library', entry.filename));
+  });
+  ipcMain.handle(
+    'library:show-entry-context-menu',
+    async (
+      event,
+      entryID: string,
+      variant: LibraryVariant | undefined
+    ) => {
+      const snapshot = await library.snapshot();
+      const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
+      if (!entry) throw new Error('The selected item no longer exists.');
+      const path = await library.filePath(entryID, variant);
+      const window = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const menu = Menu.buildFromTemplate([
+        {
+          label: 'Copy Path',
+          click: () => {
+            clipboard.writeText(path);
+            sendOperationMessage('Path copied.');
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Move to Trash…',
+          click: () => void trashEntryFromContextMenu(entryID, entry.title)
+        }
+      ]);
+      menu.popup({ window });
+    }
+  );
+  ipcMain.handle('services:get-status', () => connectionStatus());
+  ipcMain.handle(
+    'services:connect',
+    async (_event, provider: ConnectionProvider) => {
+      if (provider !== 'google' && provider !== 'openrouter') {
+        throw new Error('Unknown connection provider.');
+      }
+      await backend.connect(provider, mainWindow);
+      if (provider === 'google') await sync.synchronize('Google Drive');
+      return connectionStatus();
+    }
+  );
+  ipcMain.handle(
+    'services:disconnect',
+    async (_event, provider: ConnectionProvider) => {
+      if (provider !== 'google' && provider !== 'openrouter') {
+        throw new Error('Unknown connection provider.');
+      }
+      await backend.disconnect(provider);
+      return connectionStatus();
+    }
+  );
+  ipcMain.handle('services:sync-now', async () => {
+    await sync.synchronize('the library');
+    return connectionStatus();
+  });
+  ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
+    const normalizedVoice = normalizeOpenRouterVoice(nextVoice);
+    if (!normalizedVoice) throw new Error('Enter a valid provider voice identifier.');
+    voice = normalizedVoice;
+    await settings.update({ voice });
+    return connectionStatus();
+  });
+  ipcMain.handle('services:set-tts-model', async (_event, value: unknown) => {
+    const nextModel = normalizeOpenRouterTTSModel(value);
+    if (!nextModel) {
+      throw new Error('Enter an OpenRouter model slug such as hexgrad/kokoro-82m.');
+    }
+    const changed = nextModel !== ttsModel;
+    ttsModel = nextModel;
+    const recommendedVoice = changed ? recommendedVoiceForTTSModel(nextModel) : null;
+    if (recommendedVoice) voice = recommendedVoice;
+    await settings.update({ ttsModel, voice });
+    return connectionStatus();
+  });
+  ipcMain.handle('processing:get-preferences', () => processingPreferences());
+  ipcMain.handle(
+    'processing:update-preferences',
+    async (_event, value: unknown) => {
+      const next = normalizeProcessingPreferences(value);
+      await library.replaceTopicDefinitions(next.topics);
+      await settings.update({ processingPrompt: next.prompt });
+      await snapshotAndNotify();
+      sync.request('processing settings');
+      return processingPreferences();
+    }
+  );
+  ipcMain.handle(
+    'narration:start',
+    async (_event, entryID: string, variant: LibraryVariant, selectedVoice: OpenRouterVoice) => {
+      const text = await library.readText(entryID, variant);
+      return narration.start(text, selectedVoice, ttsModel);
+    }
+  );
+  ipcMain.handle('sharing:get', async (_event, entryID: string) => {
+    const entry = await entryForID(entryID);
+    return backend.shareStatus(entry.captureID);
+  });
+  ipcMain.handle(
+    'sharing:publish',
+    async (_event, entryID: string, selectedVoice: OpenRouterVoice) => {
+      const entry = await entryForID(entryID);
+      const syncStatus = await sync.synchronize('the document');
+      if (syncStatus.phase === 'error') throw new Error(syncStatus.message);
+      let result = await backend.publishShare(entry.captureID, selectedVoice, ttsModel);
+      for (let attempt = 0; result.status === 'preparing' && attempt < 30; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        result = await backend.shareStatus(entry.captureID);
+      }
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'The share link could not be prepared.');
+      }
+      if (result.url) clipboard.writeText(result.url);
+      return result;
+    }
+  );
+  ipcMain.handle('sharing:revoke', async (_event, token: string) => {
+    if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new Error('Invalid share link.');
+    await backend.revokeShare(token);
+  });
+}
+
+async function openAgentWorkspace(): Promise<void> {
+  const workspacePath = library.getWorkspacePath();
+  if (process.platform === 'darwin') {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('/usr/bin/open', ['-a', 'ChatGPT', workspacePath], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    });
+    return;
+  }
+  const error = await shell.openPath(workspacePath);
+  if (error) throw new Error(error);
+}
+
+async function trashEntryFromContextMenu(
+  entryID: string,
+  title: string
+): Promise<void> {
+  const options: MessageBoxOptions = {
+    type: 'warning',
+    buttons: ['Cancel', 'Move to Trash'],
+    defaultId: 0,
+    cancelId: 0,
+    message: `Move “${title}” to Trash?`,
+    detail: 'The source document and all of its summaries will be moved together.'
+  };
+  const response = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  if (response.response !== 1) return;
+  try {
+    await library.trashCapture(entryID);
+    sync.request('deleted documents');
+    await snapshotAndNotify();
+    sendOperationMessage('The source and its summaries were moved to Trash.');
+  } catch (error) {
+    sendOperationMessage(
+      error instanceof Error ? error.message : 'The document could not be moved to Trash.'
+    );
+  }
+}
+
+async function entryForID(entryID: string) {
+  const snapshot = await library.snapshot();
+  const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
+  if (!entry) throw new Error('The selected library item no longer exists.');
+  return entry;
+}
+
+function installMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin'
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const }
+            ]
+          }
+        ]
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Capture Clipboard',
+          accelerator: 'CommandOrControl+G',
+          click: () => void captureFromMenu()
+        },
+        {
+          label: 'Choose Workspace…',
+          click: () => mainWindow?.webContents.send('desktop:choose-workspace')
+        },
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+async function captureFromMenu(): Promise<void> {
+  try {
+    const result = await captureClipboard();
+    mainWindow?.show();
+    mainWindow?.focus();
+    sendOperationMessage(result.message, result.selectedEntryID);
+  } catch (error) {
+    sendOperationMessage(error instanceof Error ? error.message : 'Clipboard capture failed.');
+  }
+}
+
+async function captureClipboard() {
+  const text = clipboard.readText();
+  const extracted = await extraction.extractClipboard(text);
+  const captureID = await library.captureText(text, extracted);
+  const entryID = `personal:${captureID}`;
+  const snapshot = await snapshotAndNotify();
+  sync.request('the new capture');
+  void processCapture(entryID);
+  return {
+    snapshot,
+    message: 'Captured. Summaries are being prepared in the background.',
+    selectedEntryID: entryID
+  };
+}
+
+async function processCapture(entryID: string): Promise<void> {
+  try {
+    sendOperationMessage('Processing the new capture…', entryID);
+    const processedID = await processing.process(entryID, library);
+    await snapshotAndNotify();
+    sendOperationMessage('Capture processed and added to the library.', processedID);
+    sync.request('processed summaries');
+  } catch (error) {
+    sendOperationMessage(
+      error instanceof Error ? error.message : 'The capture could not be processed.',
+      entryID
+    );
+  }
+}
+
+app.whenReady().then(async () => {
+  if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(applicationIconPath());
+    if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
+  }
+  settings = new SettingsStore(app.getPath('userData'));
+  const saved = await settings.load();
+  const savedModel = normalizeOpenRouterTTSModel(saved.ttsModel);
+  ttsModel = savedModel ?? defaultOpenRouterTTSModel;
+  voice = migrateVoiceForTTSModel(ttsModel, savedModel ? saved.voice : undefined);
+  if (!savedModel || voice !== saved.voice) await settings.update({ ttsModel, voice });
+  library = new LibraryService(
+    saved.workspacePath ?? defaultWorkspacePath(),
+    process.platform,
+    (path) => shell.trashItem(path)
+  );
+  backend = new BackendClient();
+  extraction = new ExtractionService();
+  processing = new ProcessingService(async () => {
+    const current = await settings.load();
+    return current.processingPrompt ?? defaultProcessingPrompt;
+  });
+  narration = new NarrationService(
+    join(app.getPath('userData'), 'audio'),
+    backend,
+    (segment) => mainWindow?.webContents.send('narration:segment', segment),
+    (status) => mainWindow?.webContents.send('narration:status', status)
+  );
+  protocol.handle('shared-library-audio', (request) => {
+    const path = narration.pathForURL(request.url);
+    return path
+      ? net.fetch(pathToFileURL(path).toString())
+      : Promise.resolve(new Response('Not found.', { status: 404 }));
+  });
+  sync = new SyncCoordinator(
+    backend,
+    library,
+    (status) => mainWindow?.webContents.send('sync:status', status),
+    async () => {
+      await snapshotAndNotify();
+    }
+  );
+  agentApi = new AgentApiServer(
+    {
+      library,
+      extractURL: (url) => extraction.extractClipboard(url),
+      processEntry: (entryID, topicID) =>
+        processing.process(entryID, library, topicID),
+      onLibraryChanged: async () => {
+        await snapshotAndNotify();
+      },
+      onSyncRequested: (reason) => sync.request(reason),
+      onOperationMessage: sendOperationMessage
+    },
+    bundledAgentSkillPath()
+  );
+  await agentApi.start();
+  registerIPC();
+  installMenu();
+  await createWindow();
+  globalShortcut.register('CommandOrControl+G', () => void captureFromMenu());
+  sync.request('the library', 1500);
+  setInterval(() => sync.request('background changes', 100), 5 * 60 * 1000).unref();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+  });
+});
+
+let agentApiStopping = false;
+app.on('before-quit', (event) => {
+  if (!agentApi || agentApiStopping) return;
+  event.preventDefault();
+  agentApiStopping = true;
+  void agentApi.stop().finally(() => app.quit());
+});
+app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});

@@ -1,0 +1,11 @@
+{
+  "name": "shared-library-extractor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@steipete/summarize-core": "^0.21.6"
+  }
+}

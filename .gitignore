@@ -1,24 +1,22 @@
-node_modules
+# Node dependencies for the capture extractor helper
+Tools/extractor/node_modules/
 
-# Output
-.output
-.vercel
-.netlify
-.wrangler
-/.svelte-kit
-/build
-/dist
+# Svelte web app
+Web/node_modules/
+Web/.svelte-kit/
+Web/build/
+Web/dist/
 
-# OS
+# Electron desktop app
+Electron/node_modules/
+Electron/out/
+Electron/release/
+Electron/playwright-report/
+Electron/test-results/
+
+# macOS
 .DS_Store
-Thumbs.db
 
-# Env
+# Local tool settings
+.claude/settings.local.json
 .env
-.env.*
-!.env.example
-!.env.test
-
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*

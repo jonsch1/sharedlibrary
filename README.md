@@ -1,52 +1,146 @@
-# Shared Library Web
+# Shared Library
 
-The mobile Shared Library client is a private SvelteKit reader hosted with OpenAI
-Sites. Google Drive supplies a lightweight file index, mirrored Markdown documents,
-and generated audio. IndexedDB keeps a complete path-preserving Markdown mirror
-available offline, and existing narration is mirrored into the local audio cache.
-The previous complete mirror opens immediately while synchronization continues in
-the background.
+Shared Library is a cross-platform Electron desktop app for capturing, processing,
+browsing, editing, and listening to a local text library. A Svelte web reader
+provides mobile access, narration, offline caching, and deliberate public share
+links. Google Drive is the private-library synchronization service; the sharing
+service stores only documents the user explicitly publishes.
 
-## Google Drive
+The desktop app supports macOS, Windows, and Linux. It opens the workspace directly
+and includes capture extraction, Codex processing, Google Drive synchronization,
+OpenRouter narration, share links, editing, and coordinated Trash.
 
-Enable the Google Drive API and create one Web application OAuth client. Configure
-its Client ID and Client Secret once for the deployment, then register
-`https://<production-origin>/api/google/connect/callback` as an authorized redirect
-URI. Google sign-in creates an app session and configures one personal library
-folder for the account. The web and Electron clients reuse that saved location.
+The default workspace is `~/Documents/Shared Library`.
 
-The backend encrypts account tokens and requests only `drive.file`. It can therefore
-access only files Shared Library creates or that the user explicitly opens with it,
-not the rest of the user's Drive. The app mirrors `library/` and `topics.md`, stores a
-rebuildable metadata-only index under `.shared-library/`, and keeps content-addressed
-audio under `audio/` in a visible `Shared Library` folder. It reuses an existing
-`Shared Library Media` folder during migration.
+- `library/` stores sources and their brief, concise, detailed, and comprehensive
+  summaries.
+- `topics.md` stores the capture taxonomy.
+- `AGENTS.md` contains workspace instructions for agents.
+- `.shared-library/index.json` is a lightweight, rebuildable catalog of the mirrored
+  Drive files. It contains metadata and hashes, not document bodies.
 
-## OpenRouter
+There is no `output/` folder and source images are not ingested or stored.
 
-OpenRouter OAuth is optional and account-scoped. Its key is encrypted in D1 and used
-only by the server-side speech route. Audio playback begins from a complete MP3
-response, then the result is cached in the browser and copied to Google Drive.
+## Build and test
 
-## Development
+Build and package the desktop app:
 
 ```bash
+cd Electron
+npm install
+npm test
+npm run typecheck
+npm run package
+```
+
+Build the web reader:
+
+```bash
+cd Web
 npm install
 npm run check
 npm run test:worker
-npm run db:generate
 npm run build:sites
 ```
 
-Database definitions live in `db/schema.ts`; generated migrations live in
-`drizzle/`. The worker also creates missing active tables defensively.
+For desktop development, run `npm run dev` from `Electron/`.
 
-The deployment needs:
+## Capture library
 
-- a D1 binding named `DB`;
-- an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
-  64 hexadecimal characters;
-- `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
-- public access to the Google sign-in and capability-link routes. Provider
-  credentials and library operations remain account-scoped by the app's secure,
-  HTTP-only Google session cookie.
+Use `Command-G` to capture a clipboard URL or text. New captures are extracted and
+processed in the background. The footer slider moves through every editable summary
+and the original source. **Reorganize** regenerates summaries and re-evaluates the
+topic. Moving a content item to Trash moves the source and every companion summary
+together.
+
+## Agent research API
+
+While the desktop app is running it exposes an authenticated, loopback-only API for
+deep-research agents. The app installs the `shared-library-deep-research` skill into
+the selected workspace at `.agents/skills/` and writes the ephemeral connection to
+`.shared-library/agent-api.json`. Neither file is included in the Drive mirror.
+
+The skill makes the approval boundary explicit: the agent first proposes an exact URL
+list, waits for the user to approve it, then creates or reuses a topic and submits the
+approved URLs. The app extracts each page, adds it under that exact topic, creates all
+four summary depths in the background, and exposes job status and summary retrieval
+to the agent. Failed or replacement sources require a new approval cycle.
+
+The API includes topic listing/creation, approved batch URL ingestion, asynchronous
+job polling, and topic-item reads at any summary depth. Requests use a per-launch
+bearer token from the connection file and are accepted only on `127.0.0.1`.
+
+## Share links
+
+The Share button opens the web reader for the selected capture. Publishing creates
+a stable, 192-bit capability link that is intentionally forwardable and impractical
+to guess. The public reader includes every available conciseness level. If complete
+narration segments already exist for a version, those segments are published too;
+sharing never generates audio by itself.
+
+Share metadata and Markdown live in D1, and published narration segments live in
+R2. Updating a link replaces its current revision. Stopping sharing deletes its
+records and media. A recipient can read without an account or sign in and choose
+**Add to my library**, which creates an independent capture in their personal
+Google Drive and copies published narration into their private audio mirror.
+
+## Google Drive synchronization
+
+Every desktop client is an editing source. After meaningful changes—captures, edits,
+processing, deletions, launch, wake, or restored connectivity—it mirrors `library/`
+and `topics.md` to the same folder structure in Drive. Files are compared by SHA-256
+hash, so unchanged files are not uploaded. Deletions are moved to Drive Trash, and
+the lightweight index is updated last.
+
+The web reader checks Drive when it opens, every few minutes while running, when it
+regains focus, and when it returns online. It downloads every changed Markdown file
+before activating the new index, keeps the folder paths and content hashes in
+IndexedDB, and removes stale local copies after a successful sync. The previous
+complete mirror opens immediately while the next sync runs in the background.
+
+Generated narration is content-addressed by its model, voice, and text hash. It is
+cached locally on every connected client and stored under `audio/` in the visible
+`Shared Library` folder in the user's own Google Drive. Existing
+`Shared Library Media` folders are reused so earlier audio is not orphaned. Existing
+audio is mirrored in the background and remains playable offline.
+
+Google is the account boundary for the web and Electron clients. The first sign-in
+creates or reuses one visible `Shared Library` folder and saves that folder ID for
+the account; later clients discover the same location after Google sign-in. The
+integration requests `openid`, `email`, and the narrow `drive.file` scope, so it can
+identify the account and access only files created by Shared Library or explicitly
+selected by the user—not the rest of the user's Drive.
+
+For the web reader, create a Google OAuth **Web application** client. Set
+`GOOGLE_DRIVE_WEB_CLIENT_ID` and the `GOOGLE_DRIVE_WEB_CLIENT_SECRET` deployment
+secret, then add
+`https://www.readbriefly.fyi/api/google/connect/callback` to the client's
+authorized redirect URIs. The Electron app uses the same hosted account
+connection, so Drive is configured once per account. Account tokens are
+encrypted per signed-in user.
+
+## OpenRouter narration
+
+OpenRouter OAuth is optional. Its account-controlled API key is encrypted in the web
+backend and is never placed in Google Drive or the library projection. Text is sent
+to OpenRouter and xAI only when the user requests narration. Generated MP3 segments
+are cached locally and, when Drive is connected, uploaded automatically.
+
+## Hotkeys
+
+| Hotkey | Action |
+| --- | --- |
+| `CommandOrControl-G` | Capture clipboard URL or text into `library/` |
+
+## Architecture
+
+| Slice | Files |
+| --- | --- |
+| Cross-platform desktop app | `Electron/` |
+| Desktop services and local library | `Electron/src/main/` |
+| Desktop UI | `Electron/src/renderer/` |
+| Capture extraction | `Tools/extractor/` |
+| Google Drive library and audio | `Electron/src/main/sync.ts` |
+| Svelte web reader and backend | `Web/` |
+| Desktop tests | `Electron/src/main/*.test.ts` |
+| Web worker tests | `Web/worker/index.test.mjs` |
