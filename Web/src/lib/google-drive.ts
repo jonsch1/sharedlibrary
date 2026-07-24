@@ -68,6 +68,7 @@ export async function disconnectGoogleDrive(): Promise<void> {
 }
 
 export async function syncGoogleDriveLibrary(
+	onProjectionAvailable?: (projection: LibraryProjection) => void,
 	onProgress?: (completed: number, total: number) => void
 ): Promise<LibraryProjection> {
 	const response = await fetch('/api/library', {
@@ -80,6 +81,7 @@ export async function syncGoogleDriveLibrary(
 		);
 	}
 	const projection = parseLibraryProjection(await response.json());
+	onProjectionAvailable?.(projection);
 	await mirrorLibraryProjection(projection, (progress) =>
 		onProgress?.(progress.completed, progress.total)
 	);
