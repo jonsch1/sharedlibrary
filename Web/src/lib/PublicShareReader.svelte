@@ -1,23 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
-	import CheckIcon from '@lucide/svelte/icons/check';
-	import Clock3Icon from '@lucide/svelte/icons/clock-3';
-	import LibraryBigIcon from '@lucide/svelte/icons/library-big';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import PlusIcon from '@lucide/svelte/icons/plus';
-	import Volume2Icon from '@lucide/svelte/icons/volume-2';
 	import MarkdownText from '$lib/MarkdownText.svelte';
-	import { Badge } from '$lib/components/ui/badge/index.js';
-	import { Button } from '$lib/components/ui/button/index.js';
-	import {
-		importPublicShare,
-		loadPublicShare,
-		type PublicShareDocument
-	} from '$lib/share-links.js';
+	import { loadPublicShare, type PublicShareDocument } from '$lib/share-links.js';
 	import { libraryVariants, type LibraryVariant } from '$lib/library.js';
 
 	let { token }: { token: string } = $props();
@@ -35,8 +23,6 @@
 	let loading = $state(true);
 	let preparing = $state(false);
 	let errorMessage = $state('');
-	let importBusy = $state(false);
-	let saved = $state(false);
 	let audio = $state<HTMLAudioElement>();
 	let audioState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
 	let audioSegmentIndex = 0;
@@ -49,9 +35,7 @@
 	let selectedText = $derived(
 		document?.texts.find((text) => text.variant === selectedVariant)?.markdown ?? ''
 	);
-	let selectedWordCount = $derived(
-		document?.texts.find((text) => text.variant === selectedVariant)?.wordCount ?? 0
-	);
+	let selectedVariantIndex = $derived(Math.max(0, availableVariants.indexOf(selectedVariant)));
 	let selectedAudio = $derived(
 		document?.audio
 			.filter((segment) => segment.variant === selectedVariant)
@@ -80,9 +64,6 @@
 						: result.texts[0]?.variant ?? 'source';
 					loading = false;
 					preparing = false;
-					if (new URL(window.location.href).searchParams.get('import') === '1') {
-						void addToLibrary();
-					}
 					return;
 				}
 				if (result.status === 'failed') {
@@ -110,6 +91,12 @@
 		stopAudio();
 		window.speechSynthesis?.cancel();
 		selectedVariant = variant;
+	}
+
+	function selectVariantFromSlider(event: Event): void {
+		const index = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
+		const variant = availableVariants[index];
+		if (variant) selectVariant(variant);
 	}
 
 	function toggleAudio(): void {
@@ -191,24 +178,6 @@
 		audioState = 'idle';
 		audioSegmentIndex = 0;
 	}
-
-	async function addToLibrary(): Promise<void> {
-		if (importBusy || saved) return;
-		importBusy = true;
-		errorMessage = '';
-		try {
-			await importPublicShare(token);
-			saved = true;
-			const url = new URL(window.location.href);
-			url.searchParams.delete('import');
-			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-		} catch (error) {
-			errorMessage =
-				error instanceof Error ? error.message : 'The document could not be added.';
-		} finally {
-			importBusy = false;
-		}
-	}
 </script>
 
 <svelte:head>
@@ -224,36 +193,10 @@
 <audio bind:this={audio} class="narration-engine" preload="none"></audio>
 
 <div class="public-share-shell">
-	<header class="public-share-header">
-		<a class="public-share-brand" href="/" aria-label="Shared Library home">
-			<span><LibraryBigIcon /></span>
-			<strong>Shared Library</strong>
-		</a>
-		{#if document}
-			<Button onclick={addToLibrary} disabled={importBusy || saved}>
-				{#if importBusy}
-					<LoaderCircleIcon class="spin" data-icon="inline-start" />
-					Adding…
-				{:else if saved}
-					<CheckIcon data-icon="inline-start" />
-					Added
-				{:else}
-					<PlusIcon data-icon="inline-start" />
-					Add to my library
-				{/if}
-			</Button>
-		{/if}
-	</header>
-
 	{#if loading || preparing}
 		<main class="public-share-state" aria-live="polite">
 			<LoaderCircleIcon class="spin" />
-			<h1>{preparing ? 'Preparing your shared document' : 'Opening shared document'}</h1>
-			<p>
-				{preparing
-					? 'The text and any existing narration are being published now.'
-					: 'One moment…'}
-			</p>
+			<p>{preparing ? 'Preparing document…' : 'Opening document…'}</p>
 		</main>
 	{:else if errorMessage && !document}
 		<main class="public-share-state error">
@@ -263,86 +206,50 @@
 		</main>
 	{:else if document}
 		<main class="public-share-reader">
-			<header class="public-share-document-header">
-				<div class="public-share-kicker">
-					<Badge variant="secondary">Shared document</Badge>
-					{#if document.createdAt}
-						<span>{new Date(document.createdAt).toLocaleDateString()}</span>
-					{/if}
-				</div>
-				<h1>{document.title}</h1>
-				<p>{document.excerpt}</p>
-				<div class="topic-badges">
-					{#each document.topicNames as topic}
-						<Badge variant="outline">{topic}</Badge>
-					{/each}
-					{#each document.tags.slice(0, 3) as tag}
-						<Badge variant="ghost">#{tag}</Badge>
-					{/each}
-				</div>
-			</header>
-
-			<div class="public-share-controls">
-				<div class="public-share-variants" role="tablist" aria-label="Document version">
-					{#each availableVariants as variant}
-						<button
-							role="tab"
-							aria-selected={selectedVariant === variant}
-							class:active={selectedVariant === variant}
-							onclick={() => selectVariant(variant)}
-						>
-							{variantNames[variant]}
-						</button>
-					{/each}
-				</div>
-				<div class="public-share-listen">
-					<span><Clock3Icon /> {Math.max(1, Math.ceil(selectedWordCount / 180))} min</span>
-					<Button onclick={toggleAudio}>
-						{#if audioState === 'loading'}
-							<LoaderCircleIcon class="spin" data-icon="inline-start" />
-							Loading
-						{:else if audioState === 'playing'}
-							<PauseIcon data-icon="inline-start" />
-							Pause
-						{:else}
-							<Volume2Icon data-icon="inline-start" />
-							{selectedAudio.length > 0 ? 'Play narration' : 'Listen'}
-						{/if}
-					</Button>
-				</div>
-			</div>
-
 			<article class="public-share-body">
 				<MarkdownText text={selectedText} />
 			</article>
-
-			{#if document.sourceURL}
-				<footer class="public-share-source">
-					<span>Original source</span>
-					<a href={document.sourceURL} target="_blank" rel="noreferrer">
-						Open link <ArrowUpRightIcon />
-					</a>
-				</footer>
-			{/if}
 		</main>
+
+		<footer class="public-share-player" aria-label="Document playback">
+			<div class="public-share-slider">
+				<span>Brief</span>
+				<input
+					type="range"
+					min="0"
+					max={Math.max(availableVariants.length - 1, 0)}
+					step="1"
+					value={selectedVariantIndex}
+					aria-label={`Document version: ${variantNames[selectedVariant]}`}
+					oninput={selectVariantFromSlider}
+				/>
+				<span>Original</span>
+			</div>
+
+			<button
+				class="public-share-play"
+				class:loading={audioState === 'loading'}
+				aria-label={audioState === 'loading'
+					? 'Loading narration'
+					: audioState === 'playing'
+						? 'Pause narration'
+						: 'Play narration'}
+				onclick={toggleAudio}
+			>
+				{#if audioState === 'loading'}
+					<span class="public-share-loading-wave" aria-hidden="true">
+						<span></span><span></span><span></span>
+					</span>
+				{:else if audioState === 'playing'}
+					<PauseIcon />
+				{:else}
+					<PlayIcon />
+				{/if}
+			</button>
+		</footer>
 
 		{#if errorMessage}
 			<div class="public-share-toast" role="alert">{errorMessage}</div>
-		{/if}
-
-		{#if saved}
-			<div class="public-share-saved">
-				<div>
-					<CheckIcon />
-					<span>
-						<strong>Saved to your library</strong>
-						<small>The document, summaries, and available narration are syncing locally.</small>
-					</span>
-				</div>
-				<Button variant="outline" onclick={() => window.location.assign('/')}>
-					Open my library
-				</Button>
-			</div>
 		{/if}
 	{/if}
 </div>
