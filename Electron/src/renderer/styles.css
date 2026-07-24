@@ -100,6 +100,7 @@ button:disabled {
 }
 
 .native-reader-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   background:
@@ -351,7 +352,7 @@ button:disabled {
   width: min(880px, calc(100% - 80px));
   min-height: 100%;
   margin: 0 auto;
-  padding: 49px 0 88px;
+  padding: 49px 0 150px;
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
@@ -460,35 +461,84 @@ button:disabled {
 }
 
 .native-document-footer {
-  position: relative;
+  position: absolute;
+  z-index: 12;
+  right: 18px;
+  bottom: 18px;
+  left: 18px;
   display: grid;
-  height: 63px;
-  flex: 0 0 63px;
-  grid-template-columns: 120px minmax(250px, 1fr) auto;
+  width: min(calc(100% - 36px), 850px);
+  height: 76px;
+  grid-template-columns: 108px minmax(218px, 1fr) auto;
   align-items: center;
-  gap: 22px;
-  padding: 0 26px 0 34px;
-  border-top: 1px solid rgb(46 46 43 / 35%);
+  gap: 18px;
+  margin: 0 auto;
+  padding: 9px 16px 9px 22px;
+  border: 1px solid rgb(175 176 168 / 56%);
+  border-radius: 24px;
   background:
-    linear-gradient(180deg, rgb(191 192 185 / 99%), rgb(181 183 176 / 99%)),
-    rgb(185 187 180);
+    radial-gradient(circle at 50% -70%, rgb(255 255 255 / 88%), transparent 54%),
+    linear-gradient(180deg, rgb(242 241 236 / 96%), rgb(236 235 229 / 97%));
   box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 22%),
-    0 -5px 16px rgb(0 0 0 / 5%);
+    0 18px 34px rgb(31 43 38 / 9%),
+    0 4px 10px rgb(31 43 38 / 5%),
+    0 1px 1px rgb(72 77 73 / 13%),
+    inset 0 2px 1px rgb(255 255 255 / 96%),
+    inset 0 -2px 2px rgb(166 166 158 / 15%);
+  backdrop-filter: blur(22px) saturate(112%);
 }
 
 .footer-stat {
-  color: rgb(56 56 52 / 72%);
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgb(66 83 76 / 88%);
+  font-size: 13px;
+  font-weight: 540;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   white-space: nowrap;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 68%);
+}
+
+.footer-stat::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: rgb(11 86 63);
+  box-shadow:
+    0 0 0 3px rgb(11 86 63 / 8%),
+    inset 0 1px 1px rgb(255 255 255 / 34%);
+  content: "";
 }
 
 .native-footer-actions {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.native-footer-actions::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 1px;
+  height: 42px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgb(173 175 168 / 48%) 16%,
+    rgb(173 175 168 / 48%) 84%,
+    transparent
+  );
+  box-shadow: 1px 0 0 rgb(255 255 255 / 58%);
+  content: "";
 }
 
 .native-icon-button,
@@ -496,70 +546,92 @@ button:disabled {
 .native-rate-button {
   position: relative;
   display: grid;
-  height: 34px;
   place-items: center;
-  border: 1px solid transparent;
-  color: rgb(49 49 46 / 80%);
+  border: 1px solid rgb(177 179 171 / 56%);
+  background: linear-gradient(145deg, rgb(247 246 241), rgb(233 232 226));
+  box-shadow:
+    0 7px 12px rgb(34 47 41 / 8%),
+    0 2px 4px rgb(34 47 41 / 5%),
+    inset 0 2px 2px rgb(255 255 255 / 96%),
+    inset 0 -2px 3px rgb(165 163 156 / 14%);
+  color: rgb(8 74 54);
   transition:
-    background 110ms ease,
-    border-color 110ms ease,
-    color 110ms ease;
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
 }
 
 .native-icon-button {
-  width: 34px;
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
 }
 
 .native-icon-button:hover,
 .native-icon-button.active,
 .native-rate-button:hover {
-  border-color: rgb(46 46 43 / 18%);
-  background: rgb(234 234 228 / 45%);
-  color: rgb(35 35 32);
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 16px rgb(34 47 41 / 11%),
+    0 3px 5px rgb(34 47 41 / 6%),
+    inset 0 2px 2px rgb(255 255 255 / 98%),
+    inset 0 -2px 3px rgb(165 163 156 / 14%);
+  color: rgb(11 86 63);
+}
+
+.native-icon-button.active {
+  background: linear-gradient(145deg, rgb(235 243 238), rgb(219 232 224));
 }
 
 .native-icon-button svg {
-  width: 17px;
-  height: 17px;
-  stroke-width: 1.8;
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.9;
 }
 
 .native-play-button {
-  width: 38px;
-  height: 38px;
-  border-color: rgb(62 63 59 / 44%);
+  width: 54px;
+  height: 54px;
+  border-color: rgb(3 68 48 / 72%);
   border-radius: 50%;
-  background: rgb(102 104 99);
-  color: rgb(251 250 246);
+  background:
+    radial-gradient(circle at 74% 82%, rgb(0 27 17 / 12%), transparent 52%),
+    linear-gradient(145deg, #23634d 0%, #1d5945 48%, #11503a 100%);
+  color: #fbfcf9;
   box-shadow:
-    0 2px 5px rgb(0 0 0 / 18%),
-    inset 0 1px 0 rgb(255 255 255 / 18%);
+    0 10px 16px rgb(28 56 45 / 15%),
+    0 3px 6px rgb(28 56 45 / 8%),
+    inset 0 2px 2px rgb(255 255 255 / 24%),
+    inset 0 -2px 3px rgb(0 30 19 / 20%);
 }
 
 .native-play-button:hover {
-  background: rgb(83 85 81);
+  transform: translateY(-1px);
+  box-shadow:
+    0 13px 20px rgb(28 56 45 / 21%),
+    0 4px 7px rgb(28 56 45 / 11%),
+    inset 0 2px 2px rgb(255 255 255 / 24%),
+    inset 0 -2px 3px rgb(0 30 19 / 20%);
 }
 
 .native-play-button.loading {
   grid-auto-flow: column;
   width: auto;
-  min-width: 126px;
-  padding: 0 12px;
+  height: 44px;
+  min-width: 120px;
+  padding: 0 13px;
   gap: 8px;
-  border-color: rgb(55 95 80 / 58%);
   border-radius: 999px;
-  background: rgb(65 98 85);
   cursor: progress;
 }
 
 .native-play-button.loading:hover {
-  background: rgb(57 87 75);
+  transform: none;
 }
 
 .native-play-button svg {
-  width: 17px;
-  height: 17px;
+  width: 22px;
+  height: 22px;
   transform: translateX(1px);
   fill: currentColor;
   stroke-width: 1.8;
@@ -602,23 +674,28 @@ button:disabled {
 }
 
 .native-rate-button {
-  min-width: 38px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font-size: 10px;
-  font-weight: 640;
+  width: 54px;
+  height: 42px;
+  padding: 0 7px;
+  border-radius: 999px;
+  color: rgb(66 86 78);
+  font-size: 12px;
+  font-weight: 660;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 72%);
 }
 
 .native-player-progress {
   position: absolute;
   z-index: 2;
-  top: -1px;
-  right: 0;
-  left: 0;
+  top: 6px;
+  right: 24px;
+  left: 24px;
   height: 2px;
   overflow: hidden;
-  background: transparent;
+  border-radius: 999px;
+  background: rgb(54 91 75 / 8%);
   opacity: 0;
 }
 
@@ -630,7 +707,8 @@ button:disabled {
   display: block;
   width: var(--progress, 0%);
   height: 100%;
-  background: rgb(67 110 91);
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgb(42 110 82), rgb(11 86 63));
   content: "";
   transition: width 160ms linear;
 }
@@ -1069,18 +1147,37 @@ button:disabled {
   }
 
   .native-document-footer {
-    grid-template-columns: 90px minmax(190px, 1fr) auto;
-    gap: 12px;
-    padding-right: 16px;
-    padding-left: 22px;
+    right: 14px;
+    bottom: 14px;
+    left: 14px;
+    width: calc(100% - 28px);
+    grid-template-columns: minmax(210px, 1fr) auto;
+    gap: 14px;
+    padding-right: 14px;
+    padding-left: 16px;
+  }
+
+  .footer-stat {
+    display: none;
   }
 
   .native-footer-actions {
-    gap: 1px;
+    gap: 6px;
   }
 
   .native-icon-button {
-    width: 31px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .native-play-button {
+    width: 52px;
+    height: 52px;
+  }
+
+  .native-rate-button {
+    width: 50px;
+    height: 40px;
   }
 }
 
@@ -1167,7 +1264,7 @@ button:disabled {
 
   .native-document-body {
     width: calc(100% - 38px);
-    padding: 29px 0 72px;
+    padding: 29px 0 158px;
     background-position: 0 29px;
   }
 
@@ -1182,15 +1279,19 @@ button:disabled {
   }
 
   .native-document-footer {
-    height: 104px;
-    flex-basis: 104px;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    width: calc(100% - 20px);
+    height: 118px;
     grid-template-areas:
-      "variant"
-      "actions";
+      "actions"
+      "variant";
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 43px 60px;
-    gap: 0;
-    padding: 0 12px;
+    grid-template-rows: 64px 40px;
+    gap: 2px;
+    padding: 7px 12px 9px;
+    border-radius: 24px;
   }
 
   .footer-stat {
@@ -1200,24 +1301,35 @@ button:disabled {
   .native-footer-actions {
     grid-area: actions;
     width: 100%;
-    align-self: start;
+    align-self: center;
     justify-content: center;
-    gap: 8px;
-    padding-top: 6px;
+    gap: 7px;
+    padding: 0;
+  }
+
+  .native-footer-actions::before {
+    display: none;
   }
 
   .native-icon-button {
-    width: 34px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
   }
 
   .native-play-button {
-    width: 42px;
-    height: 42px;
+    width: 52px;
+    height: 52px;
   }
 
   .native-rate-button {
-    height: 36px;
+    width: 50px;
+    height: 40px;
+  }
+
+  .native-player-progress {
+    top: 5px;
+    right: 20px;
+    left: 20px;
   }
 
   .center-stage {
