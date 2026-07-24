@@ -164,6 +164,13 @@
 		player.currentEntry?.id === selectedEntry?.id &&
 			player.currentVariant === selectedVariant
 	);
+	let selectedAudioLoadingLabel = $derived(
+		player.loadingPhase === 'generating'
+			? 'Generating voice'
+			: player.loadingPhase === 'downloading'
+				? 'Downloading audio'
+				: 'Checking audio'
+	);
 	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
 
 	$effect(() => {
@@ -865,20 +872,24 @@
 
 							<button
 								class="native-play-button"
+								class:loading={player.state === 'loading' && selectedAudioActive}
 								aria-label={player.state === 'loading' && selectedAudioActive
-									? 'Cancel audio generation'
+									? `Cancel ${selectedAudioLoadingLabel.toLowerCase()}`
 									: player.state === 'playing' && selectedAudioActive
 										? 'Pause'
 										: 'Play'}
 								title={player.state === 'loading' && selectedAudioActive
-									? 'Preparing audio'
+									? selectedAudioLoadingLabel
 									: player.state === 'playing' && selectedAudioActive
 										? 'Pause'
 										: 'Play'}
 								onclick={listen}
 							>
 								{#if player.state === 'loading' && selectedAudioActive}
-									<LoaderCircleIcon class="spin" />
+									<span class="narration-loading-wave" aria-hidden="true">
+										<span></span><span></span><span></span><span></span>
+									</span>
+									<span class="narration-loading-label">{selectedAudioLoadingLabel}</span>
 								{:else if player.state === 'playing' && selectedAudioActive}
 									<PauseIcon />
 								{:else}
