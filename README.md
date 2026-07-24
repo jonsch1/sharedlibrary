@@ -113,10 +113,11 @@ selected by the user—not the rest of the user's Drive.
 
 For the web reader, create a Google OAuth **Web application** client. Set
 `GOOGLE_DRIVE_WEB_CLIENT_ID` and the `GOOGLE_DRIVE_WEB_CLIENT_SECRET` deployment
-secret, then add `/api/google/connect/callback` on the production origin to the
-client's authorized redirect URIs. The Electron app uses the same hosted account
-connection, so Drive is configured once per account. Account tokens are encrypted
-per signed-in user.
+secret, then add
+`https://www.readbriefly.fyi/api/google/connect/callback` to the client's
+authorized redirect URIs. The Electron app uses the same hosted account
+connection, so Drive is configured once per account. Account tokens are
+encrypted per signed-in user.
 
 ## OpenRouter narration
 

@@ -24,7 +24,7 @@ app.once('ready', () => {
 
       if (
         url.origin ===
-        'https://shared-library-jschaul.schauljonathan.chatgpt.site'
+        'https://www.readbriefly.fyi'
       ) {
         const body =
           url.pathname === '/api/auth/status'

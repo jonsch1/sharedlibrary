@@ -10,7 +10,7 @@ import type {
   DriveLibraryMirror
 } from './library.js';
 
-const backendOrigin = 'https://shared-library-jschaul.schauljonathan.chatgpt.site';
+const backendOrigin = 'https://www.readbriefly.fyi';
 
 interface AccountStatus {
   authenticated: boolean;

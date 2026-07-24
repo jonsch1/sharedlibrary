@@ -11,9 +11,10 @@ the background.
 
 Enable the Google Drive API and create one Web application OAuth client. Configure
 its Client ID and Client Secret once for the deployment, then register
-`https://<production-origin>/api/google/connect/callback` as an authorized redirect
-URI. Google sign-in creates an app session and configures one personal library
-folder for the account. The web and Electron clients reuse that saved location.
+`https://www.readbriefly.fyi/api/google/connect/callback` as an authorized
+redirect URI. Google sign-in creates an app session and configures one personal
+library folder for the account. The web and Electron clients reuse that saved
+location.
 
 The backend encrypts account tokens and requests only `drive.file`. It can therefore
 access only files Shared Library creates or that the user explicitly opens with it,
