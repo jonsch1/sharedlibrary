@@ -57,12 +57,14 @@ export interface ProcessingPreferencesUpdate {
 }
 
 export type ConnectionProvider = 'google' | 'openrouter';
-export type OpenRouterVoice = 'alloy' | 'eve' | 'ara' | 'leo' | 'rex' | 'sal';
+export type OpenRouterVoice = string;
 export const defaultOpenRouterTTSModel = 'hexgrad/kokoro-82m';
 export const grokVoiceTTSModel = 'x-ai/grok-voice-tts-1.0';
+export const orpheusVoiceTTSModel = 'canopylabs/orpheus-3b-0.1-ft';
 
 const openRouterModelPattern =
   /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 export function normalizeOpenRouterTTSModel(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -71,9 +73,35 @@ export function normalizeOpenRouterTTSModel(value: unknown): string | null {
 }
 
 export function recommendedVoiceForTTSModel(model: string): OpenRouterVoice | null {
-  if (model === defaultOpenRouterTTSModel) return 'alloy';
+  if (model === defaultOpenRouterTTSModel) return 'af_heart';
+  if (model === orpheusVoiceTTSModel) return 'tara';
   if (model === grokVoiceTTSModel) return 'eve';
   return null;
+}
+
+export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null {
+  if (typeof value !== 'string') return null;
+  const voice = value.trim();
+  return openRouterVoicePattern.test(voice) ? voice : null;
+}
+
+export function migrateVoiceForTTSModel(
+  model: string,
+  value: unknown
+): OpenRouterVoice {
+  const voice = normalizeOpenRouterVoice(value);
+  const recommended = recommendedVoiceForTTSModel(model);
+  if (!voice) return recommended ?? 'af_heart';
+  if (
+    model === defaultOpenRouterTTSModel &&
+    ['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(voice)
+  ) {
+    return recommended ?? voice;
+  }
+  if (model === orpheusVoiceTTSModel && voice === 'alloy') {
+    return recommended ?? voice;
+  }
+  return voice;
 }
 
 export interface DesktopConnectionStatus {

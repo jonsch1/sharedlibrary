@@ -64,7 +64,7 @@
     phase: 'idle',
     message: 'Sign in with Google to synchronize this library.'
   });
-  let voice = $state<OpenRouterVoice>('alloy');
+  let voice = $state<OpenRouterVoice>('af_heart');
   let ttsModel = $state('hexgrad/kokoro-82m');
   let narrationState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   let narrationLoadingPhase = $state<NarrationLoadingPhase>('checking');
@@ -360,9 +360,16 @@
   }
 
   async function changeVoice(event: Event): Promise<void> {
-    const next = (event.currentTarget as HTMLSelectElement).value as OpenRouterVoice;
-    connections = await window.sharedLibrary.setVoice(next);
-    voice = connections.voice;
+    const input = event.currentTarget as HTMLInputElement;
+    try {
+      connections = await window.sharedLibrary.setVoice(input.value);
+      voice = connections.voice;
+      input.value = voice;
+    } catch (error) {
+      input.value = voice;
+      message =
+        error instanceof Error ? error.message : 'The narration voice could not be changed.';
+    }
   }
 
   async function changeTTSModel(event: Event): Promise<void> {
@@ -894,14 +901,30 @@
         </label>
         <label class="voice-field">
           <span>Voice</span>
-          <select value={voice} onchange={changeVoice}>
-            <option value="alloy">Alloy · Kokoro compatible</option>
-            <option value="eve">Eve · energetic</option>
-            <option value="ara">Ara · composed</option>
-            <option value="leo">Leo · warm</option>
-            <option value="rex">Rex · direct</option>
-            <option value="sal">Sal · conversational</option>
-          </select>
+          <input
+            value={voice}
+            aria-label="OpenRouter voice"
+            list="openrouter-voice-suggestions"
+            autocomplete="off"
+            spellcheck="false"
+            onchange={changeVoice}
+          />
+          <datalist id="openrouter-voice-suggestions">
+            <option value="af_heart">Kokoro · Heart</option>
+            <option value="af_alloy">Kokoro · Alloy</option>
+            <option value="tara">Orpheus · Tara</option>
+            <option value="leah">Orpheus · Leah</option>
+            <option value="jess">Orpheus · Jess</option>
+            <option value="leo">Orpheus / Grok · Leo</option>
+            <option value="dan">Orpheus · Dan</option>
+            <option value="mia">Orpheus · Mia</option>
+            <option value="zac">Orpheus · Zac</option>
+            <option value="zoe">Orpheus · Zoe</option>
+            <option value="eve">Grok · Eve</option>
+            <option value="ara">Grok · Ara</option>
+            <option value="rex">Grok · Rex</option>
+            <option value="sal">Grok · Sal</option>
+          </datalist>
         </label>
         <div class="panel-actions">
           {#if connections?.openrouter.connected}

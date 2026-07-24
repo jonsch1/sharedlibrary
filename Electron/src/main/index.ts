@@ -26,6 +26,8 @@ import type {
 } from '../shared/contracts.js';
 import {
   defaultOpenRouterTTSModel,
+  migrateVoiceForTTSModel,
+  normalizeOpenRouterVoice,
   normalizeOpenRouterTTSModel,
   recommendedVoiceForTTSModel
 } from '../shared/contracts.js';
@@ -61,7 +63,7 @@ let extraction: ExtractionService;
 let processing: ProcessingService;
 let narration: NarrationService;
 let sync: SyncCoordinator;
-let voice: OpenRouterVoice = 'alloy';
+let voice: OpenRouterVoice = 'af_heart';
 let ttsModel = defaultOpenRouterTTSModel;
 
 function defaultWorkspacePath(): string {
@@ -305,10 +307,9 @@ function registerIPC(): void {
     return connectionStatus();
   });
   ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
-    if (!['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(nextVoice)) {
-      throw new Error('Unknown narration voice.');
-    }
-    voice = nextVoice;
+    const normalizedVoice = normalizeOpenRouterVoice(nextVoice);
+    if (!normalizedVoice) throw new Error('Enter a valid provider voice identifier.');
+    voice = normalizedVoice;
     await settings.update({ voice });
     return connectionStatus();
   });
@@ -542,10 +543,8 @@ app.whenReady().then(async () => {
   const saved = await settings.load();
   const savedModel = normalizeOpenRouterTTSModel(saved.ttsModel);
   ttsModel = savedModel ?? defaultOpenRouterTTSModel;
-  voice = savedModel
-    ? (saved.voice ?? recommendedVoiceForTTSModel(ttsModel) ?? 'alloy')
-    : (recommendedVoiceForTTSModel(ttsModel) ?? 'alloy');
-  if (!savedModel) await settings.update({ ttsModel, voice });
+  voice = migrateVoiceForTTSModel(ttsModel, savedModel ? saved.voice : undefined);
+  if (!savedModel || voice !== saved.voice) await settings.update({ ttsModel, voice });
   library = new LibraryService(
     saved.workspacePath ?? defaultWorkspacePath(),
     process.platform,
