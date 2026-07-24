@@ -1,7 +1,17 @@
-const openRouterModel = 'x-ai/grok-voice-tts-1.0';
-const supportedVoices = new Set(['eve', 'ara', 'leo', 'rex', 'sal']);
+const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
+const legacyGrokVoiceModel = 'x-ai/grok-voice-tts-1.0';
+const supportedVoices = new Set(['alloy', 'eve', 'ara', 'leo', 'rex', 'sal']);
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const maximumSpeechInputLength = 14_000;
+const openRouterModelPattern =
+	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+function requestedOpenRouterModel(value) {
+	if (value === undefined) return defaultOpenRouterModel;
+	if (typeof value !== 'string') return null;
+	const model = value.trim();
+	return openRouterModelPattern.test(model) ? model : null;
+}
 
 function json(value, init = {}) {
 	const headers = new Headers(init.headers);
@@ -420,14 +430,16 @@ async function createSpeech(request, env) {
 	} catch {
 		return json({ error: 'Invalid speech request.' }, { status: 400 });
 	}
+	const model = requestedOpenRouterModel(value.model);
 	if (
 		typeof value.input !== 'string' ||
 		!value.input.trim() ||
 		value.input.length > maximumSpeechInputLength ||
 		typeof value.voice !== 'string' ||
-		!supportedVoices.has(value.voice)
+		!supportedVoices.has(value.voice) ||
+		!model
 	) {
-		return json({ error: 'Invalid speech text or voice.' }, { status: 400 });
+		return json({ error: 'Invalid speech text, voice, or model.' }, { status: 400 });
 	}
 
 	const credential = await env.DB.prepare(
@@ -458,7 +470,7 @@ async function createSpeech(request, env) {
 			'X-Title': 'Shared Library'
 		},
 		body: JSON.stringify({
-			model: openRouterModel,
+			model,
 			input: value.input,
 			voice: value.voice,
 			response_format: 'mp3'
@@ -1465,8 +1477,8 @@ function shareSpeechChunks(text) {
 	return chunks;
 }
 
-async function shareAudioFingerprint(text, voice) {
-	return sha256Hex(`${openRouterModel}\n${voice}\n${text}`);
+async function shareAudioFingerprint(text, voice, model) {
+	return sha256Hex(`${model}\n${voice}\n${text}`);
 }
 
 async function driveAudioFilesByHash(env, email) {
@@ -1560,7 +1572,7 @@ async function removeOldShareGenerations(env, token, currentGeneration) {
 	]);
 }
 
-async function prepareShareLink(env, email, token, captureID, generation, voice) {
+async function prepareShareLink(env, email, token, captureID, generation, voice, model) {
 	try {
 		const personal = await loadPersonalShareAfterDriveSync(env, email, captureID);
 		const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
@@ -1612,21 +1624,29 @@ async function prepareShareLink(env, email, token, captureID, generation, voice)
 				const chunks = shareSpeechChunks(shareSpokenText(displayText));
 				let matchingVoice;
 				let hashes = [];
+				const candidateModels = [model, legacyGrokVoiceModel].filter(
+					(candidate, index, values) => values.indexOf(candidate) === index
+				);
 				const candidateVoices = [voice, ...supportedVoices].filter(
 					(candidate, index, values) => values.indexOf(candidate) === index
 				);
-				for (const candidateVoice of candidateVoices) {
-					const candidateHashes = await Promise.all(
-						chunks.map((chunk) => shareAudioFingerprint(chunk, candidateVoice))
-					);
-					if (
-						candidateHashes.length > 0 &&
-						candidateHashes.every((hash) => remoteAudio.has(hash))
-					) {
-						matchingVoice = candidateVoice;
-						hashes = candidateHashes;
-						break;
+				for (const candidateModel of candidateModels) {
+					for (const candidateVoice of candidateVoices) {
+						const candidateHashes = await Promise.all(
+							chunks.map((chunk) =>
+								shareAudioFingerprint(chunk, candidateVoice, candidateModel)
+							)
+						);
+						if (
+							candidateHashes.length > 0 &&
+							candidateHashes.every((hash) => remoteAudio.has(hash))
+						) {
+							matchingVoice = candidateVoice;
+							hashes = candidateHashes;
+							break;
+						}
 					}
+					if (matchingVoice) break;
 				}
 				if (!matchingVoice) continue;
 				for (let index = 0; index < hashes.length; index += 1) {
@@ -1726,9 +1746,13 @@ async function publishShareLink(request, env, context) {
 		return json({ error: 'Invalid share-link request.' }, { status: 400 });
 	}
 	const captureID = value?.captureID;
-	const voice = supportedVoices.has(value?.voice) ? value.voice : 'eve';
+	const voice = supportedVoices.has(value?.voice) ? value.voice : 'alloy';
+	const model = requestedOpenRouterModel(value?.model);
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	if (!model) {
+		return json({ error: 'Choose a valid OpenRouter TTS model.' }, { status: 400 });
 	}
 	const token = randomBase64URL(24);
 	const generation = crypto.randomUUID();
@@ -1751,7 +1775,7 @@ async function publishShareLink(request, env, context) {
 	const record = await shareLinkForOwner(env, email, captureID);
 	scheduleSharingOperation(
 		context,
-		prepareShareLink(env, email, record.token, captureID, generation, voice)
+		prepareShareLink(env, email, record.token, captureID, generation, voice, model)
 	);
 	return json(shareLinkResponse(request, record), { status: 202 });
 }

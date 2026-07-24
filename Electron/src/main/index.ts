@@ -24,6 +24,11 @@ import type {
   ProcessingPreferences,
   ProcessingPreferencesUpdate
 } from '../shared/contracts.js';
+import {
+  defaultOpenRouterTTSModel,
+  normalizeOpenRouterTTSModel,
+  recommendedVoiceForTTSModel
+} from '../shared/contracts.js';
 import { BackendClient } from './backend.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
@@ -56,7 +61,8 @@ let extraction: ExtractionService;
 let processing: ProcessingService;
 let narration: NarrationService;
 let sync: SyncCoordinator;
-let voice: OpenRouterVoice = 'eve';
+let voice: OpenRouterVoice = 'alloy';
+let ttsModel = defaultOpenRouterTTSModel;
 
 function defaultWorkspacePath(): string {
   return join(app.getPath('documents'), 'Shared Library');
@@ -107,7 +113,8 @@ async function connectionStatus(): Promise<DesktopConnectionStatus> {
         typeof openrouter.userID === 'string' ? openrouter.userID : undefined
     },
     sync: sync.currentStatus(),
-    voice
+    voice,
+    ttsModel
   };
 }
 
@@ -298,11 +305,23 @@ function registerIPC(): void {
     return connectionStatus();
   });
   ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
-    if (!['eve', 'ara', 'leo', 'rex', 'sal'].includes(nextVoice)) {
+    if (!['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(nextVoice)) {
       throw new Error('Unknown narration voice.');
     }
     voice = nextVoice;
     await settings.update({ voice });
+    return connectionStatus();
+  });
+  ipcMain.handle('services:set-tts-model', async (_event, value: unknown) => {
+    const nextModel = normalizeOpenRouterTTSModel(value);
+    if (!nextModel) {
+      throw new Error('Enter an OpenRouter model slug such as hexgrad/kokoro-82m.');
+    }
+    const changed = nextModel !== ttsModel;
+    ttsModel = nextModel;
+    const recommendedVoice = changed ? recommendedVoiceForTTSModel(nextModel) : null;
+    if (recommendedVoice) voice = recommendedVoice;
+    await settings.update({ ttsModel, voice });
     return connectionStatus();
   });
   ipcMain.handle('processing:get-preferences', () => processingPreferences());
@@ -321,7 +340,7 @@ function registerIPC(): void {
     'narration:start',
     async (_event, entryID: string, variant: LibraryVariant, selectedVoice: OpenRouterVoice) => {
       const text = await library.readText(entryID, variant);
-      return narration.start(text, selectedVoice);
+      return narration.start(text, selectedVoice, ttsModel);
     }
   );
   ipcMain.handle('sharing:get', async (_event, entryID: string) => {
@@ -334,7 +353,7 @@ function registerIPC(): void {
       const entry = await entryForID(entryID);
       const syncStatus = await sync.synchronize('the document');
       if (syncStatus.phase === 'error') throw new Error(syncStatus.message);
-      let result = await backend.publishShare(entry.captureID, selectedVoice);
+      let result = await backend.publishShare(entry.captureID, selectedVoice, ttsModel);
       for (let attempt = 0; result.status === 'preparing' && attempt < 30; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         result = await backend.shareStatus(entry.captureID);
@@ -521,7 +540,12 @@ app.whenReady().then(async () => {
   }
   settings = new SettingsStore(app.getPath('userData'));
   const saved = await settings.load();
-  voice = saved.voice ?? 'eve';
+  const savedModel = normalizeOpenRouterTTSModel(saved.ttsModel);
+  ttsModel = savedModel ?? defaultOpenRouterTTSModel;
+  voice = savedModel
+    ? (saved.voice ?? recommendedVoiceForTTSModel(ttsModel) ?? 'alloy')
+    : (recommendedVoiceForTTSModel(ttsModel) ?? 'alloy');
+  if (!savedModel) await settings.update({ ttsModel, voice });
   library = new LibraryService(
     saved.workspacePath ?? defaultWorkspacePath(),
     process.platform,

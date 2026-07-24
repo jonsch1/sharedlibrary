@@ -4,9 +4,11 @@ import {
 	storeGoogleDriveAudio
 } from '$lib/google-drive.js';
 
-export const openRouterModel = 'x-ai/grok-voice-tts-1.0';
+export const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
+export const grokVoiceModel = 'x-ai/grok-voice-tts-1.0';
 
 export const openRouterVoices = [
+	{ id: 'alloy', name: 'Alloy', description: 'Compatible with Kokoro and many TTS models' },
 	{ id: 'eve', name: 'Eve', description: 'Energetic and engaging' },
 	{ id: 'ara', name: 'Ara', description: 'Clear and composed' },
 	{ id: 'leo', name: 'Leo', description: 'Warm and friendly' },
@@ -25,7 +27,10 @@ export interface OpenRouterCredential {
 
 const audioCacheName = 'shared-library-openrouter-audio-v1';
 const voicePreferenceKey = 'shared-library-openrouter-voice';
+const modelPreferenceKey = 'shared-library-openrouter-model';
 const maximumSpeechSegmentLength = 360;
+const modelIdentifierPattern =
+	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 export interface OpenRouterSpeechSource {
 	url: string;
@@ -110,15 +115,43 @@ export async function completeOpenRouterConnection(): Promise<OpenRouterCredenti
 	return credential;
 }
 
-export function loadVoicePreference(): OpenRouterVoice {
-	const stored = localStorage.getItem(voicePreferenceKey);
-	return openRouterVoices.some((voice) => voice.id === stored)
-		? (stored as OpenRouterVoice)
-		: 'eve';
+export function normalizeOpenRouterModel(value: unknown): string | null {
+	if (typeof value !== 'string') return null;
+	const model = value.trim();
+	return modelIdentifierPattern.test(model) ? model : null;
+}
+
+export function recommendedVoiceForModel(model: string): OpenRouterVoice | null {
+	if (model === defaultOpenRouterModel) return 'alloy';
+	if (model === grokVoiceModel) return 'eve';
+	return null;
+}
+
+export function loadOpenRouterPreferences(): {
+	model: string;
+	voice: OpenRouterVoice;
+} {
+	const storedModel = localStorage.getItem(modelPreferenceKey);
+	const model = normalizeOpenRouterModel(storedModel) ?? defaultOpenRouterModel;
+	const storedVoice = localStorage.getItem(voicePreferenceKey);
+	const voice = openRouterVoices.some((candidate) => candidate.id === storedVoice)
+		? (storedVoice as OpenRouterVoice)
+		: (recommendedVoiceForModel(model) ?? 'alloy');
+
+	// Existing installations did not store a model and used Grok-only voice names.
+	// Start the new Kokoro default with its broadly supported example voice.
+	return {
+		model,
+		voice: storedModel ? voice : (recommendedVoiceForModel(model) ?? voice)
+	};
 }
 
 export function saveVoicePreference(voice: OpenRouterVoice): void {
 	localStorage.setItem(voicePreferenceKey, voice);
+}
+
+export function saveModelPreference(model: string): void {
+	localStorage.setItem(modelPreferenceKey, model);
 }
 
 function splitSentences(text: string): string[] {
@@ -168,11 +201,12 @@ export function openRouterSpeechChunks(text: string): string[] {
 
 export async function audioFingerprint(
 	text: string,
-	voice: OpenRouterVoice
+	voice: OpenRouterVoice,
+	model: string
 ): Promise<string> {
 	const fingerprint = await crypto.subtle.digest(
 		'SHA-256',
-		new TextEncoder().encode(`${openRouterModel}\n${voice}\n${text}`)
+		new TextEncoder().encode(`${model}\n${voice}\n${text}`)
 	);
 	return Array.from(new Uint8Array(fingerprint), (byte) =>
 		byte.toString(16).padStart(2, '0')
@@ -186,10 +220,11 @@ function audioCacheRequest(hash: string): Request {
 export async function loadCachedSpeech(
 	text: string,
 	voice: OpenRouterVoice,
+	model: string,
 	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<Blob | null> {
 	onLoadingPhase?.('checking');
-	const hash = await audioFingerprint(text, voice);
+	const hash = await audioFingerprint(text, voice, model);
 	try {
 		if ('caches' in globalThis) {
 			const cache = await caches.open(audioCacheName);
@@ -293,10 +328,11 @@ export async function createOpenRouterSpeechSource(
 	_credential: OpenRouterCredential,
 	text: string,
 	voice: OpenRouterVoice,
+	model: string,
 	signal?: AbortSignal,
 	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<OpenRouterSpeechSource> {
-	const cached = await loadCachedSpeech(text, voice, onLoadingPhase);
+	const cached = await loadCachedSpeech(text, voice, model, onLoadingPhase);
 	if (cached) return blobSpeechSource(cached);
 	if (signal?.aborted) throw abortError();
 
@@ -307,7 +343,7 @@ export async function createOpenRouterSpeechSource(
 			'Content-Type': 'application/json',
 			Accept: 'audio/mpeg'
 		},
-		body: JSON.stringify({ input: text, voice }),
+		body: JSON.stringify({ input: text, voice, model }),
 		signal
 	});
 	if (!response.ok) {
@@ -320,7 +356,7 @@ export async function createOpenRouterSpeechSource(
 	onLoadingPhase?.('downloading');
 	const audio = await response.blob();
 	if (!audio.size) throw new OpenRouterSpeechError('OpenRouter returned empty audio.', 502);
-	const hash = await audioFingerprint(text, voice);
+	const hash = await audioFingerprint(text, voice, model);
 	try {
 		await cacheSpeech(hash, audio);
 	} catch {

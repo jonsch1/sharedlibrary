@@ -9,7 +9,6 @@ import type {
 } from '../shared/contracts.js';
 import { BackendClient } from './backend.js';
 
-const model = 'x-ai/grok-voice-tts-1.0';
 const maximumSegmentLength = 360;
 
 export class NarrationService {
@@ -20,12 +19,16 @@ export class NarrationService {
     private readonly onStatus: (status: NarrationStatus) => void
   ) {}
 
-  async start(text: string, voice: OpenRouterVoice): Promise<NarrationSession> {
+  async start(
+    text: string,
+    voice: OpenRouterVoice,
+    model: string
+  ): Promise<NarrationSession> {
     const chunks = speechChunks(text);
     if (!chunks.length) throw new Error('This document does not contain narratable text.');
     const sessionID = randomUUID();
-    const first = await this.segment(sessionID, 0, chunks, voice);
-    void this.generateRemaining(sessionID, chunks, voice);
+    const first = await this.segment(sessionID, 0, chunks, voice, model);
+    void this.generateRemaining(sessionID, chunks, voice, model);
     return { sessionID, total: chunks.length, first };
   }
 
@@ -44,11 +47,12 @@ export class NarrationService {
   private async generateRemaining(
     sessionID: string,
     chunks: string[],
-    voice: OpenRouterVoice
+    voice: OpenRouterVoice,
+    model: string
   ): Promise<void> {
     for (let index = 1; index < chunks.length; index += 1) {
       try {
-        this.onSegment(await this.segment(sessionID, index, chunks, voice));
+        this.onSegment(await this.segment(sessionID, index, chunks, voice, model));
       } catch {
         return;
       }
@@ -59,16 +63,17 @@ export class NarrationService {
     sessionID: string,
     index: number,
     chunks: string[],
-    voice: OpenRouterVoice
+    voice: OpenRouterVoice,
+    model: string
   ): Promise<NarrationSegment> {
-    const hash = fingerprint(chunks[index], voice);
+    const hash = fingerprint(chunks[index], voice, model);
     const path = join(this.cacheRoot, `${hash}.mp3`);
     this.onStatus({ sessionID, index, phase: 'checking' });
     if (!(await isNonemptyFile(path))) {
       this.onStatus({ sessionID, index, phase: 'downloading' });
       const stored = await this.backend.loadAudio(hash);
       if (!stored) this.onStatus({ sessionID, index, phase: 'generating' });
-      const bytes = stored ?? (await this.backend.createSpeech(chunks[index], voice));
+      const bytes = stored ?? (await this.backend.createSpeech(chunks[index], voice, model));
       await atomicWrite(path, bytes);
       if (!stored) {
         void this.backend.storeAudio(hash, bytes).catch(() => {
@@ -85,7 +90,7 @@ export class NarrationService {
   }
 }
 
-function fingerprint(text: string, voice: OpenRouterVoice): string {
+function fingerprint(text: string, voice: OpenRouterVoice, model: string): string {
   return createHash('sha256')
     .update(`${model}\n${voice}\n${text}`)
     .digest('hex');

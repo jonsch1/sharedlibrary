@@ -1109,7 +1109,8 @@ button:disabled {
   letter-spacing: 0.06em;
 }
 
-.voice-field select {
+.voice-field select,
+.voice-field input {
   width: 100%;
   height: 36px;
   border: 1px solid var(--border);
@@ -1121,7 +1122,13 @@ button:disabled {
   font-size: 12px;
 }
 
-.voice-field select:focus {
+.voice-field input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.voice-field select:focus,
+.voice-field input:focus {
   box-shadow: 0 0 0 2px rgb(80 82 77 / 12%);
 }
 

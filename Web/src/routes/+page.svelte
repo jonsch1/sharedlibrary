@@ -42,10 +42,14 @@
 	import {
 		beginOpenRouterConnection,
 		completeOpenRouterConnection,
+		defaultOpenRouterModel,
 		disconnectOpenRouter,
+		loadOpenRouterPreferences,
 		loadOpenRouterCredential,
-		loadVoicePreference,
+		normalizeOpenRouterModel,
 		openRouterVoices,
+		recommendedVoiceForModel,
+		saveModelPreference,
 		saveVoicePreference,
 		synchronizeOpenRouterAudioCache,
 		type OpenRouterCredential,
@@ -91,7 +95,8 @@
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
-	let openRouterVoice = $state<OpenRouterVoice>('eve');
+	let openRouterVoice = $state<OpenRouterVoice>('alloy');
+	let openRouterModel = $state(defaultOpenRouterModel);
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
 	let connectionMessage = $state('');
@@ -150,7 +155,7 @@
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
 	);
 	let currentVoiceName = $derived(
-		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? 'Eve'
+		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? 'Alloy'
 	);
 	let selectedAudioActive = $derived(
 		player.currentEntry?.id === selectedEntry?.id &&
@@ -217,7 +222,11 @@
 			isAppleMobile &&
 			(navigatorWithStandalone.standalone === true ||
 				window.matchMedia('(display-mode: standalone)').matches);
-		openRouterVoice = loadVoicePreference();
+		const narrationPreferences = loadOpenRouterPreferences();
+		openRouterVoice = narrationPreferences.voice;
+		openRouterModel = narrationPreferences.model;
+		saveVoicePreference(openRouterVoice);
+		saveModelPreference(openRouterModel);
 		void initializeOpenRouter(() => active);
 		loadLibraryProjection()
 			.then((saved) => {
@@ -282,7 +291,7 @@
 			const credential = connected ?? (await loadOpenRouterCredential());
 			if (!isActive()) return;
 			openRouterCredential = credential;
-			player.configureOpenRouter(credential, openRouterVoice);
+			player.configureOpenRouter(credential, openRouterVoice, openRouterModel);
 			if (connected) {
 				audioMessage = `OpenRouter connected. ${currentVoiceName} is ready.`;
 				connectionsVisible = true;
@@ -458,7 +467,7 @@
 		shareError = '';
 		try {
 			const captureID = target.captureID ?? target.id;
-			const result = await publishShareLink(captureID, openRouterVoice);
+			const result = await publishShareLink(captureID, openRouterVoice, openRouterModel);
 			shareLink = result;
 			if (result.url) {
 				await navigator.clipboard.writeText(result.url);
@@ -584,7 +593,7 @@
 			return;
 		}
 		if (!(await ensureTextLoaded(selectedEntry, selectedVariant, true))) return;
-		player.configureOpenRouter(openRouterCredential, openRouterVoice);
+		player.configureOpenRouter(openRouterCredential, openRouterVoice, openRouterModel);
 		player.play(selectedEntry, selectedVariant);
 	}
 
@@ -616,7 +625,7 @@
 		try {
 			await disconnectOpenRouter();
 			openRouterCredential = null;
-			player.configureOpenRouter(null, openRouterVoice);
+			player.configureOpenRouter(null, openRouterVoice, openRouterModel);
 			audioMessage = 'OpenRouter disconnected. Device speech remains available.';
 		} catch (error) {
 			audioMessage =
@@ -631,8 +640,28 @@
 		if (!openRouterVoices.some((voice) => voice.id === selected)) return;
 		openRouterVoice = selected;
 		saveVoicePreference(selected);
-		player.configureOpenRouter(openRouterCredential, selected);
+		player.configureOpenRouter(openRouterCredential, selected, openRouterModel);
 		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? 'Voice'} selected.`;
+	}
+
+	function updateOpenRouterModel(event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		const nextModel = normalizeOpenRouterModel(input.value);
+		if (!nextModel) {
+			input.value = openRouterModel;
+			audioMessage = 'Enter an OpenRouter model slug such as hexgrad/kokoro-82m.';
+			return;
+		}
+		const changed = nextModel !== openRouterModel;
+		openRouterModel = nextModel;
+		saveModelPreference(nextModel);
+		const recommendedVoice = changed ? recommendedVoiceForModel(nextModel) : null;
+		if (recommendedVoice) {
+			openRouterVoice = recommendedVoice;
+			saveVoicePreference(recommendedVoice);
+		}
+		player.configureOpenRouter(openRouterCredential, openRouterVoice, nextModel);
+		audioMessage = `${nextModel} selected for new narration.`;
 	}
 
 	function dismissToast(): void {
@@ -1045,6 +1074,17 @@
 							{/each}
 						</NativeSelect.Root>
 					</div>
+					<label class="audio-model-field">
+						<span>OpenRouter model</span>
+						<Input
+							value={openRouterModel}
+							aria-label="OpenRouter TTS model"
+							autocapitalize="none"
+							autocomplete="off"
+							spellcheck="false"
+							onchange={updateOpenRouterModel}
+						/>
+					</label>
 					{#if openRouterCredential}
 						<p class="voice-description">
 							{openRouterVoices.find((voice) => voice.id === openRouterVoice)?.description}

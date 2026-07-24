@@ -1595,6 +1595,25 @@
 	gap: 14px;
 }
 
+.audio-model-field {
+	display: grid;
+	gap: 6px;
+	margin-top: 14px;
+}
+
+.audio-model-field > span {
+	color: var(--muted-foreground);
+	font-size: 10px;
+	font-weight: 650;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.audio-model-field input {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	font-size: 11px;
+}
+
 .voice-description {
 	color: var(--primary) !important;
 }

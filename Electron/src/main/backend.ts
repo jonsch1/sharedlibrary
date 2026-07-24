@@ -125,14 +125,18 @@ export class BackendClient {
     await this.json(response, 'Could not back up narration to Google Drive.');
   }
 
-  async createSpeech(text: string, voice: OpenRouterVoice): Promise<Uint8Array> {
+  async createSpeech(
+    text: string,
+    voice: OpenRouterVoice,
+    model: string
+  ): Promise<Uint8Array> {
     const response = await this.fetch('/api/tts', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'audio/mpeg'
       },
-      body: JSON.stringify({ input: text, voice })
+      body: JSON.stringify({ input: text, voice, model })
     });
     if (!response.ok) {
       throw new Error(await this.errorMessage(response, 'Narration could not be generated.'));
@@ -151,12 +155,13 @@ export class BackendClient {
 
   async publishShare(
     captureID: string,
-    voice: OpenRouterVoice
+    voice: OpenRouterVoice,
+    model: string
   ): Promise<ShareLinkStatus> {
     const response = await this.fetch('/api/share-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ captureID, voice })
+      body: JSON.stringify({ captureID, voice, model })
     });
     return this.json(response, 'Could not create the share link.');
   }

@@ -32,6 +32,7 @@ const api: SharedLibraryDesktopAPI = {
   disconnect: (provider) => ipcRenderer.invoke('services:disconnect', provider),
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
   setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
+  setTTSModel: (model: string) => ipcRenderer.invoke('services:set-tts-model', model),
   getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
   updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>
     ipcRenderer.invoke('processing:update-preferences', preferences),

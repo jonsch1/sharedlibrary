@@ -57,7 +57,24 @@ export interface ProcessingPreferencesUpdate {
 }
 
 export type ConnectionProvider = 'google' | 'openrouter';
-export type OpenRouterVoice = 'eve' | 'ara' | 'leo' | 'rex' | 'sal';
+export type OpenRouterVoice = 'alloy' | 'eve' | 'ara' | 'leo' | 'rex' | 'sal';
+export const defaultOpenRouterTTSModel = 'hexgrad/kokoro-82m';
+export const grokVoiceTTSModel = 'x-ai/grok-voice-tts-1.0';
+
+const openRouterModelPattern =
+  /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+export function normalizeOpenRouterTTSModel(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const model = value.trim();
+  return openRouterModelPattern.test(model) ? model : null;
+}
+
+export function recommendedVoiceForTTSModel(model: string): OpenRouterVoice | null {
+  if (model === defaultOpenRouterTTSModel) return 'alloy';
+  if (model === grokVoiceTTSModel) return 'eve';
+  return null;
+}
 
 export interface DesktopConnectionStatus {
   authenticated: boolean;
@@ -73,6 +90,7 @@ export interface DesktopConnectionStatus {
   };
   sync: DesktopSyncStatus;
   voice: OpenRouterVoice;
+  ttsModel: string;
 }
 
 export interface DesktopSyncStatus {
@@ -130,6 +148,7 @@ export interface SharedLibraryDesktopAPI {
   disconnect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
   syncNow(): Promise<DesktopConnectionStatus>;
   setVoice(voice: OpenRouterVoice): Promise<DesktopConnectionStatus>;
+  setTTSModel(model: string): Promise<DesktopConnectionStatus>;
   getProcessingPreferences(): Promise<ProcessingPreferences>;
   updateProcessingPreferences(
     preferences: ProcessingPreferencesUpdate

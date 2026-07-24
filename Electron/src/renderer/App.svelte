@@ -64,7 +64,8 @@
     phase: 'idle',
     message: 'Sign in with Google to synchronize this library.'
   });
-  let voice = $state<OpenRouterVoice>('eve');
+  let voice = $state<OpenRouterVoice>('alloy');
+  let ttsModel = $state('hexgrad/kokoro-82m');
   let narrationState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   let narrationLoadingPhase = $state<NarrationLoadingPhase>('checking');
   let narrationRequestID = 0;
@@ -143,6 +144,7 @@
       connections = await window.sharedLibrary.getConnectionStatus();
       syncStatus = connections.sync;
       voice = connections.voice;
+      ttsModel = connections.ttsModel;
       applyProcessingPreferences(
         await window.sharedLibrary.getProcessingPreferences()
       );
@@ -361,6 +363,23 @@
     const next = (event.currentTarget as HTMLSelectElement).value as OpenRouterVoice;
     connections = await window.sharedLibrary.setVoice(next);
     voice = connections.voice;
+  }
+
+  async function changeTTSModel(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    try {
+      connections = await window.sharedLibrary.setTTSModel(input.value);
+      ttsModel = connections.ttsModel;
+      voice = connections.voice;
+      input.value = ttsModel;
+      message = `${ttsModel} selected for new narration.`;
+    } catch (error) {
+      input.value = ttsModel;
+      message =
+        error instanceof Error
+          ? error.message
+          : 'The OpenRouter TTS model could not be changed.';
+    }
   }
 
   function applyProcessingPreferences(next: ProcessingPreferences): void {
@@ -858,14 +877,25 @@
           <div>
             <h3>Narration</h3>
             <p>
-              Connect OpenRouter for Grok Voice narration. Audio is cached locally and
-              backed up to your Drive folder.
+              Connect OpenRouter for narration. Audio is cached locally and backed up
+              to your Drive folder.
             </p>
           </div>
         </div>
         <label class="voice-field">
+          <span>OpenRouter model</span>
+          <input
+            value={ttsModel}
+            aria-label="OpenRouter TTS model"
+            autocomplete="off"
+            spellcheck="false"
+            onchange={changeTTSModel}
+          />
+        </label>
+        <label class="voice-field">
           <span>Voice</span>
           <select value={voice} onchange={changeVoice}>
+            <option value="alloy">Alloy · Kokoro compatible</option>
             <option value="eve">Eve · energetic</option>
             <option value="ara">Ara · composed</option>
             <option value="leo">Leo · warm</option>
