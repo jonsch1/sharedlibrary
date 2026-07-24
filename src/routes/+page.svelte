@@ -153,7 +153,6 @@
 			? libraryVariants.filter((variant) => textFor(selectedEntry as LibraryEntry, variant))
 			: []
 	);
-	let selectedVariantIndex = $derived(Math.max(0, availableVariants.indexOf(selectedVariant)));
 	let selectedWordCount = $derived(
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
 	);
@@ -549,12 +548,6 @@
 		if (origin !== 'all') topicFilter = 'all';
 	}
 
-	function selectVariantFromSlider(event: Event): void {
-		const index = Number((event.currentTarget as HTMLInputElement).value);
-		const variant = availableVariants[index];
-		if (variant) selectedVariant = variant;
-	}
-
 	async function ensureTextLoaded(
 		entry: LibraryEntry,
 		variant: LibraryVariant,
@@ -830,18 +823,28 @@
 
 						<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
 
-						<div class="native-variant-control">
-							<span>Concise</span>
-							<input
-								type="range"
-								min="0"
-								max={Math.max(availableVariants.length - 1, 0)}
-								step="1"
-								value={selectedVariantIndex}
-								aria-label={`Document version: ${variantNames[selectedVariant]}`}
-								oninput={selectVariantFromSlider}
-							/>
-							<span>Original</span>
+						<div
+							class="summary-depth-control native-summary-depth"
+							role="radiogroup"
+							aria-label="Summary depth"
+						>
+							{#each availableVariants as variant}
+								<button
+									type="button"
+									class="summary-depth-option"
+									class:active={selectedVariant === variant}
+									role="radio"
+									aria-checked={selectedVariant === variant}
+									aria-label={variantNames[variant]}
+									title={variantNames[variant]}
+									onclick={() => (selectedVariant = variant)}
+								>
+									<span
+										class="summary-depth-disc"
+										style={`--depth-fill: ${(libraryVariants.indexOf(variant) + 1) * 20}%`}
+									></span>
+								</button>
+							{/each}
 						</div>
 
 						<div class="native-footer-actions">
