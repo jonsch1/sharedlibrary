@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import BookmarkIcon from '@lucide/svelte/icons/bookmark';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
-	import CheckIcon from '@lucide/svelte/icons/check';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MarkdownText from '$lib/MarkdownText.svelte';
 	import {
 		importPublicShare,
@@ -43,7 +42,6 @@
 	let selectedText = $derived(
 		document?.texts.find((text) => text.variant === selectedVariant)?.markdown ?? ''
 	);
-	let selectedVariantIndex = $derived(Math.max(0, availableVariants.indexOf(selectedVariant)));
 	let selectedAudio = $derived(
 		document?.audio
 			.filter((segment) => segment.variant === selectedVariant)
@@ -102,12 +100,6 @@
 		stopAudio();
 		window.speechSynthesis?.cancel();
 		selectedVariant = variant;
-	}
-
-	function selectVariantFromSlider(event: Event): void {
-		const index = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
-		const variant = availableVariants[index];
-		if (variant) selectVariant(variant);
 	}
 
 	function toggleAudio(): void {
@@ -241,39 +233,32 @@
 			</article>
 		</main>
 
-		<footer class="public-share-player" aria-label="Document playback">
-			<button
-				class="public-share-add"
-				class:saved
-				disabled={importBusy || saved}
-				onclick={addToLibrary}
+		<footer class="public-share-player" aria-label="Document controls">
+			<div
+				class="summary-depth-control public-share-depth"
+				role="radiogroup"
+				aria-label="Summary depth"
 			>
-				{#if importBusy}
-					<LoaderCircleIcon class="spin" />
-					<span>Add</span>
-				{:else if saved}
-					<CheckIcon />
-					<span>Added</span>
-				{:else}
-					<PlusIcon />
-					<span class="public-share-add-long">Add to Library</span>
-					<span class="public-share-add-short">Add</span>
-				{/if}
-			</button>
-
-			<div class="public-share-slider">
-				<span>Brief</span>
-				<input
-					type="range"
-					min="0"
-					max={Math.max(availableVariants.length - 1, 0)}
-					step="1"
-					value={selectedVariantIndex}
-					aria-label={`Document version: ${variantNames[selectedVariant]}`}
-					oninput={selectVariantFromSlider}
-				/>
-				<span>Original</span>
+				{#each availableVariants as variant}
+					<button
+						type="button"
+						class="summary-depth-option"
+						class:active={selectedVariant === variant}
+						role="radio"
+						aria-checked={selectedVariant === variant}
+						aria-label={variantNames[variant]}
+						title={variantNames[variant]}
+						onclick={() => selectVariant(variant)}
+					>
+						<span
+							class="summary-depth-disc"
+							style={`--depth-fill: ${(libraryVariants.indexOf(variant) + 1) * 20}%`}
+						></span>
+					</button>
+				{/each}
 			</div>
+
+			<span class="public-share-divider" aria-hidden="true"></span>
 
 			<button
 				class="public-share-play"
@@ -293,6 +278,25 @@
 					<PauseIcon />
 				{:else}
 					<PlayIcon />
+				{/if}
+			</button>
+
+			<button
+				class="public-share-add"
+				class:saved
+				disabled={importBusy || saved}
+				aria-label={importBusy
+					? 'Adding to Library'
+					: saved
+						? 'Added to Library'
+						: 'Add to Library'}
+				title={saved ? 'Added to Library' : 'Add to Library'}
+				onclick={addToLibrary}
+			>
+				{#if importBusy}
+					<LoaderCircleIcon class="spin" />
+				{:else}
+					<BookmarkIcon />
 				{/if}
 			</button>
 		</footer>

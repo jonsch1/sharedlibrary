@@ -46,6 +46,13 @@
     comprehensive: 'Comprehensive',
     source: 'Original'
   };
+  const variantOrder: LibraryVariant[] = [
+    'brief',
+    'concise',
+    'detailed',
+    'comprehensive',
+    'source'
+  ];
 
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let selectedID = $state('');
@@ -96,9 +103,6 @@
     })
   );
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
-  let selectedVariantIndex = $derived(
-    Math.max(0, availableVariants.indexOf(selectedVariant))
-  );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
   );
@@ -245,14 +249,10 @@
     window.localStorage.setItem('shared-library-selected-topic', topic);
   }
 
-  function selectVariantFromSlider(event: Event): void {
-    const index = Number((event.currentTarget as HTMLInputElement).value);
-    const variant = availableVariants[index];
-    if (variant) {
-      stopNarration();
-      selectedVariant = variant;
-      editing = false;
-    }
+  function selectVariant(variant: LibraryVariant): void {
+    stopNarration();
+    selectedVariant = variant;
+    editing = false;
   }
 
   function cyclePlaybackRate(): void {
@@ -665,18 +665,28 @@
             ></div>
             <div class="footer-stat">{wordCount.toLocaleString()} words</div>
 
-            <div class="native-variant-control">
-              <span>Concise</span>
-              <input
-                type="range"
-                min="0"
-                max={Math.max(availableVariants.length - 1, 0)}
-                step="1"
-                value={selectedVariantIndex}
-                aria-label={`Document version: ${variantNames[selectedVariant]}`}
-                oninput={selectVariantFromSlider}
-              />
-              <span>Original</span>
+            <div
+              class="summary-depth-control native-summary-depth"
+              role="radiogroup"
+              aria-label="Summary depth"
+            >
+              {#each availableVariants as variant}
+                <button
+                  type="button"
+                  class="summary-depth-option"
+                  class:active={selectedVariant === variant}
+                  role="radio"
+                  aria-checked={selectedVariant === variant}
+                  aria-label={variantNames[variant]}
+                  title={variantNames[variant]}
+                  onclick={() => selectVariant(variant)}
+                >
+                  <span
+                    class="summary-depth-disc"
+                    style={`--depth-fill: ${(variantOrder.indexOf(variant) + 1) * 20}%`}
+                  ></span>
+                </button>
+              {/each}
             </div>
 
             <div class="native-footer-actions">
