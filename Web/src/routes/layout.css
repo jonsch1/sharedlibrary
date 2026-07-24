@@ -2798,8 +2798,13 @@ html {
 }
 
 .public-share-shell {
+	height: 100dvh;
 	min-height: 100dvh;
 	padding: 1px 0 130px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior-y: contain;
+	-webkit-overflow-scrolling: touch;
 	background: rgb(239 237 229);
 	color: rgb(42 39 35);
 }
