@@ -13,7 +13,8 @@ import {
   type DesktopPlatform,
   type DesktopLibraryEntry,
   type DesktopLibrarySnapshot,
-  type LibraryVariant
+  type LibraryVariant,
+  type TopicDefinition
 } from '../shared/contracts.js';
 
 interface ParsedMarkdown {
@@ -92,6 +93,88 @@ export class LibraryService {
 
   getWorkspacePath(): string {
     return this.workspacePath;
+  }
+
+  async topicDefinitions(): Promise<TopicDefinition[]> {
+    const result: TopicDefinition[] = [];
+    try {
+      const lines = (await readFile(join(this.workspacePath, 'topics.md'), 'utf8')).split(
+        /\r?\n/
+      );
+      let currentID: string | null = null;
+      for (const line of lines) {
+        const idMatch = /^\s*-\s+id:\s*(.+?)\s*$/.exec(line);
+        if (idMatch) {
+          currentID = unquote(idMatch[1]);
+          continue;
+        }
+        const titleMatch = /^\s+title:\s*(.+?)\s*$/.exec(line);
+        if (currentID && titleMatch) {
+          result.push({ id: currentID, title: unquote(titleMatch[1]) });
+          currentID = null;
+        }
+      }
+    } catch {
+      // A missing taxonomy is valid for a brand-new workspace.
+    }
+    return result;
+  }
+
+  async replaceTopicDefinitions(
+    definitions: TopicDefinition[]
+  ): Promise<TopicDefinition[]> {
+    const current = await this.topicDefinitions();
+    const currentIDs = new Set(current.map((topic) => topic.id));
+    const usedIDs = new Set(
+      (await this.snapshot()).entries.flatMap((entry) => entry.topicIDs)
+    );
+    const ids = new Set<string>();
+    const titles = new Set<string>();
+    const normalized: TopicDefinition[] = [];
+
+    for (const definition of definitions) {
+      const title = definition.title.trim().replace(/\s+/g, ' ');
+      if (!title) throw new Error('Every topic needs a title.');
+      if (title.length > 48) throw new Error('Topic titles must be 48 characters or fewer.');
+      const titleKey = title.toLowerCase();
+      if (titles.has(titleKey)) throw new Error(`The topic “${title}” is duplicated.`);
+      titles.add(titleKey);
+
+      let id = definition.id.trim();
+      if (id && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id)) {
+        throw new Error(`The topic ID “${id}” is invalid.`);
+      }
+      if (!id) {
+        const base = slug(title);
+        id = base;
+        for (let suffix = 2; ids.has(id) || currentIDs.has(id); suffix += 1) {
+          id = `${base}-${suffix}`;
+        }
+      }
+      if (ids.has(id)) throw new Error(`The topic ID “${id}” is duplicated.`);
+      ids.add(id);
+      normalized.push({ id, title });
+    }
+
+    for (const id of usedIDs) {
+      if (currentIDs.has(id) && !ids.has(id)) {
+        throw new Error(
+          `The topic “${current.find((topic) => topic.id === id)?.title ?? id}” is still used by library items. Rename it instead of removing it.`
+        );
+      }
+    }
+
+    const text = [
+      'topics:',
+      ...normalized.flatMap((topic) => [
+        `  - id: ${JSON.stringify(topic.id)}`,
+        `    title: ${JSON.stringify(topic.title)}`
+      ]),
+      ''
+    ].join('\n');
+    await atomicWrite(join(this.workspacePath, 'topics.md'), text);
+    this.indexedEntries.clear();
+    return normalized;
   }
 
   async ensureWorkspace(): Promise<void> {
@@ -227,7 +310,7 @@ export class LibraryService {
       title: indexed.entry.title,
       sourceURL: indexed.entry.sourceURL,
       sourceText: parsed.body.trim(),
-      topics: (await this.snapshot()).topics
+      topics: (await this.topicDefinitions()).map((topic) => topic.title)
     };
   }
 
@@ -454,28 +537,9 @@ export class LibraryService {
   }
 
   private async readTopicNames(): Promise<Map<string, string>> {
-    const result = new Map<string, string>();
-    try {
-      const lines = (await readFile(join(this.workspacePath, 'topics.md'), 'utf8')).split(
-        /\r?\n/
-      );
-      let currentID: string | null = null;
-      for (const line of lines) {
-        const idMatch = /^\s*-\s+id:\s*(.+?)\s*$/.exec(line);
-        if (idMatch) {
-          currentID = unquote(idMatch[1]);
-          continue;
-        }
-        const titleMatch = /^\s+title:\s*(.+?)\s*$/.exec(line);
-        if (currentID && titleMatch) {
-          result.set(currentID, unquote(titleMatch[1]));
-          currentID = null;
-        }
-      }
-    } catch {
-      // A missing taxonomy is valid for a brand-new workspace.
-    }
-    return result;
+    return new Map(
+      (await this.topicDefinitions()).map((topic) => [topic.id, topic.title])
+    );
   }
 
   private async requireEntry(entryID: string): Promise<IndexedEntry> {

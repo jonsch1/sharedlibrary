@@ -29,23 +29,7 @@ const schema = {
   required: ['short_filename', 'summaries', 'topic_name']
 };
 
-export class ProcessingService {
-  async process(entryID: string, library: LibraryService): Promise<string> {
-    const input = await library.processingInput(entryID);
-    const prompt = processingPrompt(input);
-    const value = await runCodex(prompt);
-    const suggestion = normalizeSuggestion(value);
-    return library.applyProcessingSuggestion(entryID, suggestion);
-  }
-}
-
-function processingPrompt(input: {
-  title: string;
-  sourceURL?: string;
-  sourceText: string;
-  topics: string[];
-}): string {
-  return `You are preparing one captured source for a local knowledge library.
+export const defaultProcessingPrompt = `You are preparing one captured source for a local knowledge library.
 
 Return only the JSON object required by the supplied schema.
 
@@ -63,10 +47,40 @@ Requirements:
 - Do not use tools or perform file operations.
 
 Existing topics:
-${JSON.stringify(input.topics, null, 2)}
+{{topics}}
 
 Source:
-${JSON.stringify(
+{{source}}`;
+
+export class ProcessingService {
+  constructor(
+    private readonly promptTemplate: () => Promise<string> = async () =>
+      defaultProcessingPrompt
+  ) {}
+
+  async process(entryID: string, library: LibraryService): Promise<string> {
+    const input = await library.processingInput(entryID);
+    const prompt = renderProcessingPrompt(await this.promptTemplate(), input);
+    const value = await runCodex(prompt);
+    const suggestion = normalizeSuggestion(value);
+    return library.applyProcessingSuggestion(entryID, suggestion);
+  }
+}
+
+export function renderProcessingPrompt(
+  template: string,
+  input: {
+    title: string;
+    sourceURL?: string;
+    sourceText: string;
+    topics: string[];
+  }
+): string {
+  const normalized = template.trim();
+  if (!normalized.includes('{{topics}}') || !normalized.includes('{{source}}')) {
+    throw new Error('The processing prompt must include {{topics}} and {{source}}.');
+  }
+  const source = JSON.stringify(
     {
       title: input.title,
       source_url: input.sourceURL,
@@ -74,7 +88,10 @@ ${JSON.stringify(
     },
     null,
     2
-  )}`;
+  );
+  return normalized
+    .replaceAll('{{topics}}', JSON.stringify(input.topics, null, 2))
+    .replaceAll('{{source}}', source);
 }
 
 async function runCodex(prompt: string): Promise<unknown> {

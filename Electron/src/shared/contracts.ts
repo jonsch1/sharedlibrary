@@ -40,6 +40,22 @@ export interface DesktopOperationResult {
   selectedEntryID?: string;
 }
 
+export interface TopicDefinition {
+  id: string;
+  title: string;
+}
+
+export interface ProcessingPreferences {
+  topics: TopicDefinition[];
+  prompt: string;
+  defaultPrompt: string;
+}
+
+export interface ProcessingPreferencesUpdate {
+  topics: TopicDefinition[];
+  prompt: string;
+}
+
 export type ConnectionProvider = 'google' | 'openrouter';
 export type OpenRouterVoice = 'eve' | 'ara' | 'leo' | 'rex' | 'sal';
 
@@ -114,6 +130,10 @@ export interface SharedLibraryDesktopAPI {
   disconnect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
   syncNow(): Promise<DesktopConnectionStatus>;
   setVoice(voice: OpenRouterVoice): Promise<DesktopConnectionStatus>;
+  getProcessingPreferences(): Promise<ProcessingPreferences>;
+  updateProcessingPreferences(
+    preferences: ProcessingPreferencesUpdate
+  ): Promise<ProcessingPreferences>;
   startNarration(
     entryID: string,
     variant: LibraryVariant,

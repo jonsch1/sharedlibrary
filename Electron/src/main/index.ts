@@ -20,13 +20,18 @@ import type {
   ConnectionProvider,
   DesktopConnectionStatus,
   LibraryVariant,
-  OpenRouterVoice
+  OpenRouterVoice,
+  ProcessingPreferences,
+  ProcessingPreferencesUpdate
 } from '../shared/contracts.js';
 import { BackendClient } from './backend.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
 import { NarrationService } from './narration.js';
-import { ProcessingService } from './processing.js';
+import {
+  defaultProcessingPrompt,
+  ProcessingService
+} from './processing.js';
 import { SettingsStore } from './settings.js';
 import { SyncCoordinator } from './sync.js';
 
@@ -104,6 +109,45 @@ async function connectionStatus(): Promise<DesktopConnectionStatus> {
     sync: sync.currentStatus(),
     voice
   };
+}
+
+async function processingPreferences(): Promise<ProcessingPreferences> {
+  const saved = await settings.load();
+  return {
+    topics: await library.topicDefinitions(),
+    prompt: saved.processingPrompt ?? defaultProcessingPrompt,
+    defaultPrompt: defaultProcessingPrompt
+  };
+}
+
+function normalizeProcessingPreferences(value: unknown): ProcessingPreferencesUpdate {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Processing settings are invalid.');
+  }
+  const candidate = value as Partial<ProcessingPreferencesUpdate>;
+  const prompt = typeof candidate.prompt === 'string' ? candidate.prompt.trim() : '';
+  if (!prompt) throw new Error('The processing prompt cannot be empty.');
+  if (prompt.length > 50_000) {
+    throw new Error('The processing prompt must be 50,000 characters or fewer.');
+  }
+  if (!prompt.includes('{{topics}}') || !prompt.includes('{{source}}')) {
+    throw new Error('The processing prompt must include {{topics}} and {{source}}.');
+  }
+  if (!Array.isArray(candidate.topics)) {
+    throw new Error('The topic list is invalid.');
+  }
+  const topics = candidate.topics.map((topic) => {
+    if (
+      !topic ||
+      typeof topic !== 'object' ||
+      typeof topic.id !== 'string' ||
+      typeof topic.title !== 'string'
+    ) {
+      throw new Error('The topic list is invalid.');
+    }
+    return { id: topic.id, title: topic.title };
+  });
+  return { topics, prompt };
 }
 
 async function createWindow(): Promise<void> {
@@ -261,6 +305,18 @@ function registerIPC(): void {
     await settings.update({ voice });
     return connectionStatus();
   });
+  ipcMain.handle('processing:get-preferences', () => processingPreferences());
+  ipcMain.handle(
+    'processing:update-preferences',
+    async (_event, value: unknown) => {
+      const next = normalizeProcessingPreferences(value);
+      await library.replaceTopicDefinitions(next.topics);
+      await settings.update({ processingPrompt: next.prompt });
+      await snapshotAndNotify();
+      sync.request('processing settings');
+      return processingPreferences();
+    }
+  );
   ipcMain.handle(
     'narration:start',
     async (_event, entryID: string, variant: LibraryVariant, selectedVoice: OpenRouterVoice) => {
@@ -473,7 +529,10 @@ app.whenReady().then(async () => {
   );
   backend = new BackendClient();
   extraction = new ExtractionService();
-  processing = new ProcessingService();
+  processing = new ProcessingService(async () => {
+    const current = await settings.load();
+    return current.processingPrompt ?? defaultProcessingPrompt;
+  });
   narration = new NarrationService(
     join(app.getPath('userData'), 'audio'),
     backend,

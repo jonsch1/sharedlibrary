@@ -7,6 +7,7 @@ import type {
   NarrationSegment,
   NarrationStatus,
   OpenRouterVoice,
+  ProcessingPreferencesUpdate,
   SharedLibraryDesktopAPI
 } from '../shared/contracts.js';
 
@@ -31,6 +32,9 @@ const api: SharedLibraryDesktopAPI = {
   disconnect: (provider) => ipcRenderer.invoke('services:disconnect', provider),
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
   setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
+  getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
+  updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>
+    ipcRenderer.invoke('processing:update-preferences', preferences),
   startNarration: (
     entryID: string,
     variant: LibraryVariant,

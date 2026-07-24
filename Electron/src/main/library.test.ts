@@ -65,6 +65,26 @@ Original body.
       join(root, 'library', 'summaries', 'brief', 'example.md')
     );
 
+    assert.deepEqual(await service.topicDefinitions(), [
+      { id: 'research', title: 'Research' }
+    ]);
+    const topics = await service.replaceTopicDefinitions([
+      { id: 'research', title: 'Research Practice' },
+      { id: '', title: 'New Methods' }
+    ]);
+    assert.deepEqual(topics, [
+      { id: 'research', title: 'Research Practice' },
+      { id: 'new-methods', title: 'New Methods' }
+    ]);
+    assert.deepEqual(
+      (await service.processingInput(initial.entries[0].id)).topics,
+      ['Research Practice', 'New Methods']
+    );
+    await assert.rejects(
+      service.replaceTopicDefinitions([{ id: 'new-methods', title: 'New Methods' }]),
+      /still used/
+    );
+
     await service.writeText(initial.entries[0].id, 'source', 'Edited body.');
     const stored = await readFile(join(root, 'library', 'example.md'), 'utf8');
     assert.match(stored, /id: "capture-1"/);

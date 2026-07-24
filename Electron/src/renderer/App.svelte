@@ -16,7 +16,9 @@
     Pause,
     Pencil,
     Play,
+    Plus,
     RefreshCw,
+    RotateCcw,
     Search,
     Settings2,
     Share2,
@@ -37,6 +39,8 @@
     NarrationSegment,
     NarrationStatus,
     OpenRouterVoice,
+    ProcessingPreferences,
+    TopicDefinition,
     ShareLinkStatus
   } from '../shared/contracts';
 
@@ -72,6 +76,9 @@
   let narrationAudio: HTMLAudioElement | null = null;
   let share = $state<ShareLinkStatus>({ shared: false });
   let shareBusy = $state(false);
+  let processingPreferences = $state<ProcessingPreferences | null>(null);
+  let processingPromptDraft = $state('');
+  let processingTopicsDraft = $state<TopicDefinition[]>([]);
 
   let entries = $derived(snapshot?.entries ?? []);
   let selectedEntry = $derived(
@@ -141,6 +148,9 @@
       connections = await window.sharedLibrary.getConnectionStatus();
       syncStatus = connections.sync;
       voice = connections.voice;
+      applyProcessingPreferences(
+        await window.sharedLibrary.getProcessingPreferences()
+      );
       const savedTopic = window.localStorage.getItem('shared-library-selected-topic');
       if (savedTopic && snapshot?.topics.includes(savedTopic)) selectedTopic = savedTopic;
       const removeLibraryListener = window.sharedLibrary.onLibraryChanged(applySnapshot);
@@ -272,6 +282,9 @@
       const result = await window.sharedLibrary.chooseWorkspace();
       if (result) {
         applySnapshot(result);
+        applyProcessingPreferences(
+          await window.sharedLibrary.getProcessingPreferences()
+        );
         settingsOpen = false;
         message = 'Workspace changed.';
       }
@@ -353,6 +366,31 @@
     const next = (event.currentTarget as HTMLSelectElement).value as OpenRouterVoice;
     connections = await window.sharedLibrary.setVoice(next);
     voice = connections.voice;
+  }
+
+  function applyProcessingPreferences(next: ProcessingPreferences): void {
+    processingPreferences = next;
+    processingPromptDraft = next.prompt;
+    processingTopicsDraft = next.topics.map((topic) => ({ ...topic }));
+  }
+
+  function addProcessingTopic(): void {
+    processingTopicsDraft.push({ id: '', title: '' });
+  }
+
+  function removeProcessingTopic(index: number): void {
+    processingTopicsDraft.splice(index, 1);
+  }
+
+  async function saveProcessingPreferences(): Promise<void> {
+    await run(async () => {
+      const next = await window.sharedLibrary.updateProcessingPreferences({
+        topics: processingTopicsDraft.map((topic) => ({ ...topic })),
+        prompt: processingPromptDraft
+      });
+      applyProcessingPreferences(next);
+      message = 'Topics and summarization prompt saved.';
+    });
   }
 
   async function listen(): Promise<void> {
@@ -750,11 +788,11 @@
 
 {#if settingsOpen}
   <div class="audio-backdrop" role="presentation" onclick={() => (settingsOpen = false)}></div>
-  <aside class="audio-panel connections-panel" aria-label="Connections">
+  <aside class="audio-panel connections-panel" aria-label="Settings">
     <div class="audio-header">
       <div>
         <p class="eyebrow">Desktop</p>
-        <h2>Connections</h2>
+        <h2>Settings</h2>
       </div>
       <button class="panel-close" aria-label="Close settings" onclick={() => (settingsOpen = false)}>
         <X />
@@ -903,16 +941,94 @@
         </section>
       {/if}
 
-      <section class="settings-card muted-card">
+      <section class="settings-card">
         <div class="settings-card-heading">
           <div class="provider-mark"><Sparkles /></div>
           <div>
             <h3>Capture processing</h3>
             <p>
-              Clipboard links are extracted and every new capture is assigned a topic
-              with four summary levels by the local Codex installation.
+              These topics and this prompt are sent to Codex for every future capture.
+              Existing summaries are unchanged.
             </p>
           </div>
+        </div>
+
+        <div class="processing-field-heading">
+          <div>
+            <span>Topics</span>
+            <small>Rename existing topics or add reusable ones.</small>
+          </div>
+          <button
+            class="processing-add-button"
+            type="button"
+            onclick={addProcessingTopic}
+          >
+            <Plus /> Add topic
+          </button>
+        </div>
+
+        <div class="processing-topic-list">
+          {#each processingTopicsDraft as topic, index (topic.id || index)}
+            <div class="processing-topic-row">
+              <div>
+                <input
+                  aria-label={`Topic ${index + 1} title`}
+                  value={topic.title}
+                  placeholder="Topic name"
+                  oninput={(event) => {
+                    processingTopicsDraft[index].title =
+                      (event.currentTarget as HTMLInputElement).value;
+                  }}
+                />
+                <small>{topic.id || 'ID created when saved'}</small>
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${topic.title || `topic ${index + 1}`}`}
+                title="Remove topic"
+                onclick={() => removeProcessingTopic(index)}
+              >
+                <X />
+              </button>
+            </div>
+          {/each}
+          {#if processingTopicsDraft.length === 0}
+            <p class="processing-empty">No topics yet. Codex can create one during processing.</p>
+          {/if}
+        </div>
+
+        <label class="processing-prompt-field">
+          <span>Summarization prompt</span>
+          <small>
+            This is the exact template sent to Codex. Keep
+            <code>{'{{topics}}'}</code> and <code>{'{{source}}'}</code> where the
+            current taxonomy and capture should be inserted.
+          </small>
+          <textarea bind:value={processingPromptDraft} spellcheck="false"></textarea>
+        </label>
+
+        <div class="panel-actions processing-actions">
+          <button
+            class="secondary-button"
+            type="button"
+            disabled={busy || !processingPreferences}
+            onclick={() => {
+              if (processingPreferences) {
+                processingPromptDraft = processingPreferences.defaultPrompt;
+              }
+            }}
+          >
+            <RotateCcw /> Reset prompt
+          </button>
+          <button
+            class="primary-button"
+            type="button"
+            disabled={busy || !processingPreferences}
+            onclick={saveProcessingPreferences}
+          >
+            {#if busy}<LoaderCircle class="spin" />{:else}<Check />{/if}
+            Save processing settings
+          </button>
         </div>
       </section>
     </div>

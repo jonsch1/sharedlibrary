@@ -6,6 +6,7 @@ import type { OpenRouterVoice } from '../shared/contracts.js';
 export interface DesktopSettings {
   workspacePath?: string;
   voice?: OpenRouterVoice;
+  processingPrompt?: string;
 }
 
 export class SettingsStore {
