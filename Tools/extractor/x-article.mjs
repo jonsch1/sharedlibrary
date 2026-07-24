@@ -34,7 +34,7 @@ export function parseXStatusUrl(rawUrl) {
   };
 }
 
-export async function fetchXArticle(rawUrl, { fetchImpl = fetch } = {}) {
+export async function fetchXContent(rawUrl, { fetchImpl = fetch } = {}) {
   const parsed = parseXStatusUrl(rawUrl);
   if (!parsed) {
     return null;
@@ -47,15 +47,13 @@ export async function fetchXArticle(rawUrl, { fetchImpl = fetch } = {}) {
     }
   });
   if (!response.ok) {
-    throw new Error(`X Article metadata request failed: ${response.status} ${response.statusText}`);
+    throw new Error(`X metadata request failed: ${response.status} ${response.statusText}`);
   }
 
   const payload = await response.json();
-  if (!payload?.tweet?.article) {
-    return null;
-  }
-
-  return xArticleToExtractedContent(rawUrl, payload);
+  return payload?.tweet?.article
+    ? xArticleToExtractedContent(rawUrl, payload)
+    : xPostToExtractedContent(rawUrl, payload);
 }
 
 export function xArticleToExtractedContent(rawUrl, payload) {
@@ -78,6 +76,74 @@ export function xArticleToExtractedContent(rawUrl, payload) {
     content: body,
     wordCount: countWords(body),
     totalCharacters: body.length
+  };
+}
+
+export function xPostToExtractedContent(rawUrl, payload) {
+  const tweet = payload?.tweet;
+  if (!tweet || typeof tweet !== "object") {
+    throw new Error("X response did not contain a post.");
+  }
+
+  const text = cleanArticleText(
+    typeof tweet.raw_text === "string"
+      ? tweet.raw_text
+      : typeof tweet.raw_text?.text === "string"
+        ? tweet.raw_text.text
+        : tweet.text
+  );
+  const authorName = cleanArticleText(tweet.author?.name);
+  const screenName = cleanArticleText(tweet.author?.screen_name);
+  const author = authorName && screenName
+    ? `${authorName} (@${screenName})`
+    : authorName || (screenName ? `@${screenName}` : "X user");
+  const quotedText = cleanArticleText(
+    typeof tweet.quote?.raw_text === "string"
+      ? tweet.quote.raw_text
+      : typeof tweet.quote?.raw_text?.text === "string"
+        ? tweet.quote.raw_text.text
+        : tweet.quote?.text
+  );
+  const quotedScreenName = cleanArticleText(tweet.quote?.author?.screen_name);
+  const stats = [
+    countLabel(tweet.replies, "reply", "replies"),
+    countLabel(tweet.retweets, "repost", "reposts"),
+    countLabel(tweet.likes, "like", "likes"),
+    countLabel(tweet.bookmarks, "bookmark", "bookmarks"),
+    countLabel(tweet.views, "view", "views")
+  ].filter(Boolean);
+  const cardURL = cleanArticleText(
+    tweet.twitter_card?.url
+      ?? tweet.twitter_card?.card_url
+      ?? tweet.twitter_card?.binding_values?.card_url?.string_value
+  );
+
+  const content = [
+    author,
+    cleanArticleText(tweet.created_at),
+    "",
+    text || "[Media post]",
+    tweet.replying_to
+      ? `Replying to @${cleanArticleText(tweet.replying_to)}`
+      : null,
+    quotedText
+      ? `\n> ${quotedScreenName ? `@${quotedScreenName}: ` : ""}${quotedText.replaceAll("\n", "\n> ")}`
+      : null,
+    cardURL ? `\nLink: ${cardURL}` : null,
+    stats.length ? `\n${stats.join(" · ")}` : null
+  ]
+    .filter((line) => line !== null && line !== undefined)
+    .join("\n")
+    .trim();
+
+  return {
+    url: rawUrl,
+    title: `Post by ${author}${text ? `: ${truncate(text, 90)}` : ""}`,
+    description: text || null,
+    siteName: "X",
+    content,
+    wordCount: countWords(content),
+    totalCharacters: content.length
   };
 }
 
@@ -291,4 +357,16 @@ function cleanArticleText(value) {
 
 function countWords(value) {
   return value.split(/\s+/u).filter(Boolean).length;
+}
+
+function countLabel(value, singular, plural) {
+  return Number.isFinite(Number(value))
+    ? `${Number(value).toLocaleString("en-US")} ${Number(value) === 1 ? singular : plural}`
+    : null;
+}
+
+function truncate(value, maxLength) {
+  return value.length <= maxLength
+    ? value
+    : `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }

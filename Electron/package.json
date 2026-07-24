@@ -10,8 +10,9 @@
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && svelte-check --tsconfig tsconfig.web.json",
     "test": "node --import tsx --test src/main/*.test.ts",
-    "package": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "extractor:install": "npm --prefix ../Tools/extractor ci --omit=dev",
+    "package": "npm run extractor:install && npm run build && electron-builder --dir",
+    "dist": "npm run extractor:install && npm run build && electron-builder"
   },
   "dependencies": {
     "@lucide/svelte": "1.26.0",
@@ -44,6 +45,16 @@
       {
         "from": "../Tools/extractor",
         "to": "Tools/extractor",
+        "filter": [
+          "extract.mjs",
+          "x-article.mjs",
+          "package.json",
+          "package-lock.json"
+        ]
+      },
+      {
+        "from": "../Tools/extractor/node_modules",
+        "to": "Tools/extractor/node_modules",
         "filter": [
           "**/*"
         ]

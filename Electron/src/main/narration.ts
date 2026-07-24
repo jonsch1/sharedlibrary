@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import type {
   NarrationSegment,
   NarrationSession,
+  NarrationStatus,
   OpenRouterVoice
 } from '../shared/contracts.js';
 import { BackendClient } from './backend.js';
@@ -15,7 +16,8 @@ export class NarrationService {
   constructor(
     private readonly cacheRoot: string,
     private readonly backend: BackendClient,
-    private readonly onSegment: (segment: NarrationSegment) => void
+    private readonly onSegment: (segment: NarrationSegment) => void,
+    private readonly onStatus: (status: NarrationStatus) => void
   ) {}
 
   async start(text: string, voice: OpenRouterVoice): Promise<NarrationSession> {
@@ -61,8 +63,11 @@ export class NarrationService {
   ): Promise<NarrationSegment> {
     const hash = fingerprint(chunks[index], voice);
     const path = join(this.cacheRoot, `${hash}.mp3`);
+    this.onStatus({ sessionID, index, phase: 'checking' });
     if (!(await isNonemptyFile(path))) {
+      this.onStatus({ sessionID, index, phase: 'downloading' });
       const stored = await this.backend.loadAudio(hash);
+      if (!stored) this.onStatus({ sessionID, index, phase: 'generating' });
       const bytes = stored ?? (await this.backend.createSpeech(chunks[index], voice));
       await atomicWrite(path, bytes);
       if (!stored) {

@@ -6,7 +6,8 @@ import {
 	OpenRouterSpeechError,
 	type OpenRouterCredential,
 	type OpenRouterSpeechSource,
-	type OpenRouterVoice
+	type OpenRouterVoice,
+	type SpeechLoadingPhase
 } from '$lib/openrouter.js';
 
 export type SpeechState = 'idle' | 'loading' | 'playing' | 'paused';
@@ -61,6 +62,7 @@ export class SpeechPlayer {
 	currentVariant = $state<LibraryVariant>('concise');
 	rate = $state(1);
 	progress = $state(0);
+	loadingPhase = $state<SpeechLoadingPhase>('checking');
 	notice = $state('');
 	requiresReconnect = $state(false);
 
@@ -103,6 +105,7 @@ export class SpeechPlayer {
 		this.currentVariant = availableVariant;
 		this.chunkIndex = 0;
 		this.progress = 0;
+		this.loadingPhase = 'checking';
 		this.notice = '';
 		this.requiresReconnect = false;
 		this.updateMediaSession();
@@ -167,6 +170,7 @@ export class SpeechPlayer {
 		this.state = 'idle';
 		this.provider = null;
 		this.progress = 0;
+		this.loadingPhase = 'checking';
 		this.chunks = [];
 		this.chunkIndex = 0;
 		if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
@@ -301,7 +305,16 @@ export class SpeechPlayer {
 			credential,
 			chunk,
 			this.voice,
-			controller.signal
+			controller.signal,
+			(phase) => {
+				if (
+					sessionID === this.sessionID &&
+					index === this.chunkIndex &&
+					this.state === 'loading'
+				) {
+					this.loadingPhase = phase;
+				}
+			}
 		).then((source) => {
 			if (sessionID !== this.sessionID || controller.signal.aborted) {
 				source.release();

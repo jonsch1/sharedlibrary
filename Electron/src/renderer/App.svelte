@@ -32,7 +32,9 @@
     DesktopConnectionStatus,
     DesktopSyncStatus,
     LibraryVariant,
+    NarrationLoadingPhase,
     NarrationSegment,
+    NarrationStatus,
     OpenRouterVoice,
     ShareLinkStatus
   } from '../shared/contracts';
@@ -67,6 +69,8 @@
   });
   let voice = $state<OpenRouterVoice>('eve');
   let narrationState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
+  let narrationLoadingPhase = $state<NarrationLoadingPhase>('checking');
+  let narrationRequestID = 0;
   let narrationSessionID = $state('');
   let narrationSegments = $state<string[]>([]);
   let narrationIndex = $state(0);
@@ -102,6 +106,13 @@
     syncStatus.phase === 'checking' ||
       syncStatus.phase === 'downloading' ||
       syncStatus.phase === 'uploading'
+  );
+  let narrationLoadingLabel = $derived(
+    narrationLoadingPhase === 'generating'
+      ? 'Generating voice'
+      : narrationLoadingPhase === 'downloading'
+        ? 'Downloading audio'
+        : 'Checking audio'
   );
 
   $effect(() => {
@@ -159,6 +170,8 @@
       });
       const removeNarrationListener =
         window.sharedLibrary.onNarrationSegment(receiveNarrationSegment);
+      const removeNarrationStatusListener =
+        window.sharedLibrary.onNarrationStatus(receiveNarrationStatus);
       narrationAudio = new Audio();
       narrationAudio.playbackRate = playbackRate;
       narrationAudio.addEventListener('timeupdate', updateNarrationProgress);
@@ -175,6 +188,7 @@
           removeMessageListener();
           removeSyncListener();
           removeNarrationListener();
+          removeNarrationStatusListener();
           narrationAudio?.pause();
         },
         { once: true }
@@ -357,6 +371,10 @@
 
   async function listen(): Promise<void> {
     if (!selectedEntry || !narrationAudio) return;
+    if (narrationState === 'loading') {
+      stopNarration();
+      return;
+    }
     if (narrationState === 'playing') {
       narrationAudio.pause();
       return;
@@ -371,13 +389,16 @@
       return;
     }
     narrationState = 'loading';
+    narrationLoadingPhase = 'checking';
     narrationProgress = 0;
+    const requestID = ++narrationRequestID;
     try {
       const session = await window.sharedLibrary.startNarration(
         selectedEntry.id,
         selectedVariant,
         voice
       );
+      if (requestID !== narrationRequestID || narrationState !== 'loading') return;
       narrationSessionID = session.sessionID;
       narrationTotal = session.total;
       narrationIndex = 0;
@@ -385,9 +406,16 @@
       narrationSegments[0] = session.first.url;
       await playNarrationIndex(0);
     } catch (error) {
+      if (requestID !== narrationRequestID) return;
       narrationState = 'idle';
       message = error instanceof Error ? error.message : 'Narration could not be started.';
     }
+  }
+
+  function receiveNarrationStatus(status: NarrationStatus): void {
+    if (narrationState !== 'loading') return;
+    if (narrationSessionID && status.sessionID !== narrationSessionID) return;
+    narrationLoadingPhase = status.phase;
   }
 
   function receiveNarrationSegment(segment: NarrationSegment): void {
@@ -434,11 +462,13 @@
   }
 
   function stopNarration(): void {
+    narrationRequestID += 1;
     narrationAudio?.pause();
     if (narrationAudio) narrationAudio.removeAttribute('src');
     narrationSessionID = '';
     narrationSegments = [];
     narrationState = 'idle';
+    narrationLoadingPhase = 'checking';
     narrationProgress = 0;
   }
 
@@ -676,16 +706,24 @@
 
               <button
                 class="native-play-button"
-                aria-label={narrationState === 'playing' ? 'Pause' : 'Play'}
+                class:loading={narrationState === 'loading'}
+                aria-label={narrationState === 'loading'
+                  ? `Cancel ${narrationLoadingLabel.toLowerCase()}`
+                  : narrationState === 'playing'
+                    ? 'Pause'
+                    : 'Play'}
                 title={narrationState === 'loading'
-                  ? 'Preparing audio'
+                  ? narrationLoadingLabel
                   : narrationState === 'playing'
                     ? 'Pause'
                     : 'Play'}
                 onclick={listen}
               >
                 {#if narrationState === 'loading'}
-                  <LoaderCircle class="spin" />
+                  <span class="narration-loading-wave" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span>
+                  </span>
+                  <span class="narration-loading-label">{narrationLoadingLabel}</span>
                 {:else if narrationState === 'playing'}
                   <Pause />
                 {:else}

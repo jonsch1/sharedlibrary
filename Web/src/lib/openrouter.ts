@@ -15,6 +15,7 @@ export const openRouterVoices = [
 ] as const;
 
 export type OpenRouterVoice = (typeof openRouterVoices)[number]['id'];
+export type SpeechLoadingPhase = 'checking' | 'downloading' | 'generating';
 
 export interface OpenRouterCredential {
 	connected: true;
@@ -184,8 +185,10 @@ function audioCacheRequest(hash: string): Request {
 
 export async function loadCachedSpeech(
 	text: string,
-	voice: OpenRouterVoice
+	voice: OpenRouterVoice,
+	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<Blob | null> {
+	onLoadingPhase?.('checking');
 	const hash = await audioFingerprint(text, voice);
 	try {
 		if ('caches' in globalThis) {
@@ -196,6 +199,7 @@ export async function loadCachedSpeech(
 	} catch {
 		// Fall through to the durable Google Drive copy.
 	}
+	onLoadingPhase?.('downloading');
 	const driveAudio = await loadGoogleDriveAudio(hash);
 	if (!driveAudio) return null;
 	try {
@@ -289,12 +293,14 @@ export async function createOpenRouterSpeechSource(
 	_credential: OpenRouterCredential,
 	text: string,
 	voice: OpenRouterVoice,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<OpenRouterSpeechSource> {
-	const cached = await loadCachedSpeech(text, voice);
+	const cached = await loadCachedSpeech(text, voice, onLoadingPhase);
 	if (cached) return blobSpeechSource(cached);
 	if (signal?.aborted) throw abortError();
 
+	onLoadingPhase?.('generating');
 	const response = await fetch('/api/tts', {
 		method: 'POST',
 		headers: {
@@ -311,6 +317,7 @@ export async function createOpenRouterSpeechSource(
 		);
 	}
 
+	onLoadingPhase?.('downloading');
 	const audio = await response.blob();
 	if (!audio.size) throw new OpenRouterSpeechError('OpenRouter returned empty audio.', 502);
 	const hash = await audioFingerprint(text, voice);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createLinkPreviewClient } from "@steipete/summarize/content";
-import { fetchXArticle } from "./x-article.mjs";
+import { fetchXContent } from "./x-article.mjs";
 
 const url = process.argv[2]?.trim();
 
@@ -30,14 +30,14 @@ const client = createLinkPreviewClient({
 });
 
 try {
-  let xArticle = null;
+  let xContent = null;
   try {
-    xArticle = await fetchXArticle(url);
+    xContent = await fetchXContent(url);
   } catch (error) {
-    console.error(`X Article lookup failed; using standard extraction: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`X lookup failed; using standard extraction: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const extracted = xArticle ?? await fetchBlueskyPost(url) ?? await client.fetchLinkContent(url, {
+  const extracted = xContent ?? await fetchBlueskyPost(url) ?? await client.fetchLinkContent(url, {
     format: "text",
     firecrawl: firecrawlMode,
     transcriptTimestamps: includeTranscriptTimestamps,

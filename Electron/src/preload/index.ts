@@ -5,6 +5,7 @@ import type {
   DesktopSyncStatus,
   LibraryVariant,
   NarrationSegment,
+  NarrationStatus,
   OpenRouterVoice,
   SharedLibraryDesktopAPI
 } from '../shared/contracts.js';
@@ -52,6 +53,12 @@ const api: SharedLibraryDesktopAPI = {
       listener(status);
     ipcRenderer.on('sync:status', callback);
     return () => ipcRenderer.removeListener('sync:status', callback);
+  },
+  onNarrationStatus: (listener: (status: NarrationStatus) => void) => {
+    const callback = (_event: Electron.IpcRendererEvent, status: NarrationStatus) =>
+      listener(status);
+    ipcRenderer.on('narration:status', callback);
+    return () => ipcRenderer.removeListener('narration:status', callback);
   },
   onNarrationSegment: (listener: (segment: NarrationSegment) => void) => {
     const callback = (_event: Electron.IpcRendererEvent, segment: NarrationSegment) =>

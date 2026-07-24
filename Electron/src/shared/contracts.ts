@@ -72,6 +72,14 @@ export interface NarrationSegment {
   url: string;
 }
 
+export type NarrationLoadingPhase = 'checking' | 'downloading' | 'generating';
+
+export interface NarrationStatus {
+  sessionID: string;
+  index: number;
+  phase: NarrationLoadingPhase;
+}
+
 export interface NarrationSession {
   sessionID: string;
   total: number;
@@ -116,5 +124,6 @@ export interface SharedLibraryDesktopAPI {
   revokeShareLink(token: string): Promise<void>;
   onLibraryChanged(listener: (snapshot: DesktopLibrarySnapshot) => void): () => void;
   onSyncStatus(listener: (status: DesktopSyncStatus) => void): () => void;
+  onNarrationStatus(listener: (status: NarrationStatus) => void): () => void;
   onNarrationSegment(listener: (segment: NarrationSegment) => void): () => void;
 }

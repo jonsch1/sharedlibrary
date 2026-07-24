@@ -430,12 +430,7 @@ async function captureFromMenu(): Promise<void> {
 
 async function captureClipboard() {
   const text = clipboard.readText();
-  let extracted;
-  try {
-    extracted = await extraction.extractClipboard(text);
-  } catch {
-    extracted = undefined;
-  }
+  const extracted = await extraction.extractClipboard(text);
   const captureID = await library.captureText(text, extracted);
   const entryID = `personal:${captureID}`;
   const snapshot = await snapshotAndNotify();
@@ -482,7 +477,8 @@ app.whenReady().then(async () => {
   narration = new NarrationService(
     join(app.getPath('userData'), 'audio'),
     backend,
-    (segment) => mainWindow?.webContents.send('narration:segment', segment)
+    (segment) => mainWindow?.webContents.send('narration:segment', segment),
+    (status) => mainWindow?.webContents.send('narration:status', status)
   );
   protocol.handle('shared-library-audio', (request) => {
     const path = narration.pathForURL(request.url);

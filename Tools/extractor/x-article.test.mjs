@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  fetchXArticle,
+  fetchXContent,
   parseXStatusUrl,
-  xArticleToExtractedContent
+  xArticleToExtractedContent,
+  xPostToExtractedContent
 } from "./x-article.mjs";
 
 test("parseXStatusUrl recognizes X and Twitter status links", () => {
@@ -48,9 +49,9 @@ test("xArticleToExtractedContent renders structured blocks as Markdown", () => {
   );
 });
 
-test("fetchXArticle uses the public status endpoint and ignores ordinary posts", async () => {
+test("fetchXContent uses the public status endpoint for articles and ordinary posts", async () => {
   let requestedURL;
-  const extracted = await fetchXArticle("https://x.com/example/status/123", {
+  const extracted = await fetchXContent("https://x.com/example/status/123", {
     fetchImpl: async (url) => {
       requestedURL = url;
       return {
@@ -62,13 +63,26 @@ test("fetchXArticle uses the public status endpoint and ignores ordinary posts",
   assert.equal(requestedURL, "https://api.fxtwitter.com/example/status/123");
   assert.equal(extracted?.title, "A useful article");
 
-  const ordinaryPost = await fetchXArticle("https://x.com/example/status/456", {
+  const ordinaryPost = await fetchXContent("https://x.com/example/status/456", {
     fetchImpl: async () => ({
       ok: true,
-      json: async () => ({ tweet: { text: "Just a regular post" } })
+      json: async () => ordinaryPostPayload()
     })
   });
-  assert.equal(ordinaryPost, null);
+  assert.equal(ordinaryPost?.title, "Post by Example Person (@example): Just a regular post");
+  assert.match(ordinaryPost?.content ?? "", /4 replies · 3 reposts · 2 likes · 1 bookmark · 10 views/);
+});
+
+test("xPostToExtractedContent preserves the author, text, and source metadata", () => {
+  const sourceURL = "https://x.com/example/status/456";
+  const extracted = xPostToExtractedContent(sourceURL, ordinaryPostPayload());
+
+  assert.equal(extracted.url, sourceURL);
+  assert.equal(extracted.siteName, "X");
+  assert.equal(extracted.description, "Just a regular post");
+  assert.match(extracted.content, /^Example Person \(@example\)/);
+  assert.match(extracted.content, /Just a regular post/);
+  assert.equal(extracted.totalCharacters, extracted.content.length);
 });
 
 function articlePayload() {
@@ -115,6 +129,24 @@ function articlePayload() {
           }
         ]
       }
+    }
+  };
+}
+
+function ordinaryPostPayload() {
+  return {
+    tweet: {
+      text: "Just a regular post",
+      created_at: "Thu Jul 24 09:00:00 +0000 2026",
+      author: {
+        name: "Example Person",
+        screen_name: "example"
+      },
+      replies: 4,
+      retweets: 3,
+      likes: 2,
+      bookmarks: 1,
+      views: 10
     }
   };
 }
