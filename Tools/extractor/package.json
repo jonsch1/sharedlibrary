@@ -6,6 +6,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@steipete/summarize": "^0.18.1"
+    "@steipete/summarize-core": "^0.18.1"
   }
 }

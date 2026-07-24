@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createLinkPreviewClient } from "@steipete/summarize/content";
+import { createLinkPreviewClient } from "@steipete/summarize-core/content";
 import { fetchXContent } from "./x-article.mjs";
 
 const url = process.argv[2]?.trim();
