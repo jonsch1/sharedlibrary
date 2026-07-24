@@ -188,8 +188,6 @@
 .transport,
 .player-options,
 .rate-control,
-.queue-header,
-.queue-item,
 .privacy-note {
 	display: flex;
 	align-items: center;
@@ -784,8 +782,7 @@
 	color: var(--destructive);
 }
 
-.no-results,
-.queue-empty {
+.no-results {
 	display: grid;
 	place-items: center;
 	padding: 70px 24px;
@@ -793,16 +790,14 @@
 	text-align: center;
 }
 
-.no-results svg,
-.queue-empty svg {
+.no-results svg {
 	width: 28px;
 	height: 28px;
 	margin-bottom: 12px;
 	opacity: 0.55;
 }
 
-.no-results p,
-.queue-empty p {
+.no-results p {
 	margin: 0;
 	color: var(--foreground);
 	font-size: 13px;
@@ -924,17 +919,6 @@
 	font-variant-numeric: tabular-nums;
 }
 
-.queue-count {
-	display: grid;
-	min-width: 18px;
-	height: 18px;
-	place-items: center;
-	border-radius: 999px;
-	background: var(--primary);
-	color: var(--primary-foreground);
-	font-size: 9px;
-}
-
 .toast {
 	position: fixed;
 	z-index: 80;
@@ -975,7 +959,6 @@
 	pointer-events: none;
 }
 
-.queue-backdrop,
 .audio-backdrop {
 	position: fixed;
 	z-index: 60;
@@ -985,7 +968,6 @@
 	backdrop-filter: blur(2px);
 }
 
-.queue-panel,
 .audio-panel {
 	position: fixed;
 	z-index: 70;
@@ -1000,7 +982,6 @@
 	box-shadow: -12px 10px 38px rgb(0 0 0 / 17%);
 }
 
-.queue-header,
 .audio-header {
 	display: flex;
 	align-items: center;
@@ -1009,7 +990,6 @@
 	border-bottom: 1px solid var(--border);
 }
 
-.queue-header h2,
 .audio-header h2 {
 	margin: 4px 0 0;
 	font-family: ui-serif, 'Iowan Old Style', 'Palatino Linotype', serif;
@@ -1642,48 +1622,6 @@
 	font-weight: 670;
 }
 
-.queue-list {
-	overflow-y: auto;
-}
-
-.queue-item {
-	gap: 12px;
-	padding: 15px 14px;
-	border-bottom: 1px solid var(--border);
-}
-
-.queue-index {
-	color: var(--muted-foreground);
-	font-size: 10px;
-	font-variant-numeric: tabular-nums;
-}
-
-.queue-item > div {
-	display: flex;
-	min-width: 0;
-	flex: 1;
-	flex-direction: column;
-}
-
-.queue-item strong {
-	overflow: hidden;
-	font-size: 12px;
-	font-weight: 620;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.queue-item div span {
-	margin-top: 3px;
-	color: var(--muted-foreground);
-	font-size: 10px;
-}
-
-.queue-empty span {
-	margin-top: 5px;
-	font-size: 11px;
-}
-
 .missing-text {
 	color: var(--muted-foreground);
 	font-size: 14px;
@@ -1893,13 +1831,11 @@
 		display: none;
 	}
 
-	.queue-backdrop,
 	.audio-backdrop {
 		inset: 56px 8px 80px;
 		border-radius: 16px;
 	}
 
-	.queue-panel,
 	.audio-panel {
 		top: 56px;
 		right: 8px;
@@ -2179,38 +2115,6 @@ html {
 	font-size: 12px;
 	text-decoration: underline;
 	text-underline-offset: 2px;
-}
-
-.native-sidebar-footer {
-	flex: 0 0 auto;
-	padding: 11px 14px 14px;
-	border-top: 1px solid rgb(46 46 43 / 14%);
-}
-
-.agent-button {
-	display: flex;
-	width: 100%;
-	height: 38px;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	border: 1px solid rgb(46 46 43 / 34%);
-	border-radius: 999px;
-	background: rgb(228 228 221 / 52%);
-	color: rgb(49 49 46);
-	font-size: 13px;
-	font-weight: 560;
-	box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%);
-}
-
-.agent-button:hover {
-	background: rgb(235 235 228 / 72%);
-}
-
-.agent-button svg {
-	width: 15px;
-	height: 15px;
-	stroke-width: 1.7;
 }
 
 .native-mobile-reader-bar {
@@ -2504,22 +2408,6 @@ html {
 	font-variant-numeric: tabular-nums;
 }
 
-.native-queue-count {
-	position: absolute;
-	top: 1px;
-	right: 0;
-	display: grid;
-	min-width: 14px;
-	height: 14px;
-	place-items: center;
-	padding: 0 3px;
-	border-radius: 999px;
-	background: rgb(91 92 87);
-	color: white;
-	font-size: 8px;
-	font-weight: 700;
-}
-
 .native-player-progress {
 	position: absolute;
 	z-index: 2;
@@ -2601,14 +2489,12 @@ html {
 	right: 24px;
 }
 
-.audio-backdrop,
-.queue-backdrop {
+.audio-backdrop {
 	inset: 12px;
 	border-radius: 19px;
 }
 
-.audio-panel,
-.queue-panel {
+.audio-panel {
 	top: 12px;
 	right: 12px;
 	bottom: 12px;
@@ -2682,10 +2568,6 @@ html {
 
 	.native-entry-row span {
 		font-size: 14px;
-	}
-
-	.native-sidebar-footer {
-		display: none;
 	}
 
 	.native-mobile-reader-bar {
@@ -2789,13 +2671,8 @@ html {
 		height: 36px;
 	}
 
-	.native-queue-count {
-		display: none;
-	}
-
 	.native-document-footer.has-inbox-actions .native-footer-actions > a,
-	.native-document-footer.has-inbox-actions .native-rate-button,
-	.native-document-footer.has-inbox-actions .queue-action {
+	.native-document-footer.has-inbox-actions .native-rate-button {
 		display: none;
 	}
 
@@ -2809,14 +2686,12 @@ html {
 		border-radius: 16px;
 	}
 
-	.audio-backdrop,
-	.queue-backdrop {
+	.audio-backdrop {
 		inset: 8px;
 		border-radius: 16px;
 	}
 
-	.audio-panel,
-	.queue-panel {
+	.audio-panel {
 		top: 8px;
 		right: 8px;
 		bottom: 8px;
