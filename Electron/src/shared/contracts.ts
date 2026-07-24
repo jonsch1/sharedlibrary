@@ -98,7 +98,9 @@ export interface SharedLibraryDesktopAPI {
   trashCapture(entryID: string): Promise<DesktopOperationResult>;
   captureClipboard(): Promise<DesktopOperationResult>;
   openExternal(url: string): Promise<void>;
+  openAgent(): Promise<void>;
   revealEntry(entryID: string): Promise<void>;
+  showEntryContextMenu(entryID: string, variant?: LibraryVariant): Promise<void>;
   getConnectionStatus(): Promise<DesktopConnectionStatus>;
   connect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
   disconnect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;

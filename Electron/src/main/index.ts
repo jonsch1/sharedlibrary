@@ -11,6 +11,8 @@ import {
   shell
 } from 'electron';
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
+import type { MessageBoxOptions } from 'electron';
+import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import type {
@@ -178,12 +180,42 @@ function registerIPC(): void {
     }
     await shell.openExternal(url.toString());
   });
+  ipcMain.handle('library:open-agent', () => openAgentWorkspace());
   ipcMain.handle('library:reveal-entry', async (_event, entryID: string) => {
     const snapshot = await library.snapshot();
     const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
     if (!entry) throw new Error('The selected item no longer exists.');
     shell.showItemInFolder(join(library.getWorkspacePath(), 'library', entry.filename));
   });
+  ipcMain.handle(
+    'library:show-entry-context-menu',
+    async (
+      event,
+      entryID: string,
+      variant: LibraryVariant | undefined
+    ) => {
+      const snapshot = await library.snapshot();
+      const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
+      if (!entry) throw new Error('The selected item no longer exists.');
+      const path = await library.filePath(entryID, variant);
+      const window = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+      const menu = Menu.buildFromTemplate([
+        {
+          label: 'Copy Path',
+          click: () => {
+            clipboard.writeText(path);
+            sendOperationMessage('Path copied.');
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Move to Trash…',
+          click: () => void trashEntryFromContextMenu(entryID, entry.title)
+        }
+      ]);
+      menu.popup({ window });
+    }
+  );
   ipcMain.handle('services:get-status', () => connectionStatus());
   ipcMain.handle(
     'services:connect',
@@ -251,6 +283,54 @@ function registerIPC(): void {
     if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new Error('Invalid share link.');
     await backend.revokeShare(token);
   });
+}
+
+async function openAgentWorkspace(): Promise<void> {
+  const workspacePath = library.getWorkspacePath();
+  if (process.platform === 'darwin') {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('/usr/bin/open', ['-a', 'ChatGPT', workspacePath], {
+        detached: true,
+        stdio: 'ignore'
+      });
+      child.once('error', reject);
+      child.once('spawn', () => {
+        child.unref();
+        resolve();
+      });
+    });
+    return;
+  }
+  const error = await shell.openPath(workspacePath);
+  if (error) throw new Error(error);
+}
+
+async function trashEntryFromContextMenu(
+  entryID: string,
+  title: string
+): Promise<void> {
+  const options: MessageBoxOptions = {
+    type: 'warning',
+    buttons: ['Cancel', 'Move to Trash'],
+    defaultId: 0,
+    cancelId: 0,
+    message: `Move “${title}” to Trash?`,
+    detail: 'The source document and all of its summaries will be moved together.'
+  };
+  const response = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  if (response.response !== 1) return;
+  try {
+    await library.trashCapture(entryID);
+    sync.request('deleted documents');
+    await snapshotAndNotify();
+    sendOperationMessage('The source and its summaries were moved to Trash.');
+  } catch (error) {
+    sendOperationMessage(
+      error instanceof Error ? error.message : 'The document could not be moved to Trash.'
+    );
+  }
 }
 
 async function entryForID(entryID: string) {

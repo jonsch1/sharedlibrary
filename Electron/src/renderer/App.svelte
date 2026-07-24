@@ -11,7 +11,6 @@
     FolderOpen,
     Headphones,
     Link,
-    ListMusic,
     LoaderCircle,
     LogIn,
     Pause,
@@ -116,6 +115,15 @@
       return;
     }
     void loadText(entry, selectedVariant);
+  });
+
+  $effect(() => {
+    const currentMessage = message;
+    if (!currentMessage) return;
+    const timeout = window.setTimeout(() => {
+      if (message === currentMessage) message = '';
+    }, 6_000);
+    return () => window.clearTimeout(timeout);
   });
 
   void initialize();
@@ -296,6 +304,25 @@
       mobileReaderVisible = false;
       message = result.message;
     });
+  }
+
+  async function launchAgent(): Promise<void> {
+    try {
+      await window.sharedLibrary.openAgent();
+      message = 'Opened this library workspace in Codex.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'Codex could not be opened.';
+    }
+  }
+
+  function showEntryContextMenu(
+    event: MouseEvent,
+    entry: DesktopLibraryEntry,
+    variant: LibraryVariant = 'source'
+  ): void {
+    event.preventDefault();
+    if (selectedEntry?.id !== entry.id) selectEntry(entry);
+    void window.sharedLibrary.showEntryContextMenu(entry.id, variant);
   }
 
   async function connect(provider: 'google' | 'openrouter'): Promise<void> {
@@ -532,6 +559,7 @@
                 class="native-entry-row"
                 class:selected={selectedEntry?.id === entry.id}
                 onclick={() => selectEntry(entry)}
+                oncontextmenu={(event) => showEntryContextMenu(event, entry)}
               >
                 <FileText aria-hidden="true" />
                 <span>{entry.title}</span>
@@ -543,7 +571,7 @@
         <div class="native-sidebar-footer">
           <button
             class="agent-button"
-            onclick={() => window.sharedLibrary.openExternal('https://chatgpt.com/')}
+            onclick={launchAgent}
           >
             <Sparkles />
             <span>Agent</span>
@@ -561,7 +589,11 @@
           </div>
 
           <div class="native-document-scroll">
-            <article class="native-document-body">
+            <article
+              class="native-document-body"
+              oncontextmenu={(event) =>
+                showEntryContextMenu(event, selectedEntry!, selectedVariant)}
+            >
               {#if loadingText}
                 <div class="document-loading"><LoaderCircle class="spin" /></div>
               {:else if selectedText}
@@ -620,18 +652,6 @@
               </button>
 
               <button
-                class="native-icon-button"
-                aria-label="Audio settings"
-                title="Audio settings"
-                onclick={() => (settingsOpen = true)}
-              >
-                <Headphones />
-                {#if connections?.openrouter.connected}
-                  <span class="connection-dot" aria-hidden="true"></span>
-                {/if}
-              </button>
-
-              <button
                 class="native-play-button"
                 aria-label={narrationState === 'playing' ? 'Pause' : 'Play'}
                 title={narrationState === 'loading'
@@ -657,15 +677,6 @@
                 onclick={cyclePlaybackRate}
               >
                 {playbackRate.toFixed(1)}×
-              </button>
-
-              <button
-                class="native-icon-button queue-action"
-                aria-label="Add to listening queue"
-                title="Add to listening queue"
-                onclick={() => (message = 'Added to the listening queue.')}
-              >
-                <ListMusic />
               </button>
 
               <button

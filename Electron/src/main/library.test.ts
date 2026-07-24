@@ -60,6 +60,10 @@ Original body.
     assert.deepEqual(initial.entries[0].topicNames, ['Research']);
     assert.deepEqual(initial.entries[0].availableVariants, ['brief', 'source']);
     assert.equal(await service.readText(initial.entries[0].id, 'source'), 'Original body.');
+    assert.equal(
+      await service.filePath(initial.entries[0].id, 'brief'),
+      join(root, 'library', 'summaries', 'brief', 'example.md')
+    );
 
     await service.writeText(initial.entries[0].id, 'source', 'Edited body.');
     const stored = await readFile(join(root, 'library', 'example.md'), 'utf8');

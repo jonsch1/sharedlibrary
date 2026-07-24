@@ -21,7 +21,10 @@ const api: SharedLibraryDesktopAPI = {
     ipcRenderer.invoke('library:trash-capture', entryID),
   captureClipboard: () => ipcRenderer.invoke('library:capture-clipboard'),
   openExternal: (url: string) => ipcRenderer.invoke('library:open-external', url),
+  openAgent: () => ipcRenderer.invoke('library:open-agent'),
   revealEntry: (entryID: string) => ipcRenderer.invoke('library:reveal-entry', entryID),
+  showEntryContextMenu: (entryID: string, variant?: LibraryVariant) =>
+    ipcRenderer.invoke('library:show-entry-context-menu', entryID, variant),
   getConnectionStatus: () => ipcRenderer.invoke('services:get-status'),
   connect: (provider) => ipcRenderer.invoke('services:connect', provider),
   disconnect: (provider) => ipcRenderer.invoke('services:disconnect', provider),

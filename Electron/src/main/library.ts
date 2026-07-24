@@ -157,6 +157,14 @@ export class LibraryService {
     await atomicWrite(path, serialized);
   }
 
+  async filePath(
+    entryID: string,
+    variant: LibraryVariant = 'source'
+  ): Promise<string> {
+    const indexed = await this.requireEntry(entryID);
+    return indexed.variantPaths[variant] ?? indexed.sourcePath;
+  }
+
   async trashCapture(entryID: string): Promise<void> {
     const indexed = await this.requireEntry(entryID);
     const paths = Array.from(

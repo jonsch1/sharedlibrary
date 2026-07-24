@@ -8,7 +8,6 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import ListMusicIcon from '@lucide/svelte/icons/list-music';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PauseIcon from '@lucide/svelte/icons/pause';
@@ -17,7 +16,6 @@
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import Share2Icon from '@lucide/svelte/icons/share-2';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
-	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '$lib/MarkdownText.svelte';
@@ -90,8 +88,6 @@
 	let importMessage = $state('');
 	let isDemo = $state(false);
 	let mobileReaderVisible = $state(false);
-	let queueVisible = $state(false);
-	let audioSettingsVisible = $state(false);
 	let connectionsVisible = $state(false);
 	let sharingVisible = $state(false);
 	let shareTarget = $state<LibraryEntry | null>(null);
@@ -188,6 +184,15 @@
 		if (entry) void ensureTextLoaded(entry, variant, true);
 	});
 
+	$effect(() => {
+		const currentMessage = toastMessage;
+		if (!currentMessage) return;
+		const timeout = window.setTimeout(() => {
+			if (toastMessage === currentMessage) dismissToast();
+		}, 6_000);
+		return () => window.clearTimeout(timeout);
+	});
+
 	onMount(() => {
 		const sharedToken = new URL(window.location.href).searchParams.get('shared') ?? '';
 		if (/^[A-Za-z0-9_-]{32}$/.test(sharedToken)) {
@@ -281,13 +286,13 @@
 			player.configureOpenRouter(credential, openRouterVoice);
 			if (connected) {
 				audioMessage = `OpenRouter connected. ${currentVoiceName} is ready.`;
-				audioSettingsVisible = true;
+				connectionsVisible = true;
 			}
 		} catch (error) {
 			if (!isActive()) return;
 			audioMessage =
 				error instanceof Error ? error.message : 'OpenRouter sign-in could not be completed.';
-			audioSettingsVisible = true;
+			connectionsVisible = true;
 		}
 	}
 
@@ -424,8 +429,6 @@
 
 	function toggleConnections(): void {
 		connectionsVisible = !connectionsVisible;
-		audioSettingsVisible = false;
-		queueVisible = false;
 		sharingVisible = false;
 	}
 
@@ -437,8 +440,6 @@
 		shareBusy = true;
 		sharingVisible = true;
 		connectionsVisible = false;
-		audioSettingsVisible = false;
-		queueVisible = false;
 		try {
 			const status = await loadShareLinkStatus(entry.captureID ?? entry.id);
 			if (shareTarget?.id !== entry.id) return;
@@ -582,7 +583,7 @@
 		if (installedAppleWebApp) {
 			audioMessage =
 				'Apple currently blocks audio in installed iPhone web apps. Delete this Home Screen icon, reopen Shared Library in Safari, then add it again with “Open as Web App” turned off.';
-			audioSettingsVisible = true;
+			connectionsVisible = true;
 			return;
 		}
 		if (selectedAudioActive && player.state !== 'idle') {
@@ -592,13 +593,6 @@
 		if (!(await ensureTextLoaded(selectedEntry, selectedVariant, true))) return;
 		player.configureOpenRouter(openRouterCredential, openRouterVoice);
 		player.play(selectedEntry, selectedVariant);
-	}
-
-	async function queueSelectedEntry(): Promise<void> {
-		if (!selectedEntry) return;
-		const variant = preferredVariant(selectedEntry);
-		if (!(await ensureTextLoaded(selectedEntry, variant))) return;
-		player.enqueue(selectedEntry);
 	}
 
 	function updateRate(rate: number): void {
@@ -648,13 +642,6 @@
 		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? 'Voice'} selected.`;
 	}
 
-	function toggleAudioSettings(): void {
-		audioSettingsVisible = !audioSettingsVisible;
-		connectionsVisible = false;
-		queueVisible = false;
-		sharingVisible = false;
-	}
-
 	function dismissToast(): void {
 		importMessage = '';
 		audioMessage = '';
@@ -692,363 +679,6 @@
 	<audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
 
 	<div class="app-shell">
-	<!--
-		The former dashboard composition is kept here temporarily as an inert reference while the
-		Mac-window composition below becomes the single web surface.
-	<header class="app-header">
-		<div class="brand">
-			<div class="brand-mark" aria-hidden="true"><LibraryBigIcon /></div>
-			<div>
-				<p class="brand-name">Shared Library</p>
-				<p class="brand-subtitle">Private reader</p>
-			</div>
-		</div>
-
-		<div class="header-status">
-			{#if projection}
-				<div class="snapshot-status">
-					<span class="status-dot" aria-hidden="true"></span>
-					<span>{isDemo ? 'Sample library' : 'Available offline'}</span>
-					<span class="status-time">
-						{googleSyncing ? googleSyncDescription() : `Updated ${formatGeneratedAt(projection.generatedAt)}`}
-					</span>
-				</div>
-			{/if}
-			<Button
-				variant={audioSettingsVisible ? 'secondary' : 'outline'}
-				aria-label="Audio settings"
-				onclick={toggleAudioSettings}
-			>
-				<HeadphonesIcon data-icon="inline-start" />
-				<span class="desktop-label">Audio</span>
-				{#if openRouterCredential}
-					<span class="connection-dot" title="OpenRouter connected" aria-label="OpenRouter connected"
-					></span>
-				{/if}
-			</Button>
-			<Button
-				variant={connectionsVisible ? 'secondary' : 'outline'}
-				onclick={toggleConnections}
-			>
-				<Settings2Icon data-icon="inline-start" />
-				<span class="desktop-label">Connections</span>
-				<span class="mobile-label">Setup</span>
-			</Button>
-		</div>
-	</header>
-
-	{#if loading}
-		<main class="center-stage" aria-live="polite">
-			<div class="loading-mark"><BookOpenIcon /></div>
-			<p>Opening your offline library…</p>
-		</main>
-	{:else if !projection}
-		<main class="center-stage">
-			<div class="empty-card">
-				<div class="empty-illustration">
-					<CloudIcon />
-					<span class="empty-check"><CheckIcon /></span>
-				</div>
-				<p class="eyebrow">Your library, everywhere</p>
-				{#if googleConnection.connected && googleSyncing}
-					<h1>Saving your library for offline use</h1>
-					<p class="empty-copy">{googleSyncDescription()}</p>
-				{:else}
-					<h1>Sign in with Google</h1>
-					<p class="empty-copy">
-						Your account’s Shared Library folder is configured once, mirrored locally on
-						every client, and synchronized in the background.
-					</p>
-					<div class="empty-actions">
-						<Button size="lg" onclick={() => (connectionsVisible = true)}>
-							<CloudIcon data-icon="inline-start" />
-							Sign in with Google
-						</Button>
-						<Button size="lg" variant="ghost" onclick={showDemo}>
-							<BookOpenIcon data-icon="inline-start" />
-							Explore a sample
-						</Button>
-					</div>
-				{/if}
-				<div class="privacy-note">
-					<CheckIcon />
-					<span>Library text and generated audio stay in your Drive and private device cache.</span>
-				</div>
-				{#if importMessage}<p class="import-message error">{importMessage}</p>{/if}
-			</div>
-		</main>
-	{:else}
-		<div class="workspace" class:reader-open={mobileReaderVisible}>
-			<aside class="library-pane">
-				<div class="library-toolbar">
-					<div class="search-field">
-						<SearchIcon aria-hidden="true" />
-						<Input bind:value={query} aria-label="Search library" placeholder="Search your library" />
-					</div>
-
-					<div class="filter-row" aria-label="Library filters">
-						{#each ['all', 'personal', 'shared'] as filter}
-							<button
-								class:active={originFilter === filter}
-								class="filter-chip"
-								onclick={() => (originFilter = filter as OriginFilter)}
-							>
-								{filter === 'all' ? 'All' : filter === 'personal' ? 'Mine' : 'Shared with me'}
-							</button>
-						{/each}
-					</div>
-
-					<div class="topic-row">
-						<NativeSelect.Root bind:value={topicFilter} class="w-full">
-							<NativeSelect.Option value="all">All topics</NativeSelect.Option>
-							{#each topics as topic}
-								<NativeSelect.Option value={topic}>{topic}</NativeSelect.Option>
-							{/each}
-						</NativeSelect.Root>
-						<span class="result-count">{filteredEntries.length} items</span>
-					</div>
-				</div>
-
-				<div class="entry-list">
-					{#if filteredEntries.length === 0}
-						<div class="no-results">
-							<ArchiveIcon />
-							<p>No matching documents</p>
-							<button
-								onclick={() => {
-									query = '';
-									originFilter = 'all';
-									topicFilter = 'all';
-								}}>Clear filters</button
-							>
-						</div>
-					{:else}
-						{#each filteredEntries as entry (entry.id)}
-							<button
-								class="entry-row"
-								class:selected={selectedEntry?.id === entry.id}
-								onclick={() => selectEntry(entry)}
-							>
-								<div class="entry-topline">
-									{#if entry.origin === 'shared'}
-										<Badge variant="outline" class="shared-badge">Shared</Badge>
-									{:else}
-										<span class="personal-kicker">Personal</span>
-									{/if}
-									{#if entry.createdAt}<span>{formatDate(entry.createdAt)}</span>{/if}
-								</div>
-								<h2>{entry.title}</h2>
-								<p>{entry.excerpt}</p>
-								<div class="entry-footer">
-									<span>{entry.topicNames[0] ?? 'Library'}</span>
-									{#if entry.origin === 'shared' && entry.sharedByUsername}
-										<span>From @{entry.sharedByUsername}</span>
-									{/if}
-								</div>
-							</button>
-						{/each}
-					{/if}
-				</div>
-			</aside>
-
-			<main class="reader-pane">
-				{#if selectedEntry}
-					<div class="reader-inner">
-						<div class="mobile-reader-bar">
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => (mobileReaderVisible = false)}
-							>
-								<ChevronLeftIcon data-icon="inline-start" />
-								Library
-							</Button>
-						</div>
-
-						<header class="document-header">
-							<div class="document-kicker">
-								{#if selectedEntry.origin === 'shared'}
-									<Badge variant="outline" class="shared-badge">Shared with me</Badge>
-									{#if selectedEntry.sharedByUsername}
-										<span>From @{selectedEntry.sharedByUsername}</span>
-									{/if}
-								{:else}
-									<Badge variant="secondary">Personal library</Badge>
-								{/if}
-								{#if selectedEntry.createdAt}
-									<span>{formatDate(selectedEntry.createdAt)}</span>
-								{/if}
-							</div>
-							<h1>{selectedEntry.title}</h1>
-							<p class="document-excerpt">{selectedEntry.excerpt}</p>
-							<div class="topic-badges">
-								{#each selectedEntry.topicNames as topic}
-									<Badge variant="outline">{topic}</Badge>
-								{/each}
-								{#each selectedEntry.tags.slice(0, 3) as tag}
-									<Badge variant="ghost">#{tag}</Badge>
-								{/each}
-							</div>
-						</header>
-
-						<div class="reading-controls">
-							<div class="variant-tabs" role="tablist" aria-label="Document version">
-								{#each availableVariants as variant}
-									<button
-										role="tab"
-										aria-selected={selectedVariant === variant}
-										class:active={selectedVariant === variant}
-										onclick={() => (selectedVariant = variant)}
-									>
-										{variantNames[variant]}
-									</button>
-								{/each}
-							</div>
-
-							<div class="document-actions">
-								<span class="reading-time">
-									<Clock3Icon />
-									{readingMinutes(selectedText, playbackRate)} min
-								</span>
-								<Button variant="outline" onclick={queueSelectedEntry}>
-									<PlusIcon data-icon="inline-start" />
-									Queue
-								</Button>
-								<Button onclick={listen}>
-									<Volume2Icon data-icon="inline-start" />
-									{selectedAudioReady ? 'Play' : 'Listen'}
-								</Button>
-							</div>
-						</div>
-
-						<Separator />
-
-						<article class="document-body">
-							{#if selectedText}
-								<MarkdownText text={selectedText} />
-							{:else if loadingText}
-								<p class="missing-text">Loading document from Google Drive…</p>
-							{:else}
-								<p class="missing-text">This version is not available.</p>
-							{/if}
-						</article>
-
-						{#if selectedEntry.sourceURL}
-							<footer class="source-footer">
-								<span>Original source</span>
-								<a href={selectedEntry.sourceURL} target="_blank" rel="noreferrer">
-									Open link <ArrowUpRightIcon />
-								</a>
-							</footer>
-						{/if}
-					</div>
-				{/if}
-			</main>
-		</div>
-
-		{#if toastMessage}
-			<div
-				class="toast"
-				class:error={toastMessage.includes('failed') ||
-					toastMessage.includes('could not') ||
-					toastMessage.includes('unavailable')}
-			>
-				{toastMessage}
-				<button aria-label="Dismiss message" onclick={dismissToast}><XIcon /></button>
-			</div>
-		{/if}
-	{/if}
-
-	{#if player.currentEntry || projection}
-		<footer class="player-bar">
-			<div class="now-playing">
-				<div class="audio-mark"><Volume2Icon /></div>
-				<div class="now-playing-copy">
-					<span>
-						{#if player.state === 'loading'}
-							Preparing {currentVoiceName}
-						{:else if player.provider === 'openrouter'}
-							Grok voice · {currentVoiceName}
-						{:else if player.provider === 'device'}
-							Device voice
-						{:else}
-							Ready to listen
-						{/if}
-					</span>
-					<strong>{player.currentEntry?.title ?? 'Choose a document'}</strong>
-				</div>
-			</div>
-
-			<div class="transport">
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="Stop"
-					disabled={!player.currentEntry}
-					onclick={() => player.stop()}
-				>
-					<SquareIcon />
-				</Button>
-				<Button
-					size="icon-lg"
-					class="play-button"
-					aria-label={player.state === 'loading'
-						? 'Cancel audio generation'
-						: player.state === 'playing'
-							? 'Pause'
-							: 'Play'}
-					disabled={!player.currentEntry}
-					onclick={() => player.toggle()}
-				>
-					{#if player.state === 'loading'}
-						<LoaderCircleIcon class="spin" />
-					{:else if player.state === 'playing'}
-						<PauseIcon />
-					{:else}
-						<PlayIcon />
-					{/if}
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="Play next"
-					disabled={player.queue.length === 0}
-					onclick={() => player.playNext()}
-				>
-					<SkipForwardIcon />
-				</Button>
-			</div>
-
-			<div class="player-options">
-				<div class="rate-control">
-					<span>{playbackRate.toFixed(1)}×</span>
-					<Slider
-						type="single"
-						value={playbackRate}
-						min={0.7}
-						max={1.5}
-						step={0.1}
-						aria-label="Speech rate"
-						onValueCommit={updateRate}
-					/>
-				</div>
-				<Button
-					variant={queueVisible ? 'secondary' : 'ghost'}
-					onclick={() => {
-						queueVisible = !queueVisible;
-						audioSettingsVisible = false;
-						connectionsVisible = false;
-					}}
-				>
-					<ListMusicIcon data-icon="inline-start" />
-					Queue
-					{#if player.queue.length}<span class="queue-count">{player.queue.length}</span>{/if}
-				</Button>
-			</div>
-			<div class="player-progress" style={`--progress: ${player.progress * 100}%`}></div>
-		</footer>
-	{/if}
-	-->
 
 	{#if loading}
 		<main class="center-stage" aria-live="polite">
@@ -1145,12 +775,6 @@
 					{/if}
 				</div>
 
-				<div class="native-sidebar-footer">
-					<button class="agent-button" title="Agent is available in the Mac app">
-						<SparklesIcon />
-						<span>Agent</span>
-					</button>
-				</div>
 			</aside>
 
 			<main class="native-reader-pane">
@@ -1224,19 +848,6 @@
 							{/if}
 
 							<button
-								class="native-icon-button"
-								class:active={audioSettingsVisible}
-								aria-label="Audio settings"
-								title="Audio settings"
-								onclick={toggleAudioSettings}
-							>
-								<HeadphonesIcon />
-								{#if openRouterCredential}
-									<span class="connection-dot" aria-hidden="true"></span>
-								{/if}
-							</button>
-
-							<button
 								class="native-play-button"
 								aria-label={player.state === 'loading' && selectedAudioActive
 									? 'Cancel audio generation'
@@ -1266,24 +877,6 @@
 								onclick={cyclePlaybackRate}
 							>
 								{playbackRate.toFixed(1)}×
-							</button>
-
-							<button
-								class="native-icon-button queue-action"
-								aria-label="Add to listening queue"
-								title="Add to listening queue"
-								onclick={async () => {
-									await queueSelectedEntry();
-									queueVisible = true;
-									audioSettingsVisible = false;
-									connectionsVisible = false;
-									sharingVisible = false;
-								}}
-							>
-								<ListMusicIcon />
-								{#if player.queue.length}
-									<span class="native-queue-count">{player.queue.length}</span>
-								{/if}
 							</button>
 
 							<button
@@ -1373,6 +966,81 @@
 								This deployment has not been configured with Google OAuth yet. The site
 								administrator needs to add it once—users never paste a client secret.
 							{/if}
+						</p>
+					{/if}
+				</section>
+
+				{#if installedAppleWebApp}
+					<section class="ios-audio-warning">
+						<TriangleAlertIcon />
+						<div>
+							<strong>Listening needs Safari on this iPhone</strong>
+							<p>
+								Apple has an audio bug in installed Home Screen web apps. Delete this
+								icon, open Shared Library in Safari, then add it again. If shown, turn
+								off “Open as Web App.”
+							</p>
+						</div>
+					</section>
+				{/if}
+
+				<section class="audio-connection" class:connected={openRouterCredential}>
+					<div class="audio-connection-heading">
+						<div class="provider-mark"><HeadphonesIcon /></div>
+						<div>
+							<div class="provider-title">
+								<h3>OpenRouter</h3>
+								<Badge variant={openRouterCredential ? 'secondary' : 'outline'}>
+									{openRouterCredential ? 'Connected' : 'Optional'}
+								</Badge>
+							</div>
+							<p>Natural Grok narration, generated when you press Listen.</p>
+						</div>
+					</div>
+
+					{#if player.requiresReconnect}
+						<p class="reconnect-warning">
+							Your OpenRouter connection needs to be renewed.
+						</p>
+					{/if}
+
+					{#if openRouterCredential && !player.requiresReconnect}
+						<Button
+							variant="outline"
+							disabled={openRouterBusy}
+							onclick={removeOpenRouterConnection}
+						>
+							<LogOutIcon data-icon="inline-start" />
+							Disconnect
+						</Button>
+					{:else}
+						<Button disabled={openRouterBusy} onclick={connectOpenRouter}>
+							<ArrowUpRightIcon data-icon="inline-start" />
+							{openRouterBusy ? 'Opening OpenRouter…' : 'Connect OpenRouter'}
+						</Button>
+					{/if}
+				</section>
+
+				<section class="audio-section">
+					<div class="audio-section-heading">
+						<div>
+							<h3>Narrator</h3>
+							<p>Used for newly generated audio.</p>
+						</div>
+						<NativeSelect.Root
+							value={openRouterVoice}
+							disabled={!openRouterCredential}
+							aria-label="OpenRouter narrator"
+							onchange={updateVoice}
+						>
+							{#each openRouterVoices as voice}
+								<NativeSelect.Option value={voice.id}>{voice.name}</NativeSelect.Option>
+							{/each}
+						</NativeSelect.Root>
+					</div>
+					{#if openRouterCredential}
+						<p class="voice-description">
+							{openRouterVoices.find((voice) => voice.id === openRouterVoice)?.description}
 						</p>
 					{/if}
 				</section>
@@ -1529,152 +1197,5 @@
 		</aside>
 	{/if}
 
-	{#if audioSettingsVisible}
-		<div
-			class="audio-backdrop"
-			role="presentation"
-			onclick={() => (audioSettingsVisible = false)}
-		></div>
-		<aside class="audio-panel" aria-label="Audio settings">
-			<div class="audio-header">
-				<div>
-					<p class="eyebrow">Narration</p>
-					<h2>Audio settings</h2>
-				</div>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="Close audio settings"
-					onclick={() => (audioSettingsVisible = false)}
-				>
-					<XIcon />
-				</Button>
-			</div>
-
-			<div class="audio-content">
-				{#if installedAppleWebApp}
-					<section class="ios-audio-warning">
-						<TriangleAlertIcon />
-						<div>
-							<strong>Listening needs Safari on this iPhone</strong>
-							<p>
-								Apple has an audio bug in installed Home Screen web apps. Delete this
-								icon, open Shared Library in Safari, then add it again. If shown, turn
-								off “Open as Web App.”
-							</p>
-						</div>
-					</section>
-				{/if}
-				<section class="audio-connection" class:connected={openRouterCredential}>
-					<div class="audio-connection-heading">
-						<div class="provider-mark"><HeadphonesIcon /></div>
-						<div>
-							<div class="provider-title">
-								<h3>OpenRouter</h3>
-								<Badge variant={openRouterCredential ? 'secondary' : 'outline'}>
-									{openRouterCredential ? 'Connected' : 'Optional'}
-								</Badge>
-							</div>
-							<p>Natural Grok narration, generated when you press Listen.</p>
-						</div>
-					</div>
-
-					{#if player.requiresReconnect}
-						<p class="reconnect-warning">
-							Your OpenRouter connection needs to be renewed.
-						</p>
-					{/if}
-
-					{#if openRouterCredential && !player.requiresReconnect}
-						<Button
-							variant="outline"
-							disabled={openRouterBusy}
-							onclick={removeOpenRouterConnection}
-						>
-							<LogOutIcon data-icon="inline-start" />
-							Disconnect
-						</Button>
-					{:else}
-						<Button disabled={openRouterBusy} onclick={connectOpenRouter}>
-							<ArrowUpRightIcon data-icon="inline-start" />
-							{openRouterBusy ? 'Opening OpenRouter…' : 'Connect OpenRouter'}
-						</Button>
-					{/if}
-				</section>
-
-				<section class="audio-section">
-					<div class="audio-section-heading">
-						<div>
-							<h3>Narrator</h3>
-							<p>Used for newly generated audio.</p>
-						</div>
-						<NativeSelect.Root
-							value={openRouterVoice}
-							disabled={!openRouterCredential}
-							aria-label="OpenRouter narrator"
-							onchange={updateVoice}
-						>
-							{#each openRouterVoices as voice}
-								<NativeSelect.Option value={voice.id}>{voice.name}</NativeSelect.Option>
-							{/each}
-						</NativeSelect.Root>
-					</div>
-					{#if openRouterCredential}
-						<p class="voice-description">
-							{openRouterVoices.find((voice) => voice.id === openRouterVoice)?.description}
-						</p>
-					{/if}
-				</section>
-
-			</div>
-		</aside>
-	{/if}
-
-	{#if queueVisible}
-		<div class="queue-backdrop" role="presentation" onclick={() => (queueVisible = false)}></div>
-		<aside class="queue-panel" aria-label="Listening queue">
-			<div class="queue-header">
-				<div>
-					<p class="eyebrow">Up next</p>
-					<h2>Listening queue</h2>
-				</div>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="Close queue"
-					onclick={() => (queueVisible = false)}
-				>
-					<XIcon />
-				</Button>
-			</div>
-			{#if player.queue.length === 0}
-				<div class="queue-empty">
-					<ListMusicIcon />
-					<p>Your queue is empty.</p>
-					<span>Add documents while browsing the library.</span>
-				</div>
-			{:else}
-				<div class="queue-list">
-					{#each player.queue as entry, index (entry.id)}
-						<div class="queue-item">
-							<span class="queue-index">{String(index + 1).padStart(2, '0')}</span>
-							<div>
-								<strong>{entry.title}</strong>
-								<span>{entry.topicNames[0] ?? 'Library'}</span>
-							</div>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label={`Remove ${entry.title}`}
-								onclick={() => player.removeFromQueue(entry.id)}
-							>
-								<XIcon />
-							</Button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</aside>
-	{/if}
 	</div>
 {/if}

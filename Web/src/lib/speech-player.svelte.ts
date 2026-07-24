@@ -61,7 +61,6 @@ export class SpeechPlayer {
 	currentVariant = $state<LibraryVariant>('concise');
 	rate = $state(1);
 	progress = $state(0);
-	queue = $state<LibraryEntry[]>([]);
 	notice = $state('');
 	requiresReconnect = $state(false);
 
@@ -173,27 +172,6 @@ export class SpeechPlayer {
 		if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'none';
 	}
 
-	enqueue(entry: LibraryEntry): void {
-		if (this.currentEntry?.id === entry.id || this.queue.some((item) => item.id === entry.id)) {
-			return;
-		}
-		this.queue = [...this.queue, entry];
-	}
-
-	removeFromQueue(entryID: string): void {
-		this.queue = this.queue.filter((entry) => entry.id !== entryID);
-	}
-
-	playNext(): void {
-		const [next, ...remaining] = this.queue;
-		if (!next) {
-			this.stop();
-			return;
-		}
-		this.queue = remaining;
-		this.play(next, preferredVariant(next));
-	}
-
 	setRate(rate: number): void {
 		this.rate = rate;
 		if (this.audio) {
@@ -210,8 +188,7 @@ export class SpeechPlayer {
 	private async playOpenRouterChunk(sessionID: number): Promise<void> {
 		const chunk = this.chunks[this.chunkIndex];
 		if (!chunk) {
-			this.progress = 1;
-			this.playNext();
+			this.stop();
 			return;
 		}
 		if (!this.credential) {
@@ -356,8 +333,7 @@ export class SpeechPlayer {
 		if (!('speechSynthesis' in globalThis) || this.state !== 'playing') return;
 		const chunk = this.chunks[this.chunkIndex];
 		if (!chunk) {
-			this.progress = 1;
-			this.playNext();
+			this.stop();
 			return;
 		}
 
@@ -456,6 +432,5 @@ export class SpeechPlayer {
 		navigator.mediaSession.setActionHandler('play', () => this.toggle());
 		navigator.mediaSession.setActionHandler('pause', () => this.toggle());
 		navigator.mediaSession.setActionHandler('stop', () => this.stop());
-		navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
 	}
 }
