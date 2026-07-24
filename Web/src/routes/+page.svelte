@@ -31,7 +31,6 @@
 		loadLibraryText,
 		preferredVariant,
 		readingMinutes,
-		saveLibraryProjection,
 		textFor,
 		type LibraryEntry,
 		type LibraryOrigin,
@@ -358,13 +357,16 @@
 		googleSyncCompleted = 0;
 		googleSyncTotal = 0;
 		try {
-			const personalProjection = await syncGoogleDriveLibrary((completed, total) => {
-				googleSyncPhase = 'library';
-				googleSyncCompleted = completed;
-				googleSyncTotal = total;
-			});
-			await saveLibraryProjection(personalProjection);
-			applySyncedProjection(personalProjection);
+			await syncGoogleDriveLibrary(
+				(personalProjection) => {
+					applySyncedProjection(personalProjection);
+					googleSyncPhase = 'library';
+				},
+				(completed, total) => {
+					googleSyncCompleted = completed;
+					googleSyncTotal = total;
+				}
+			);
 			googleSyncPhase = 'audio';
 			googleSyncCompleted = 0;
 			googleSyncTotal = 0;
