@@ -24,7 +24,6 @@
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
-	import * as NativeSelect from '$lib/components/ui/native-select/index.js';
 	import {
 		demoProjection,
 		libraryVariants,
@@ -47,6 +46,7 @@
 		loadOpenRouterPreferences,
 		loadOpenRouterCredential,
 		normalizeOpenRouterModel,
+		normalizeOpenRouterVoice,
 		openRouterVoices,
 		recommendedVoiceForModel,
 		saveModelPreference,
@@ -95,7 +95,7 @@
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
-	let openRouterVoice = $state<OpenRouterVoice>('alloy');
+	let openRouterVoice = $state<OpenRouterVoice>('af_heart');
 	let openRouterModel = $state(defaultOpenRouterModel);
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
@@ -155,7 +155,7 @@
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
 	);
 	let currentVoiceName = $derived(
-		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? 'Alloy'
+		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? openRouterVoice
 	);
 	let selectedAudioActive = $derived(
 		player.currentEntry?.id === selectedEntry?.id &&
@@ -636,12 +636,18 @@
 	}
 
 	function updateVoice(event: Event): void {
-		const selected = (event.currentTarget as HTMLSelectElement).value as OpenRouterVoice;
-		if (!openRouterVoices.some((voice) => voice.id === selected)) return;
+		const input = event.currentTarget as HTMLInputElement;
+		const selected = normalizeOpenRouterVoice(input.value);
+		if (!selected) {
+			input.value = openRouterVoice;
+			audioMessage = 'Enter a valid provider voice identifier.';
+			return;
+		}
 		openRouterVoice = selected;
+		input.value = selected;
 		saveVoicePreference(selected);
 		player.configureOpenRouter(openRouterCredential, selected, openRouterModel);
-		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? 'Voice'} selected.`;
+		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? selected} selected.`;
 	}
 
 	function updateOpenRouterModel(event: Event): void {
@@ -1063,16 +1069,22 @@
 							<h3>Narrator</h3>
 							<p>Used for newly generated audio.</p>
 						</div>
-						<NativeSelect.Root
+						<Input
+							class="audio-voice-input"
 							value={openRouterVoice}
 							disabled={!openRouterCredential}
 							aria-label="OpenRouter narrator"
+							list="openrouter-voice-suggestions"
+							autocapitalize="none"
+							autocomplete="off"
+							spellcheck="false"
 							onchange={updateVoice}
-						>
+						/>
+						<datalist id="openrouter-voice-suggestions">
 							{#each openRouterVoices as voice}
-								<NativeSelect.Option value={voice.id}>{voice.name}</NativeSelect.Option>
+								<option value={voice.id}>{voice.name}</option>
 							{/each}
-						</NativeSelect.Root>
+						</datalist>
 					</div>
 					<label class="audio-model-field">
 						<span>OpenRouter model</span>

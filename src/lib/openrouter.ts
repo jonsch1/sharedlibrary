@@ -6,9 +6,18 @@ import {
 
 export const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
 export const grokVoiceModel = 'x-ai/grok-voice-tts-1.0';
+export const orpheusVoiceModel = 'canopylabs/orpheus-3b-0.1-ft';
 
 export const openRouterVoices = [
-	{ id: 'alloy', name: 'Alloy', description: 'Compatible with Kokoro and many TTS models' },
+	{ id: 'af_heart', name: 'Heart', description: 'Kokoro · American English female' },
+	{ id: 'af_alloy', name: 'Alloy', description: 'Kokoro · American English female' },
+	{ id: 'tara', name: 'Tara', description: 'Orpheus · expressive female' },
+	{ id: 'leah', name: 'Leah', description: 'Orpheus · warm female' },
+	{ id: 'jess', name: 'Jess', description: 'Orpheus · energetic female' },
+	{ id: 'dan', name: 'Dan', description: 'Orpheus · friendly male' },
+	{ id: 'mia', name: 'Mia', description: 'Orpheus · articulate female' },
+	{ id: 'zac', name: 'Zac', description: 'Orpheus · enthusiastic male' },
+	{ id: 'zoe', name: 'Zoe', description: 'Orpheus · calm female' },
 	{ id: 'eve', name: 'Eve', description: 'Energetic and engaging' },
 	{ id: 'ara', name: 'Ara', description: 'Clear and composed' },
 	{ id: 'leo', name: 'Leo', description: 'Warm and friendly' },
@@ -16,7 +25,7 @@ export const openRouterVoices = [
 	{ id: 'sal', name: 'Sal', description: 'Natural and conversational' }
 ] as const;
 
-export type OpenRouterVoice = (typeof openRouterVoices)[number]['id'];
+export type OpenRouterVoice = string;
 export type SpeechLoadingPhase = 'checking' | 'downloading' | 'generating';
 
 export interface OpenRouterCredential {
@@ -31,6 +40,7 @@ const modelPreferenceKey = 'shared-library-openrouter-model';
 const maximumSpeechSegmentLength = 360;
 const modelIdentifierPattern =
 	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const voiceIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 export interface OpenRouterSpeechSource {
 	url: string;
@@ -122,9 +132,26 @@ export function normalizeOpenRouterModel(value: unknown): string | null {
 }
 
 export function recommendedVoiceForModel(model: string): OpenRouterVoice | null {
-	if (model === defaultOpenRouterModel) return 'alloy';
+	if (model === defaultOpenRouterModel) return 'af_heart';
+	if (model === orpheusVoiceModel) return 'tara';
 	if (model === grokVoiceModel) return 'eve';
 	return null;
+}
+
+export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null {
+	if (typeof value !== 'string') return null;
+	const voice = value.trim();
+	return voiceIdentifierPattern.test(voice) ? voice : null;
+}
+
+function migrateVoiceForModel(model: string, voice: OpenRouterVoice | null): OpenRouterVoice {
+	const recommended = recommendedVoiceForModel(model);
+	if (!voice) return recommended ?? 'af_heart';
+	if (model === defaultOpenRouterModel && ['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(voice)) {
+		return recommended ?? voice;
+	}
+	if (model === orpheusVoiceModel && voice === 'alloy') return recommended ?? voice;
+	return voice;
 }
 
 export function loadOpenRouterPreferences(): {
@@ -134,9 +161,7 @@ export function loadOpenRouterPreferences(): {
 	const storedModel = localStorage.getItem(modelPreferenceKey);
 	const model = normalizeOpenRouterModel(storedModel) ?? defaultOpenRouterModel;
 	const storedVoice = localStorage.getItem(voicePreferenceKey);
-	const voice = openRouterVoices.some((candidate) => candidate.id === storedVoice)
-		? (storedVoice as OpenRouterVoice)
-		: (recommendedVoiceForModel(model) ?? 'alloy');
+	const voice = migrateVoiceForModel(model, normalizeOpenRouterVoice(storedVoice));
 
 	// Existing installations did not store a model and used Grok-only voice names.
 	// Start the new Kokoro default with its broadly supported example voice.

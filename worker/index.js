@@ -1,16 +1,38 @@
 const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
 const legacyGrokVoiceModel = 'x-ai/grok-voice-tts-1.0';
-const supportedVoices = new Set(['alloy', 'eve', 'ara', 'leo', 'rex', 'sal']);
+const knownVoices = [
+	'af_heart',
+	'af_alloy',
+	'tara',
+	'leah',
+	'jess',
+	'leo',
+	'dan',
+	'mia',
+	'zac',
+	'zoe',
+	'eve',
+	'ara',
+	'rex',
+	'sal'
+];
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const maximumSpeechInputLength = 14_000;
 const openRouterModelPattern =
 	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 function requestedOpenRouterModel(value) {
 	if (value === undefined) return defaultOpenRouterModel;
 	if (typeof value !== 'string') return null;
 	const model = value.trim();
 	return openRouterModelPattern.test(model) ? model : null;
+}
+
+function requestedOpenRouterVoice(value) {
+	if (typeof value !== 'string') return null;
+	const voice = value.trim();
+	return openRouterVoicePattern.test(voice) ? voice : null;
 }
 
 function json(value, init = {}) {
@@ -272,14 +294,16 @@ async function ensureSchema(database) {
 }
 
 async function openRouterError(response, fallback) {
+	const body = await response.text();
 	try {
-		const value = await response.json();
+		const value = JSON.parse(body);
 		if (typeof value.error === 'string') return value.error;
 		if (typeof value.error?.message === 'string') return value.error.message;
 		if (typeof value.message === 'string') return value.message;
 	} catch {
 		// The upstream response was not JSON.
 	}
+	if (body.trim()) return body.trim().slice(0, 500);
 	return fallback;
 }
 
@@ -431,12 +455,12 @@ async function createSpeech(request, env) {
 		return json({ error: 'Invalid speech request.' }, { status: 400 });
 	}
 	const model = requestedOpenRouterModel(value.model);
+	const voice = requestedOpenRouterVoice(value.voice);
 	if (
 		typeof value.input !== 'string' ||
 		!value.input.trim() ||
 		value.input.length > maximumSpeechInputLength ||
-		typeof value.voice !== 'string' ||
-		!supportedVoices.has(value.voice) ||
+		!voice ||
 		!model
 	) {
 		return json({ error: 'Invalid speech text, voice, or model.' }, { status: 400 });
@@ -472,7 +496,7 @@ async function createSpeech(request, env) {
 		body: JSON.stringify({
 			model,
 			input: value.input,
-			voice: value.voice,
+			voice,
 			response_format: 'mp3'
 		})
 	});
@@ -1627,7 +1651,7 @@ async function prepareShareLink(env, email, token, captureID, generation, voice,
 				const candidateModels = [model, legacyGrokVoiceModel].filter(
 					(candidate, index, values) => values.indexOf(candidate) === index
 				);
-				const candidateVoices = [voice, ...supportedVoices].filter(
+				const candidateVoices = [voice, ...knownVoices].filter(
 					(candidate, index, values) => values.indexOf(candidate) === index
 				);
 				for (const candidateModel of candidateModels) {
@@ -1746,7 +1770,7 @@ async function publishShareLink(request, env, context) {
 		return json({ error: 'Invalid share-link request.' }, { status: 400 });
 	}
 	const captureID = value?.captureID;
-	const voice = supportedVoices.has(value?.voice) ? value.voice : 'alloy';
+	const voice = requestedOpenRouterVoice(value?.voice) ?? 'af_heart';
 	const model = requestedOpenRouterModel(value?.model);
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });

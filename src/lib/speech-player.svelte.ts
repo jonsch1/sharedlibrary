@@ -67,7 +67,7 @@ export class SpeechPlayer {
 	requiresReconnect = $state(false);
 
 	private credential: OpenRouterCredential | null = null;
-	private voice: OpenRouterVoice = 'alloy';
+	private voice: OpenRouterVoice = 'af_heart';
 	private model = 'hexgrad/kokoro-82m';
 	private chunks: string[] = [];
 	private chunkIndex = 0;

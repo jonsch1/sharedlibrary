@@ -526,3 +526,20 @@ test('speech rejects malformed model identifiers before making a provider reques
 		error: 'Invalid speech text, voice, or model.'
 	});
 });
+
+test('speech accepts provider-specific voice identifiers', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/tts', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				input: 'Hello',
+				voice: 'af_heart',
+				model: 'hexgrad/kokoro-82m'
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 401);
+	assert.deepEqual(await response.json(), { error: 'OpenRouter is not connected.' });
+});
