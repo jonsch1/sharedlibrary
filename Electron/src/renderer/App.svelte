@@ -25,6 +25,7 @@
     X
   } from '@lucide/svelte';
   import MarkdownView from './MarkdownView.svelte';
+  import appIcon from './assets/app-icon.png';
   import type {
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
@@ -96,6 +97,11 @@
   );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
+  );
+  let syncActive = $derived(
+    syncStatus.phase === 'checking' ||
+      syncStatus.phase === 'downloading' ||
+      syncStatus.phase === 'uploading'
   );
 
   $effect(() => {
@@ -488,8 +494,15 @@
 <div class="app-shell">
   {#if loading}
     <main class="center-stage" aria-live="polite">
-      <div class="loading-mark"><LoaderCircle class="spin" /></div>
-      <p>Opening your offline library…</p>
+      <div class="launch-sequence">
+        <div class="loading-mark" aria-hidden="true">
+          <span class="loading-halo"></span>
+          <img src={appIcon} alt="" />
+        </div>
+        <p class="loading-title">Opening your library</p>
+        <p class="loading-copy">Preparing the local collection</p>
+        <div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+      </div>
     </main>
   {:else if entries.length === 0}
     <main class="center-stage">
@@ -591,11 +604,21 @@
           <div class="native-document-scroll">
             <article
               class="native-document-body"
+              aria-busy={loadingText}
               oncontextmenu={(event) =>
                 showEntryContextMenu(event, selectedEntry!, selectedVariant)}
             >
               {#if loadingText}
-                <div class="document-loading"><LoaderCircle class="spin" /></div>
+                <div class="document-skeleton" aria-label="Loading document">
+                  <span class="skeleton-heading"></span>
+                  <span class="skeleton-line long"></span>
+                  <span class="skeleton-line"></span>
+                  <span class="skeleton-line medium"></span>
+                  <span class="skeleton-gap"></span>
+                  <span class="skeleton-line long"></span>
+                  <span class="skeleton-line"></span>
+                  <span class="skeleton-line short"></span>
+                </div>
               {:else if selectedText}
                 <MarkdownView text={selectedText} />
               {:else}
@@ -682,6 +705,7 @@
               <button
                 class="native-icon-button"
                 class:active={settingsOpen}
+                class:syncing={syncActive}
                 aria-label="Connections"
                 title="Connections"
                 onclick={() => (settingsOpen = true)}
@@ -696,7 +720,12 @@
   {/if}
 
   {#if message}
-    <div class="toast" class:error={message.includes('failed') || message.includes('could not')}>
+    <div
+      class="toast"
+      class:error={message.includes('failed') || message.includes('could not')}
+      role="status"
+      aria-live="polite"
+    >
       <span>{message}</span>
       <button aria-label="Dismiss message" onclick={() => (message = '')}><X /></button>
     </div>

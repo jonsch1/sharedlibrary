@@ -6,7 +6,9 @@
 
 <svelte:head>
 	<link rel="manifest" href="/manifest.webmanifest" />
-	<meta name="theme-color" content="#f4f3ee" />
+	<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+	<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+	<meta name="theme-color" content="#eeeadd" />
 	<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 	<meta name="apple-mobile-web-app-title" content="Shared Library" />
 </svelte:head>

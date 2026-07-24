@@ -682,8 +682,15 @@
 
 	{#if loading}
 		<main class="center-stage" aria-live="polite">
-			<div class="loading-mark"><BookOpenIcon /></div>
-			<p>Opening your offline library…</p>
+			<div class="launch-sequence">
+				<div class="loading-mark" aria-hidden="true">
+					<span class="loading-halo"></span>
+					<img src="/icons/icon-192.png" alt="" />
+				</div>
+				<p class="loading-title">Opening your library</p>
+				<p class="loading-copy">Preparing the offline collection</p>
+				<div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+			</div>
 		</main>
 	{:else if !projection}
 		<main class="center-stage">
@@ -787,11 +794,20 @@
 					</div>
 
 					<div class="native-document-scroll">
-						<article class="native-document-body">
-							{#if selectedText}
+						<article class="native-document-body" aria-busy={loadingText}>
+							{#if loadingText}
+								<div class="document-skeleton" aria-label="Loading document">
+									<span class="skeleton-heading"></span>
+									<span class="skeleton-line long"></span>
+									<span class="skeleton-line"></span>
+									<span class="skeleton-line medium"></span>
+									<span class="skeleton-gap"></span>
+									<span class="skeleton-line long"></span>
+									<span class="skeleton-line"></span>
+									<span class="skeleton-line short"></span>
+								</div>
+							{:else if selectedText}
 								<MarkdownText text={selectedText} />
-							{:else if loadingText}
-								<p class="missing-text">Loading document from Google Drive…</p>
 							{:else}
 								<p class="missing-text">This version is not available.</p>
 							{/if}
@@ -882,6 +898,7 @@
 							<button
 								class="native-icon-button"
 								class:active={connectionsVisible}
+								class:syncing={googleSyncing}
 								aria-label="Connections"
 								title="Connections"
 								onclick={toggleConnections}
@@ -900,6 +917,8 @@
 				class:error={toastMessage.includes('failed') ||
 					toastMessage.includes('could not') ||
 					toastMessage.includes('unavailable')}
+				role="status"
+				aria-live="polite"
 			>
 				{toastMessage}
 				<button aria-label="Dismiss message" onclick={dismissToast}><XIcon /></button>

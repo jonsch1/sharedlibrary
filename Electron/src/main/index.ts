@@ -7,6 +7,7 @@ import {
   ipcMain,
   Menu,
   net,
+  nativeImage,
   protocol,
   shell
 } from 'electron';
@@ -56,6 +57,12 @@ function defaultWorkspacePath(): string {
   return join(app.getPath('documents'), 'Shared Library');
 }
 
+function applicationIconPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'icon.png')
+    : join(app.getAppPath(), 'build', 'icon.png');
+}
+
 async function snapshotAndNotify() {
   const snapshot = await library.snapshot();
   mainWindow?.webContents.send('library:changed', snapshot);
@@ -102,12 +109,13 @@ async function connectionStatus(): Promise<DesktopConnectionStatus> {
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     title: 'Shared Library',
+    icon: applicationIconPath(),
     width: 1280,
     height: 780,
     minWidth: 920,
     minHeight: 620,
     backgroundColor: '#dadbd4',
-    show: true,
+    show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -117,6 +125,9 @@ async function createWindow(): Promise<void> {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
@@ -453,6 +464,10 @@ async function processCapture(entryID: string): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(applicationIconPath());
+    if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon);
+  }
   settings = new SettingsStore(app.getPath('userData'));
   const saved = await settings.load();
   voice = saved.voice ?? 'eve';
