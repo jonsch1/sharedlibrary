@@ -94,6 +94,42 @@ Original body.
     const afterCapture = await service.snapshot();
     assert.ok(afterCapture.entries.some((entry) => entry.captureID === capturedID));
 
+    const researchTopic = await service.ensureTopic('Approved Research');
+    const researchedID = await service.captureText(
+      'https://example.com/research',
+      {
+        title: 'Approved source',
+        content: 'Approved source body.',
+        sourceURL: 'https://example.com/research'
+      },
+      [researchTopic.id]
+    );
+    await service.applyProcessingSuggestion(
+      `personal:${researchedID}`,
+      {
+        shortFilename: 'approved-source',
+        topicName: 'Wrong automatic topic',
+        summaries: {
+          brief: 'Brief.',
+          concise: 'Concise.',
+          detailed: 'Detailed.',
+          comprehensive: 'Comprehensive.'
+        }
+      },
+      researchTopic.id
+    );
+    const researched = (await service.snapshot()).entries.find(
+      (entry) => entry.captureID === researchedID
+    );
+    assert.deepEqual(researched?.topicIDs, [researchTopic.id]);
+    assert.deepEqual(researched?.availableVariants, [
+      'brief',
+      'concise',
+      'detailed',
+      'comprehensive',
+      'source'
+    ]);
+
     await service.trashCapture(initial.entries[0].id);
     assert.deepEqual(
       trashed.map((path) => path.slice(root.length + 1)).sort(),

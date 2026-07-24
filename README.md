@@ -53,6 +53,23 @@ and the original source. **Reorganize** regenerates summaries and re-evaluates t
 topic. Moving a content item to Trash moves the source and every companion summary
 together.
 
+## Agent research API
+
+While the desktop app is running it exposes an authenticated, loopback-only API for
+deep-research agents. The app installs the `shared-library-deep-research` skill into
+the selected workspace at `.agents/skills/` and writes the ephemeral connection to
+`.shared-library/agent-api.json`. Neither file is included in the Drive mirror.
+
+The skill makes the approval boundary explicit: the agent first proposes an exact URL
+list, waits for the user to approve it, then creates or reuses a topic and submits the
+approved URLs. The app extracts each page, adds it under that exact topic, creates all
+four summary depths in the background, and exposes job status and summary retrieval
+to the agent. Failed or replacement sources require a new approval cycle.
+
+The API includes topic listing/creation, approved batch URL ingestion, asynchronous
+job polling, and topic-item reads at any summary depth. Requests use a per-launch
+bearer token from the connection file and are accepted only on `127.0.0.1`.
+
 ## Share links
 
 The Share button opens the web reader for the selected capture. Publishing creates

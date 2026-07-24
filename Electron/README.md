@@ -15,6 +15,9 @@ This directory contains the cross-platform Shared Library desktop application.
   Markdown and content-addressed audio are mirrored locally on every client.
 - Clipboard URLs use the bundled extractor, then the local Codex CLI creates four
   summaries and assigns a topic in the background.
+- A bearer-authenticated agent API on `127.0.0.1` supports explicit topic creation,
+  approved batch URL ingestion, job polling, and summary retrieval. Its bundled
+  deep-research skill is installed into the selected workspace automatically.
 - OpenRouter OAuth narration uses incremental MP3 segments: the first segment plays
   while later segments are generated, cached locally, and backed up to Drive.
 - Share links publish all text levels and already-generated narration through the

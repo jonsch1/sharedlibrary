@@ -58,12 +58,16 @@ export class ProcessingService {
       defaultProcessingPrompt
   ) {}
 
-  async process(entryID: string, library: LibraryService): Promise<string> {
+  async process(
+    entryID: string,
+    library: LibraryService,
+    topicIDOverride?: string
+  ): Promise<string> {
     const input = await library.processingInput(entryID);
     const prompt = renderProcessingPrompt(await this.promptTemplate(), input);
     const value = await runCodex(prompt);
     const suggestion = normalizeSuggestion(value);
-    return library.applyProcessingSuggestion(entryID, suggestion);
+    return library.applyProcessingSuggestion(entryID, suggestion, topicIDOverride);
   }
 }
 

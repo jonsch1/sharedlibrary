@@ -62,6 +62,13 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "resources/skills/shared-library-deep-research",
+        "to": "skills/shared-library-deep-research",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

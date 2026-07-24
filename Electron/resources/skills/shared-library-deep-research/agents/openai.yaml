@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared Library Deep Research"
+  short_description: "Research from approved Shared Library sources"
+  default_prompt: "Use $shared-library-deep-research to research a topic from user-approved sources."

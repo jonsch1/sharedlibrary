@@ -31,6 +31,7 @@ import {
   normalizeOpenRouterTTSModel,
   recommendedVoiceForTTSModel
 } from '../shared/contracts.js';
+import { AgentApiServer } from './agent-api.js';
 import { BackendClient } from './backend.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
@@ -56,6 +57,7 @@ protocol.registerSchemesAsPrivileged([
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
+let agentApi: AgentApiServer;
 let library: LibraryService;
 let settings: SettingsStore;
 let backend: BackendClient;
@@ -74,6 +76,17 @@ function applicationIconPath(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'icon.png')
     : join(app.getAppPath(), 'build', 'icon.png');
+}
+
+function bundledAgentSkillPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'skills', 'shared-library-deep-research')
+    : join(
+        app.getAppPath(),
+        'resources',
+        'skills',
+        'shared-library-deep-research'
+      );
 }
 
 async function snapshotAndNotify() {
@@ -207,8 +220,10 @@ function registerIPC(): void {
       : await dialog.showOpenDialog(options);
     const path = result.filePaths[0];
     if (result.canceled || !path) return null;
+    const previousWorkspacePath = library.getWorkspacePath();
     library.setWorkspacePath(path);
     await settings.update({ workspacePath: path });
+    await agentApi.refreshWorkspace(previousWorkspacePath);
     return snapshotAndNotify();
   });
   ipcMain.handle(
@@ -576,6 +591,21 @@ app.whenReady().then(async () => {
       await snapshotAndNotify();
     }
   );
+  agentApi = new AgentApiServer(
+    {
+      library,
+      extractURL: (url) => extraction.extractClipboard(url),
+      processEntry: (entryID, topicID) =>
+        processing.process(entryID, library, topicID),
+      onLibraryChanged: async () => {
+        await snapshotAndNotify();
+      },
+      onSyncRequested: (reason) => sync.request(reason),
+      onOperationMessage: sendOperationMessage
+    },
+    bundledAgentSkillPath()
+  );
+  await agentApi.start();
   registerIPC();
   installMenu();
   await createWindow();
@@ -587,6 +617,13 @@ app.whenReady().then(async () => {
   });
 });
 
+let agentApiStopping = false;
+app.on('before-quit', (event) => {
+  if (!agentApi || agentApiStopping) return;
+  event.preventDefault();
+  agentApiStopping = true;
+  void agentApi.stop().finally(() => app.quit());
+});
 app.on('will-quit', () => globalShortcut.unregisterAll());
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

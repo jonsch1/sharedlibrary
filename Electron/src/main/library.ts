@@ -177,6 +177,24 @@ export class LibraryService {
     return normalized;
   }
 
+  async ensureTopic(titleValue: string): Promise<TopicDefinition> {
+    const title = titleValue.trim().replace(/\s+/g, ' ');
+    if (!title) throw new Error('The topic title cannot be empty.');
+    if (title.length > 48) throw new Error('Topic titles must be 48 characters or fewer.');
+    const current = await this.topicDefinitions();
+    const existing = current.find(
+      (topic) => topic.title.toLowerCase() === title.toLowerCase()
+    );
+    if (existing) return existing;
+    const updated = await this.replaceTopicDefinitions([
+      ...current,
+      { id: '', title }
+    ]);
+    const created = updated.at(-1);
+    if (!created) throw new Error('The topic could not be created.');
+    return created;
+  }
+
   async ensureWorkspace(): Promise<void> {
     await mkdir(join(this.workspacePath, 'library'), { recursive: true });
     for (const variant of summaryVariants) {
@@ -263,11 +281,18 @@ export class LibraryService {
 
   async captureText(
     clipboardText: string,
-    extracted?: { title?: string; content?: string; sourceURL?: string }
+    extracted?: { title?: string; content?: string; sourceURL?: string },
+    topicIDs: string[] = []
   ): Promise<string> {
     const text = clipboardText.trim();
     if (!text) throw new Error('Clipboard does not contain text.');
     await this.ensureWorkspace();
+    const knownTopicIDs = new Set(
+      (await this.topicDefinitions()).map((topic) => topic.id)
+    );
+    const normalizedTopicIDs = [...new Set(topicIDs)];
+    const unknownTopicID = normalizedTopicIDs.find((id) => !knownTopicIDs.has(id));
+    if (unknownTopicID) throw new Error(`The topic “${unknownTopicID}” does not exist.`);
     const captureID = randomUUID().toUpperCase();
     const now = new Date().toISOString();
     const sourceURL = safeHTTPURL(extracted?.sourceURL ?? text);
@@ -285,7 +310,12 @@ export class LibraryService {
       `created_at: ${quoted(now)}`,
       `updated_at: ${quoted(now)}`,
       'tags: []',
-      'topics: []',
+      ...(normalizedTopicIDs.length === 0
+        ? ['topics: []']
+        : [
+            'topics:',
+            ...normalizedTopicIDs.map((topicID) => `  - ${quoted(topicID)}`)
+          ]),
       ...(sourceURL ? [`source_url: ${quoted(sourceURL.toString())}`] : []),
       '---',
       '',
@@ -316,10 +346,17 @@ export class LibraryService {
 
   async applyProcessingSuggestion(
     entryID: string,
-    suggestion: ProcessingSuggestion
+    suggestion: ProcessingSuggestion,
+    topicIDOverride?: string
   ): Promise<string> {
     const indexed = await this.requireEntry(entryID);
-    const topicID = await this.ensureTopic(suggestion.topicName);
+    const topicID = topicIDOverride
+      ? await this.requireTopicID(topicIDOverride)
+      : (
+          await this.ensureTopic(
+            suggestion.topicName.trim().replace(/\s+/g, ' ').slice(0, 48)
+          )
+        ).id;
     const originalRaw = await readFile(indexed.sourcePath, 'utf8');
     const parsed = parseMarkdown(originalRaw);
     const currentFilename = basename(indexed.sourcePath);
@@ -556,34 +593,12 @@ export class LibraryService {
     }
   }
 
-  private async ensureTopic(name: string): Promise<string> {
-    const title = name.trim().replace(/\s+/g, ' ').slice(0, 48);
-    if (!title) throw new Error('Processing did not return a topic.');
-    const existing = await this.readTopicNames();
-    for (const [id, currentTitle] of existing) {
-      if (currentTitle.toLowerCase() === title.toLowerCase()) return id;
-    }
-    let id = slug(title);
-    let suffix = 2;
-    while (existing.has(id)) {
-      id = `${slug(title)}-${suffix}`;
-      suffix += 1;
-    }
-    const path = join(this.workspacePath, 'topics.md');
-    let text = '';
-    try {
-      text = await readFile(path, 'utf8');
-    } catch {
-      text = 'topics:\n';
-    }
-    if (!text.trim()) text = 'topics:\n';
-    if (!/^topics:\s*$/m.test(text)) text = `topics:\n${text}`;
-    const separator = text.endsWith('\n') ? '' : '\n';
-    await atomicWrite(
-      path,
-      `${text}${separator}  - id: ${JSON.stringify(id)}\n    title: ${JSON.stringify(title)}\n`
+  private async requireTopicID(topicID: string): Promise<string> {
+    const topic = (await this.topicDefinitions()).find(
+      (candidate) => candidate.id === topicID
     );
-    return id;
+    if (!topic) throw new Error(`The topic “${topicID}” does not exist.`);
+    return topic.id;
   }
 
   private async mirroredPaths(): Promise<string[]> {
