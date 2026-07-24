@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import type { LibraryVariant } from '$lib/library.js';
 
 	let {
@@ -13,13 +14,9 @@
 		presentation?: 'compact' | 'showcase';
 	} = $props();
 
-	const variantOrder: LibraryVariant[] = [
-		'brief',
-		'concise',
-		'detailed',
-		'comprehensive',
-		'source'
-	];
+	const variantOrder: LibraryVariant[] = ['brief', 'concise', 'detailed', 'comprehensive'];
+	const summaryVariants = $derived(variants.filter((variant) => variant !== 'source'));
+	const hasSource = $derived(variants.includes('source'));
 
 	const variantNames: Record<LibraryVariant, string> = {
 		brief: 'Brief',
@@ -33,9 +30,9 @@
 <div
 	class="segmented-depth segmented-depth--{presentation}"
 	role="radiogroup"
-	aria-label="Summary depth"
+	aria-label="Reading version"
 >
-	{#each variants as variant}
+	{#each summaryVariants as variant}
 		{@const depth = variantOrder.indexOf(variant) + 1}
 		<span class="depth-slot">
 			<button
@@ -85,6 +82,27 @@
 			</button>
 		</span>
 	{/each}
+	{#if hasSource}
+		<span class="original-separator" aria-hidden="true"></span>
+		<span class="depth-slot original-slot">
+			<button
+				type="button"
+				class="depth-step original-step"
+				class:is-active={selected === 'source'}
+				role="radio"
+				aria-checked={selected === 'source'}
+				aria-label={variantNames.source}
+				title={variantNames.source}
+				onclick={() => onselect('source')}
+			>
+				<span class="depth-step-core original-step-core">
+					<span class="original-icon" aria-hidden="true">
+						<FileTextIcon />
+					</span>
+				</span>
+			</button>
+		</span>
+	{/if}
 </div>
 
 <style>
@@ -268,12 +286,50 @@
 		--s5: #d9dad5;
 	}
 
-	.depth-step-5 .depth-pie {
-		--s1: #07523b;
-		--s2: #0b5740;
-		--s3: #0a523c;
-		--s4: #115c45;
-		--s5: #0b553e;
+	.original-separator {
+		width: 1px;
+		height: 24px;
+		flex: 0 0 1px;
+		margin: 0 7px;
+		background: linear-gradient(
+			to bottom,
+			transparent,
+			rgb(117 120 113 / 22%) 18%,
+			rgb(117 120 113 / 22%) 82%,
+			transparent
+		);
+		box-shadow: 1px 0 rgb(255 255 255 / 68%);
+	}
+
+	.original-step-core {
+		color: #0b563f;
+	}
+
+	.original-step.is-active .original-step-core {
+		border-color: rgb(11 86 63 / 24%);
+		background: linear-gradient(145deg, #f3f4ed 0%, #e7ede7 100%);
+	}
+
+	.original-icon {
+		display: grid;
+		width: 19px;
+		height: 19px;
+		place-items: center;
+		filter: drop-shadow(0 1px 0 rgb(255 255 255 / 75%));
+		transition:
+			width 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+			height 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.original-icon :global(svg) {
+		width: 100%;
+		height: 100%;
+		stroke-width: 2.25;
+	}
+
+	.original-step.is-active .original-icon {
+		width: 22px;
+		height: 22px;
 	}
 
 	.segmented-depth--showcase {
@@ -306,6 +362,21 @@
 	.segmented-depth--showcase .depth-pie {
 		width: 46px;
 		height: 46px;
+	}
+
+	.segmented-depth--showcase .original-separator {
+		height: 34px;
+		margin: 0 11px;
+	}
+
+	.segmented-depth--showcase .original-icon {
+		width: 27px;
+		height: 27px;
+	}
+
+	.segmented-depth--showcase .original-step.is-active .original-icon {
+		width: 31px;
+		height: 31px;
 	}
 
 	.segmented-depth--showcase .pie-separators line {
@@ -368,6 +439,21 @@
 			stroke-width: 1.2;
 		}
 
+		.segmented-depth--compact .original-separator {
+			height: 20px;
+			margin: 0 4px;
+		}
+
+		.segmented-depth--compact .original-icon {
+			width: 16px;
+			height: 16px;
+		}
+
+		.segmented-depth--compact .original-step.is-active .original-icon {
+			width: 18px;
+			height: 18px;
+		}
+
 		.segmented-depth--showcase {
 			height: 52px;
 			gap: 1px;
@@ -402,6 +488,21 @@
 
 		.segmented-depth--showcase .pie-separators line {
 			stroke-width: 1.3;
+		}
+
+		.segmented-depth--showcase .original-separator {
+			height: 22px;
+			margin: 0 5px;
+		}
+
+		.segmented-depth--showcase .original-icon {
+			width: 18px;
+			height: 18px;
+		}
+
+		.segmented-depth--showcase .original-step.is-active .original-icon {
+			width: 21px;
+			height: 21px;
 		}
 	}
 
