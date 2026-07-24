@@ -10,9 +10,46 @@ function json(value, init = {}) {
 	return new Response(JSON.stringify(value), { ...init, headers });
 }
 
-function authenticatedEmail(request) {
+const sessionCookieName = 'shared_library_session';
+const sessionLifetimeMilliseconds = 90 * 24 * 60 * 60 * 1000;
+
+async function authenticatedEmail(request, env) {
 	const email = request.headers.get('oai-authenticated-user-email')?.trim();
-	return email || null;
+	if (email) return email;
+	const cookie = request.headers.get('Cookie') ?? '';
+	const rawToken = cookie
+		.split(';')
+		.map((value) => value.trim())
+		.find((value) => value.startsWith(`${sessionCookieName}=`))
+		?.slice(sessionCookieName.length + 1);
+	if (!rawToken || !env.DB) return null;
+	await ensureSchema(env.DB);
+	const tokenHash = await sha256Hex(rawToken);
+	const session = await env.DB.prepare(
+		`SELECT user_email, expires_at FROM app_sessions WHERE token_hash = ?`
+	)
+		.bind(tokenHash)
+		.first();
+	if (!session || Number(session.expires_at) <= Date.now()) {
+		if (session) {
+			await env.DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
+				.bind(tokenHash)
+				.run();
+		}
+		return null;
+	}
+	return session.user_email;
+}
+
+function sessionCookie(token, maximumAgeSeconds) {
+	return [
+		`${sessionCookieName}=${token}`,
+		'Path=/',
+		'HttpOnly',
+		'Secure',
+		'SameSite=Lax',
+		`Max-Age=${maximumAgeSeconds}`
+	].join('; ');
 }
 
 function googleCloudProjectNumber(clientID) {
@@ -158,6 +195,26 @@ async function ensureSchema(database) {
 			)`
 		),
 		database.prepare(
+			`CREATE TABLE IF NOT EXISTS google_login_states (
+				state TEXT PRIMARY KEY NOT NULL,
+				code_verifier TEXT NOT NULL,
+				return_to TEXT NOT NULL,
+				created_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS app_sessions (
+				token_hash TEXT PRIMARY KEY NOT NULL,
+				user_email TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE INDEX IF NOT EXISTS app_sessions_user_email_idx
+			 ON app_sessions (user_email)`
+		),
+		database.prepare(
 			`CREATE TABLE IF NOT EXISTS share_links (
 				token TEXT PRIMARY KEY NOT NULL,
 				owner_email TEXT NOT NULL,
@@ -217,7 +274,7 @@ async function openRouterError(response, fallback) {
 }
 
 async function connectionStatus(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ connected: false }, { status: 401 });
 	await ensureSchema(env.DB);
 	const credential = await env.DB.prepare(
@@ -235,7 +292,7 @@ async function connectionStatus(request, env) {
 }
 
 async function startConnection(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 
@@ -265,7 +322,7 @@ async function startConnection(request, env) {
 }
 
 async function finishConnection(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 
@@ -344,7 +401,7 @@ function redirectWithOAuthResult(request, result) {
 
 async function disconnect(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	await env.DB.prepare('DELETE FROM openrouter_credentials WHERE user_email = ?').bind(email).run();
@@ -353,7 +410,7 @@ async function disconnect(request, env) {
 
 async function createSpeech(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 
@@ -424,7 +481,7 @@ async function createSpeech(request, env) {
 }
 
 async function fetchLibrarySnapshot(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
@@ -488,7 +545,7 @@ function validLibraryPath(path) {
 }
 
 async function fetchLibraryFile(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const url = new URL(request.url);
@@ -534,6 +591,165 @@ async function fetchLibraryFile(request, env) {
 	});
 }
 
+async function driveItemsByKind(env, email, kind) {
+	const items = [];
+	let pageToken;
+	do {
+		const url = new URL('https://www.googleapis.com/drive/v3/files');
+		url.searchParams.set(
+			'q',
+			`appProperties has { key='sharedLibraryKind' and value='${kind}' } and trashed=false`
+		);
+		url.searchParams.set(
+			'fields',
+			'nextPageToken,files(id,name,mimeType,appProperties)'
+		);
+		url.searchParams.set('pageSize', '1000');
+		if (pageToken) url.searchParams.set('pageToken', pageToken);
+		const response = await googleDriveRequest(env, email, url);
+		if (!response.ok) {
+			throw new Error(`Google Drive could not inspect ${kind} files (${response.status}).`);
+		}
+		const value = await response.json();
+		items.push(...(value.files ?? []));
+		pageToken = value.nextPageToken;
+	} while (pageToken);
+	return items;
+}
+
+async function syncLibraryMirror(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Sign in with Google first.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid library synchronization request.' }, { status: 400 });
+	}
+	if (
+		value?.schemaVersion !== 1 ||
+		typeof value.index !== 'object' ||
+		value.index?.schemaVersion !== 3 ||
+		!Array.isArray(value.index.files) ||
+		!Array.isArray(value.index.entries) ||
+		!Array.isArray(value.files) ||
+		value.files.length > 20_000
+	) {
+		return json({ error: 'Invalid library synchronization payload.' }, { status: 400 });
+	}
+	const files = [];
+	let totalBytes = 0;
+	for (const file of value.files) {
+		if (
+			!validLibraryPath(file?.path) ||
+			typeof file?.content !== 'string' ||
+			typeof file?.contentHash !== 'string' ||
+			!/^[a-f0-9]{64}$/.test(file.contentHash)
+		) {
+			return json({ error: 'The library contains an invalid file.' }, { status: 400 });
+		}
+		const bytes = new TextEncoder().encode(file.content);
+		totalBytes += bytes.byteLength;
+		if (
+			bytes.byteLength > 8_000_000 ||
+			totalBytes > 32_000_000 ||
+			(await sha256Hex(bytes)) !== file.contentHash
+		) {
+			return json({ error: 'The library synchronization payload is too large or invalid.' }, { status: 413 });
+		}
+		files.push({ path: file.path, contentHash: file.contentHash, bytes });
+	}
+	const indexFiles = new Map(
+		value.index.files.map((file) => [file?.path, file?.contentHash])
+	);
+	if (
+		indexFiles.size !== files.length ||
+		files.some((file) => indexFiles.get(file.path) !== file.contentHash)
+	) {
+		return json({ error: 'The library index does not match its files.' }, { status: 400 });
+	}
+
+	try {
+		const rootFolderID = await ensureDriveRootFolder(env, email);
+		const [remoteFolders, remoteFiles, remoteIndexes] = await Promise.all([
+			driveItemsByKind(env, email, 'folder'),
+			driveItemsByKind(env, email, 'workspace'),
+			driveItemsByKind(env, email, 'library-index')
+		]);
+		const folderIDsByHash = new Map(
+			remoteFolders.flatMap((file) => {
+				const hash = file.appProperties?.sharedLibraryPathHash;
+				return /^[a-f0-9]{64}$/.test(hash || '') ? [[hash, file.id]] : [];
+			})
+		);
+		const folders = new Map();
+		for (const file of files) {
+			const components = file.path.split('/').slice(0, -1);
+			let current = '';
+			for (const component of components) {
+				current = current ? `${current}/${component}` : component;
+				const existingID = folderIDsByHash.get(await sha256Hex(current));
+				if (existingID) folders.set(current, existingID);
+			}
+		}
+		const remoteByPathHash = new Map(
+			remoteFiles.flatMap((file) => {
+				const hash = file.appProperties?.sharedLibraryPathHash;
+				return /^[a-f0-9]{64}$/.test(hash || '') ? [[hash, file]] : [];
+			})
+		);
+		let uploaded = 0;
+		for (const file of files) {
+			const pathHash = await sha256Hex(file.path);
+			const remote = remoteByPathHash.get(pathHash);
+			remoteByPathHash.delete(pathHash);
+			if (remote?.appProperties?.sharedLibraryContentHash === file.contentHash) continue;
+			await upsertDriveFile(env, email, {
+				rootFolderID,
+				folders,
+				path: file.path,
+				bytes: file.bytes,
+				existingID: remote?.id ?? null,
+				kind: 'workspace'
+			});
+			uploaded += 1;
+		}
+		let deleted = 0;
+		for (const stale of remoteByPathHash.values()) {
+			await trashDriveFile(env, email, stale.id);
+			deleted += 1;
+		}
+		const indexBytes = new TextEncoder().encode(JSON.stringify(value.index, null, 2));
+		const indexHash = await sha256Hex(indexBytes);
+		const remoteIndex = remoteIndexes[0];
+		if (remoteIndex?.appProperties?.sharedLibraryContentHash !== indexHash) {
+			await upsertDriveFile(env, email, {
+				rootFolderID,
+				folders,
+				path: '.shared-library/index.json',
+				bytes: indexBytes,
+				existingID: remoteIndex?.id ?? null,
+				kind: 'library-index'
+			});
+			uploaded += 1;
+		}
+		return json({
+			uploaded,
+			deleted,
+			changed: uploaded + deleted,
+			fileCount: files.length,
+			syncedAt: new Date().toISOString()
+		});
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'Google Drive synchronization failed.' },
+			{ status: 502 }
+		);
+	}
+}
+
 function validGoogleClientID(value) {
 	return (
 		typeof value === 'string' &&
@@ -567,11 +783,16 @@ async function storedGoogleOAuthConfig(env, connection) {
 }
 
 async function googleDriveStatus(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ configured: false, connected: false }, { status: 401 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json(
+			{ configured: Boolean(googleOAuthConfig(env)), connected: false, authenticated: false },
+			{ status: 401 }
+		);
+	}
 	await ensureSchema(env.DB);
 	const connection = await env.DB.prepare(
-		`SELECT client_id, encrypted_refresh_token, connected_at
+		`SELECT client_id, encrypted_refresh_token, connected_at, folder_id
 		 FROM google_drive_connections
 		 WHERE user_email = ?`
 	)
@@ -581,22 +802,17 @@ async function googleDriveStatus(request, env) {
 	return json({
 		configured: Boolean(config),
 		connected: Boolean(connection?.encrypted_refresh_token),
+		authenticated: true,
+		email,
+		folderID: connection?.folder_id ?? undefined,
 		connectedAt: connection?.connected_at ?? undefined,
 		callbackURL: new URL('/api/google/connect/callback', request.url).toString()
 	});
 }
 
 async function startGoogleDriveConnection(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
-	const connection = await env.DB.prepare(
-		`SELECT client_id, encrypted_client_secret, client_secret_iv
-		 FROM google_drive_connections WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	const config = googleOAuthConfig(env);
 	if (!config) {
 		return json(
 			{ error: 'Shared Library has not been configured with Google Drive OAuth yet.' },
@@ -608,23 +824,33 @@ async function startGoogleDriveConnection(request, env) {
 	const verifier = randomBase64URL(64);
 	const challenge = await sha256Base64URL(verifier);
 	const now = Date.now();
+	const requestedReturnTo = new URL(request.url).searchParams.get('return_to');
+	const returnTo =
+		typeof requestedReturnTo === 'string' &&
+		requestedReturnTo.startsWith('/') &&
+		!requestedReturnTo.startsWith('//')
+			? requestedReturnTo
+			: '/';
 	await env.DB.batch([
 		env.DB
-			.prepare('DELETE FROM google_oauth_states WHERE created_at < ? OR user_email = ?')
-			.bind(now - oauthStateLifetimeMilliseconds, email),
+			.prepare('DELETE FROM google_login_states WHERE created_at < ?')
+			.bind(now - oauthStateLifetimeMilliseconds),
 		env.DB
 			.prepare(
-				`INSERT INTO google_oauth_states (state, user_email, code_verifier, created_at)
+				`INSERT INTO google_login_states (state, code_verifier, return_to, created_at)
 				 VALUES (?, ?, ?, ?)`
 			)
-			.bind(state, email, verifier, now)
+			.bind(state, verifier, returnTo, now)
 	]);
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
 	authorizationURL.searchParams.set('client_id', config.clientID);
 	authorizationURL.searchParams.set('redirect_uri', callbackURL.toString());
 	authorizationURL.searchParams.set('response_type', 'code');
-	authorizationURL.searchParams.set('scope', 'https://www.googleapis.com/auth/drive.file');
+	authorizationURL.searchParams.set(
+		'scope',
+		'openid email https://www.googleapis.com/auth/drive.file'
+	);
 	authorizationURL.searchParams.set('access_type', 'offline');
 	authorizationURL.searchParams.set('prompt', 'consent');
 	authorizationURL.searchParams.set('state', state);
@@ -634,33 +860,24 @@ async function startGoogleDriveConnection(request, env) {
 }
 
 async function finishGoogleDriveConnection(request, env) {
-	const email = authenticatedEmail(request);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const url = new URL(request.url);
 	const state = url.searchParams.get('state');
 	const code = url.searchParams.get('code');
 	if (!state || !code) return redirectWithProviderResult(request, 'google', 'error');
 	const pending = await env.DB.prepare(
-		`SELECT user_email, code_verifier, created_at
-		 FROM google_oauth_states WHERE state = ?`
+		`SELECT code_verifier, return_to, created_at
+		 FROM google_login_states WHERE state = ?`
 	)
 		.bind(state)
 		.first();
 	if (
 		!pending ||
-		pending.user_email !== email ||
 		Date.now() - pending.created_at > oauthStateLifetimeMilliseconds
 	) {
 		return redirectWithProviderResult(request, 'google', 'expired');
 	}
-	const connection = await env.DB.prepare(
-		`SELECT client_id, encrypted_client_secret, client_secret_iv
-		 FROM google_drive_connections WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
+	const config = googleOAuthConfig(env);
 	if (!config) return redirectWithProviderResult(request, 'google', 'error');
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -678,22 +895,47 @@ async function finishGoogleDriveConnection(request, env) {
 	const value = await response.json();
 	if (
 		!response.ok ||
-		typeof value.access_token !== 'string' ||
-		typeof value.refresh_token !== 'string'
+		typeof value.access_token !== 'string'
 	) {
 		return redirectWithProviderResult(request, 'google', 'error');
 	}
+	const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+		headers: { Authorization: `Bearer ${value.access_token}` }
+	});
+	const profile = await profileResponse.json();
+	const email =
+		profileResponse.ok &&
+		profile.email_verified === true &&
+		typeof profile.email === 'string'
+			? profile.email.trim().toLowerCase()
+			: '';
+	if (!email) return redirectWithProviderResult(request, 'google', 'error');
+	const existing = await googleDriveConnection(env, email);
+	const refreshToken =
+		typeof value.refresh_token === 'string' && value.refresh_token
+			? value.refresh_token
+			: existing?.encrypted_refresh_token && existing?.refresh_token_iv
+				? await decryptCredential(
+						env,
+						existing.encrypted_refresh_token,
+						existing.refresh_token_iv
+					)
+				: null;
+	if (!refreshToken) return redirectWithProviderResult(request, 'google', 'error');
 	const encryptedAccess = await encryptCredential(env, value.access_token);
-	const encryptedRefresh = await encryptCredential(env, value.refresh_token);
+	const encryptedRefresh = await encryptCredential(env, refreshToken);
 	const encryptedSecret = await encryptCredential(env, config.clientSecret);
 	const timestamp = new Date().toISOString();
+	const sessionToken = randomBase64URL(32);
+	const sessionHash = await sha256Hex(sessionToken);
+	const sessionExpiresAt = Date.now() + sessionLifetimeMilliseconds;
 	await env.DB.batch([
 		env.DB.prepare(
 			`INSERT INTO google_drive_connections (
 				user_email, client_id, encrypted_client_secret, client_secret_iv,
 				encrypted_access_token, access_token_iv, encrypted_refresh_token,
 				refresh_token_iv, access_token_expires_at, folder_id, connected_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_email) DO UPDATE SET
 				client_id = excluded.client_id,
 				encrypted_client_secret = excluded.encrypted_client_secret,
@@ -715,12 +957,33 @@ async function finishGoogleDriveConnection(request, env) {
 			encryptedRefresh.encryptedAPIKey,
 			encryptedRefresh.initializationVector,
 			Date.now() + Number(value.expires_in || 3600) * 1000,
+			existing?.folder_id ?? null,
 			timestamp,
 			timestamp,
 		),
-		env.DB.prepare('DELETE FROM google_oauth_states WHERE state = ?').bind(state)
+		env.DB.prepare('DELETE FROM google_login_states WHERE state = ?').bind(state),
+		env.DB.prepare(
+			`INSERT INTO app_sessions (token_hash, user_email, created_at, expires_at)
+			 VALUES (?, ?, ?, ?)`
+		).bind(sessionHash, email, Date.now(), sessionExpiresAt)
 	]);
-	return redirectWithProviderResult(request, 'google', 'connected');
+	try {
+		await ensureDriveRootFolder(env, email);
+	} catch {
+		// The account is still connected; the UI can retry folder setup.
+	}
+	const destination = new URL(pending.return_to || '/', request.url);
+	destination.searchParams.set('google', 'connected');
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: destination.toString(),
+			'Set-Cookie': sessionCookie(
+				sessionToken,
+				Math.floor(sessionLifetimeMilliseconds / 1000)
+			)
+		}
+	});
 }
 
 function redirectWithProviderResult(request, provider, result) {
@@ -731,7 +994,7 @@ function redirectWithProviderResult(request, provider, result) {
 
 async function disconnectGoogleDrive(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	await env.DB.batch([
@@ -739,6 +1002,56 @@ async function disconnectGoogleDrive(request, env) {
 		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email)
 	]);
 	return json({ configured: Boolean(googleOAuthConfig(env)), connected: false });
+}
+
+async function accountStatus(request, env) {
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ authenticated: false });
+	const [google, openrouter] = await Promise.all([
+		googleDriveConnection(env, email),
+		env.DB.prepare(
+			`SELECT openrouter_user_id, connected_at
+			 FROM openrouter_credentials WHERE user_email = ?`
+		)
+			.bind(email)
+			.first()
+	]);
+	return json({
+		authenticated: true,
+		email,
+		google: {
+			configured: Boolean(googleOAuthConfig(env)),
+			connected: Boolean(google?.encrypted_refresh_token),
+			folderID: google?.folder_id ?? undefined
+		},
+		openrouter: {
+			connected: Boolean(openrouter),
+			userID: openrouter?.openrouter_user_id ?? undefined,
+			connectedAt: openrouter?.connected_at ?? undefined
+		}
+	});
+}
+
+async function signOut(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const cookie = request.headers.get('Cookie') ?? '';
+	const rawToken = cookie
+		.split(';')
+		.map((value) => value.trim())
+		.find((value) => value.startsWith(`${sessionCookieName}=`))
+		?.slice(sessionCookieName.length + 1);
+	if (rawToken) {
+		await env.DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
+			.bind(await sha256Hex(rawToken))
+			.run();
+	}
+	return new Response(JSON.stringify({ authenticated: false }), {
+		headers: {
+			'Content-Type': 'application/json',
+			'Cache-Control': 'no-store',
+			'Set-Cookie': sessionCookie('', 0)
+		}
+	});
 }
 
 async function googleDriveConnection(env, email) {
@@ -923,7 +1236,7 @@ function mediaPath(url) {
 }
 
 async function listDriveAudio(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const files = [];
@@ -963,7 +1276,7 @@ async function listDriveAudio(request, env) {
 }
 
 async function downloadDriveMedia(request, env, media) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const found = await findDriveMedia(env, email, media);
@@ -988,7 +1301,7 @@ async function downloadDriveMedia(request, env, media) {
 
 async function uploadDriveMedia(request, env, media) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const contentLength = Number(request.headers.get('Content-Length') || 0);
@@ -1391,7 +1704,7 @@ async function prepareShareLink(env, email, token, captureID, generation, voice)
 }
 
 async function ownerShareLinkStatus(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const captureID = new URL(request.url).searchParams.get('captureID');
@@ -1403,7 +1716,7 @@ async function ownerShareLinkStatus(request, env) {
 
 async function publishShareLink(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	let value;
@@ -1445,7 +1758,7 @@ async function publishShareLink(request, env, context) {
 
 async function revokeShareLink(request, env, token, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
@@ -1602,7 +1915,7 @@ async function sharedFolderConnection(env, email) {
 }
 
 async function sharedFolderStatus(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ connected: false }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -1755,7 +2068,14 @@ function driveContentType(path) {
 	return 'application/octet-stream';
 }
 
-async function ensureDrivePath(env, email, rootFolderID, folders, path) {
+async function ensureDrivePath(
+	env,
+	email,
+	rootFolderID,
+	folders,
+	path,
+	folderKind = 'shared-folder'
+) {
 	if (!path) return rootFolderID;
 	let parentID = rootFolderID;
 	let currentPath = '';
@@ -1777,7 +2097,7 @@ async function ensureDrivePath(env, email, rootFolderID, folders, path) {
 				mimeType: 'application/vnd.google-apps.folder',
 				parents: [parentID],
 				appProperties: {
-					sharedLibraryKind: 'shared-folder',
+					sharedLibraryKind: folderKind,
 					sharedLibraryPathHash: await sha256Hex(currentPath)
 				}
 			})
@@ -1800,7 +2120,14 @@ async function upsertDriveFile(
 	const name = components.pop();
 	const parentID = existingID
 		? null
-		: await ensureDrivePath(env, email, rootFolderID, folders, components.join('/'));
+		: await ensureDrivePath(
+				env,
+				email,
+				rootFolderID,
+				folders,
+				components.join('/'),
+				kind === 'workspace' || kind === 'library-index' ? 'folder' : 'shared-folder'
+			);
 	const contentHash = await sha256Hex(bytes);
 	const metadata = {
 		name,
@@ -1905,7 +2232,7 @@ async function registerSharedProfile(env, email, rootFolderID, username, existin
 
 async function connectSharedFolder(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	let value;
@@ -1964,7 +2291,7 @@ async function connectSharedFolder(request, env) {
 
 async function disconnectSharedFolder(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	await env.DB.batch([
@@ -2410,7 +2737,7 @@ async function resumeSharingOperation(env, email, captureID, operation, context)
 }
 
 async function sharedItemStatus(request, env, context) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -2460,7 +2787,7 @@ async function sharedItemStatus(request, env, context) {
 }
 
 async function sharedOperationStatus(request, env, context) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const captureID = new URL(request.url).searchParams.get('captureID');
@@ -2483,7 +2810,7 @@ async function sharedOperationStatus(request, env, context) {
 
 async function updateSharedItem(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -2518,7 +2845,7 @@ async function updateSharedItem(request, env, context) {
 }
 
 async function loadSharedInboxProjection(request, env) {
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -2703,7 +3030,7 @@ async function sharedReferenceByID(env, email, connection, referenceID) {
 
 async function dismissInboxReference(request, env, referenceID) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -2929,7 +3256,7 @@ async function copyShareAudioToDrive(env, email, token, generation) {
 
 async function importPublicShare(request, env, token, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
@@ -3027,7 +3354,7 @@ async function importPublicShare(request, env, token, context) {
 
 async function saveInboxReference(request, env, referenceID) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = authenticatedEmail(request);
+	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
@@ -3150,6 +3477,15 @@ const worker = {
 		if (url.pathname === '/api/openrouter/status' && request.method === 'GET') {
 			return connectionStatus(request, env);
 		}
+		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
+			return accountStatus(request, env);
+		}
+		if (url.pathname === '/api/auth/google/start' && request.method === 'GET') {
+			return startGoogleDriveConnection(request, env);
+		}
+		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
+			return signOut(request, env);
+		}
 		if (url.pathname === '/api/openrouter/connect/start' && request.method === 'GET') {
 			return startConnection(request, env);
 		}
@@ -3167,6 +3503,9 @@ const worker = {
 		}
 		if (url.pathname === '/api/library/file' && request.method === 'GET') {
 			return fetchLibraryFile(request, env);
+		}
+		if (url.pathname === '/api/library/sync' && request.method === 'POST') {
+			return syncLibraryMirror(request, env);
 		}
 		if (url.pathname === '/api/share-links' && request.method === 'GET') {
 			return ownerShareLinkStatus(request, env);
