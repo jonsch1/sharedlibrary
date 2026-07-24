@@ -237,7 +237,7 @@
 			lastAutomaticSync = Date.now();
 			void syncFromGoogleDrive(false);
 		};
-		const syncInterval = window.setInterval(automaticallySync, 5 * 60 * 1000);
+		const syncInterval = window.setInterval(automaticallySync, 30_000);
 		window.addEventListener('online', automaticallySync);
 		window.addEventListener('focus', automaticallySync);
 		document.addEventListener('visibilitychange', automaticallySync);
