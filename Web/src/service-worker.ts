@@ -4,10 +4,16 @@ import { build, files, version } from '$service-worker';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const cacheName = `shared-library-${version}`;
+const audioCacheName = 'shared-library-openrouter-audio-v1';
 const applicationFiles = [...build, ...files];
 
 worker.addEventListener('install', (event) => {
-	event.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(applicationFiles)));
+	event.waitUntil(
+		caches
+			.open(cacheName)
+			.then((cache) => cache.addAll(applicationFiles))
+			.then(() => worker.skipWaiting())
+	);
 });
 
 worker.addEventListener('activate', (event) => {
@@ -15,21 +21,26 @@ worker.addEventListener('activate', (event) => {
 		caches
 			.keys()
 			.then((keys) =>
-				Promise.all(keys.filter((key) => key !== cacheName).map((key) => caches.delete(key)))
+				Promise.all(
+					keys
+						.filter((key) => key !== cacheName && key !== audioCacheName)
+						.map((key) => caches.delete(key))
+				)
 			)
 			.then(() => worker.clients.claim())
 	);
 });
 
 worker.addEventListener('fetch', (event) => {
-	if (event.request.method !== 'GET') return;
+	const url = new URL(event.request.url);
+	if (event.request.method !== 'GET' || url.search || url.pathname.startsWith('/api/')) return;
 	event.respondWith(
 		caches.match(event.request).then((cached) => {
 			if (cached) return cached;
 			return fetch(event.request).then((response) => {
 				if (
 					response.ok &&
-					new URL(event.request.url).origin === worker.location.origin
+					url.origin === worker.location.origin
 				) {
 					const copy = response.clone();
 					caches.open(cacheName).then((cache) => cache.put(event.request, copy));

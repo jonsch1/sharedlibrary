@@ -28,11 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotkeys()
         setupNotifications()
         setupBackgroundSyncTriggers()
-        env.gitSyncCoordinator.refreshStatus()
-        env.sharedGitSyncCoordinator.refreshStatus()
+        Task {
+            try? await GitHubCredentialVault.shared.clear()
+        }
+        env.googleDriveAuthorization.refreshStatus()
         requestBackgroundSync(reason: "app launched")
-        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the mobile library")
-        env.webLibraryExporter.requestAutomaticExport(reason: "the web library")
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(libraryAppearanceDidChange(_:)),
@@ -453,8 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         lastBackgroundSyncRequestAt = now
-        env.gitSyncCoordinator.requestAutomaticSync(reason: reason)
-        env.sharedGitSyncCoordinator.requestAutomaticSync(reason: reason)
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: reason)
     }
 
     @objc private func processingDidStart(_ notification: Notification) {
@@ -471,14 +470,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             title: "Capture organized",
             body: topicName.map { "\(sourceTitle) → \($0)" } ?? sourceTitle
         )
-        env.gitSyncCoordinator.requestAutomaticSync(reason: "capture processing completed")
-        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
-        env.webLibraryExporter.requestAutomaticExport(reason: "the updated library")
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the updated library")
     }
 
     @objc private func libraryShouldUpdateMobileExports(_ notification: Notification) {
-        env.cloudLibraryPublisher.requestAutomaticPublish(reason: "the updated library")
-        env.webLibraryExporter.requestAutomaticExport(reason: "the updated library")
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the updated library")
     }
 
     private func refreshSharedCopyAfterProcessing(_ notification: Notification) {
@@ -514,7 +510,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
             env.peopleStore.reloadFromDisk()
-            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "shared capture processed")
+            env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the updated shared library")
         } catch {
             postNotification(title: "Shared copy update failed", body: error.localizedDescription)
         }
@@ -525,7 +521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? "The capture could not be processed."
         setStatus(.failed(message))
         postNotification(title: "Processing failed", body: message)
-        env.gitSyncCoordinator.requestAutomaticSync(reason: "capture saved with a processing error")
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the saved capture")
     }
 
     private func postNotification(title: String, body: String) {

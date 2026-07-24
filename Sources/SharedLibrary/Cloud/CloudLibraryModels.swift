@@ -50,8 +50,8 @@ struct CloudLibraryEntryPayload: Identifiable, Codable, Equatable, Hashable, Sen
     var updatedAt: Date?
     var reviewedAt: Date?
     var origin: CloudLibraryOrigin
-    var sharedByGitHubID: String?
-    var sharedByDisplayName: String?
+    var sharedByUserID: String?
+    var sharedByUsername: String?
     var texts: [CloudLibraryTextPayload]
 
     var recordName: String {
@@ -72,8 +72,8 @@ struct CloudLibraryEntryPayload: Identifiable, Codable, Equatable, Hashable, Sen
             var updatedAt: Date?
             var reviewedAt: Date?
             var origin: CloudLibraryOrigin
-            var sharedByGitHubID: String?
-            var sharedByDisplayName: String?
+            var sharedByUserID: String?
+            var sharedByUsername: String?
         }
 
         let metadata = Metadata(
@@ -89,8 +89,8 @@ struct CloudLibraryEntryPayload: Identifiable, Codable, Equatable, Hashable, Sen
             updatedAt: updatedAt,
             reviewedAt: reviewedAt,
             origin: origin,
-            sharedByGitHubID: sharedByGitHubID,
-            sharedByDisplayName: sharedByDisplayName
+            sharedByUserID: sharedByUserID,
+            sharedByUsername: sharedByUsername
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -108,7 +108,7 @@ struct CloudLibraryEntryPayload: Identifiable, Codable, Equatable, Hashable, Sen
 }
 
 struct CloudLibraryProjection: Codable, Equatable, Sendable {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     var schemaVersion: Int
     var generatedAt: Date
@@ -121,35 +121,57 @@ struct CloudLibraryProjection: Codable, Equatable, Sendable {
     }
 }
 
-enum CloudLibrarySchema {
-    static let containerIdentifier = "iCloud.com.sharedlibrary.app"
-    static let zoneName = "SharedLibrary"
-    static let entryRecordType = "LibraryEntry"
-    static let textRecordType = "LibraryText"
+struct DriveLibraryFileRecord: Codable, Equatable, Hashable, Sendable {
+    var path: String
+    var contentHash: String
+    var byteCount: Int
+}
 
-    enum Field {
-        static let schemaVersion = "schemaVersion"
-        static let contentHash = "contentHash"
-        static let entryID = "entryID"
-        static let captureID = "captureID"
-        static let title = "title"
-        static let excerpt = "excerpt"
-        static let topicIDs = "topicIDs"
-        static let topicNames = "topicNames"
-        static let tags = "tags"
-        static let sourceURL = "sourceURL"
-        static let createdAt = "createdAt"
-        static let updatedAt = "updatedAt"
-        static let reviewedAt = "reviewedAt"
-        static let origin = "origin"
-        static let sharedByGitHubID = "sharedByGitHubID"
-        static let sharedByDisplayName = "sharedByDisplayName"
-        static let variant = "variant"
-        static let text = "text"
-        static let textAsset = "textAsset"
-        static let wordCount = "wordCount"
+struct DriveLibraryTextReference: Codable, Equatable, Hashable, Sendable {
+    var variant: CloudLibraryVariant
+    var path: String
+    var contentHash: String
+    var wordCount: Int
+}
+
+struct DriveLibraryIndexEntry: Identifiable, Codable, Equatable, Hashable, Sendable {
+    var id: String
+    var captureID: String?
+    var title: String
+    var excerpt: String
+    var topicIDs: [String]
+    var topicNames: [String]
+    var tags: [String]
+    var sourceURL: String?
+    var createdAt: Date?
+    var updatedAt: Date?
+    var reviewedAt: Date?
+    var origin: CloudLibraryOrigin
+    var sharedByUsername: String?
+    var texts: [DriveLibraryTextReference]
+}
+
+struct DriveLibraryIndex: Codable, Equatable, Sendable {
+    static let schemaVersion = 3
+
+    var schemaVersion: Int
+    var generatedAt: Date
+    var files: [DriveLibraryFileRecord]
+    var entries: [DriveLibraryIndexEntry]
+
+    init(
+        generatedAt: Date,
+        files: [DriveLibraryFileRecord],
+        entries: [DriveLibraryIndexEntry]
+    ) {
+        schemaVersion = Self.schemaVersion
+        self.generatedAt = generatedAt
+        self.files = files
+        self.entries = entries
     }
+}
 
+enum CloudLibrarySchema {
     static func recordName(prefix: String, key: String) -> String {
         "\(prefix)-\(sha256(key))"
     }

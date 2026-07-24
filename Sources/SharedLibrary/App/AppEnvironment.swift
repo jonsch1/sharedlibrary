@@ -8,6 +8,7 @@ extension Notification.Name {
     static let processingDidFail = Notification.Name("SharedLibrary.processingDidFail")
     static let libraryAppearanceDidChange = Notification.Name("SharedLibrary.libraryAppearanceDidChange")
     static let workspaceDidSynchronize = Notification.Name("SharedLibrary.workspaceDidSynchronize")
+    static let sharedInboxDidChange = Notification.Name("SharedLibrary.sharedInboxDidChange")
 }
 
 @MainActor
@@ -17,18 +18,18 @@ final class AppEnvironment: ObservableObject {
     let extractor: ExtractionService
     let settings: AppSettings
     let processingCoordinator: ProcessingCoordinator
-    let gitSyncCoordinator: GitSyncCoordinator
+    let googleDriveAuthorization: GoogleDriveAuthorizationCoordinator
+    let googleDriveMediaStore: GoogleDriveMediaStore
     let sharingStore: SharingStore
-    let sharedGitSyncCoordinator: GitSyncCoordinator
-    let peopleStore: GitHubPeopleStore
-    let cloudLibraryPublisher: CloudLibraryPublisher
-    let webLibraryExporter: WebLibraryExporter
+    let peopleStore: PeopleStore
+    let googleDriveLibraryPublisher: GoogleDriveLibraryPublisher
 
     init() {
         settings = AppSettings.shared
-        gitSyncCoordinator = GitSyncCoordinator(workspaceURL: settings.workspaceRootURL)
-        sharedGitSyncCoordinator = GitSyncCoordinator(workspaceURL: settings.sharedWorkspaceRootURL)
-        peopleStore = GitHubPeopleStore(
+        googleDriveAuthorization = GoogleDriveAuthorizationCoordinator()
+        let googleDriveMediaStore = GoogleDriveMediaStore()
+        self.googleDriveMediaStore = googleDriveMediaStore
+        peopleStore = PeopleStore(
             sharedWorkspaceURL: settings.sharedWorkspaceRootURL,
             settings: settings
         )
@@ -38,15 +39,11 @@ final class AppEnvironment: ObservableObject {
         self.libraryStore = libraryStore
         let knowledgeStore = KnowledgeStore()
         self.knowledgeStore = knowledgeStore
-        cloudLibraryPublisher = CloudLibraryPublisher(
+        googleDriveLibraryPublisher = GoogleDriveLibraryPublisher(
             settings: settings,
             knowledgeStore: knowledgeStore,
-            sharingStore: sharingStore
-        )
-        webLibraryExporter = WebLibraryExporter(
-            settings: settings,
-            knowledgeStore: knowledgeStore,
-            sharingStore: sharingStore
+            sharingStore: sharingStore,
+            driveStore: googleDriveMediaStore
         )
         extractor = ExtractionService()
         processingCoordinator = ProcessingCoordinator(
@@ -56,10 +53,6 @@ final class AppEnvironment: ObservableObject {
         )
         do {
             try settings.ensureWorkspace()
-            try sharingStore.ensureSharedWorkspace(
-                privateWorkspaceURL: settings.workspaceRootURL,
-                sharedWorkspaceURL: settings.sharedWorkspaceRootURL
-            )
             try libraryStore.migrateLegacyClusterMetadata(
                 workspaceRootURL: settings.workspaceRootURL
             )
@@ -77,10 +70,6 @@ final class AppEnvironment: ObservableObject {
     }
 
     func setWorkspaceFolder(_ url: URL) throws {
-        try sharingStore.validateWorkspaceRoots(
-            privateWorkspaceURL: url,
-            sharedWorkspaceURL: settings.sharedWorkspaceRootURL
-        )
         settings.workspaceRootURL = url
         try settings.ensureWorkspace()
         try libraryStore.migrateLegacyClusterMetadata(workspaceRootURL: settings.workspaceRootURL)
@@ -92,9 +81,7 @@ final class AppEnvironment: ObservableObject {
                 workspaceRootURL: settings.workspaceRootURL
             )
         }
-        gitSyncCoordinator.setWorkspaceURL(settings.workspaceRootURL)
-        cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed personal workspace")
-        webLibraryExporter.requestAutomaticExport(reason: "the changed personal workspace")
+        googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the changed personal workspace")
         objectWillChange.send()
         NotificationCenter.default.post(name: .libraryDidChange, object: nil)
     }
@@ -105,10 +92,8 @@ final class AppEnvironment: ObservableObject {
             sharedWorkspaceURL: url
         )
         settings.sharedWorkspaceRootURL = url
-        sharedGitSyncCoordinator.setWorkspaceURL(url)
         peopleStore.setSharedWorkspaceURL(url)
-        cloudLibraryPublisher.requestAutomaticPublish(reason: "the changed shared workspace")
-        webLibraryExporter.requestAutomaticExport(reason: "the changed shared workspace")
+        googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the changed shared workspace")
         objectWillChange.send()
     }
 }

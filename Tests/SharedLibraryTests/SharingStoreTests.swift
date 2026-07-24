@@ -2,89 +2,48 @@ import XCTest
 @testable import SharedLibrary
 
 final class SharingStoreTests: XCTestCase {
-    func testShareCopiesSourceAndEveryExistingSummary() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let sourceURL = try writeCapture(in: privateRoot)
-        let summaryURLs = LibraryStore.companionSummaryURLs(
-            for: sourceURL,
-            workspaceRootURL: privateRoot
-        )
-        for (index, summaryURL) in summaryURLs.enumerated() where index != 2 {
-            try FileManager.default.createDirectory(
-                at: summaryURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try "Summary \(index)".write(to: summaryURL, atomically: true, encoding: .utf8)
-        }
+    private let itemID = "capture-id"
 
-        let store = SharingStore()
-        let copied = try store.shareCapture(
+    func testShareCopiesSourceAndSummariesIntoFlatLibrary() throws {
+        let (privateRoot, sharedRoot) = try makeWorkspaces()
+        defer { cleanUp(privateRoot) }
+        let sourceURL = try writeCapture(in: privateRoot)
+        try writeSummary("Brief", level: .brief, sourceURL: sourceURL, root: privateRoot)
+        try writeSummary("Detailed", level: .detailed, sourceURL: sourceURL, root: privateRoot)
+
+        let copied = try SharingStore().shareCapture(
             at: sourceURL,
             privateWorkspaceURL: privateRoot,
             sharedWorkspaceURL: sharedRoot
         )
 
-        XCTAssertEqual(copied.count, summaryURLs.count)
-        XCTAssertTrue(store.isShared(
-            captureAt: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        ))
-        XCTAssertEqual(
-            try String(contentsOf: sharedRoot.appendingPathComponent("library/example.md")),
-            "Source"
-        )
+        XCTAssertEqual(copied.count, 3)
+        XCTAssertEqual(try text(sharedRoot, "library/\(itemID).source.md"), sourceText)
+        XCTAssertEqual(try text(sharedRoot, "library/\(itemID).brief.md"), "Brief")
+        XCTAssertEqual(try text(sharedRoot, "library/\(itemID).detailed.md"), "Detailed")
         XCTAssertFalse(FileManager.default.fileExists(
-            atPath: sharedRoot.appendingPathComponent("library/summaries/concise/example.md").path
+            atPath: sharedRoot.appendingPathComponent("library/summaries").path
         ))
     }
 
-    func testReshareAtomicallyUpdatesExistingCopies() throws {
+    func testReshareUpdatesSourceAndRemovesStaleSummary() throws {
         let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
+        defer { cleanUp(privateRoot) }
         let sourceURL = try writeCapture(in: privateRoot)
+        let summaryURL = try writeSummary(
+            "Brief",
+            level: .brief,
+            sourceURL: sourceURL,
+            root: privateRoot
+        )
         let store = SharingStore()
         try store.shareCapture(
             at: sourceURL,
             privateWorkspaceURL: privateRoot,
             sharedWorkspaceURL: sharedRoot
         )
-        try "Updated".write(to: sourceURL, atomically: true, encoding: .utf8)
-
-        try store.shareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-
-        XCTAssertEqual(
-            try String(contentsOf: sharedRoot.appendingPathComponent("library/example.md")),
-            "Updated"
-        )
-    }
-
-    func testReshareRemovesAStaleSummaryThatNoLongerExistsPrivately() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let sourceURL = try writeCapture(in: privateRoot)
-        let summaryURL = LibraryStore.companionSummaryURLs(
-            for: sourceURL,
-            workspaceRootURL: privateRoot
-        )[0]
-        try FileManager.default.createDirectory(
-            at: summaryURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try "Summary".write(to: summaryURL, atomically: true, encoding: .utf8)
-        let store = SharingStore()
-        try store.shareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-        let sharedSummaryURL = sharedRoot.appendingPathComponent("library/summaries/example.md")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sharedSummaryURL.path))
+        try sourceText.replacingOccurrences(of: "Source body", with: "Updated body")
+            .write(to: sourceURL, atomically: true, encoding: .utf8)
         try FileManager.default.removeItem(at: summaryURL)
 
         try store.shareCapture(
@@ -93,48 +52,185 @@ final class SharingStoreTests: XCTestCase {
             sharedWorkspaceURL: sharedRoot
         )
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: sharedSummaryURL.path))
-    }
-
-    func testUnshareRemovesOnlyMirroredCaptureFiles() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let sourceURL = try writeCapture(in: privateRoot)
-        let summaryURL = LibraryStore.companionSummaryURLs(
-            for: sourceURL,
-            workspaceRootURL: privateRoot
-        )[0]
-        try FileManager.default.createDirectory(
-            at: summaryURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try "Summary".write(to: summaryURL, atomically: true, encoding: .utf8)
-        let store = SharingStore()
-        try store.shareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-        let unrelatedURL = sharedRoot.appendingPathComponent("library/unrelated.md")
-        try "Keep".write(to: unrelatedURL, atomically: true, encoding: .utf8)
-
-        let removed = try store.unshareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-
-        XCTAssertEqual(removed.count, 2)
-        XCTAssertFalse(store.isShared(
-            captureAt: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
+        XCTAssertTrue(try text(sharedRoot, "library/\(itemID).source.md").contains("Updated body"))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: sharedRoot.appendingPathComponent("library/\(itemID).brief.md").path
         ))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
-        XCTAssertEqual(try String(contentsOf: unrelatedURL), "Keep")
     }
 
-    func testRejectsEqualOrNestedWorkspaceFolders() throws {
+    func testTagWritesOneShareFileAndRecipientInboxIsDerived() throws {
+        let context = try makeSharedContext()
+        defer { cleanUp(context.privateRoot) }
+
+        let reference = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+
+        XCTAssertEqual(reference.contentPath, "library/\(itemID).source.md")
+        XCTAssertEqual(reference.sharedWithIDs, [context.recipient.userID])
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: context.sharedRoot.appendingPathComponent("shares/\(itemID).json").path
+        ))
+        XCTAssertEqual(
+            try context.store.inboxReferences(
+                for: context.recipient,
+                privateWorkspaceURL: context.recipientRoot,
+                sharedWorkspaceURL: context.sharedRoot
+            ).map(\.id),
+            [reference.id]
+        )
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: context.sharedRoot.appendingPathComponent("inbox").path
+        ))
+    }
+
+    func testDismissWritesOnlyPersonalInboxState() throws {
+        let context = try makeSharedContext()
+        defer { cleanUp(context.privateRoot) }
+        let reference = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+        let item = try XCTUnwrap(context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).first)
+        let sharedFilesBefore = try sharedFilePaths(context.sharedRoot)
+
+        try context.store.dismissInboxItem(item, privateWorkspaceURL: context.recipientRoot)
+
+        XCTAssertTrue(try context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).isEmpty)
+        XCTAssertEqual(try sharedFilePaths(context.sharedRoot), sharedFilesBefore)
+        let state = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: context.recipientRoot
+                .appendingPathComponent(".shared-library/inbox-state.json"))
+        ) as? [String: Any]
+        let shares = state?["shares"] as? [String: [String: Any]]
+        XCTAssertEqual(shares?[reference.id]?["disposition"] as? String, "dismissed")
+    }
+
+    func testNewRevisionMakesDismissedShareVisibleAgain() throws {
+        let context = try makeSharedContext()
+        defer { cleanUp(context.privateRoot) }
+        _ = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+        let item = try XCTUnwrap(context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).first)
+        try context.store.dismissInboxItem(item, privateWorkspaceURL: context.recipientRoot)
+
+        _ = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+
+        XCTAssertEqual(try context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).count, 1)
+    }
+
+    func testSavingInboxCreatesIndependentPersonalCaptureAndState() throws {
+        let context = try makeSharedContext()
+        defer { cleanUp(context.privateRoot) }
+        try writeSummary(
+            "Shared brief",
+            level: .brief,
+            sourceURL: context.sourceURL,
+            root: context.privateRoot
+        )
+        try context.store.shareCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        )
+        _ = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+        let item = try XCTUnwrap(context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).first)
+
+        let savedURL = try context.store.saveInboxItem(
+            item,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        )
+
+        let saved = try String(contentsOf: savedURL, encoding: .utf8)
+        XCTAssertTrue(saved.contains("Source body"))
+        XCTAssertTrue(saved.contains("shared_from: \"\(itemID)\""))
+        let savedSummary = context.recipientRoot
+            .appendingPathComponent("library/summaries/brief/\(savedURL.lastPathComponent)")
+        XCTAssertEqual(try String(contentsOf: savedSummary, encoding: .utf8), "Shared brief")
+        XCTAssertTrue(try context.store.inboxItems(
+            for: context.recipient,
+            privateWorkspaceURL: context.recipientRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        ).isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: context.sharedRoot.appendingPathComponent("library/\(itemID).source.md").path
+        ))
+    }
+
+    func testUnshareRemovesOnlyThisItemsFlatFilesAndShareRecord() throws {
+        let context = try makeSharedContext()
+        defer { cleanUp(context.privateRoot) }
+        _ = try context.store.tagSharedCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot,
+            sharedBy: context.sharer,
+            sharedWith: [context.recipient]
+        )
+        let unrelated = context.sharedRoot.appendingPathComponent("library/unrelated.source.md")
+        try "keep".write(to: unrelated, atomically: true, encoding: .utf8)
+
+        try context.store.unshareCapture(
+            at: context.sourceURL,
+            privateWorkspaceURL: context.privateRoot,
+            sharedWorkspaceURL: context.sharedRoot
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: context.sharedRoot.appendingPathComponent("library/\(itemID).source.md").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: context.sharedRoot.appendingPathComponent("shares/\(itemID).json").path
+        ))
+        XCTAssertEqual(try String(contentsOf: unrelated, encoding: .utf8), "keep")
+    }
+
+    func testRejectsEqualOrNestedWorkspaceFolders() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("sharing-overlap-\(UUID().uuidString)", isDirectory: true)
         let store = SharingStore()
@@ -153,138 +249,14 @@ final class SharingStoreTests: XCTestCase {
         }
     }
 
-    func testUnshareStillWorksAfterPrivateSourceWasDeleted() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let sourceURL = try writeCapture(in: privateRoot)
-        let store = SharingStore()
-        try store.shareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-        try FileManager.default.removeItem(at: sourceURL)
-
-        try store.unshareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: sharedRoot.appendingPathComponent("library/example.md").path
-        ))
-    }
-
-    func testPeopleTagsCreateAndReconcileSharedReferences() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let sourceURL = try writeCapture(in: privateRoot)
-        let sharer = SharedPerson(githubID: "sharer-id", login: "sharer", displayName: "Sharer")
-        let firstRecipient = SharedPerson(githubID: "first-id", login: "first", displayName: "First")
-        let secondRecipient = SharedPerson(githubID: "second-id", login: "second", displayName: "Second")
-        try PeopleDirectoryStore().synchronize(
-            people: [sharer, firstRecipient, secondRecipient],
-            sharedWorkspaceURL: sharedRoot
-        )
-        let store = SharingStore()
-        try store.shareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-
-        let original = try store.tagSharedCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot,
-            sharedBy: sharer,
-            sharedWith: [firstRecipient, secondRecipient]
-        )
-
-        XCTAssertEqual(
-            try store.references(for: sharer, direction: .shared, sharedWorkspaceURL: sharedRoot),
-            [original]
-        )
-        XCTAssertEqual(
-            try store.references(for: firstRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
-            [original]
-        )
-        XCTAssertEqual(
-            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
-            [original]
-        )
-
-        let updated = try store.tagSharedCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot,
-            sharedBy: sharer,
-            sharedWith: [secondRecipient]
-        )
-
-        XCTAssertEqual(updated.id, original.id)
-        XCTAssertTrue(
-            try store.references(for: firstRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot).isEmpty
-        )
-        XCTAssertEqual(
-            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
-            [updated]
-        )
-
-        try store.unshareCapture(
-            at: sourceURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-        XCTAssertTrue(try store.references(for: sharer, direction: .shared, sharedWorkspaceURL: sharedRoot).isEmpty)
-        XCTAssertTrue(
-            try store.references(for: secondRecipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot).isEmpty
-        )
-    }
-
-    func testRetargetingSharedCapturePreservesPeopleReferencesAcrossRename() throws {
-        let (privateRoot, sharedRoot) = try makeWorkspaces()
-        defer { cleanUp(privateRoot, sharedRoot) }
-        let oldURL = try writeCapture(in: privateRoot)
-        let sharer = SharedPerson(githubID: "sharer-id", login: "sharer", displayName: "Sharer")
-        let recipient = SharedPerson(githubID: "recipient-id", login: "recipient", displayName: "Recipient")
-        try PeopleDirectoryStore().synchronize(
-            people: [sharer, recipient],
-            sharedWorkspaceURL: sharedRoot
-        )
-        let store = SharingStore()
-        try store.shareCapture(at: oldURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
-        let originalReference = try store.tagSharedCapture(
-            at: oldURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot,
-            sharedBy: sharer,
-            sharedWith: [recipient]
-        )
-        let newURL = privateRoot.appendingPathComponent("library/renamed.md")
-        try "Renamed".write(to: newURL, atomically: true, encoding: .utf8)
-        try store.shareCapture(at: newURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
-
-        try store.retargetSharingReference(
-            from: oldURL,
-            to: newURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        )
-        try store.unshareCapture(at: oldURL, privateWorkspaceURL: privateRoot, sharedWorkspaceURL: sharedRoot)
-
-        let newReference = try XCTUnwrap(store.sharingReference(
-            for: newURL,
-            privateWorkspaceURL: privateRoot,
-            sharedWorkspaceURL: sharedRoot
-        ))
-        XCTAssertEqual(newReference.id, originalReference.id)
-        XCTAssertEqual(newReference.contentPath, "library/renamed.md")
-        XCTAssertEqual(
-            try store.references(for: recipient, direction: .sharedWith, sharedWorkspaceURL: sharedRoot),
-            [newReference]
-        )
+    private var sourceText: String {
+        """
+        ---
+        id: "capture-id"
+        title: "Example"
+        ---
+        Source body
+        """
     }
 
     private func makeWorkspaces() throws -> (URL, URL) {
@@ -299,13 +271,95 @@ final class SharingStoreTests: XCTestCase {
         return (privateRoot, sharedRoot)
     }
 
+    private func makeSharedContext() throws -> (
+        privateRoot: URL,
+        sharedRoot: URL,
+        recipientRoot: URL,
+        sourceURL: URL,
+        store: SharingStore,
+        sharer: SharedPerson,
+        recipient: SharedPerson
+    ) {
+        let (privateRoot, sharedRoot) = try makeWorkspaces()
+        let recipientRoot = privateRoot.deletingLastPathComponent()
+            .appendingPathComponent("recipient", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: recipientRoot.appendingPathComponent("library", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let sourceURL = try writeCapture(in: privateRoot)
+        let directory = PeopleDirectoryStore()
+        let sharer = try directory.register(
+            userID: "sharer-id",
+            username: "sharer",
+            sharedWorkspaceURL: sharedRoot
+        )
+        let recipient = try directory.register(
+            userID: "recipient-id",
+            username: "recipient",
+            sharedWorkspaceURL: sharedRoot
+        )
+        let store = SharingStore()
+        try store.shareCapture(
+            at: sourceURL,
+            privateWorkspaceURL: privateRoot,
+            sharedWorkspaceURL: sharedRoot
+        )
+        return (
+            privateRoot,
+            sharedRoot,
+            recipientRoot,
+            sourceURL,
+            store,
+            sharer,
+            recipient
+        )
+    }
+
     private func writeCapture(in root: URL) throws -> URL {
         let sourceURL = root.appendingPathComponent("library/example.md")
-        try "Source".write(to: sourceURL, atomically: true, encoding: .utf8)
+        try sourceText.write(to: sourceURL, atomically: true, encoding: .utf8)
         return sourceURL
     }
 
-    private func cleanUp(_ privateRoot: URL, _: URL) {
+    @discardableResult
+    private func writeSummary(
+        _ contents: String,
+        level: SummaryDetailLevel,
+        sourceURL: URL,
+        root: URL
+    ) throws -> URL {
+        let url = root
+            .appendingPathComponent("library/summaries/\(level.storageDirectoryName)")
+            .appendingPathComponent(sourceURL.lastPathComponent)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private func text(_ root: URL, _ relativePath: String) throws -> String {
+        try String(
+            contentsOf: root.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
+    private func sharedFilePaths(_ root: URL) throws -> [String] {
+        let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey]
+        )
+        let prefix = root.path + "/"
+        return try XCTUnwrap(enumerator?.allObjects as? [URL])
+            .filter { (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true }
+            .map { String($0.path.dropFirst(prefix.count)) }
+            .sorted()
+    }
+
+    private func cleanUp(_ privateRoot: URL) {
         try? FileManager.default.removeItem(at: privateRoot.deletingLastPathComponent())
     }
 }

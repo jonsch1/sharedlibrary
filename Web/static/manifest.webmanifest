@@ -3,7 +3,7 @@
 	"short_name": "Library",
 	"description": "A private, offline-friendly reader for Shared Library snapshots.",
 	"start_url": "/",
-	"display": "standalone",
+	"display": "browser",
 	"background_color": "#f4f3ee",
 	"theme_color": "#f4f3ee"
 }

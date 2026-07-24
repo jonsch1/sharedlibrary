@@ -1,10 +1,46 @@
 import Foundation
 
 struct SharedCaptureReference: Codable, Equatable, Identifiable, Sendable {
+    static let schemaVersion = 2
+
+    var schemaVersion: Int
     var id: String
+    var itemID: String
     var contentPath: String
+    var sourceFilename: String
     var sharedByID: String
     var sharedWithIDs: [String]
+    var revision: Int
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+enum SharedInboxDisposition: String, Codable, Equatable, Sendable {
+    case saved
+    case dismissed
+}
+
+struct SharedInboxReference: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var itemID: String
+    var contentPath: String
+    var sharedByID: String
+    var recipientID: String
+    var revision: Int
+    var disposition: SharedInboxDisposition?
+    var sharedAt: Date
+    var updatedAt: Date
+}
+
+struct SharedInboxItem: Identifiable, Equatable, Sendable {
+    var reference: SharedInboxReference
+    var title: String
+    var excerpt: String
+    var sharedByUsername: String?
+    var sourceURL: URL
+    var summaryURLs: [URL]
+
+    var id: String { reference.id }
 }
 
 enum SharedReferenceDirection: String, Sendable {
@@ -18,21 +54,41 @@ enum SharingStoreError: LocalizedError, Equatable {
     case missingCapture
     case captureNotShared
     case invalidSharedReference
+    case invalidRecipient
+    case invalidInboxState
 
     var errorDescription: String? {
         switch self {
         case .overlappingWorkspaces:
             return "The private and shared workspaces must be separate folders and cannot contain one another."
         case .invalidCapture:
-            return "Only source files directly inside the private library can be shared."
+            return "Only Markdown source files directly inside the private library can be shared."
         case .missingCapture:
             return "The source file no longer exists in the private library."
         case .captureNotShared:
             return "Share the capture before assigning people."
         case .invalidSharedReference:
             return "The shared capture reference is invalid."
+        case .invalidRecipient:
+            return "The shared Inbox recipient is invalid."
+        case .invalidInboxState:
+            return "The personal shared Inbox state is invalid."
         }
     }
+}
+
+private struct PersonalInboxDecision: Codable, Equatable {
+    var disposition: SharedInboxDisposition
+    var handledRevision: Int
+    var updatedAt: Date
+}
+
+private struct PersonalInboxState: Codable, Equatable {
+    static let schemaVersion = 1
+
+    var schemaVersion: Int
+    var shares: [String: PersonalInboxDecision]
+    var updatedAt: Date
 }
 
 final class SharingStore {
@@ -43,8 +99,10 @@ final class SharingStore {
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
         encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
     }
 
     @discardableResult
@@ -57,11 +115,11 @@ final class SharingStore {
             sharedWorkspaceURL: sharedWorkspaceURL
         )
         try fileManager.createDirectory(
-            at: sharedWorkspaceURL.appendingPathComponent("library/summaries", isDirectory: true),
+            at: sharedWorkspaceURL.appendingPathComponent("library", isDirectory: true),
             withIntermediateDirectories: true
         )
         try fileManager.createDirectory(
-            at: sharedWorkspaceURL.appendingPathComponent("people", isDirectory: true),
+            at: sharedWorkspaceURL.appendingPathComponent("shares", isDirectory: true),
             withIntermediateDirectories: true
         )
         return sharedWorkspaceURL
@@ -84,12 +142,21 @@ final class SharingStore {
         privateWorkspaceURL: URL,
         sharedWorkspaceURL: URL
     ) -> Bool {
-        guard let sharedSourceURL = try? sharedSourceURL(
+        if (try? sharingReference(
             for: sourceURL,
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
-        ) else { return false }
-        return (try? isRegularNonSymbolicLink(sharedSourceURL)) == true
+        )) != nil {
+            return true
+        }
+        guard let destination = try? sharedSourceURL(
+            for: sourceURL,
+            privateWorkspaceURL: privateWorkspaceURL,
+            sharedWorkspaceURL: sharedWorkspaceURL
+        ) else {
+            return false
+        }
+        return (try? isRegularNonSymbolicLink(destination)) == true
     }
 
     @discardableResult
@@ -101,31 +168,46 @@ final class SharingStore {
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw SharingStoreError.missingCapture
         }
-        guard try isRegularNonSymbolicLink(sourceURL) else {
-            throw SharingStoreError.invalidCapture
-        }
+        try validatePrivateSource(sourceURL, privateWorkspaceURL: privateWorkspaceURL)
         try ensureSharedWorkspace(
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
 
-        let mappings = try fileMappings(
-            for: sourceURL,
+        let itemID = try itemID(for: sourceURL)
+        let mappings = flatFileMappings(
+            itemID: itemID,
+            sourceURL: sourceURL,
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
         var copied: [URL] = []
-        for (privateURL, sharedURL) in mappings {
-            if try isRegularNonSymbolicLink(privateURL) {
-                try fileManager.createDirectory(
-                    at: sharedURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
+        for mapping in mappings {
+            if try isRegularNonSymbolicLink(mapping.privateURL) {
+                try Data(contentsOf: mapping.privateURL).write(
+                    to: mapping.sharedURL,
+                    options: .atomic
                 )
-                try Data(contentsOf: privateURL).write(to: sharedURL, options: .atomic)
-                copied.append(sharedURL)
-            } else if fileManager.fileExists(atPath: sharedURL.path) {
-                try fileManager.removeItem(at: sharedURL)
+                copied.append(mapping.sharedURL)
+            } else if fileManager.fileExists(atPath: mapping.sharedURL.path) {
+                try fileManager.removeItem(at: mapping.sharedURL)
             }
+        }
+
+        if var reference = try sharingReference(
+            for: sourceURL,
+            privateWorkspaceURL: privateWorkspaceURL,
+            sharedWorkspaceURL: sharedWorkspaceURL
+        ) {
+            reference.contentPath = relativeSharedPath(
+                flatSourceURL(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL),
+                sharedWorkspaceURL: sharedWorkspaceURL
+            )
+            reference.itemID = itemID
+            reference.sourceFilename = sourceURL.lastPathComponent
+            reference.revision += 1
+            reference.updatedAt = Date()
+            try writeReference(reference, sharedWorkspaceURL: sharedWorkspaceURL)
         }
         return copied
     }
@@ -140,26 +222,24 @@ final class SharingStore {
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        let existingReference = try sharingReference(
+        let reference = try sharingReference(
             for: sourceURL,
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        let mappings = try fileMappings(
-            for: sourceURL,
-            privateWorkspaceURL: privateWorkspaceURL,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
+        let itemID = try reference?.itemID ?? itemID(for: sourceURL)
         var removed: [URL] = []
-        for (_, sharedURL) in mappings where fileManager.fileExists(atPath: sharedURL.path) {
-            try fileManager.removeItem(at: sharedURL)
-            removed.append(sharedURL)
+        for url in flatSharedURLs(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL)
+        where fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+            removed.append(url)
         }
-        if let existingReference {
-            try removeReferenceFiles(
-                referenceID: existingReference.id,
-                sharedWorkspaceURL: sharedWorkspaceURL
-            )
+        if let reference {
+            let url = referenceURL(reference.id, sharedWorkspaceURL: sharedWorkspaceURL)
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+                removed.append(url)
+            }
         }
         return removed
     }
@@ -172,58 +252,195 @@ final class SharingStore {
         sharedBy: SharedPerson,
         sharedWith recipients: [SharedPerson]
     ) throws -> SharedCaptureReference {
-        let sharedSource = try sharedSourceURL(
-            for: sourceURL,
-            privateWorkspaceURL: privateWorkspaceURL,
+        let itemID = try itemID(for: sourceURL)
+        let sharedSource = flatSourceURL(
+            itemID: itemID,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
         guard try isRegularNonSymbolicLink(sharedSource) else {
             throw SharingStoreError.captureNotShared
         }
 
-        let existingReference = try sharingReference(
+        let uniqueRecipients = recipients
+            .filter { $0.userID != sharedBy.userID }
+            .reduce(into: [String: SharedPerson]()) { result, person in
+                result[person.userID] = person
+            }
+        let sortedRecipients = uniqueRecipients.values.sorted {
+            $0.username.localizedStandardCompare($1.username) == .orderedAscending
+        }
+        let existing = try sharingReference(
             for: sourceURL,
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        let uniqueRecipients = recipients
-            .filter { $0.githubID != sharedBy.githubID }
-            .reduce(into: [String: SharedPerson]()) { result, person in
-                result[person.githubID] = person
-            }
-        let sortedRecipients = uniqueRecipients.values.sorted {
-            $0.login.localizedStandardCompare($1.login) == .orderedAscending
-        }
+        let now = Date()
         let reference = SharedCaptureReference(
-            id: existingReference?.id ?? UUID().uuidString.lowercased(),
-            contentPath: try sharedContentPath(
-                for: sourceURL,
-                privateWorkspaceURL: privateWorkspaceURL,
+            schemaVersion: SharedCaptureReference.schemaVersion,
+            id: existing?.id ?? itemID,
+            itemID: itemID,
+            contentPath: relativeSharedPath(
+                sharedSource,
                 sharedWorkspaceURL: sharedWorkspaceURL
             ),
-            sharedByID: sharedBy.githubID,
-            sharedWithIDs: sortedRecipients.map(\.githubID)
+            sourceFilename: sourceURL.lastPathComponent,
+            sharedByID: sharedBy.userID,
+            sharedWithIDs: sortedRecipients.map(\.userID),
+            revision: (existing?.revision ?? 0) + 1,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now
         )
+        try writeReference(reference, sharedWorkspaceURL: sharedWorkspaceURL)
+        return reference
+    }
 
-        try removeReferenceFiles(
-            referenceID: reference.id,
+    func inboxReferences(
+        for person: SharedPerson,
+        privateWorkspaceURL: URL,
+        sharedWorkspaceURL: URL,
+        includingDecided: Bool = false
+    ) throws -> [SharedInboxReference] {
+        let decisions = try readInboxState(privateWorkspaceURL: privateWorkspaceURL).shares
+        return try references(
+            for: person,
+            direction: .sharedWith,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        try writeReference(
-            reference,
-            person: sharedBy,
-            direction: .shared,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
-        for recipient in sortedRecipients {
-            try writeReference(
-                reference,
-                person: recipient,
-                direction: .sharedWith,
-                sharedWorkspaceURL: sharedWorkspaceURL
+        .compactMap { reference in
+            let decision = decisions[reference.id]
+            if !includingDecided,
+               let decision,
+               decision.handledRevision >= reference.revision {
+                return nil
+            }
+            return SharedInboxReference(
+                id: reference.id,
+                itemID: reference.itemID,
+                contentPath: reference.contentPath,
+                sharedByID: reference.sharedByID,
+                recipientID: person.userID,
+                revision: reference.revision,
+                disposition: decision?.disposition,
+                sharedAt: reference.createdAt,
+                updatedAt: max(reference.updatedAt, decision?.updatedAt ?? .distantPast)
             )
         }
-        return reference
+        .sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func inboxItems(
+        for person: SharedPerson,
+        privateWorkspaceURL: URL,
+        sharedWorkspaceURL: URL
+    ) throws -> [SharedInboxItem] {
+        let people = try PeopleDirectoryStore().people(sharedWorkspaceURL: sharedWorkspaceURL)
+        let peopleByID = Dictionary(uniqueKeysWithValues: people.map { ($0.userID, $0) })
+        let references = try inboxReferences(
+            for: person,
+            privateWorkspaceURL: privateWorkspaceURL,
+            sharedWorkspaceURL: sharedWorkspaceURL
+        )
+        return references.compactMap { reference in
+            guard let sourceURL = try? sharedContentURL(
+                for: reference,
+                sharedWorkspaceURL: sharedWorkspaceURL
+            ),
+            let sourceText = try? String(contentsOf: sourceURL, encoding: .utf8) else {
+                return nil
+            }
+            let metadata = MarkdownMetadata.parse(sourceText)
+            let body = metadata.body.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = metadata.firstValue(for: "title")
+                ?? reference.contentPath
+                    .split(separator: "/")
+                    .last
+                    .map(String.init)?
+                    .replacingOccurrences(of: ".source.md", with: "")
+                ?? "Shared item"
+            return SharedInboxItem(
+                reference: reference,
+                title: title,
+                excerpt: String(body.replacingOccurrences(
+                    of: "\\s+",
+                    with: " ",
+                    options: .regularExpression
+                ).prefix(240)),
+                sharedByUsername: peopleByID[reference.sharedByID]?.username,
+                sourceURL: sourceURL,
+                summaryURLs: flatSummaryURLs(
+                    itemID: reference.itemID,
+                    sharedWorkspaceURL: sharedWorkspaceURL
+                ).filter { fileManager.fileExists(atPath: $0.path) }
+            )
+        }
+    }
+
+    @discardableResult
+    func saveInboxItem(
+        _ item: SharedInboxItem,
+        privateWorkspaceURL: URL,
+        sharedWorkspaceURL: URL
+    ) throws -> URL {
+        guard try isRegularNonSymbolicLink(item.sourceURL) else {
+            throw SharingStoreError.invalidSharedReference
+        }
+        let privateLibrary = privateWorkspaceURL.appendingPathComponent(
+            "library",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: privateLibrary, withIntermediateDirectories: true)
+        let destination = uniquePersonalDestination(
+            preferredFilename: sourceFilename(
+                for: item.reference,
+                sharedWorkspaceURL: sharedWorkspaceURL
+            ),
+            privateLibraryURL: privateLibrary
+        )
+        let captureID = UUID().uuidString.lowercased()
+        let sourceText = try String(contentsOf: item.sourceURL, encoding: .utf8)
+        try rewriteSource(
+            sourceText,
+            captureID: captureID,
+            shareID: item.reference.id,
+            shareRevision: item.reference.revision
+        ).write(to: destination, atomically: true, encoding: .utf8)
+
+        for level in SummaryDetailLevel.allCases {
+            let sharedSummary = flatSummaryURL(
+                itemID: item.reference.itemID,
+                variant: level.storageDirectoryName,
+                sharedWorkspaceURL: sharedWorkspaceURL
+            )
+            guard try isRegularNonSymbolicLink(sharedSummary) else { continue }
+            let personalSummary = privateWorkspaceURL
+                .appendingPathComponent("library/summaries", isDirectory: true)
+                .appendingPathComponent(level.storageDirectoryName, isDirectory: true)
+                .appendingPathComponent(destination.lastPathComponent)
+            try fileManager.createDirectory(
+                at: personalSummary.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(contentsOf: sharedSummary).write(to: personalSummary, options: .atomic)
+        }
+        try markInbox(
+            shareID: item.reference.id,
+            disposition: .saved,
+            revision: item.reference.revision,
+            privateWorkspaceURL: privateWorkspaceURL
+        )
+        return destination
+    }
+
+    func dismissInboxItem(
+        _ item: SharedInboxItem,
+        privateWorkspaceURL: URL
+    ) throws {
+        try markInbox(
+            shareID: item.reference.id,
+            disposition: .dismissed,
+            revision: item.reference.revision,
+            privateWorkspaceURL: privateWorkspaceURL
+        )
     }
 
     func sharingReference(
@@ -231,21 +448,13 @@ final class SharingStore {
         privateWorkspaceURL: URL,
         sharedWorkspaceURL: URL
     ) throws -> SharedCaptureReference? {
-        let contentPath = try sharedContentPath(
-            for: sourceURL,
+        try validateWorkspaceRoots(
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        if let sharedReference = try allReferences(
-            direction: .shared,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        ).first(where: { $0.contentPath == contentPath }) {
-            return sharedReference
+        return try allReferences(sharedWorkspaceURL: sharedWorkspaceURL).first {
+            $0.sourceFilename == sourceURL.lastPathComponent
         }
-        return try allReferences(
-            direction: .sharedWith,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        ).first { $0.contentPath == contentPath }
     }
 
     func references(
@@ -253,36 +462,59 @@ final class SharingStore {
         direction: SharedReferenceDirection,
         sharedWorkspaceURL: URL
     ) throws -> [SharedCaptureReference] {
-        let directory = personDirectory(
-            person,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        ).appendingPathComponent(direction.rawValue, isDirectory: true)
-        guard fileManager.fileExists(atPath: directory.path) else { return [] }
-        return try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        )
-        .compactMap { url -> SharedCaptureReference? in
-            guard url.pathExtension.localizedCaseInsensitiveCompare("json") == .orderedSame,
-                  (try? isRegularNonSymbolicLink(url)) == true,
-                  let data = try? Data(contentsOf: url) else { return nil }
-            return try? decoder.decode(SharedCaptureReference.self, from: data)
-        }
-        .sorted { $0.contentPath.localizedStandardCompare($1.contentPath) == .orderedAscending }
+        try allReferences(sharedWorkspaceURL: sharedWorkspaceURL)
+            .filter { reference in
+                switch direction {
+                case .shared:
+                    return reference.sharedByID == person.userID
+                case .sharedWith:
+                    return reference.sharedWithIDs.contains(person.userID)
+                }
+            }
+            .sorted {
+                if $0.updatedAt == $1.updatedAt { return $0.id < $1.id }
+                return $0.updatedAt > $1.updatedAt
+            }
     }
 
     func sharedContentURL(
         for reference: SharedCaptureReference,
         sharedWorkspaceURL: URL
     ) throws -> URL {
-        let components = NSString(string: reference.contentPath).pathComponents
-        guard components.first == "library",
-              !components.contains(".."),
-              !reference.contentPath.hasPrefix("/") else {
+        guard reference.schemaVersion == SharedCaptureReference.schemaVersion,
+              reference.contentPath == "library/\(reference.itemID).source.md" else {
             throw SharingStoreError.invalidSharedReference
         }
-        return sharedWorkspaceURL.appendingPathComponent(reference.contentPath).standardizedFileURL
+        let url = sharedWorkspaceURL
+            .appendingPathComponent(reference.contentPath)
+            .standardizedFileURL
+        let root = sharedWorkspaceURL.standardizedFileURL.path
+        guard url.path.hasPrefix(root + "/") else {
+            throw SharingStoreError.invalidSharedReference
+        }
+        return url
+    }
+
+    func sharedContentURL(
+        for reference: SharedInboxReference,
+        sharedWorkspaceURL: URL
+    ) throws -> URL {
+        let captureReference = SharedCaptureReference(
+            schemaVersion: SharedCaptureReference.schemaVersion,
+            id: reference.id,
+            itemID: reference.itemID,
+            contentPath: reference.contentPath,
+            sourceFilename: "",
+            sharedByID: reference.sharedByID,
+            sharedWithIDs: [reference.recipientID],
+            revision: reference.revision,
+            createdAt: reference.sharedAt,
+            updatedAt: reference.updatedAt
+        )
+        return try sharedContentURL(
+            for: captureReference,
+            sharedWorkspaceURL: sharedWorkspaceURL
+        )
     }
 
     func retargetSharingReference(
@@ -295,166 +527,163 @@ final class SharingStore {
             for: oldSourceURL,
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
-        ) else { return }
-        let urls = try referenceFileURLs(
-            referenceID: reference.id,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
-        reference.contentPath = try sharedContentPath(
-            for: newSourceURL,
-            privateWorkspaceURL: privateWorkspaceURL,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
-        let data = try encoder.encode(reference)
-        for url in urls {
-            try data.write(to: url, options: .atomic)
-        }
-    }
-
-    private func sharedContentPath(
-        for sourceURL: URL,
-        privateWorkspaceURL: URL,
-        sharedWorkspaceURL: URL
-    ) throws -> String {
-        let sharedSource = try sharedSourceURL(
-            for: sourceURL,
-            privateWorkspaceURL: privateWorkspaceURL,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
-        let rootPath = sharedWorkspaceURL.standardizedFileURL.path
-        let sharedPath = sharedSource.standardizedFileURL.path
-        guard sharedPath.hasPrefix(rootPath + "/") else {
+        ) else {
             throw SharingStoreError.invalidSharedReference
         }
-        return String(sharedPath.dropFirst(rootPath.count + 1))
+        let itemID = try itemID(for: newSourceURL)
+        reference.itemID = itemID
+        reference.contentPath = relativeSharedPath(
+            flatSourceURL(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL),
+            sharedWorkspaceURL: sharedWorkspaceURL
+        )
+        reference.sourceFilename = newSourceURL.lastPathComponent
+        reference.revision += 1
+        reference.updatedAt = Date()
+        try writeReference(reference, sharedWorkspaceURL: sharedWorkspaceURL)
+    }
+
+    private func allReferences(sharedWorkspaceURL: URL) throws -> [SharedCaptureReference] {
+        let directory = sharedWorkspaceURL.appendingPathComponent("shares", isDirectory: true)
+        guard fileManager.fileExists(atPath: directory.path) else { return [] }
+        return try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        )
+        .filter { $0.pathExtension.lowercased() == "json" }
+        .compactMap { url in
+            guard let values = try? url.resourceValues(
+                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
+            ),
+            values.isRegularFile == true,
+            values.isSymbolicLink != true,
+            let data = try? Data(contentsOf: url),
+            let reference = try? decoder.decode(SharedCaptureReference.self, from: data),
+            reference.schemaVersion == SharedCaptureReference.schemaVersion else {
+                return nil
+            }
+            return reference
+        }
     }
 
     private func writeReference(
         _ reference: SharedCaptureReference,
-        person: SharedPerson,
-        direction: SharedReferenceDirection,
         sharedWorkspaceURL: URL
     ) throws {
-        guard GitHubPeopleClient.isValidLogin(person.login) else {
-            throw GitHubPeopleError.invalidLogin(person.login)
+        guard reference.schemaVersion == SharedCaptureReference.schemaVersion,
+              Self.isSafeIdentifier(reference.id),
+              Self.isSafeIdentifier(reference.itemID) else {
+            throw SharingStoreError.invalidSharedReference
         }
-        let directory = personDirectory(
-            person,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        ).appendingPathComponent(direction.rawValue, isDirectory: true)
+        let directory = sharedWorkspaceURL.appendingPathComponent("shares", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try encoder.encode(reference).write(
-            to: directory
-                .appendingPathComponent(reference.id)
-                .appendingPathExtension("json"),
+            to: referenceURL(reference.id, sharedWorkspaceURL: sharedWorkspaceURL),
             options: .atomic
         )
     }
 
-    private func personDirectory(
-        _ person: SharedPerson,
+    private func referenceURL(_ id: String, sharedWorkspaceURL: URL) -> URL {
+        sharedWorkspaceURL
+            .appendingPathComponent("shares", isDirectory: true)
+            .appendingPathComponent(id)
+            .appendingPathExtension("json")
+    }
+
+    private func itemID(for sourceURL: URL) throws -> String {
+        if fileManager.fileExists(atPath: sourceURL.path),
+           let text = try? String(contentsOf: sourceURL, encoding: .utf8),
+           let captureID = MarkdownMetadata.parse(text).firstValue(for: "id") {
+            let normalized = captureID.lowercased()
+            if Self.isSafeIdentifier(normalized) { return normalized }
+        }
+        return String(CloudLibrarySchema.sha256(sourceURL.lastPathComponent).prefix(32))
+    }
+
+    private func validatePrivateSource(
+        _ sourceURL: URL,
+        privateWorkspaceURL: URL
+    ) throws {
+        let privateLibrary = privateWorkspaceURL
+            .appendingPathComponent("library", isDirectory: true)
+            .standardizedFileURL
+        let source = sourceURL.standardizedFileURL
+        guard source.deletingLastPathComponent() == privateLibrary,
+              source.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame,
+              try isRegularNonSymbolicLink(source) else {
+            throw SharingStoreError.invalidCapture
+        }
+    }
+
+    private func flatFileMappings(
+        itemID: String,
+        sourceURL: URL,
+        privateWorkspaceURL: URL,
+        sharedWorkspaceURL: URL
+    ) -> [(privateURL: URL, sharedURL: URL)] {
+        var mappings = [(
+            sourceURL,
+            flatSourceURL(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL)
+        )]
+        let summariesRoot = privateWorkspaceURL.appendingPathComponent(
+            "library/summaries",
+            isDirectory: true
+        )
+        let legacy = summariesRoot.appendingPathComponent(sourceURL.lastPathComponent)
+        for level in SummaryDetailLevel.allCases {
+            let explicit = summariesRoot
+                .appendingPathComponent(level.storageDirectoryName, isDirectory: true)
+                .appendingPathComponent(sourceURL.lastPathComponent)
+            let privateURL = level == .concise && !fileManager.fileExists(atPath: explicit.path)
+                ? legacy
+                : explicit
+            mappings.append((
+                privateURL,
+                flatSummaryURL(
+                    itemID: itemID,
+                    variant: level.storageDirectoryName,
+                    sharedWorkspaceURL: sharedWorkspaceURL
+                )
+            ))
+        }
+        return mappings
+    }
+
+    private func flatSourceURL(itemID: String, sharedWorkspaceURL: URL) -> URL {
+        sharedWorkspaceURL
+            .appendingPathComponent("library", isDirectory: true)
+            .appendingPathComponent("\(itemID).source.md")
+    }
+
+    private func flatSummaryURL(
+        itemID: String,
+        variant: String,
         sharedWorkspaceURL: URL
     ) -> URL {
         sharedWorkspaceURL
-            .appendingPathComponent("people", isDirectory: true)
-            .appendingPathComponent(person.login, isDirectory: true)
+            .appendingPathComponent("library", isDirectory: true)
+            .appendingPathComponent("\(itemID).\(variant).md")
     }
 
-    private func allReferences(
-        direction: SharedReferenceDirection,
+    private func flatSummaryURLs(
+        itemID: String,
         sharedWorkspaceURL: URL
-    ) throws -> [SharedCaptureReference] {
-        let peopleRoot = sharedWorkspaceURL.appendingPathComponent("people", isDirectory: true)
-        guard fileManager.fileExists(atPath: peopleRoot.path) else { return [] }
-        var referencesByID: [String: SharedCaptureReference] = [:]
-        let peopleDirectories = try fileManager.contentsOfDirectory(
-            at: peopleRoot,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        )
-        for personDirectory in peopleDirectories {
-            let values = try personDirectory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
-            let referencesDirectory = personDirectory.appendingPathComponent(direction.rawValue, isDirectory: true)
-            guard fileManager.fileExists(atPath: referencesDirectory.path) else { continue }
-            for url in try fileManager.contentsOfDirectory(
-                at: referencesDirectory,
-                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            ) where url.pathExtension.localizedCaseInsensitiveCompare("json") == .orderedSame {
-                guard try isRegularNonSymbolicLink(url),
-                      let reference = try? decoder.decode(
-                        SharedCaptureReference.self,
-                        from: Data(contentsOf: url)
-                      ) else { continue }
-                referencesByID[reference.id] = reference
-            }
-        }
-        return Array(referencesByID.values)
-    }
-
-    private func referenceFileURLs(
-        referenceID: String,
-        sharedWorkspaceURL: URL
-    ) throws -> [URL] {
-        let peopleRoot = sharedWorkspaceURL.appendingPathComponent("people", isDirectory: true)
-        guard fileManager.fileExists(atPath: peopleRoot.path) else { return [] }
-        var urls: [URL] = []
-        let peopleDirectories = try fileManager.contentsOfDirectory(
-            at: peopleRoot,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: [.skipsHiddenFiles]
-        )
-        for personDirectory in peopleDirectories {
-            let values = try personDirectory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-            guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
-            for direction in [SharedReferenceDirection.shared, .sharedWith] {
-                let url = personDirectory
-                    .appendingPathComponent(direction.rawValue, isDirectory: true)
-                    .appendingPathComponent(referenceID)
-                    .appendingPathExtension("json")
-                if fileManager.fileExists(atPath: url.path),
-                   try isRegularNonSymbolicLink(url) {
-                    urls.append(url)
-                }
-            }
-        }
-        return urls
-    }
-
-    private func removeReferenceFiles(
-        referenceID: String,
-        sharedWorkspaceURL: URL
-    ) throws {
-        for url in try referenceFileURLs(
-            referenceID: referenceID,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        ) {
-            try fileManager.removeItem(at: url)
-        }
-    }
-
-    private func fileMappings(
-        for sourceURL: URL,
-        privateWorkspaceURL: URL,
-        sharedWorkspaceURL: URL
-    ) throws -> [(URL, URL)] {
-        let sharedSource = try sharedSourceURL(
-            for: sourceURL,
-            privateWorkspaceURL: privateWorkspaceURL,
-            sharedWorkspaceURL: sharedWorkspaceURL
-        )
-        let privateFiles = [sourceURL.standardizedFileURL]
-            + LibraryStore.companionSummaryURLs(
-                for: sourceURL,
-                workspaceRootURL: privateWorkspaceURL
+    ) -> [URL] {
+        SummaryDetailLevel.allCases.map {
+            flatSummaryURL(
+                itemID: itemID,
+                variant: $0.storageDirectoryName,
+                sharedWorkspaceURL: sharedWorkspaceURL
             )
-        let sharedFiles = [sharedSource]
-            + LibraryStore.companionSummaryURLs(
-                for: sharedSource,
-                workspaceRootURL: sharedWorkspaceURL
-            )
-        return Array(zip(privateFiles, sharedFiles))
+        }
+    }
+
+    private func flatSharedURLs(
+        itemID: String,
+        sharedWorkspaceURL: URL
+    ) -> [URL] {
+        [flatSourceURL(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL)]
+            + flatSummaryURLs(itemID: itemID, sharedWorkspaceURL: sharedWorkspaceURL)
     }
 
     private func sharedSourceURL(
@@ -466,24 +695,139 @@ final class SharingStore {
             privateWorkspaceURL: privateWorkspaceURL,
             sharedWorkspaceURL: sharedWorkspaceURL
         )
-        let privateLibrary = privateWorkspaceURL
-            .appendingPathComponent("library", isDirectory: true)
-            .standardizedFileURL
-        let source = sourceURL.standardizedFileURL
-        guard source.deletingLastPathComponent() == privateLibrary,
-              source.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame else {
-            throw SharingStoreError.invalidCapture
+        return flatSourceURL(
+            itemID: try itemID(for: sourceURL),
+            sharedWorkspaceURL: sharedWorkspaceURL
+        )
+    }
+
+    private func relativeSharedPath(_ url: URL, sharedWorkspaceURL: URL) -> String {
+        String(
+            url.standardizedFileURL.path.dropFirst(
+                sharedWorkspaceURL.standardizedFileURL.path.count + 1
+            )
+        )
+    }
+
+    private func sourceFilename(
+        for reference: SharedInboxReference,
+        sharedWorkspaceURL: URL
+    ) -> String {
+        (try? allReferences(sharedWorkspaceURL: sharedWorkspaceURL).first {
+            $0.id == reference.id
+        }?.sourceFilename) ?? "\(reference.itemID).md"
+    }
+
+    private func uniquePersonalDestination(
+        preferredFilename: String,
+        privateLibraryURL: URL
+    ) -> URL {
+        let preferred = URL(fileURLWithPath: preferredFilename)
+        let base = preferred.deletingPathExtension().lastPathComponent
+        let ext = preferred.pathExtension.isEmpty ? "md" : preferred.pathExtension
+        var candidate = privateLibraryURL.appendingPathComponent(preferredFilename)
+        var suffix = 1
+        while fileManager.fileExists(atPath: candidate.path) {
+            let label = suffix == 1 ? "\(base)-shared" : "\(base)-shared-\(suffix)"
+            candidate = privateLibraryURL
+                .appendingPathComponent(label)
+                .appendingPathExtension(ext)
+            suffix += 1
         }
-        return sharedWorkspaceURL
-            .appendingPathComponent("library", isDirectory: true)
-            .appendingPathComponent(source.lastPathComponent)
-            .standardizedFileURL
+        return candidate
+    }
+
+    private func rewriteSource(
+        _ text: String,
+        captureID: String,
+        shareID: String,
+        shareRevision: Int
+    ) -> String {
+        guard text.hasPrefix("---\n"),
+              let endRange = text.dropFirst(4).range(of: "\n---\n") else {
+            return text
+        }
+        let metadataStart = text.index(text.startIndex, offsetBy: 4)
+        var metadata = String(text[metadataStart..<endRange.lowerBound])
+        metadata = Self.upserting(metadata, key: "id", value: captureID)
+        metadata = Self.upserting(metadata, key: "shared_from", value: shareID)
+        metadata = Self.upserting(metadata, key: "shared_revision", value: "\(shareRevision)")
+        return "---\n\(metadata)\n---\n\(text[endRange.upperBound...])"
+    }
+
+    private static func upserting(_ metadata: String, key: String, value: String) -> String {
+        let escaped = NSRegularExpression.escapedPattern(for: key)
+        let pattern = "(?m)^\(escaped):.*$"
+        if metadata.range(of: pattern, options: .regularExpression) != nil {
+            return metadata.replacingOccurrences(
+                of: pattern,
+                with: "\(key): \"\(value)\"",
+                options: .regularExpression
+            )
+        }
+        return metadata + "\n\(key): \"\(value)\""
+    }
+
+    private func readInboxState(privateWorkspaceURL: URL) throws -> PersonalInboxState {
+        let url = inboxStateURL(privateWorkspaceURL: privateWorkspaceURL)
+        guard fileManager.fileExists(atPath: url.path) else {
+            return PersonalInboxState(
+                schemaVersion: PersonalInboxState.schemaVersion,
+                shares: [:],
+                updatedAt: Date()
+            )
+        }
+        do {
+            let state = try decoder.decode(PersonalInboxState.self, from: Data(contentsOf: url))
+            guard state.schemaVersion == PersonalInboxState.schemaVersion else {
+                throw SharingStoreError.invalidInboxState
+            }
+            return state
+        } catch let error as SharingStoreError {
+            throw error
+        } catch {
+            throw SharingStoreError.invalidInboxState
+        }
+    }
+
+    private func markInbox(
+        shareID: String,
+        disposition: SharedInboxDisposition,
+        revision: Int,
+        privateWorkspaceURL: URL
+    ) throws {
+        var state = try readInboxState(privateWorkspaceURL: privateWorkspaceURL)
+        let now = Date()
+        state.shares[shareID] = PersonalInboxDecision(
+            disposition: disposition,
+            handledRevision: revision,
+            updatedAt: now
+        )
+        state.updatedAt = now
+        let url = inboxStateURL(privateWorkspaceURL: privateWorkspaceURL)
+        try fileManager.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try encoder.encode(state).write(to: url, options: .atomic)
+    }
+
+    private func inboxStateURL(privateWorkspaceURL: URL) -> URL {
+        privateWorkspaceURL
+            .appendingPathComponent(".shared-library", isDirectory: true)
+            .appendingPathComponent("inbox-state.json")
     }
 
     private func isRegularNonSymbolicLink(_ url: URL) throws -> Bool {
         guard fileManager.fileExists(atPath: url.path) else { return false }
         let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         return values.isRegularFile == true && values.isSymbolicLink != true
+    }
+
+    private static func isSafeIdentifier(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.count <= 128
+            && value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
     }
 
     private static func contains(_ parent: String, _ child: String) -> Bool {

@@ -1,4 +1,4 @@
-export const librarySchemaVersion = 1;
+export const librarySchemaVersion = 3;
 
 export const libraryVariants = [
 	'brief',
@@ -13,7 +13,16 @@ export type LibraryOrigin = 'personal' | 'shared';
 
 export interface LibraryText {
 	variant: LibraryVariant;
-	text: string;
+	path?: string;
+	contentHash?: string;
+	wordCount?: number;
+	text?: string;
+}
+
+export interface LibraryFile {
+	path: string;
+	contentHash: string;
+	byteCount: number;
 }
 
 export interface LibraryEntry {
@@ -29,19 +38,26 @@ export interface LibraryEntry {
 	updatedAt?: string;
 	reviewedAt?: string;
 	origin: LibraryOrigin;
-	sharedByGitHubID?: string;
-	sharedByDisplayName?: string;
+	sharedByUsername?: string;
+	inboxReferenceID?: string;
 	texts: LibraryText[];
 }
 
 export interface LibraryProjection {
 	schemaVersion: number;
 	generatedAt: string;
+	files: LibraryFile[];
 	entries: LibraryEntry[];
 }
 
+export interface LibrarySyncProgress {
+	completed: number;
+	total: number;
+}
+
 const databaseName = 'shared-library-web';
-const storeName = 'snapshots';
+const snapshotStoreName = 'snapshots';
+const textStoreName = 'texts';
 const activeSnapshotKey = 'active';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -57,7 +73,10 @@ function isLibraryText(value: unknown): value is LibraryText {
 		isObject(value) &&
 		typeof value.variant === 'string' &&
 		libraryVariants.includes(value.variant as LibraryVariant) &&
-		typeof value.text === 'string'
+		(typeof value.text === 'string' ||
+			(typeof value.path === 'string' &&
+				typeof value.contentHash === 'string' &&
+				typeof value.wordCount === 'number'))
 	);
 }
 
@@ -76,28 +95,58 @@ function isLibraryEntry(value: unknown): value is LibraryEntry {
 	);
 }
 
+function isLibraryFile(value: unknown): value is LibraryFile {
+	return (
+		isObject(value) &&
+		typeof value.path === 'string' &&
+		typeof value.contentHash === 'string' &&
+		/^[a-f0-9]{64}$/.test(value.contentHash) &&
+		typeof value.byteCount === 'number' &&
+		Number.isSafeInteger(value.byteCount) &&
+		value.byteCount >= 0
+	);
+}
+
 export function parseLibraryProjection(value: unknown): LibraryProjection {
 	if (
 		!isObject(value) ||
-		value.schemaVersion !== librarySchemaVersion ||
+		(value.schemaVersion !== 2 && value.schemaVersion !== librarySchemaVersion) ||
 		typeof value.generatedAt !== 'string' ||
 		Number.isNaN(Date.parse(value.generatedAt)) ||
+		!Array.isArray(value.files) ||
+		!value.files.every(isLibraryFile) ||
 		!Array.isArray(value.entries) ||
 		!value.entries.every(isLibraryEntry)
 	) {
 		throw new Error(
-			'This file is not a compatible Shared Library web snapshot. Export a new snapshot from the Mac app and try again.'
+			'This is not a compatible Shared Library Drive index. Open the Mac app and let it synchronize again.'
 		);
 	}
-	return value as unknown as LibraryProjection;
+	const projection = value as unknown as LibraryProjection & {
+		entries: Array<LibraryEntry & { sharedByDisplayName?: string }>;
+	};
+	return {
+		...projection,
+		schemaVersion: librarySchemaVersion,
+		entries: projection.entries.map((entry) => {
+			const legacyEntry = entry as LibraryEntry & { sharedByDisplayName?: string };
+			return {
+				...entry,
+				sharedByUsername: entry.sharedByUsername ?? legacyEntry.sharedByDisplayName
+			};
+		})
+	};
 }
 
 function openDatabase(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
-		const request = indexedDB.open(databaseName, 1);
+		const request = indexedDB.open(databaseName, 2);
 		request.onupgradeneeded = () => {
-			if (!request.result.objectStoreNames.contains(storeName)) {
-				request.result.createObjectStore(storeName);
+			if (!request.result.objectStoreNames.contains(snapshotStoreName)) {
+				request.result.createObjectStore(snapshotStoreName);
+			}
+			if (!request.result.objectStoreNames.contains(textStoreName)) {
+				request.result.createObjectStore(textStoreName);
 			}
 		};
 		request.onsuccess = () => resolve(request.result);
@@ -109,8 +158,8 @@ export async function saveLibraryProjection(projection: LibraryProjection): Prom
 	const database = await openDatabase();
 	try {
 		await new Promise<void>((resolve, reject) => {
-			const transaction = database.transaction(storeName, 'readwrite');
-			transaction.objectStore(storeName).put(projection, activeSnapshotKey);
+			const transaction = database.transaction(snapshotStoreName, 'readwrite');
+			transaction.objectStore(snapshotStoreName).put(projection, activeSnapshotKey);
 			transaction.oncomplete = () => resolve();
 			transaction.onerror = () =>
 				reject(transaction.error ?? new Error('Could not save the offline library.'));
@@ -127,8 +176,8 @@ export async function loadLibraryProjection(): Promise<LibraryProjection | null>
 	try {
 		return await new Promise<LibraryProjection | null>((resolve, reject) => {
 			const request = database
-				.transaction(storeName, 'readonly')
-				.objectStore(storeName)
+				.transaction(snapshotStoreName, 'readonly')
+				.objectStore(snapshotStoreName)
 				.get(activeSnapshotKey);
 			request.onsuccess = () => {
 				if (request.result === undefined) {
@@ -149,11 +198,180 @@ export async function loadLibraryProjection(): Promise<LibraryProjection | null>
 	}
 }
 
-export function textFor(
-	entry: LibraryEntry,
-	variant: LibraryVariant
-): LibraryText | undefined {
+export function textFor(entry: LibraryEntry, variant: LibraryVariant): LibraryText | undefined {
 	return entry.texts.find((text) => text.variant === variant);
+}
+
+function fileCacheKey(reference: { path?: string; contentHash?: string }): string | null {
+	if (!reference.path || !reference.contentHash) return null;
+	return `${reference.contentHash}:${reference.path}`;
+}
+
+async function cachedLibraryFile(reference: {
+	path?: string;
+	contentHash?: string;
+}): Promise<string | null> {
+	const key = fileCacheKey(reference);
+	if (!key) return null;
+	const database = await openDatabase();
+	try {
+		return await new Promise<string | null>((resolve, reject) => {
+			const request = database
+				.transaction(textStoreName, 'readonly')
+				.objectStore(textStoreName)
+				.get(key);
+			request.onsuccess = () =>
+				resolve(typeof request.result === 'string' ? request.result : null);
+			request.onerror = () =>
+				reject(request.error ?? new Error('Could not read the offline document.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+async function cachedLibraryFileKeys(): Promise<Set<string>> {
+	const database = await openDatabase();
+	try {
+		return await new Promise<Set<string>>((resolve, reject) => {
+			const request = database
+				.transaction(textStoreName, 'readonly')
+				.objectStore(textStoreName)
+				.getAllKeys();
+			request.onsuccess = () =>
+				resolve(new Set(request.result.filter((key): key is string => typeof key === 'string')));
+			request.onerror = () =>
+				reject(request.error ?? new Error('Could not inspect the offline library.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+async function cacheLibraryFile(
+	reference: { path?: string; contentHash?: string },
+	text: string
+): Promise<void> {
+	const key = fileCacheKey(reference);
+	if (!key) return;
+	const database = await openDatabase();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const transaction = database.transaction(textStoreName, 'readwrite');
+			transaction.objectStore(textStoreName).put(text, key);
+			transaction.oncomplete = () => resolve();
+			transaction.onerror = () =>
+				reject(transaction.error ?? new Error('Could not cache the document.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+async function downloadLibraryFile(reference: {
+	path: string;
+	contentHash: string;
+}): Promise<string> {
+	const parameters = new URLSearchParams({
+		path: reference.path,
+		hash: reference.contentHash
+	});
+	const response = await fetch(`/api/library/file?${parameters.toString()}`, {
+		headers: { Accept: 'text/markdown, text/plain' },
+		cache: 'no-store'
+	});
+	if (!response.ok) {
+		throw new Error(
+			response.status === 404
+				? 'This document is not available in Google Drive yet.'
+				: 'The document could not be downloaded from Google Drive.'
+		);
+	}
+	const data = await response.arrayBuffer();
+	const digest = await crypto.subtle.digest('SHA-256', data);
+	const contentHash = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, '0')
+	).join('');
+	if (contentHash !== reference.contentHash) {
+		throw new Error('A downloaded library file did not match its Google Drive index.');
+	}
+	const text = new TextDecoder().decode(data);
+	await cacheLibraryFile(reference, text);
+	return text;
+}
+
+async function removeStaleLibraryFiles(activeKeys: Set<string>): Promise<void> {
+	const database = await openDatabase();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const transaction = database.transaction(textStoreName, 'readwrite');
+			const store = transaction.objectStore(textStoreName);
+			const request = store.getAllKeys();
+			request.onsuccess = () => {
+				for (const key of request.result) {
+					if (typeof key === 'string' && !activeKeys.has(key)) store.delete(key);
+				}
+			};
+			transaction.oncomplete = () => resolve();
+			transaction.onerror = () =>
+				reject(transaction.error ?? new Error('Could not clean the offline library.'));
+			transaction.onabort = () =>
+				reject(transaction.error ?? new Error('Cleaning the offline library was interrupted.'));
+		});
+	} finally {
+		database.close();
+	}
+}
+
+export async function mirrorLibraryProjection(
+	projection: LibraryProjection,
+	onProgress?: (progress: LibrarySyncProgress) => void
+): Promise<void> {
+	const activeKeys = new Set(
+		projection.files
+			.map((file) => fileCacheKey(file))
+			.filter((key): key is string => key !== null)
+	);
+	const cachedKeys = await cachedLibraryFileKeys();
+	const missing = projection.files.filter((file) => {
+		const key = fileCacheKey(file);
+		return key !== null && !cachedKeys.has(key);
+	});
+	let completed = projection.files.length - missing.length;
+	onProgress?.({ completed, total: projection.files.length });
+
+	let nextIndex = 0;
+	const workerCount = Math.min(4, missing.length);
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (nextIndex < missing.length) {
+				const file = missing[nextIndex];
+				nextIndex += 1;
+				await downloadLibraryFile(file);
+				completed += 1;
+				onProgress?.({ completed, total: projection.files.length });
+			}
+		})
+	);
+
+	await saveLibraryProjection(projection);
+	await removeStaleLibraryFiles(activeKeys);
+}
+
+function displayLibraryText(reference: LibraryText, text: string): string {
+	if (reference.variant !== 'source') return text;
+	return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+}
+
+export async function loadLibraryText(reference: LibraryText): Promise<string> {
+	if (typeof reference.text === 'string') return reference.text;
+	const cached = await cachedLibraryFile(reference);
+	if (cached !== null) return displayLibraryText(reference, cached);
+	if (!reference.path || !reference.contentHash) return '';
+	return displayLibraryText(reference, await downloadLibraryFile({
+		path: reference.path,
+		contentHash: reference.contentHash
+	}));
 }
 
 export function preferredVariant(entry: LibraryEntry): LibraryVariant {
@@ -171,6 +389,7 @@ export function readingMinutes(text: string, rate = 1): number {
 export const demoProjection: LibraryProjection = {
 	schemaVersion: librarySchemaVersion,
 	generatedAt: new Date().toISOString(),
+	files: [],
 	entries: [
 		{
 			id: 'demo:network-inference',
@@ -242,8 +461,7 @@ export const demoProjection: LibraryProjection = {
 			tags: ['communication', 'ligand-receptor'],
 			createdAt: '2026-07-10T11:45:00Z',
 			origin: 'shared',
-			sharedByGitHubID: '1042',
-			sharedByDisplayName: 'Alex Morgan',
+			sharedByUsername: 'alex',
 			texts: [
 				{
 					variant: 'brief',
@@ -258,7 +476,7 @@ export const demoProjection: LibraryProjection = {
 				{
 					variant: 'source',
 					text:
-						'This item demonstrates how a document shared with your stable GitHub identity appears beside personal library content.'
+						'This item demonstrates how a document shared with you appears beside personal library content.'
 				}
 			]
 		}

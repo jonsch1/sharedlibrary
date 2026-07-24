@@ -10,22 +10,29 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     static let includeTranscriptTimestampsKey = "includeTranscriptTimestamps"
-    static let cloudLibrarySyncEnabledKey = "cloudLibrarySyncEnabled"
-    static let webLibraryExportEnabledKey = "webLibraryExportEnabled"
+    static let githubAppClientIDKey = "githubAppClientID"
+    static let googleDriveDesktopClientIDKey = "googleDriveDesktopClientID"
+    static let githubAppClientIDInfoKey = "SharedLibraryGitHubClientID"
+    static let githubAppInstallURLInfoKey = "SharedLibraryGitHubInstallURL"
+    static let googleDriveDesktopClientIDInfoKey = "SharedLibraryGoogleDesktopClientID"
+    static let googleDriveDesktopClientSecretInfoKey = "SharedLibraryGoogleDesktopClientSecret"
     static let existingTopicsPromptPlaceholder = "{{existing_topics}}"
     static let sourcePromptPlaceholder = "{{source}}"
     static let workspaceCommandPlaceholder = "{{workspace}}"
     static let defaultAgentCommand = "open -a ChatGPT {{workspace}}"
+    static let defaultGroupGoogleDriveFolderID = "1oLOeeoNKp-SBeikcTd_Z5KDPTSZUJ-a9"
+    static let sharedWebAppURL = URL(
+        string: "https://shared-library-jschaul.schauljonathan.chatgpt.site/"
+    )!
 
     private enum Keys {
         static let workspaceFolderPath = "workspaceFolderPath"
         static let sharedWorkspaceFolderPath = "sharedWorkspaceFolderPath"
-        static let githubPeopleOrganization = "githubPeopleOrganization"
-        static let currentGitHubUserID = "currentGitHubUserID"
-        static let githubPeopleLastSyncedAt = "githubPeopleLastSyncedAt"
-        static let cloudLibraryLastPublishedAt = "cloudLibraryLastPublishedAt"
-        static let webLibraryExportFolderPath = "webLibraryExportFolderPath"
-        static let webLibraryLastExportedAt = "webLibraryLastExportedAt"
+        static let username = "sharedLibraryUsername"
+        static let currentUserID = "sharedLibraryCurrentUserID"
+        static let sharedGoogleDriveFolderID = "sharedGoogleDriveFolderID"
+        static let legacyCurrentGitHubUserID = "currentGitHubUserID"
+        static let repositorySnapshotLastUpdatedAt = "repositorySnapshotLastUpdatedAt"
         static let processingPrompt = "processingPrompt"
         static let agentCommand = "agentCommand"
     }
@@ -33,6 +40,8 @@ final class AppSettings: ObservableObject {
     private let defaults = UserDefaults.standard
 
     init() {
+        // Group-folder sharing was a prototype. Share links now use the web sharing service.
+        defaults.removeObject(forKey: Keys.sharedGoogleDriveFolderID)
         if let storedPrompt = defaults.object(forKey: Keys.processingPrompt) as? String {
             let obsoleteTitleRequirements = [
                 "- title: a specific, concise, human-readable title for the source.\n"
@@ -45,9 +54,6 @@ final class AppSettings: ObservableObject {
             }
         }
         defaults.register(defaults: [
-            Keys.githubPeopleOrganization: "saezlab",
-            Self.cloudLibrarySyncEnabledKey: true,
-            Self.webLibraryExportEnabledKey: true,
             Keys.processingPrompt: Self.defaultProcessingPrompt,
             Keys.agentCommand: Self.defaultAgentCommand
         ])
@@ -97,86 +103,116 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    var githubPeopleOrganization: String {
-        get { defaults.string(forKey: Keys.githubPeopleOrganization) ?? "saezlab" }
+    var username: String {
+        get { defaults.string(forKey: Keys.username) ?? "" }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.githubPeopleOrganization)
+            defaults.set(
+                PeopleDirectoryStore.normalizedUsername(newValue),
+                forKey: Keys.username
+            )
         }
     }
 
-    var currentGitHubUserID: String? {
+    var currentUserID: String? {
         get {
-            let value = defaults.string(forKey: Keys.currentGitHubUserID) ?? ""
+            let value = defaults.string(forKey: Keys.currentUserID)
+                ?? defaults.string(forKey: Keys.legacyCurrentGitHubUserID)
+                ?? ""
             return value.isEmpty ? nil : value
         }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.currentGitHubUserID)
+            defaults.set(newValue, forKey: Keys.currentUserID)
         }
     }
 
-    var githubPeopleLastSyncedAt: Date? {
-        get { defaults.object(forKey: Keys.githubPeopleLastSyncedAt) as? Date }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.githubPeopleLastSyncedAt)
-        }
-    }
-
-    var cloudLibrarySyncEnabled: Bool {
-        get { defaults.bool(forKey: Self.cloudLibrarySyncEnabledKey) }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue, forKey: Self.cloudLibrarySyncEnabledKey)
-        }
-    }
-
-    var cloudLibraryLastPublishedAt: Date? {
-        get { defaults.object(forKey: Keys.cloudLibraryLastPublishedAt) as? Date }
-        set {
-            objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.cloudLibraryLastPublishedAt)
-        }
-    }
-
-    var defaultWebLibraryExportFolderURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
-            .appendingPathComponent("Shared Library Web", isDirectory: true)
-    }
-
-    var webLibraryExportFolderURL: URL {
+    var sharedGoogleDriveFolderID: String? {
         get {
-            let path = defaults.string(forKey: Keys.webLibraryExportFolderPath) ?? ""
-            guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return defaultWebLibraryExportFolderURL
-            }
-            return URL(
-                fileURLWithPath: NSString(string: path).expandingTildeInPath,
-                isDirectory: true
+            let value = defaults.string(forKey: Keys.sharedGoogleDriveFolderID) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        set {
+            objectWillChange.send()
+            defaults.set(
+                newValue.flatMap(Self.googleDriveFolderID(from:)),
+                forKey: Keys.sharedGoogleDriveFolderID
             )
         }
+    }
+
+    static func googleDriveFolderID(from value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let candidate: String
+        if let url = URL(string: trimmed),
+           let foldersIndex = url.pathComponents.firstIndex(of: "folders"),
+           url.pathComponents.indices.contains(foldersIndex + 1) {
+            candidate = url.pathComponents[foldersIndex + 1]
+        } else {
+            candidate = trimmed
+        }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        guard (10...256).contains(candidate.count),
+              candidate.unicodeScalars.allSatisfy(allowed.contains) else {
+            return nil
+        }
+        return candidate
+    }
+
+    var repositorySnapshotLastUpdatedAt: Date? {
+        get { defaults.object(forKey: Keys.repositorySnapshotLastUpdatedAt) as? Date }
         set {
             objectWillChange.send()
-            defaults.set(newValue.path, forKey: Keys.webLibraryExportFolderPath)
+            defaults.set(newValue, forKey: Keys.repositorySnapshotLastUpdatedAt)
         }
     }
 
-    var webLibraryExportEnabled: Bool {
-        get { defaults.bool(forKey: Self.webLibraryExportEnabledKey) }
+    var githubAppClientID: String {
+        get {
+            Self.bundledConfigurationValue(forKey: Self.githubAppClientIDInfoKey)
+                ?? defaults.string(forKey: Self.githubAppClientIDKey)
+                ?? ""
+        }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Self.webLibraryExportEnabledKey)
+            defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines),
+                         forKey: Self.githubAppClientIDKey)
         }
     }
 
-    var webLibraryLastExportedAt: Date? {
-        get { defaults.object(forKey: Keys.webLibraryLastExportedAt) as? Date }
+    var githubAppInstallURL: URL? {
+        guard let value = Self.bundledConfigurationValue(forKey: Self.githubAppInstallURLInfoKey) else {
+            return nil
+        }
+        return URL(string: value)
+    }
+
+    var googleDriveDesktopClientID: String {
+        get {
+            Self.bundledConfigurationValue(forKey: Self.googleDriveDesktopClientIDInfoKey)
+                ?? defaults.string(forKey: Self.googleDriveDesktopClientIDKey)
+                ?? ""
+        }
         set {
             objectWillChange.send()
-            defaults.set(newValue, forKey: Keys.webLibraryLastExportedAt)
+            defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines),
+                         forKey: Self.googleDriveDesktopClientIDKey)
         }
+    }
+
+    var googleDriveDesktopClientSecret: String {
+        Self.bundledConfigurationValue(forKey: Self.googleDriveDesktopClientSecretInfoKey)
+            ?? ""
+    }
+
+    private static func bundledConfigurationValue(forKey key: String) -> String? {
+        guard let rawValue = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return nil
+        }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+        return value
     }
 
     var libraryFolderURL: URL {

@@ -83,22 +83,6 @@ private enum WorkspaceTheme {
     }
 }
 
-private enum LibraryViewMode: String, CaseIterable, Identifiable {
-    case recent
-    case topics
-    case people
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .recent: return "Recent"
-        case .topics: return "Topics"
-        case .people: return "People"
-        }
-    }
-}
-
 private struct DocumentVariant: Identifiable {
     var title: String
     var target: URL
@@ -106,19 +90,13 @@ private struct DocumentVariant: Identifiable {
     var id: URL { target }
 }
 
-private struct SharingSheetTarget: Identifiable {
-    var sourceURL: URL
-    var id: URL { sourceURL }
-}
-
 struct SharedLibraryWorkspaceView: View {
     @EnvironmentObject var env: AppEnvironment
 
     @AppStorage("libraryMarkdownMode") private var libraryMarkdownMode = "markdown"
     @AppStorage("libraryDarkMode") private var libraryDarkMode = false
-    @State private var libraryViewModeRaw = LibraryViewMode.recent.rawValue
+    @AppStorage("librarySelectedTopicID") private var selectedTopicID = "all"
     @State private var knowledgeSnapshot = KnowledgeSnapshot.empty
-    @State private var expandedItems: Set<String> = []
     @State private var selectedURL: URL?
     @State private var editorText = ""
     @State private var selectedMarkdownDocument = MarkdownDocument.parse("")
@@ -132,9 +110,6 @@ struct SharedLibraryWorkspaceView: View {
     @State private var copyFeedbackGeneration = 0
     @State private var knowledgeRefreshTask: Task<Void, Never>?
     @State private var documentSyncTask: Task<Void, Never>?
-    @State private var sharingRevision = 0
-    @State private var selectedPersonID: String?
-    @State private var sharingSheetTarget: SharingSheetTarget?
 
     private let sidebarWidth: CGFloat = 305
     private let outerInset: CGFloat = 12
@@ -170,35 +145,17 @@ struct SharedLibraryWorkspaceView: View {
         .onAppear(perform: loadWorkspace)
         .onReceive(NotificationCenter.default.publisher(for: .libraryDidChange)) { _ in
             reloadTreePreservingSelection()
-            env.peopleStore.reloadFromDisk()
         }
         .onReceive(NotificationCenter.default.publisher(for: .processingDidFail)) { notification in
             errorMessage = notification.userInfo?["message"] as? String
                 ?? "The capture could not be processed."
         }
-        .onReceive(env.peopleStore.$people) { people in
-            sharingRevision += 1
-            if selectedPersonID.flatMap({ id in people.first { $0.githubID == id } }) == nil {
-                selectedPersonID = people.first?.githubID
-            }
+        .onChange(of: selectedTopicID) { _, _ in
+            selectFirstRecordIfCurrentSelectionIsFilteredOut()
         }
         .onDisappear {
             knowledgeRefreshTask?.cancel()
             documentSyncTask?.cancel()
-        }
-        .sheet(item: $sharingSheetTarget) { target in
-            SharePeopleSheet(
-                peopleStore: env.peopleStore,
-                sourceURL: target.sourceURL,
-                existingReference: sharingReference(for: target.sourceURL),
-                isShared: isCaptureShared(target.sourceURL),
-                onSave: { recipients in
-                    saveSharing(for: target.sourceURL, recipients: recipients)
-                },
-                onUnshare: {
-                    unshareCapture(target.sourceURL, reason: "capture unshared")
-                }
-            )
         }
     }
 
@@ -273,29 +230,14 @@ struct SharedLibraryWorkspaceView: View {
             searchControls
                 .padding(.horizontal, 22)
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        if libraryViewMode == .people {
-                            ForEach(visiblePeople) { person in
-                                peopleSidebarRow(person)
-                            }
-                        } else {
-                            ForEach(visibleTreeItems) { item in
-                                fileTreeRows(item)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                }
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        if libraryViewMode == .recent {
-                            proxy.scrollTo(WorkspaceItem.virtualID("main"), anchor: .top)
-                        }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(visibleTreeItems) { item in
+                        fileTreeRow(item)
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
             }
 
             sidebarFloatingCommands
@@ -331,7 +273,6 @@ struct SharedLibraryWorkspaceView: View {
                     action: launchAgent
                 )
             }
-            GitSyncSidebarStatus(coordinator: env.gitSyncCoordinator)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -350,47 +291,71 @@ struct SharedLibraryWorkspaceView: View {
                         .stroke(WorkspaceTheme.hairline, lineWidth: 0.9)
                 )
 
-            libraryModePicker
+            topicBadges
         }
     }
 
-    private var libraryModePicker: some View {
-        HStack(spacing: 0) {
-            ForEach(LibraryViewMode.allCases) { mode in
-                Button {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        libraryViewModeRaw = mode.rawValue
+    private var topicBadges: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    topicBadge(id: "all", title: "All")
+
+                    ForEach(availableTopics) { topic in
+                        topicBadge(id: topic.id, title: topic.title)
                     }
-                    if mode == .people, selectedPersonID == nil {
-                        selectedPersonID = env.peopleStore.people.first?.githubID
-                    }
-                } label: {
-                    Text(mode.title)
-                        .font(.system(size: 13, weight: libraryViewMode == mode ? .semibold : .regular))
-                        .foregroundStyle(libraryViewMode == mode ? Color.white.opacity(0.96) : WorkspaceTheme.secondaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background {
-                            if libraryViewMode == mode {
-                                Capsule(style: .continuous)
-                                    .fill(WorkspaceTheme.activeGray)
-                                    .overlay(
-                                        Capsule(style: .continuous)
-                                            .stroke(WorkspaceTheme.hairline, lineWidth: 0.65)
-                                    )
-                            }
-                        }
-                        .contentShape(Capsule(style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 1)
+                .padding(.vertical, 2)
+            }
+            .onAppear {
+                proxy.scrollTo(selectedTopicID, anchor: .center)
+            }
+            .onChange(of: selectedTopicID) { _, topicID in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    proxy.scrollTo(topicID, anchor: .center)
+                }
             }
         }
-        .padding(2)
-        .frame(height: 35)
-        .background(WorkspaceTheme.controlFill.opacity(0.48), in: Capsule(style: .continuous))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(WorkspaceTheme.hairline, lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+    }
+
+    private func topicBadge(id: String, title: String) -> some View {
+        let isSelected = selectedTopicID == id
+
+        return Button {
+            selectedTopicID = id
+        } label: {
+            Text(title)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                .lineLimit(1)
+                .foregroundStyle(
+                    isSelected
+                        ? WorkspaceTheme.primaryText
+                        : WorkspaceTheme.secondaryText
+                )
+                .padding(.horizontal, 11)
+                .frame(height: 28)
+                .background(
+                    isSelected
+                        ? WorkspaceTheme.selectionFill
+                        : WorkspaceTheme.controlFill.opacity(0.48),
+                    in: Capsule(style: .continuous)
+                )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(
+                            WorkspaceTheme.hairline.opacity(isSelected ? 0.90 : 0.55),
+                            lineWidth: 0.8
+                        )
+                )
+                .contentShape(Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .id(id)
+        .accessibilityLabel("\(title) topic")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var searchInput: some View {
@@ -453,71 +418,16 @@ struct SharedLibraryWorkspaceView: View {
         .help(title)
     }
 
-    private func peopleSidebarRow(_ person: SharedPerson) -> some View {
-        Button {
-            selectedPersonID = person.githubID
-        } label: {
-            HStack(spacing: 10) {
-                Text(initials(for: person))
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(WorkspaceTheme.primaryText)
-                    .frame(width: 28, height: 28)
-                    .background(WorkspaceTheme.controlFill, in: Circle())
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(person.displayName)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
-                    Text("@\(person.login)")
-                        .font(.system(size: 10))
-                        .foregroundStyle(WorkspaceTheme.tertiaryText)
-                        .lineLimit(1)
-                }
-                Spacer()
-            }
-            .foregroundStyle(WorkspaceTheme.primaryText)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 42)
-            .background {
-                if selectedPersonID == person.githubID {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(WorkspaceTheme.selectionFill)
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func initials(for person: SharedPerson) -> String {
-        let words = person.displayName.split(whereSeparator: { $0.isWhitespace })
-        let letters = words.prefix(2).compactMap(\.first)
-        let value = String(letters)
-        return value.isEmpty ? String(person.login.prefix(2)).uppercased() : value.uppercased()
-    }
-
-    private func fileTreeRows(_ item: WorkspaceItem) -> AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 2) {
-                FileTreeRow(
-                    item: item,
-                    isExpanded: expandedItems.contains(item.id),
-                    isSelected: isWorkspaceItemSelected(item),
-                    onToggle: { toggle(item) },
-                    onSelect: { select(item.url) }
-                )
-                .contextMenu {
-                    fileContextMenu(for: item)
-                }
-
-                if item.isDirectory, expandedItems.contains(item.id) {
-                    ForEach(item.children) { child in
-                        fileTreeRows(child)
-                    }
-                }
-            }
-            .id(item.id)
+    private func fileTreeRow(_ item: WorkspaceItem) -> some View {
+        FileTreeRow(
+            item: item,
+            isSelected: isWorkspaceItemSelected(item),
+            onSelect: { select(item.url) }
         )
+        .contextMenu {
+            fileContextMenu(for: item)
+        }
+        .id(item.id)
     }
 
     private func isWorkspaceItemSelected(_ item: WorkspaceItem) -> Bool {
@@ -525,163 +435,33 @@ struct SharedLibraryWorkspaceView: View {
         if selectedURL.standardizedFileURL == item.url.standardizedFileURL {
             return true
         }
-        guard item.isRecordAlias, let selectedCaptureSourceURL else { return false }
+        guard let selectedCaptureSourceURL else { return false }
         return selectedCaptureSourceURL.standardizedFileURL == item.url.standardizedFileURL
     }
 
     @ViewBuilder
     private func fileContextMenu(for item: WorkspaceItem) -> some View {
-        if item.isVirtualFolder {
-            EmptyView()
-        } else {
-            if let sourceURL = captureSourceURL(for: item.url) {
-                if isCaptureShared(sourceURL) {
-                    Button("Edit Sharing...") {
-                        presentSharingSheet(for: sourceURL)
-                    }
-                    Button("Unshare", role: .destructive) {
-                        unshareCapture(sourceURL, reason: "capture unshared")
-                    }
-                } else {
-                    Button("Share...") {
-                        presentSharingSheet(for: sourceURL)
-                    }
-                }
-                Divider()
-            }
-            Button("Copy Path") {
-                copyPath(item.url)
-            }
-            Button("Reveal in Finder") {
-                reveal(item.url)
+        if let sourceURL = captureSourceURL(for: item.url) {
+            Button("Create Share Link…") {
+                openSharePublisher(for: sourceURL)
             }
             Divider()
-            Button("Move to Trash", role: .destructive) {
-                moveCaptureToTrash(item.url)
-            }
+        }
+        Button("Copy Path") {
+            copyPath(item.url)
+        }
+        Button("Reveal in Finder") {
+            reveal(item.url)
+        }
+        Divider()
+        Button("Move to Trash", role: .destructive) {
+            moveCaptureToTrash(item.url)
         }
     }
 
     private var contentPane: some View {
-        Group {
-            if libraryViewMode == .people {
-                peopleContentPane
-            } else {
-                editorPane
-            }
-        }
+        editorPane
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var peopleContentPane: some View {
-        Group {
-            if let selectedPerson {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 16) {
-                        Text(initials(for: selectedPerson))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(WorkspaceTheme.primaryText)
-                            .frame(width: 54, height: 54)
-                            .background(WorkspaceTheme.controlFill, in: Circle())
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(selectedPerson.displayName)
-                                .font(.system(size: 24, weight: .semibold))
-                                .foregroundStyle(WorkspaceTheme.primaryText)
-                            Text("@\(selectedPerson.login)")
-                                .font(.system(size: 13))
-                                .foregroundStyle(WorkspaceTheme.secondaryText)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 36)
-                    .padding(.top, 38)
-                    .padding(.bottom, 24)
-
-                    Rectangle()
-                        .fill(WorkspaceTheme.hairline.opacity(0.72))
-                        .frame(height: 1)
-
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 28) {
-                            peopleReferenceSection(
-                                title: "Shared",
-                                emptyMessage: "Nothing shared by this person.",
-                                references: references(for: selectedPerson, direction: .shared)
-                            )
-                            peopleReferenceSection(
-                                title: "Shared With",
-                                emptyMessage: "Nothing has been tagged for this person.",
-                                references: references(for: selectedPerson, direction: .sharedWith)
-                            )
-                        }
-                        .padding(36)
-                    }
-                }
-            } else {
-                ContentUnavailableView(
-                    "No People",
-                    systemImage: "person.3",
-                    description: Text("Use Settings → People to sync the GitHub organization roster.")
-                )
-            }
-        }
-        .background(documentPanelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-    }
-
-    private func peopleReferenceSection(
-        title: String,
-        emptyMessage: String,
-        references: [SharedCaptureReference]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(WorkspaceTheme.primaryText)
-                Text("\(references.count)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(WorkspaceTheme.tertiaryText)
-            }
-
-            if references.isEmpty {
-                Text(emptyMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(WorkspaceTheme.tertiaryText)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(references) { reference in
-                    Button {
-                        revealSharedReference(reference)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "doc.text")
-                                .foregroundStyle(WorkspaceTheme.secondaryText)
-                            Text(referenceDisplayName(reference))
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(WorkspaceTheme.primaryText)
-                                .lineLimit(1)
-                            Spacer()
-                            Image(systemName: "arrow.right.circle")
-                                .foregroundStyle(WorkspaceTheme.tertiaryText)
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(height: 42)
-                        .background(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .fill(WorkspaceTheme.controlFill.opacity(0.56))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .stroke(WorkspaceTheme.hairline, lineWidth: 0.8)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help("Reveal shared document in Finder")
-                }
-            }
-        }
     }
 
     private var editorPane: some View {
@@ -866,11 +646,10 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private func sharingButton(for sourceURL: URL) -> some View {
-        let isShared = isCaptureShared(sourceURL)
         return Button {
-            presentSharingSheet(for: sourceURL)
+            openSharePublisher(for: sourceURL)
         } label: {
-            Image(systemName: isShared ? "person.2.fill" : "person.2")
+            Image(systemName: "link")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(WorkspaceTheme.primaryText.opacity(0.92))
                 .frame(width: 36, height: 36)
@@ -878,8 +657,8 @@ struct SharedLibraryWorkspaceView: View {
                 .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(isShared ? "Edit sharing and people tags" : "Share and tag people")
-        .accessibilityLabel(isShared ? "Edit capture sharing" : "Share capture")
+        .help("Create or update a share link")
+        .accessibilityLabel("Create share link")
     }
 
     private var rawEditor: some View {
@@ -931,110 +710,36 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private var visibleTreeItems: [WorkspaceItem] {
+        let records = filteredLibraryRecords.map(WorkspaceItem.recordAlias)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return collectionTreeItems }
-        return collectionTreeItems.compactMap { $0.filtered(matching: query) }
-    }
-
-    private var visiblePeople: [SharedPerson] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return env.peopleStore.people }
-        return env.peopleStore.people.filter {
-            $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.login.localizedCaseInsensitiveContains(query)
-        }
-    }
-
-    private var selectedPerson: SharedPerson? {
-        if let selectedPersonID,
-           let person = env.peopleStore.person(githubID: selectedPersonID) {
-            return person
-        }
-        return env.peopleStore.people.first
-    }
-
-    private func references(
-        for person: SharedPerson,
-        direction: SharedReferenceDirection
-    ) -> [SharedCaptureReference] {
-        (try? env.sharingStore.references(
-            for: person,
-            direction: direction,
-            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-        )) ?? []
-    }
-
-    private func referenceDisplayName(_ reference: SharedCaptureReference) -> String {
-        URL(fileURLWithPath: reference.contentPath)
-            .deletingPathExtension()
-            .lastPathComponent
-    }
-
-    private func revealSharedReference(_ reference: SharedCaptureReference) {
-        do {
-            let url = try env.sharingStore.sharedContentURL(
-                for: reference,
-                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-            )
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw SharingStoreError.missingCapture
-            }
-            reveal(url)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private var collectionTreeItems: [WorkspaceItem] {
-        if libraryViewMode == .topics {
-            return topicLibraryChildren
-        }
-        if libraryViewMode == .people {
-            return []
-        }
-
-        let library = WorkspaceItem.virtualFolder(
-            id: "main",
-            displayName: "Library",
-            systemImage: "clock",
-            badgeCount: libraryRecords.count,
-            children: recentLibraryChildren
-        )
-        return [library]
+        guard !query.isEmpty else { return records }
+        return records.compactMap { $0.filtered(matching: query) }
     }
 
     private var libraryRecords: [KnowledgeRecord] {
         knowledgeSnapshot.records
     }
 
-    private var recentLibraryChildren: [WorkspaceItem] {
-        libraryRecords.map(WorkspaceItem.recordAlias)
+    private var filteredLibraryRecords: [KnowledgeRecord] {
+        guard selectedTopicID != "all" else { return libraryRecords }
+        return libraryRecords.filter { $0.topicIDs.contains(selectedTopicID) }
     }
 
-    private var topicLibraryChildren: [WorkspaceItem] {
-        let sourceRecords = libraryRecords.filter { $0.typeID == "source" }
-        let topicNames = Dictionary(uniqueKeysWithValues: knowledgeSnapshot.topics.map { ($0.id, $0.title) })
-        let grouped = Dictionary(grouping: sourceRecords) { $0.topicIDs.first ?? "uncategorized" }
-        let folders = grouped.compactMap { topicID, records -> WorkspaceItem? in
-            guard topicID != "uncategorized" else { return nil }
-            let name = topicNames[topicID] ?? TaxonomyStore.titleized(topicID)
-            return WorkspaceItem.virtualFolder(
-                id: "topic:\(topicID)",
-                displayName: name,
-                systemImage: "folder",
-                badgeCount: records.count,
-                children: records.map(WorkspaceItem.recordAlias)
-            )
-        }
-        .sorted {
-            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
-        }
-
-        return folders
+    private var availableTopics: [TopicDefinition] {
+        let usedTopicIDs = Set(libraryRecords.flatMap(\.topicIDs))
+        return knowledgeSnapshot.topics
+            .filter { usedTopicIDs.contains($0.id) }
+            .sorted {
+                $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            }
     }
 
-    private var libraryViewMode: LibraryViewMode {
-        LibraryViewMode(rawValue: libraryViewModeRaw) ?? .recent
+    private func validateSelectedTopic() {
+        guard selectedTopicID == "all"
+                || availableTopics.contains(where: { $0.id == selectedTopicID }) else {
+            selectedTopicID = "all"
+            return
+        }
     }
 
     private var currentSelectedIsMarkdown: Bool {
@@ -1208,7 +913,6 @@ struct SharedLibraryWorkspaceView: View {
         do {
             try env.settings.ensureWorkspace()
             reloadTreePreservingSelection()
-            expandedItems.insert(WorkspaceItem.virtualID("main"))
             if selectedURL == nil {
                 selectInitialFile()
             }
@@ -1232,6 +936,7 @@ struct SharedLibraryWorkspaceView: View {
 
     private func refreshKnowledgeSnapshot() throws {
         knowledgeSnapshot = try env.knowledgeStore.snapshot(workspaceRootURL: env.settings.workspaceRootURL)
+        validateSelectedTopic()
     }
 
     private func scheduleKnowledgeRefresh() {
@@ -1246,17 +951,6 @@ struct SharedLibraryWorkspaceView: View {
                     errorMessage = error.localizedDescription
                 }
             }
-        }
-    }
-
-    private func toggle(_ item: WorkspaceItem) {
-        if expandedItems.contains(item.id) {
-            expandedItems.remove(item.id)
-        } else {
-            expandedItems.insert(item.id)
-        }
-        if !item.isDirectory {
-            select(item.url)
         }
     }
 
@@ -1339,7 +1033,6 @@ struct SharedLibraryWorkspaceView: View {
 
     private func saveSelectedText(_ text: String) {
         guard let selectedURL, !isDirectory(selectedURL) else { return }
-        let captureSourceURL = captureSourceURL(for: selectedURL)
         do {
             try text.write(to: selectedURL, atomically: true, encoding: .utf8)
             if selectedURL.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame {
@@ -1350,22 +1043,7 @@ struct SharedLibraryWorkspaceView: View {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    env.gitSyncCoordinator.requestAutomaticSync(reason: "document edited")
-                    guard let captureSourceURL,
-                          isCaptureShared(captureSourceURL) else { return }
-                    do {
-                        try env.sharingStore.shareCapture(
-                            at: captureSourceURL,
-                            privateWorkspaceURL: env.settings.workspaceRootURL,
-                            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-                        )
-                        sharingRevision += 1
-                        env.sharedGitSyncCoordinator.requestAutomaticSync(
-                            reason: "shared capture edited"
-                        )
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
+                    env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the edited library")
                 }
             }
         } catch {
@@ -1378,7 +1056,23 @@ struct SharedLibraryWorkspaceView: View {
     }
 
     private func selectInitialFile() {
-        guard let record = libraryRecords.first else { return }
+        guard let record = filteredLibraryRecords.first else { return }
+        select(record.fileURL)
+    }
+
+    private func selectFirstRecordIfCurrentSelectionIsFilteredOut() {
+        if let selectedCaptureSourceURL,
+           filteredLibraryRecords.contains(where: {
+               $0.fileURL.standardizedFileURL == selectedCaptureSourceURL.standardizedFileURL
+           }) {
+            return
+        }
+        guard let record = filteredLibraryRecords.first else {
+            selectedURL = nil
+            editorText = ""
+            updateDerivedDocumentState(for: "", isMarkdown: false)
+            return
+        }
         select(record.fileURL)
     }
 
@@ -1421,7 +1115,6 @@ struct SharedLibraryWorkspaceView: View {
 
     private func moveCaptureToTrash(_ url: URL) {
         let sourceURL = captureSourceURL(for: url) ?? url
-        let wasShared = isCaptureShared(sourceURL)
         do {
             try env.libraryStore.deleteCapture(
                 at: sourceURL,
@@ -1432,96 +1125,36 @@ struct SharedLibraryWorkspaceView: View {
             return
         }
 
-        var sharedRemovalError: Error?
-        if wasShared {
-            do {
-                try env.sharingStore.unshareCapture(
-                    at: sourceURL,
-                    privateWorkspaceURL: env.settings.workspaceRootURL,
-                    sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-                )
-                sharingRevision += 1
-                env.peopleStore.reloadFromDisk()
-                env.sharedGitSyncCoordinator.requestAutomaticSync(
-                    reason: "shared capture deleted"
-                )
-            } catch {
-                sharedRemovalError = error
-            }
-        }
-
         reloadTreePreservingSelection()
         if selectedCaptureSourceURL == sourceURL || selectedURL == url {
             selectedURL = nil
             editorText = ""
             updateDerivedDocumentState(for: "", isMarkdown: false)
         }
-        env.gitSyncCoordinator.requestAutomaticSync(reason: "capture deleted")
-        if let sharedRemovalError {
-            errorMessage = "The private capture was deleted, but its shared copy could not be removed. \(sharedRemovalError.localizedDescription)"
-        }
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the updated library")
     }
 
-    private func isCaptureShared(_ sourceURL: URL) -> Bool {
-        _ = sharingRevision
-        return env.sharingStore.isShared(
-            captureAt: sourceURL,
-            privateWorkspaceURL: env.settings.workspaceRootURL,
-            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-        )
-    }
-
-    private func sharingReference(for sourceURL: URL) -> SharedCaptureReference? {
-        try? env.sharingStore.sharingReference(
-            for: sourceURL,
-            privateWorkspaceURL: env.settings.workspaceRootURL,
-            sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-        )
-    }
-
-    private func presentSharingSheet(for sourceURL: URL) {
-        sharingSheetTarget = SharingSheetTarget(sourceURL: sourceURL)
-    }
-
-    private func saveSharing(for sourceURL: URL, recipients: [SharedPerson]) {
-        guard let currentUser = env.peopleStore.currentUser else {
-            errorMessage = "Sync people from GitHub in Settings before sharing."
+    private func openSharePublisher(for sourceURL: URL) {
+        guard let record = knowledgeSnapshot.records.first(where: {
+            $0.fileURL.standardizedFileURL == sourceURL.standardizedFileURL
+        }),
+        let captureID = record.captureID,
+        !captureID.isEmpty else {
+            errorMessage = "This document needs a capture ID before it can be shared."
             return
         }
-        do {
-            try env.sharingStore.shareCapture(
-                at: sourceURL,
-                privateWorkspaceURL: env.settings.workspaceRootURL,
-                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-            )
-            try env.sharingStore.tagSharedCapture(
-                at: sourceURL,
-                privateWorkspaceURL: env.settings.workspaceRootURL,
-                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL,
-                sharedBy: currentUser,
-                sharedWith: recipients
-            )
-            sharingRevision += 1
-            env.peopleStore.reloadFromDisk()
-            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: "capture sharing updated")
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
 
-    private func unshareCapture(_ sourceURL: URL, reason: String) {
-        do {
-            try env.sharingStore.unshareCapture(
-                at: sourceURL,
-                privateWorkspaceURL: env.settings.workspaceRootURL,
-                sharedWorkspaceURL: env.settings.sharedWorkspaceRootURL
-            )
-            sharingRevision += 1
-            env.peopleStore.reloadFromDisk()
-            env.sharedGitSyncCoordinator.requestAutomaticSync(reason: reason)
-        } catch {
-            errorMessage = error.localizedDescription
+        env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the document to share")
+        var components = URLComponents(
+            url: AppSettings.sharedWebAppURL,
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "publish", value: captureID)]
+        guard let url = components?.url else {
+            errorMessage = "The share-link page could not be opened."
+            return
         }
+        NSWorkspace.shared.open(url)
     }
 
     private func isDirectory(_ url: URL) -> Bool {
@@ -1529,9 +1162,139 @@ struct SharedLibraryWorkspaceView: View {
     }
 }
 
+private struct SharedInboxSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let items: [SharedInboxItem]
+    let onSave: (SharedInboxItem) -> Void
+    let onDismiss: (SharedInboxItem) -> Void
+
+    @State private var selectedID: String?
+    @State private var selectedText = ""
+
+    private var selectedItem: SharedInboxItem? {
+        items.first(where: { $0.id == selectedID }) ?? items.first
+    }
+
+    var body: some View {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Inbox", systemImage: "tray.full")
+                        .font(.title2.weight(.semibold))
+                    Spacer()
+                    Text("\(items.count)")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+
+                if items.isEmpty {
+                    ContentUnavailableView(
+                        "Inbox is empty",
+                        systemImage: "tray",
+                        description: Text("Items shared with your username will appear here.")
+                    )
+                } else {
+                    List(items, selection: $selectedID) { item in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title)
+                                .font(.headline)
+                                .lineLimit(2)
+                            HStack(spacing: 5) {
+                                if let username = item.sharedByUsername {
+                                    Text("From @\(username)")
+                                }
+                                Text(item.reference.sharedAt, style: .date)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 5)
+                        .tag(item.id)
+                    }
+                    .listStyle(.sidebar)
+                }
+            }
+            .frame(minWidth: 270, idealWidth: 310)
+
+            Group {
+                if let item = selectedItem {
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            Text(item.title)
+                                .font(.largeTitle.weight(.semibold))
+                            if let username = item.sharedByUsername {
+                                Text("Shared by @\(username)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !item.excerpt.isEmpty {
+                                Text(item.excerpt)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(3)
+                            }
+                        }
+
+                        Divider()
+
+                        ScrollView {
+                            Text(selectedText)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                                .padding(.vertical, 4)
+                        }
+
+                        Divider()
+
+                        HStack {
+                            Button("Dismiss", role: .destructive) {
+                                onDismiss(item)
+                            }
+                            Spacer()
+                            Button("Save to Library") {
+                                onSave(item)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(24)
+                    .task(id: item.id) {
+                        selectedText = previewText(for: item)
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "No shared item selected",
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                }
+            }
+            .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 900, height: 620)
+        .onAppear {
+            selectedID = selectedID ?? items.first?.id
+            if let item = selectedItem {
+                selectedText = previewText(for: item)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private func previewText(for item: SharedInboxItem) -> String {
+        let preferred = item.summaryURLs.first(where: {
+            $0.deletingLastPathComponent().lastPathComponent
+                == SummaryDetailLevel.brief.storageDirectoryName
+        }) ?? item.summaryURLs.first ?? item.sourceURL
+        return (try? String(contentsOf: preferred, encoding: .utf8)) ?? item.excerpt
+    }
+}
+
 private struct SharePeopleSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var peopleStore: GitHubPeopleStore
+    @ObservedObject var peopleStore: PeopleStore
     let sourceURL: URL
     let existingReference: SharedCaptureReference?
     let isShared: Bool
@@ -1542,7 +1305,7 @@ private struct SharePeopleSheet: View {
     @State private var selectedIDs: Set<String>
 
     init(
-        peopleStore: GitHubPeopleStore,
+        peopleStore: PeopleStore,
         sourceURL: URL,
         existingReference: SharedCaptureReference?,
         isShared: Bool,
@@ -1570,20 +1333,17 @@ private struct SharePeopleSheet: View {
             }
 
             if let currentUser = peopleStore.currentUser {
-                LabeledContent("Shared by", value: "\(currentUser.displayName) (@\(currentUser.login))")
+                LabeledContent("Shared by", value: "@\(currentUser.username)")
 
-                TextField("Search people", text: $searchText)
+                TextField("Search usernames", text: $searchText)
                     .textFieldStyle(.roundedBorder)
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(filteredPeople) { person in
-                            Toggle(isOn: selectionBinding(for: person.githubID)) {
+                            Toggle(isOn: selectionBinding(for: person.userID)) {
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(person.displayName)
-                                    Text("@\(person.login)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("@\(person.username)")
                                 }
                             }
                             .toggleStyle(.checkbox)
@@ -1599,9 +1359,9 @@ private struct SharePeopleSheet: View {
                 )
             } else {
                 ContentUnavailableView(
-                    "People Not Synced",
+                    "Username Required",
                     systemImage: "person.3",
-                    description: Text("Use Settings → People → Sync People from GitHub first.")
+                    description: Text("Choose your username in Settings → People before sharing.")
                 )
                 .frame(minHeight: 330)
             }
@@ -1616,7 +1376,7 @@ private struct SharePeopleSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }
                 Button(isShared ? "Save" : "Share") {
-                    let recipients = peopleStore.people.filter { selectedIDs.contains($0.githubID) }
+                    let recipients = peopleStore.people.filter { selectedIDs.contains($0.userID) }
                     onSave(recipients)
                     dismiss()
                 }
@@ -1630,24 +1390,23 @@ private struct SharePeopleSheet: View {
 
     private var filteredPeople: [SharedPerson] {
         let candidates = peopleStore.people.filter {
-            $0.githubID != peopleStore.currentUser?.githubID
+            $0.userID != peopleStore.currentUser?.userID
         }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return candidates }
         return candidates.filter {
-            $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.login.localizedCaseInsensitiveContains(query)
+            $0.username.localizedCaseInsensitiveContains(query)
         }
     }
 
-    private func selectionBinding(for githubID: String) -> Binding<Bool> {
+    private func selectionBinding(for userID: String) -> Binding<Bool> {
         Binding(
-            get: { selectedIDs.contains(githubID) },
+            get: { selectedIDs.contains(userID) },
             set: { isSelected in
                 if isSelected {
-                    selectedIDs.insert(githubID)
+                    selectedIDs.insert(userID)
                 } else {
-                    selectedIDs.remove(githubID)
+                    selectedIDs.remove(userID)
                 }
             }
         )
@@ -1924,96 +1683,40 @@ private struct PaperGrain: View {
 
 private struct FileTreeRow: View {
     let item: WorkspaceItem
-    let isExpanded: Bool
     let isSelected: Bool
-    let onToggle: () -> Void
     let onSelect: () -> Void
 
     var body: some View {
-        Button {
-            item.isDirectory ? onToggle() : onSelect()
-        } label: {
-            Group {
-                if item.isLibrarySection {
-                    librarySectionRow
-                } else {
-                    standardRow
-                }
-            }
+        Button(action: onSelect) {
+            standardRow
         }
         .buttonStyle(.plain)
     }
 
-    private var librarySectionRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 12)
-                .foregroundStyle(WorkspaceTheme.secondaryText)
-
-            Text(item.displayName.uppercased())
-                .font(.system(size: 11, weight: .medium))
-                .kerning(3.5)
-                .foregroundStyle(WorkspaceTheme.secondaryText)
-
-            Spacer(minLength: 8)
-
-            badge
-        }
-        .frame(height: 38)
-        .padding(.horizontal, 12)
-        .contentShape(Rectangle())
-    }
-
     private var standardRow: some View {
         HStack(spacing: 8) {
-            if item.isDirectory {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 12)
-                    .foregroundStyle(WorkspaceTheme.secondaryText)
-            } else {
-                Spacer()
-                    .frame(width: 12)
-            }
+            Spacer()
+                .frame(width: 12)
 
             if let systemImage = item.systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 16)
-                    .foregroundStyle(item.isVirtualFolder ? WorkspaceTheme.secondaryText : WorkspaceTheme.secondaryText.opacity(0.78))
+                    .foregroundStyle(WorkspaceTheme.secondaryText.opacity(0.78))
             }
 
             Text(item.displayName)
-                .font(.system(size: item.isRecordAlias ? 15 : 16, weight: isSelected ? .medium : .regular))
+                .font(.system(size: 15, weight: isSelected ? .medium : .regular))
                 .lineLimit(1)
-                .truncationMode(item.isRecordAlias ? .tail : .middle)
+                .truncationMode(.tail)
 
             Spacer(minLength: 0)
-
-            badge
         }
         .foregroundStyle(isSelected ? WorkspaceTheme.primaryText : WorkspaceTheme.primaryText.opacity(0.82))
         .frame(height: 37)
         .padding(.horizontal, 12)
         .background(selectionBackground)
         .contentShape(Rectangle())
-    }
-
-    @ViewBuilder
-    private var badge: some View {
-        if let badgeCount = item.badgeCount {
-            Text("\(badgeCount)")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(WorkspaceTheme.secondaryText)
-                .padding(.horizontal, 8)
-                .frame(minHeight: 20)
-                .background(WorkspaceTheme.controlFill.opacity(0.78), in: Capsule(style: .continuous))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(WorkspaceTheme.hairline.opacity(0.55), lineWidth: 0.65)
-                )
-        }
     }
 
     @ViewBuilder
@@ -2026,114 +1729,23 @@ private struct FileTreeRow: View {
 }
 
 private struct WorkspaceItem: Identifiable, Hashable {
-    private enum Kind: Hashable {
-        case virtualFolder
-        case recordAlias
-    }
-
     let url: URL
     let displayName: String
-    let isDirectory: Bool
-    let children: [WorkspaceItem]
-    private let kind: Kind
-    private let identity: String?
+    let identity: String
     let systemImage: String?
-    let badgeCount: Int?
 
-    var id: String { identity ?? url.path }
-    var isVirtualFolder: Bool { kind == .virtualFolder }
-    var isRecordAlias: Bool { kind == .recordAlias }
-    var isLibrarySection: Bool { id == Self.virtualID("main") }
-
-    private init(
-        url: URL,
-        displayName: String,
-        isDirectory: Bool,
-        children: [WorkspaceItem],
-        kind: Kind,
-        identity: String? = nil,
-        systemImage: String? = nil,
-        badgeCount: Int? = nil
-    ) {
-        self.url = url
-        self.displayName = displayName
-        self.isDirectory = isDirectory
-        self.children = children
-        self.kind = kind
-        self.identity = identity
-        self.systemImage = systemImage
-        self.badgeCount = badgeCount
-    }
-
-    static func virtualID(_ value: String) -> String {
-        "virtual:\(value)"
-    }
-
-    static func virtualFolder(
-        id: String,
-        displayName: String,
-        systemImage: String,
-        badgeCount: Int,
-        children: [WorkspaceItem]
-    ) -> WorkspaceItem {
-        WorkspaceItem(
-            url: URL(fileURLWithPath: "/__sharedlibrary_virtual__/\(id)"),
-            displayName: displayName,
-            isDirectory: true,
-            children: children,
-            kind: .virtualFolder,
-            identity: virtualID(id),
-            systemImage: systemImage,
-            badgeCount: badgeCount
-        )
-    }
+    var id: String { identity }
 
     static func recordAlias(_ record: KnowledgeRecord) -> WorkspaceItem {
         WorkspaceItem(
             url: record.fileURL,
             displayName: record.title,
-            isDirectory: false,
-            children: [],
-            kind: .recordAlias,
             identity: "virtual:record:\(record.id)",
-            systemImage: "doc.text",
-            badgeCount: nil
+            systemImage: "doc.text"
         )
     }
 
-    func filtered(matching query: String, including allowedFilePaths: Set<String>? = nil) -> WorkspaceItem? {
-        let queryIsEmpty = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let matchesQuery = queryIsEmpty || displayName.localizedCaseInsensitiveContains(query)
-
-        if !isDirectory {
-            let matchesTopic = allowedFilePaths?.contains(url.standardizedFileURL.path) ?? true
-            return matchesQuery && matchesTopic ? self : nil
-        }
-
-        let matchingChildren = children.compactMap {
-            $0.filtered(matching: query, including: allowedFilePaths)
-        }
-
-        if allowedFilePaths != nil {
-            guard !matchingChildren.isEmpty else { return nil }
-            return replacingChildren(matchingChildren)
-        }
-
-        guard matchesQuery || !matchingChildren.isEmpty else { return nil }
-        return replacingChildren(matchesQuery ? children : matchingChildren)
+    func filtered(matching query: String) -> WorkspaceItem? {
+        displayName.localizedCaseInsensitiveContains(query) ? self : nil
     }
-
-    private func replacingChildren(_ children: [WorkspaceItem]) -> WorkspaceItem {
-        WorkspaceItem(
-            url: url,
-            displayName: displayName,
-            isDirectory: isDirectory,
-            children: children,
-            kind: kind,
-            identity: identity,
-            systemImage: systemImage,
-            badgeCount: badgeCount
-        )
-    }
-
 }

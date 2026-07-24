@@ -21,7 +21,7 @@ struct CloudLibraryProjectionBuilder {
     func build(
         privateWorkspaceURL: URL,
         sharedWorkspaceURL: URL,
-        currentGitHubUserID: String?,
+        currentUserID: String?,
         generatedAt: Date = Date()
     ) throws -> CloudLibraryProjection {
         let personalSnapshot = try knowledgeStore.snapshot(workspaceRootURL: privateWorkspaceURL)
@@ -37,11 +37,11 @@ struct CloudLibraryProjectionBuilder {
             )
         }
 
-        if let currentGitHubUserID,
-           !currentGitHubUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let currentUserID,
+           !currentUserID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             entries.append(contentsOf: try sharedEntries(
                 sharedWorkspaceURL: sharedWorkspaceURL,
-                currentGitHubUserID: currentGitHubUserID
+                currentUserID: currentUserID
             ))
         }
 
@@ -58,13 +58,13 @@ struct CloudLibraryProjectionBuilder {
 
     private func sharedEntries(
         sharedWorkspaceURL: URL,
-        currentGitHubUserID: String
+        currentUserID: String
     ) throws -> [CloudLibraryEntryPayload] {
         let people = try peopleDirectoryStore.people(sharedWorkspaceURL: sharedWorkspaceURL)
-        guard let currentPerson = people.first(where: { $0.githubID == currentGitHubUserID }) else {
+        guard let currentPerson = people.first(where: { $0.userID == currentUserID }) else {
             return []
         }
-        let peopleByID = Dictionary(uniqueKeysWithValues: people.map { ($0.githubID, $0) })
+        let peopleByID = Dictionary(uniqueKeysWithValues: people.map { ($0.userID, $0) })
         let references = try sharingStore.references(
             for: currentPerson,
             direction: .sharedWith,
@@ -131,8 +131,8 @@ struct CloudLibraryProjectionBuilder {
             updatedAt: record.updatedAt,
             reviewedAt: record.reviewedAt,
             origin: origin,
-            sharedByGitHubID: sharedBy?.githubID,
-            sharedByDisplayName: sharedBy?.displayName,
+            sharedByUserID: sharedBy?.userID,
+            sharedByUsername: sharedBy?.username,
             texts: texts
         )
     }

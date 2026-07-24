@@ -1,66 +1,232 @@
 import Foundation
 
-enum WebLibraryExportState: Equatable {
+enum GoogleDriveLibraryState: Equatable {
     case idle
-    case disabled
-    case exporting(String)
+    case updating(String)
+    case upToDate(Date, Int, URL)
     case succeeded(Date, Int, URL)
-    case unavailable(String)
     case failed(String)
 
     var message: String {
         switch self {
         case .idle:
-            return "Ready to update the web library snapshot."
-        case .disabled:
-            return "Web library export is turned off."
-        case .exporting(let reason):
-            return "Updating \(reason)..."
+            return "Google Drive library synchronization is ready."
+        case .updating(let reason):
+            return "Synchronizing \(reason) with Google Drive..."
+        case .upToDate(let date, let count, _):
+            return "\(count) \(count == 1 ? "item is" : "items are") up to date as of \(date.formatted(date: .omitted, time: .shortened))."
         case .succeeded(let date, let count, _):
-            return "Exported \(count) \(count == 1 ? "item" : "items") at \(date.formatted(date: .omitted, time: .shortened))."
-        case .unavailable(let message), .failed(let message):
+            return "Synchronized \(count) \(count == 1 ? "item" : "items") at \(date.formatted(date: .omitted, time: .shortened))."
+        case .failed(let message):
             return message
         }
     }
 
     var isBusy: Bool {
-        if case .exporting = self { return true }
+        if case .updating = self { return true }
         return false
     }
 }
 
-struct WebLibrarySnapshotWriter {
-    static let fileName = "Shared Library Web.json"
+struct DriveLibraryMirror {
+    var index: DriveLibraryIndex
+    var indexData: Data
+    var indexHash: String
+    var files: [GoogleDriveWorkspaceFile]
+}
 
+struct DriveLibraryMirrorBuilder {
+    private let knowledgeStore: KnowledgeStore
+    private let projectionBuilder: CloudLibraryProjectionBuilder
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    init(
+        knowledgeStore: KnowledgeStore,
+        sharingStore: SharingStore,
+        fileManager: FileManager = .default
+    ) {
+        self.knowledgeStore = knowledgeStore
+        projectionBuilder = CloudLibraryProjectionBuilder(
+            knowledgeStore: knowledgeStore,
+            sharingStore: sharingStore,
+            fileManager: fileManager
+        )
         self.fileManager = fileManager
     }
 
-    @discardableResult
-    func write(_ projection: CloudLibraryProjection, to folderURL: URL) throws -> URL {
-        try fileManager.createDirectory(
-            at: folderURL,
-            withIntermediateDirectories: true
+    func build(workspaceURL: URL) throws -> DriveLibraryMirror {
+        let workspaceURL = workspaceURL.standardizedFileURL
+        let localFiles = try mirroredFiles(in: workspaceURL)
+        let filesByPath = Dictionary(uniqueKeysWithValues: localFiles.map { ($0.relativePath, $0) })
+        let snapshot = try knowledgeStore.snapshot(workspaceRootURL: workspaceURL)
+        let recordsByID = Dictionary(uniqueKeysWithValues: snapshot.records.map { record in
+            ("personal:\(record.captureID ?? record.fileURL.lastPathComponent)", record)
+        })
+        let projection = try projectionBuilder.build(
+            privateWorkspaceURL: workspaceURL,
+            sharedWorkspaceURL: workspaceURL,
+            currentUserID: nil
         )
-        let destinationURL = folderURL.appendingPathComponent(Self.fileName)
+
+        let entries = projection.entries.compactMap { entry -> DriveLibraryIndexEntry? in
+            guard let record = recordsByID[entry.id],
+                  let sourcePath = relativePath(for: record.fileURL, in: workspaceURL),
+                  let sourceFile = filesByPath[sourcePath] else {
+                return nil
+            }
+
+            let references = entry.texts.compactMap { payload -> DriveLibraryTextReference? in
+                let path: String?
+                if payload.variant == .source {
+                    path = sourcePath
+                } else {
+                    path = summaryPath(
+                        variant: payload.variant,
+                        filename: record.fileURL.lastPathComponent,
+                        filesByPath: filesByPath
+                    )
+                }
+                guard let path, let file = filesByPath[path] else { return nil }
+                return DriveLibraryTextReference(
+                    variant: payload.variant,
+                    path: path,
+                    contentHash: file.contentHash,
+                    wordCount: payload.wordCount
+                )
+            }
+
+            guard references.contains(where: { $0.variant == .source }),
+                  sourceFile.byteCount > 0 else {
+                return nil
+            }
+            return DriveLibraryIndexEntry(
+                id: entry.id,
+                captureID: entry.captureID,
+                title: entry.title,
+                excerpt: entry.excerpt,
+                topicIDs: entry.topicIDs,
+                topicNames: entry.topicNames,
+                tags: entry.tags,
+                sourceURL: entry.sourceURL,
+                createdAt: entry.createdAt,
+                updatedAt: entry.updatedAt,
+                reviewedAt: entry.reviewedAt,
+                origin: entry.origin,
+                sharedByUsername: entry.sharedByUsername,
+                texts: references.sorted {
+                    (CloudLibraryVariant.allCases.firstIndex(of: $0.variant) ?? .max)
+                        < (CloudLibraryVariant.allCases.firstIndex(of: $1.variant) ?? .max)
+                }
+            )
+        }
+
+        let generatedAt = localFiles.compactMap(\.modifiedAt).max() ?? Date()
+        let index = DriveLibraryIndex(
+            generatedAt: generatedAt,
+            files: localFiles.map {
+                DriveLibraryFileRecord(
+                    path: $0.relativePath,
+                    contentHash: $0.contentHash,
+                    byteCount: $0.byteCount
+                )
+            },
+            entries: entries
+        )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(projection).write(to: destinationURL, options: .atomic)
-        return destinationURL
+        let indexData = try encoder.encode(index)
+        return DriveLibraryMirror(
+            index: index,
+            indexData: indexData,
+            indexHash: CloudLibrarySchema.sha256(indexData),
+            files: localFiles.map(\.workspaceFile)
+        )
+    }
+
+    private func mirroredFiles(in workspaceURL: URL) throws -> [LocalMirrorFile] {
+        var urls = [URL]()
+        let topicsURL = workspaceURL.appendingPathComponent("topics.md")
+        if fileManager.fileExists(atPath: topicsURL.path) {
+            urls.append(topicsURL)
+        }
+
+        let libraryURL = workspaceURL.appendingPathComponent("library", isDirectory: true)
+        let keys: [URLResourceKey] = [
+            .isRegularFileKey,
+            .contentModificationDateKey
+        ]
+        if let enumerator = fileManager.enumerator(
+            at: libraryURL,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) {
+            for case let url as URL in enumerator {
+                guard url.pathExtension.localizedCaseInsensitiveCompare("md") == .orderedSame,
+                      try url.resourceValues(forKeys: Set(keys)).isRegularFile == true else {
+                    continue
+                }
+                urls.append(url)
+            }
+        }
+
+        return try urls.compactMap { url in
+            guard let relativePath = relativePath(for: url, in: workspaceURL) else { return nil }
+            let data = try Data(contentsOf: url)
+            let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
+            return LocalMirrorFile(
+                relativePath: relativePath,
+                data: data,
+                modifiedAt: values.contentModificationDate
+            )
+        }
+        .sorted { $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending }
+    }
+
+    private func summaryPath(
+        variant: CloudLibraryVariant,
+        filename: String,
+        filesByPath: [String: LocalMirrorFile]
+    ) -> String? {
+        let primary = "library/summaries/\(variant.rawValue)/\(filename)"
+        if filesByPath[primary] != nil { return primary }
+        let legacy = "library/summaries/\(filename)"
+        return variant == .concise && filesByPath[legacy] != nil ? legacy : nil
+    }
+
+    private func relativePath(for url: URL, in workspaceURL: URL) -> String? {
+        let path = url.standardizedFileURL.path
+        let root = workspaceURL.standardizedFileURL.path + "/"
+        guard path.hasPrefix(root) else { return nil }
+        return String(path.dropFirst(root.count))
+    }
+}
+
+private struct LocalMirrorFile {
+    var relativePath: String
+    var data: Data
+    var modifiedAt: Date?
+
+    var contentHash: String { CloudLibrarySchema.sha256(data) }
+    var byteCount: Int { data.count }
+    var workspaceFile: GoogleDriveWorkspaceFile {
+        GoogleDriveWorkspaceFile(
+            relativePath: relativePath,
+            data: data,
+            contentHash: contentHash,
+            contentType: "text/markdown"
+        )
     }
 }
 
 @MainActor
-final class WebLibraryExporter: ObservableObject {
-    @Published private(set) var state: WebLibraryExportState
+final class GoogleDriveLibraryPublisher: ObservableObject {
+    @Published private(set) var state = GoogleDriveLibraryState.idle
 
     private let settings: AppSettings
-    private let builder: CloudLibraryProjectionBuilder
-    private let writer: WebLibrarySnapshotWriter
-    private var exportTask: Task<Void, Never>?
+    private let builder: DriveLibraryMirrorBuilder
+    private let driveStore: GoogleDriveMediaStore
+    private var updateTask: Task<Void, Never>?
     private var scheduledTask: Task<Void, Never>?
     private var pendingReason: String?
 
@@ -68,115 +234,108 @@ final class WebLibraryExporter: ObservableObject {
         settings: AppSettings,
         knowledgeStore: KnowledgeStore,
         sharingStore: SharingStore,
-        writer: WebLibrarySnapshotWriter = WebLibrarySnapshotWriter()
+        driveStore: GoogleDriveMediaStore
     ) {
         self.settings = settings
-        builder = CloudLibraryProjectionBuilder(
+        builder = DriveLibraryMirrorBuilder(
             knowledgeStore: knowledgeStore,
             sharingStore: sharingStore
         )
-        self.writer = writer
-        state = settings.webLibraryExportEnabled ? .idle : .disabled
-    }
-
-    var exportFolderURL: URL {
-        settings.webLibraryExportFolderURL
+        self.driveStore = driveStore
     }
 
     var snapshotURL: URL {
-        exportFolderURL.appendingPathComponent(WebLibrarySnapshotWriter.fileName)
+        settings.workspaceRootURL
+            .appendingPathComponent(".shared-library", isDirectory: true)
+            .appendingPathComponent("index.json")
     }
 
-    func setEnabled(_ enabled: Bool) {
-        settings.webLibraryExportEnabled = enabled
-        if enabled {
-            state = .idle
-            requestAutomaticExport(reason: "the web library")
-        } else {
-            scheduledTask?.cancel()
-            pendingReason = nil
-            state = .disabled
-        }
-    }
-
-    func setExportFolder(_ url: URL) {
-        settings.webLibraryExportFolderURL = url
-        requestAutomaticExport(reason: "the web library in its new folder")
-    }
-
-    func requestAutomaticExport(reason: String) {
-        guard settings.webLibraryExportEnabled else {
-            state = .disabled
-            return
-        }
+    func requestAutomaticUpdate(reason: String) {
         pendingReason = reason
         scheduledTask?.cancel()
         scheduledTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self else { return }
             scheduledTask = nil
-            let reason = pendingReason ?? "the web library"
+            let reason = pendingReason ?? "the library"
             pendingReason = nil
-            startExport(reason: reason)
+            startUpdate(reason: reason)
         }
     }
 
-    func exportNow() {
+    func updateNow() {
         pendingReason = nil
         scheduledTask?.cancel()
         scheduledTask = nil
-        startExport(reason: "the web library")
+        startUpdate(reason: "the library")
     }
 
-    private func startExport(reason: String) {
-        guard settings.webLibraryExportEnabled else {
-            state = .disabled
-            return
-        }
-        guard exportTask == nil else {
+    private func startUpdate(reason: String) {
+        guard updateTask == nil else {
             pendingReason = reason
             return
         }
 
-        let iCloudDriveURL = settings.defaultWebLibraryExportFolderURL.deletingLastPathComponent()
-        if exportFolderURL.standardizedFileURL.path.hasPrefix(iCloudDriveURL.standardizedFileURL.path),
-           !FileManager.default.fileExists(atPath: iCloudDriveURL.path) {
-            state = .unavailable(
-                "iCloud Drive is unavailable. Enable it in System Settings or choose another export folder."
-            )
-            return
-        }
-
-        state = .exporting(reason)
-        let privateWorkspaceURL = settings.workspaceRootURL
-        let sharedWorkspaceURL = settings.sharedWorkspaceRootURL
-        let currentGitHubUserID = settings.currentGitHubUserID
-        let exportFolderURL = exportFolderURL
-        exportTask = Task { [weak self] in
+        state = .updating(reason)
+        let workspaceURL = settings.workspaceRootURL
+        updateTask = Task { [weak self] in
             guard let self else { return }
+            defer { finishUpdate() }
             do {
-                let projection = try builder.build(
-                    privateWorkspaceURL: privateWorkspaceURL,
-                    sharedWorkspaceURL: sharedWorkspaceURL,
-                    currentGitHubUserID: currentGitHubUserID
+                let personalMerge = try await driveStore.synchronizePersonalWorkspace(
+                    at: workspaceURL
                 )
-                let snapshotURL = try writer.write(projection, to: exportFolderURL)
+                let mirror = try builder.build(workspaceURL: workspaceURL)
+                let result = try await driveStore.syncWorkspaceMirror(
+                    files: mirror.files,
+                    indexData: mirror.indexData,
+                    indexHash: mirror.indexHash
+                )
+                try FileManager.default.createDirectory(
+                    at: snapshotURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try mirror.indexData.write(to: snapshotURL, options: .atomic)
+                let legacySnapshotURL = snapshotURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("library.json")
+                if FileManager.default.fileExists(atPath: legacySnapshotURL.path) {
+                    try FileManager.default.removeItem(at: legacySnapshotURL)
+                }
+                _ = try await driveStore.synchronizeLocalAudioMirror()
                 guard !Task.isCancelled else { return }
-                settings.webLibraryLastExportedAt = projection.generatedAt
-                state = .succeeded(projection.generatedAt, projection.entries.count, snapshotURL)
+                if personalMerge.downloadedItemCount > 0
+                    || personalMerge.deletedLocalItemCount > 0 {
+                    NotificationCenter.default.post(name: .libraryDidChange, object: nil)
+                }
+                settings.repositorySnapshotLastUpdatedAt = mirror.index.generatedAt
+                let changedItemCount = result.changedItemCount
+                    + personalMerge.changedItemCount
+                if changedItemCount == 0 {
+                    state = .upToDate(
+                        mirror.index.generatedAt,
+                        mirror.index.entries.count,
+                        snapshotURL
+                    )
+                } else {
+                    state = .succeeded(
+                        mirror.index.generatedAt,
+                        mirror.index.entries.count,
+                        snapshotURL
+                    )
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 state = .failed(error.localizedDescription)
             }
-            finishExport()
         }
     }
 
-    private func finishExport() {
-        exportTask = nil
+    private func finishUpdate() {
+        updateTask = nil
         if let pendingReason {
             self.pendingReason = nil
-            requestAutomaticExport(reason: pendingReason)
+            requestAutomaticUpdate(reason: pendingReason)
         }
     }
 }

@@ -2,6 +2,28 @@ import XCTest
 @testable import SharedLibrary
 
 final class AppSettingsTests: XCTestCase {
+    func testGoogleDriveFolderIDAcceptsFolderLinkOrBareID() {
+        let id = "1AbCdEfGhIjKlMnOpQrStUvWxYz"
+        XCTAssertEqual(AppSettings.googleDriveFolderID(from: id), id)
+        XCTAssertEqual(
+            AppSettings.googleDriveFolderID(
+                from: "https://drive.google.com/drive/folders/\(id)?usp=sharing"
+            ),
+            id
+        )
+        XCTAssertNil(AppSettings.googleDriveFolderID(from: "https://drive.google.com/"))
+        XCTAssertNil(AppSettings.googleDriveFolderID(from: "../not-a-folder"))
+    }
+
+    func testPreconfiguredGroupFolderIDIsValid() {
+        XCTAssertEqual(
+            AppSettings.googleDriveFolderID(
+                from: AppSettings.defaultGroupGoogleDriveFolderID
+            ),
+            AppSettings.defaultGroupGoogleDriveFolderID
+        )
+    }
+
     func testEnsureWorkspaceCreatesCaptureLibraryOnly() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("app-settings-library-\(UUID().uuidString)", isDirectory: true)

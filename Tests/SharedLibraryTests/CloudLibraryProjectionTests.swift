@@ -21,11 +21,11 @@ final class CloudLibraryProjectionTests: XCTestCase {
         let projection = try CloudLibraryProjectionBuilder().build(
             privateWorkspaceURL: workspace,
             sharedWorkspaceURL: sharedWorkspace,
-            currentGitHubUserID: nil,
+            currentUserID: nil,
             generatedAt: Date(timeIntervalSince1970: 100)
         )
 
-        XCTAssertEqual(projection.schemaVersion, 1)
+        XCTAssertEqual(projection.schemaVersion, 2)
         XCTAssertEqual(projection.entries.count, 1)
         let entry = try XCTUnwrap(projection.entries.first)
         XCTAssertEqual(entry.id, "personal:capture-personal")
@@ -41,22 +41,31 @@ final class CloudLibraryProjectionTests: XCTestCase {
         )
     }
 
-    func testProjectionIncludesOnlyCapturesSharedWithCurrentStableGitHubID() throws {
+    func testProjectionIncludesOnlyCapturesSharedWithCurrentStableUserID() throws {
         let personal = try makeWorkspace(named: "personal-empty")
         let shared = try makeWorkspace(named: "shared")
         defer {
             try? FileManager.default.removeItem(at: personal)
             try? FileManager.default.removeItem(at: shared)
         }
+        let directory = PeopleDirectoryStore()
         let people = [
-            SharedPerson(githubID: "github-sharer", login: "sharer", displayName: "Sharer"),
-            SharedPerson(githubID: "github-me", login: "me", displayName: "Me"),
-            SharedPerson(githubID: "github-other", login: "other", displayName: "Other")
+            try directory.register(
+                userID: "user-sharer",
+                username: "sharer",
+                sharedWorkspaceURL: shared
+            ),
+            try directory.register(
+                userID: "user-me",
+                username: "me",
+                sharedWorkspaceURL: shared
+            ),
+            try directory.register(
+                userID: "user-other",
+                username: "other",
+                sharedWorkspaceURL: shared
+            )
         ]
-        _ = try PeopleDirectoryStore().synchronize(
-            people: people,
-            sharedWorkspaceURL: shared
-        )
 
         let privateForSharing = try makeWorkspace(named: "sharing-source")
         defer { try? FileManager.default.removeItem(at: privateForSharing) }
@@ -106,15 +115,15 @@ final class CloudLibraryProjectionTests: XCTestCase {
         let projection = try CloudLibraryProjectionBuilder().build(
             privateWorkspaceURL: personal,
             sharedWorkspaceURL: shared,
-            currentGitHubUserID: "github-me"
+            currentUserID: "user-me"
         )
 
         XCTAssertEqual(projection.entries.count, 1)
         let entry = try XCTUnwrap(projection.entries.first)
         XCTAssertEqual(entry.title, "Shared with me")
         XCTAssertEqual(entry.origin, .shared)
-        XCTAssertEqual(entry.sharedByGitHubID, "github-sharer")
-        XCTAssertEqual(entry.sharedByDisplayName, "Sharer")
+        XCTAssertEqual(entry.sharedByUserID, "user-sharer")
+        XCTAssertEqual(entry.sharedByUsername, "sharer")
         XCTAssertTrue(entry.id.hasPrefix("shared:"))
     }
 
@@ -133,8 +142,8 @@ final class CloudLibraryProjectionTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 20),
             reviewedAt: nil,
             origin: .personal,
-            sharedByGitHubID: nil,
-            sharedByDisplayName: nil,
+            sharedByUserID: nil,
+            sharedByUsername: nil,
             texts: [text]
         )
 

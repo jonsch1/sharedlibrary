@@ -14,6 +14,11 @@ Web/.svelte-kit/
 Web/build/
 Web/dist/
 
+# Electron desktop app
+Electron/node_modules/
+Electron/out/
+Electron/release/
+
 # macOS
 .DS_Store
 

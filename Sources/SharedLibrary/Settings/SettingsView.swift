@@ -13,17 +13,11 @@ struct SettingsView: View {
                 .tabItem { Label("Capture", systemImage: "tray.and.arrow.down") }
             AgentSettings()
                 .tabItem { Label("Agent", systemImage: "sparkles") }
-            SyncSettings(coordinator: env.gitSyncCoordinator, purpose: .privateLibrary)
-                .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
-            SyncSettings(coordinator: env.sharedGitSyncCoordinator, purpose: .sharedLibrary)
-                .tabItem { Label("Sharing", systemImage: "person.2") }
-            PeopleSettings(peopleStore: env.peopleStore)
-                .tabItem { Label("People", systemImage: "person.3") }
-            MobileSettings(
-                publisher: env.cloudLibraryPublisher,
-                webExporter: env.webLibraryExporter
+            ConnectionSettings(
+                googleDrive: env.googleDriveAuthorization,
+                libraryPublisher: env.googleDriveLibraryPublisher
             )
-                .tabItem { Label("Mobile", systemImage: "iphone") }
+                .tabItem { Label("Connections", systemImage: "network") }
             HotkeySettings()
                 .tabItem { Label("Hotkeys", systemImage: "keyboard") }
         }
@@ -31,163 +25,131 @@ struct SettingsView: View {
     }
 }
 
-private struct MobileSettings: View {
+private struct ConnectionSettings: View {
     @EnvironmentObject var env: AppEnvironment
-    @ObservedObject var publisher: CloudLibraryPublisher
-    @ObservedObject var webExporter: WebLibraryExporter
-    @AppStorage(AppSettings.cloudLibrarySyncEnabledKey) private var syncEnabled = true
-    @AppStorage(AppSettings.webLibraryExportEnabledKey) private var webExportEnabled = true
+    @ObservedObject var googleDrive: GoogleDriveAuthorizationCoordinator
+    @ObservedObject var libraryPublisher: GoogleDriveLibraryPublisher
 
     var body: some View {
         Form {
-            Section("Web app via iCloud Drive") {
-                Toggle("Keep Web Library Snapshot Updated", isOn: $webExportEnabled)
-                    .onChange(of: webExportEnabled) { _, enabled in
-                        webExporter.setEnabled(enabled)
-                    }
-
-                Text("Shared Library writes one private JSON snapshot to an ordinary iCloud Drive folder. The web app imports it through the Files picker and keeps an offline copy on that device.")
+            Section("Google Drive") {
+                Text(googleIsConfigured
+                    ? "Connect your own Google account. Shared Library mirrors its Markdown folder structure and stores generated audio in a visible “Shared Library” folder in your Drive, with fast local caches."
+                    : "This build has not been configured with the Shared Library Google OAuth client yet. The distributor must add the Desktop Client ID and secret before accounts can connect.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
 
-                Label(webExporter.state.message, systemImage: webStatusSymbol)
-                    .foregroundStyle(webStatusColor)
+                Text("The drive.file permission lets Shared Library access only the library and audio files it creates or that you explicitly open with it—not the rest of your Drive.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Label(googleDrive.state.message, systemImage: googleStatusSymbol)
+                    .foregroundStyle(googleStatusColor)
                     .textSelection(.enabled)
 
-                if let lastExportedAt = env.settings.webLibraryLastExportedAt {
-                    LabeledContent(
-                        "Last exported",
-                        value: lastExportedAt.formatted(date: .abbreviated, time: .shortened)
-                    )
+                HStack {
+                    Spacer()
+                    if case .connected = googleDrive.state {
+                        Button("Disconnect") {
+                            googleDrive.disconnect()
+                        }
+                    } else {
+                        Button("Connect Google Drive") {
+                            googleDrive.connect()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            !googleIsConfigured || googleDrive.state.isBusy
+                        )
+                    }
                 }
+            }
 
-                LabeledContent("Snapshot") {
-                    Text(webExporter.snapshotURL.path)
+            Section("Library synchronization") {
+                Label(libraryPublisher.state.message, systemImage: snapshotStatusSymbol)
+                    .foregroundStyle(snapshotStatusColor)
+                    .textSelection(.enabled)
+
+                LabeledContent("Local projection") {
+                    Text(libraryPublisher.snapshotURL.path)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .lineLimit(2)
                         .multilineTextAlignment(.trailing)
                         .textSelection(.enabled)
                 }
 
-                HStack {
-                    Button("Choose Folder...") {
-                        chooseWebExportFolder()
-                    }
-                    Spacer()
-                    Button("Export Now") {
-                        webExporter.exportNow()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!webExportEnabled || webExporter.state.isBusy)
-                }
-            }
-
-            Section("iCloud mobile library") {
-                Toggle("Publish My Library to iCloud", isOn: $syncEnabled)
-                    .onChange(of: syncEnabled) { _, enabled in
-                        publisher.setEnabled(enabled)
-                    }
-
-                Text("The personal library and captures shared with your stable GitHub ID are published as a private, read-only CloudKit projection. Git remains the source of truth.")
+                Text("Shared Library synchronizes automatically after meaningful changes and every few minutes while the app is running. Every connected client keeps the complete Markdown library and existing generated audio available locally.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
 
-            Section("Status") {
-                Label(publisher.state.message, systemImage: statusSymbol)
-                    .foregroundStyle(statusColor)
-                    .textSelection(.enabled)
-
-                if let lastPublishedAt = env.settings.cloudLibraryLastPublishedAt {
-                    LabeledContent(
-                        "Last published",
-                        value: lastPublishedAt.formatted(date: .abbreviated, time: .shortened)
-                    )
-                }
-
-                LabeledContent("Container", value: CloudLibrarySchema.containerIdentifier)
-                    .textSelection(.enabled)
-
-                HStack {
-                    Spacer()
-                    Button("Publish Now") {
-                        publisher.publishNow()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!syncEnabled || publisher.state.isBusy)
-                }
-            }
-
-            Section("Mobile behavior") {
-                Text("Only text, metadata, and the four summary variants are uploaded. The iPhone app generates speech on-device and does not store audio in Git or CloudKit.")
+            Section("Share links") {
+                Text("The Share button opens the web reader, where you can publish one document as a hard-to-guess, forwardable link. Only the selected document and any complete narration that already exists are copied to the sharing service.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            googleDrive.refreshStatus()
+        }
+        .onReceive(googleDrive.$state) { state in
+            if case .connected = state {
+                libraryPublisher.requestAutomaticUpdate(reason: "the library")
+            }
+        }
     }
 
-    private var webStatusSymbol: String {
-        switch webExporter.state {
-        case .exporting:
+    private var googleIsConfigured: Bool {
+        !env.settings.googleDriveDesktopClientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !env.settings.googleDriveDesktopClientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var googleStatusSymbol: String {
+        switch googleDrive.state {
+        case .connecting:
             return "arrow.triangle.2.circlepath"
-        case .succeeded:
+        case .connected:
             return "checkmark.circle.fill"
-        case .failed, .unavailable:
+        case .failed:
             return "exclamationmark.triangle.fill"
-        case .disabled:
-            return "pause.circle"
+        case .disconnected:
+            return "externaldrive.badge.questionmark"
+        }
+    }
+
+    private var googleStatusColor: Color {
+        switch googleDrive.state {
+        case .connected:
+            return .green
+        case .failed:
+            return .red
+        case .disconnected, .connecting:
+            return .secondary
+        }
+    }
+
+    private var snapshotStatusSymbol: String {
+        switch libraryPublisher.state {
+        case .updating:
+            return "arrow.triangle.2.circlepath"
+        case .upToDate, .succeeded:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
         case .idle:
             return "doc.badge.arrow.up"
         }
     }
 
-    private var webStatusColor: Color {
-        switch webExporter.state {
-        case .succeeded:
+    private var snapshotStatusColor: Color {
+        switch libraryPublisher.state {
+        case .upToDate, .succeeded:
             return .green
-        case .failed, .unavailable:
+        case .failed:
             return .red
-        case .idle, .disabled, .exporting:
-            return .secondary
-        }
-    }
-
-    private func chooseWebExportFolder() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Web Library Export Folder"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = webExporter.exportFolderURL
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        webExporter.setExportFolder(url)
-    }
-
-    private var statusSymbol: String {
-        switch publisher.state {
-        case .publishing:
-            return "icloud.and.arrow.up"
-        case .succeeded:
-            return "checkmark.icloud.fill"
-        case .failed, .unavailable:
-            return "exclamationmark.icloud.fill"
-        case .disabled:
-            return "icloud.slash"
-        case .idle:
-            return "icloud"
-        }
-    }
-
-    private var statusColor: Color {
-        switch publisher.state {
-        case .succeeded:
-            return .green
-        case .failed, .unavailable:
-            return .red
-        case .idle, .disabled, .publishing:
+        case .idle, .updating:
             return .secondary
         }
     }
@@ -195,39 +157,33 @@ private struct MobileSettings: View {
 
 private struct PeopleSettings: View {
     @EnvironmentObject var env: AppEnvironment
-    @ObservedObject var peopleStore: GitHubPeopleStore
-    @State private var organization = ""
+    @ObservedObject var peopleStore: PeopleStore
+    @State private var username = ""
 
     var body: some View {
         Form {
-            Section("GitHub organization") {
-                TextField("Organization", text: $organization)
+            Section("Your username") {
+                TextField("Username", text: $username)
                     .font(.system(.body, design: .monospaced))
+                    .onSubmit(saveUsername)
 
                 HStack(alignment: .firstTextBaseline) {
-                    Text("People are read from the authenticated organization roster only when you request it.")
+                    Text("This is how other people find and tag you. Usernames are lowercase and unique within the shared library.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     Spacer()
-                    Button("Sync People from GitHub") {
-                        peopleStore.synchronize(organization: organization) {
-                            env.sharedGitSyncCoordinator.requestAutomaticSync(
-                                reason: "people directory refreshed"
-                            )
-                        }
+                    Button(peopleStore.currentUser == nil ? "Save Username" : "Update Username") {
+                        saveUsername()
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(
-                        organization.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || peopleStore.state.isBusy
-                    )
+                    .disabled(!PeopleDirectoryStore.isValidUsername(username))
                 }
             }
 
             Section("People directory") {
                 LabeledContent("People", value: "\(peopleStore.people.count)")
                 if let currentUser = peopleStore.currentUser {
-                    LabeledContent("You", value: "\(currentUser.displayName) (@\(currentUser.login))")
+                    LabeledContent("You", value: "@\(currentUser.username)")
                 }
                 LabeledContent("Folder") {
                     Text(
@@ -244,29 +200,40 @@ private struct PeopleSettings: View {
                     .foregroundStyle(peopleStatusColor)
                     .textSelection(.enabled)
 
-                Text("Each login folder stores only profile.json with the stable GitHub ID and display name, plus shared and shared_with reference folders. Avatars and email addresses are not imported.")
+                Text("The group folder keeps one people.json directory of stable user IDs and searchable usernames. Shared items use one current record each; personal Inbox decisions stay in your private Drive.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
 
-            Section("Refresh behavior") {
-                Text("The GitHub roster is never refreshed automatically. Repository synchronization remains automatic after a manual people refresh so other collaborators receive the updated directory.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            Section("Find other users") {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Tagging searches every profile currently present in the shared people folder. Refresh after the shared folder receives changes from another person.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Refresh Users") {
+                        peopleStore.reloadFromDisk()
+                    }
+                }
             }
         }
         .formStyle(.grouped)
         .onAppear {
-            if organization.isEmpty {
-                organization = env.settings.githubPeopleOrganization
+            if username.isEmpty {
+                username = peopleStore.currentUser?.username ?? env.settings.username
             }
+        }
+    }
+
+    private func saveUsername() {
+        peopleStore.saveUsername(username) {
+            username = peopleStore.currentUser?.username ?? username
+            NotificationCenter.default.post(name: .libraryDidChange, object: nil)
         }
     }
 
     private var peopleStatusSymbol: String {
         switch peopleStore.state {
-        case .syncing:
-            return "arrow.triangle.2.circlepath"
         case .succeeded:
             return "checkmark.circle.fill"
         case .failed:
@@ -282,7 +249,7 @@ private struct PeopleSettings: View {
             return .green
         case .failed:
             return .red
-        case .idle, .syncing:
+        case .idle:
             return .secondary
         }
     }
@@ -570,7 +537,7 @@ private struct AgentSettings: View {
             try agentInstructions.write(to: agentsURL, atomically: true, encoding: .utf8)
             loadedAgentInstructions = agentInstructions
             agentInstructionsStatus = "Saved."
-            env.gitSyncCoordinator.requestAutomaticSync(reason: "AGENTS.md edited")
+            env.googleDriveLibraryPublisher.requestAutomaticUpdate(reason: "the updated library")
         } catch {
             agentInstructionsStatus = error.localizedDescription
         }
@@ -591,9 +558,9 @@ private enum RepositorySettingsPurpose: Equatable {
     var connectionHelp: String {
         switch self {
         case .privateLibrary:
-            return "Connects the private workspace directly to origin. Authentication uses your existing GitHub CLI login."
+            return "Connects the private workspace directly to origin. Authentication uses the GitHub App connection stored in your Keychain."
         case .sharedLibrary:
-            return "Connects the separate shared workspace to its own origin. Authentication uses your existing GitHub CLI login."
+            return "Connects the separate shared workspace to its own origin. Authentication uses the GitHub App connection stored in your Keychain."
         }
     }
 
@@ -612,8 +579,6 @@ private struct SyncSettings: View {
     @ObservedObject var coordinator: GitSyncCoordinator
     let purpose: RepositorySettingsPurpose
     @State private var remote = ""
-    @State private var newRepositoryName = ""
-    @State private var newRepositoryVisibility = GitHubRepositoryVisibility.privateRepository
     @State private var sharedWorkspaceFolderPath = ""
     @State private var sharedWorkspaceFolderStatus: String?
 
@@ -648,8 +613,8 @@ private struct SyncSettings: View {
 
             Section("Prerequisites") {
                 statusRow("Git", isReady: coordinator.repositoryStatus.gitAvailable)
-                statusRow("GitHub CLI", isReady: coordinator.repositoryStatus.ghAvailable)
-                statusRow("GitHub authentication", isReady: coordinator.repositoryStatus.ghAuthenticated)
+                statusRow("GitHub App configured", isReady: coordinator.repositoryStatus.githubAppConfigured)
+                statusRow("GitHub App connected", isReady: coordinator.repositoryStatus.githubAuthenticated)
             }
 
             Section(purpose.repositorySectionTitle) {
@@ -687,40 +652,9 @@ private struct SyncSettings: View {
                 Text(purpose.connectionHelp)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-            }
-
-            if !coordinator.repositoryStatus.hasRemote {
-                Section("Create GitHub repository") {
-                    TextField("repository or owner/repository", text: $newRepositoryName)
-                        .font(.system(.body, design: .monospaced))
-
-                    Picker("Visibility", selection: $newRepositoryVisibility) {
-                        ForEach(GitHubRepositoryVisibility.allCases) { visibility in
-                            Text(visibility.title).tag(visibility)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Creates the repository with GitHub CLI, adds it as origin, and pushes the current branch. New repositories are private by default.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                        Spacer()
-                        Button("Create Repository") {
-                            coordinator.createRemoteRepository(
-                                name: newRepositoryName,
-                                visibility: newRepositoryVisibility
-                            )
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(
-                            newRepositoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                || coordinator.state.isBusy
-                                || !coordinator.repositoryStatus.ghAvailable
-                                || !coordinator.repositoryStatus.ghAuthenticated
-                        )
-                    }
-                }
+                Text("Create a private repository on GitHub first, then install the Shared Library GitHub App with access only to that repository. Connect accepts only an existing repository that the app can access.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
 
             Section("Background sync status") {
@@ -739,9 +673,6 @@ private struct SyncSettings: View {
             }
             if remote.isEmpty {
                 remote = coordinator.repositoryStatus.remoteURL ?? ""
-            }
-            if newRepositoryName.isEmpty {
-                newRepositoryName = coordinator.suggestedRepositoryName
             }
             coordinator.refreshStatus()
         }
@@ -762,7 +693,6 @@ private struct SyncSettings: View {
             sharedWorkspaceFolderPath = url.path
             sharedWorkspaceFolderStatus = "Using \(url.path)"
             remote = ""
-            newRepositoryName = coordinator.suggestedRepositoryName
         } catch {
             sharedWorkspaceFolderStatus = error.localizedDescription
         }
@@ -816,16 +746,122 @@ private struct SyncSettings: View {
 }
 
 private struct HotkeySettings: View {
+    @StateObject private var recorder = ShortcutRecorderController()
+
     var body: some View {
         Form {
             Section("Global hotkeys") {
-                KeyboardShortcuts.Recorder("Shared Library", name: .toggleLibrary)
-                KeyboardShortcuts.Recorder("Capture clipboard", name: .captureClipboard)
+                shortcutRow("Shared Library", name: .toggleLibrary)
+                shortcutRow("Capture clipboard", name: .captureClipboard)
             }
             Text("Capture clipboard saves the current clipboard into library/.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+        .onDisappear {
+            recorder.cancelRecording()
+        }
+    }
+
+    private func shortcutRow(
+        _ title: String,
+        name: KeyboardShortcuts.Name
+    ) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Button {
+                    recorder.beginRecording(name)
+                } label: {
+                    Text(recorder.buttonTitle(for: name))
+                        .frame(minWidth: 112)
+                }
+                .buttonStyle(.bordered)
+
+                Button("Reset") {
+                    recorder.reset(name)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+}
+
+private final class ShortcutRecorderController: ObservableObject {
+    @Published private(set) var recordingName: KeyboardShortcuts.Name?
+
+    private var eventMonitor: Any?
+
+    func buttonTitle(for name: KeyboardShortcuts.Name) -> String {
+        if recordingName == name {
+            return "Press shortcut…"
+        }
+        return KeyboardShortcuts.getShortcut(for: name).map(String.init(describing:))
+            ?? "Not set"
+    }
+
+    func beginRecording(_ name: KeyboardShortcuts.Name) {
+        cancelRecording()
+        recordingName = name
+        KeyboardShortcuts.isEnabled = false
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handle(event) ?? event
+        }
+    }
+
+    func cancelRecording() {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+        if recordingName != nil {
+            recordingName = nil
+            KeyboardShortcuts.isEnabled = true
+        }
+    }
+
+    func reset(_ name: KeyboardShortcuts.Name) {
+        cancelRecording()
+        KeyboardShortcuts.reset(name)
+        objectWillChange.send()
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard let recordingName else { return event }
+
+        if event.keyCode == 53 {
+            cancelRecording()
+            return nil
+        }
+
+        if event.keyCode == 51 || event.keyCode == 117 {
+            KeyboardShortcuts.setShortcut(nil, for: recordingName)
+            cancelRecording()
+            return nil
+        }
+
+        let modifiers = event.modifierFlags.intersection([
+            .command,
+            .option,
+            .control,
+            .shift
+        ])
+        guard !modifiers.isEmpty,
+              let shortcut = KeyboardShortcuts.Shortcut(event: event) else {
+            NSSound.beep()
+            return nil
+        }
+
+        let otherName: KeyboardShortcuts.Name = recordingName == .toggleLibrary
+            ? .captureClipboard
+            : .toggleLibrary
+        guard KeyboardShortcuts.getShortcut(for: otherName) != shortcut else {
+            NSSound.beep()
+            return nil
+        }
+
+        KeyboardShortcuts.setShortcut(shortcut, for: recordingName)
+        cancelRecording()
+        return nil
     }
 }
