@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && svelte-check --tsconfig tsconfig.web.json",
-    "test": "node --import tsx --test src/main/library.test.ts",
+    "test": "node --import tsx --test src/main/*.test.ts",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },
