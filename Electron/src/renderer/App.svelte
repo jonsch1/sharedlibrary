@@ -99,11 +99,6 @@
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
   );
-  let syncActive = $derived(
-    syncStatus.phase === 'checking' ||
-      syncStatus.phase === 'downloading' ||
-      syncStatus.phase === 'uploading'
-  );
   let narrationLoadingLabel = $derived(
     narrationLoadingPhase === 'generating'
       ? 'Generating voice'
@@ -759,7 +754,6 @@
               <button
                 class="native-icon-button"
                 class:active={settingsOpen}
-                class:syncing={syncActive}
                 aria-label="Connections"
                 title="Connections"
                 onclick={() => (settingsOpen = true)}

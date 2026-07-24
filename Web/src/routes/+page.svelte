@@ -887,7 +887,6 @@
 							<button
 								class="native-icon-button"
 								class:active={connectionsVisible}
-								class:syncing={googleSyncing}
 								aria-label="Connections"
 								title="Connections"
 								onclick={toggleConnections}
