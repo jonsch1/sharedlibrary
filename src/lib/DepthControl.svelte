@@ -331,8 +331,41 @@
 		.segmented-depth--compact {
 			grid-area: variant;
 			width: 100%;
+			height: 40px;
 			align-self: end;
-			padding: 0 7px 2px;
+			gap: 2px;
+			padding: 0 7px;
+		}
+
+		.segmented-depth--compact .depth-slot {
+			width: 34px;
+			height: 40px;
+			flex-basis: 34px;
+		}
+
+		.segmented-depth--compact .depth-step,
+		.segmented-depth--compact .depth-step-core {
+			width: 30px;
+			height: 30px;
+		}
+
+		.segmented-depth--compact .depth-step.is-active {
+			width: 40px;
+			height: 40px;
+		}
+
+		.segmented-depth--compact .depth-step.is-active .depth-step-core {
+			width: 32px;
+			height: 32px;
+		}
+
+		.segmented-depth--compact .depth-pie {
+			width: 26px;
+			height: 26px;
+		}
+
+		.segmented-depth--compact .pie-separators line {
+			stroke-width: 1.2;
 		}
 
 		.segmented-depth--showcase {
