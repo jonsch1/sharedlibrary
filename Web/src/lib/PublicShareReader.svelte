@@ -5,6 +5,7 @@
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
+	import DepthControl from '$lib/DepthControl.svelte';
 	import MarkdownText from '$lib/MarkdownText.svelte';
 	import {
 		importPublicShare,
@@ -14,14 +15,6 @@
 	import { libraryVariants, type LibraryVariant } from '$lib/library.js';
 
 	let { token }: { token: string } = $props();
-
-	const variantNames: Record<LibraryVariant, string> = {
-		brief: 'Brief',
-		concise: 'Concise',
-		detailed: 'Detailed',
-		comprehensive: 'Comprehensive',
-		source: 'Original'
-	};
 
 	let document = $state<PublicShareDocument | null>(null);
 	let selectedVariant = $state<LibraryVariant>('concise');
@@ -234,29 +227,12 @@
 		</main>
 
 		<footer class="public-share-player" aria-label="Document controls">
-			<div
-				class="summary-depth-control public-share-depth"
-				role="radiogroup"
-				aria-label="Summary depth"
-			>
-				{#each availableVariants as variant}
-					<button
-						type="button"
-						class="summary-depth-option"
-						class:active={selectedVariant === variant}
-						role="radio"
-						aria-checked={selectedVariant === variant}
-						aria-label={variantNames[variant]}
-						title={variantNames[variant]}
-						onclick={() => selectVariant(variant)}
-					>
-						<span
-							class="summary-depth-disc"
-							style={`--depth-fill: ${(libraryVariants.indexOf(variant) + 1) * 20}%`}
-						></span>
-					</button>
-				{/each}
-			</div>
+			<DepthControl
+				variants={availableVariants}
+				selected={selectedVariant}
+				onselect={selectVariant}
+				presentation="showcase"
+			/>
 
 			<span class="public-share-divider" aria-hidden="true"></span>
 

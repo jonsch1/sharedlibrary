@@ -484,85 +484,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.summary-depth-control {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-}
-
-.summary-depth-option {
-  position: relative;
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid transparent;
-  border-radius: 50%;
-  background: transparent;
-  cursor: pointer;
-  transition:
-    transform 150ms ease,
-    background 150ms ease,
-    border-color 150ms ease,
-    box-shadow 150ms ease;
-}
-
-.summary-depth-option:hover {
-  transform: translateY(-1px);
-  background: rgb(248 248 243 / 48%);
-}
-
-.summary-depth-option.active {
-  border-color: rgb(255 255 255 / 42%);
-  background: rgb(241 241 235 / 86%);
-  box-shadow:
-    0 5px 14px rgb(29 29 26 / 16%),
-    inset 0 1px 0 rgb(255 255 255 / 74%);
-}
-
-.summary-depth-option:active {
-  transform: scale(0.94);
-}
-
-.summary-depth-disc {
-  display: block;
-  width: 26px;
-  height: 26px;
-  border: 1px solid rgb(50 59 51 / 20%);
-  border-radius: 50%;
-  background:
-    repeating-conic-gradient(
-      from -18deg,
-      transparent 0 69.5deg,
-      rgb(248 247 241 / 94%) 69.5deg 72deg
-    ),
-    conic-gradient(
-      from -18deg,
-      rgb(26 103 76) 0 var(--depth-fill),
-      rgb(222 222 214) var(--depth-fill) 100%
-    );
-  box-shadow:
-    0 2px 5px rgb(34 38 33 / 18%),
-    inset 0 1px 0 rgb(255 255 255 / 30%);
-  transition:
-    width 150ms ease,
-    height 150ms ease,
-    filter 150ms ease;
-}
-
-.summary-depth-option.active .summary-depth-disc {
-  width: 28px;
-  height: 28px;
-  filter: saturate(1.08);
-}
-
-.native-summary-depth {
-  gap: 4px;
-}
-
 .native-footer-actions {
   display: flex;
   align-items: center;
@@ -1274,20 +1195,6 @@ button:disabled {
 
   .footer-stat {
     display: none;
-  }
-
-  .native-summary-depth {
-    grid-area: variant;
-    width: 100%;
-    align-self: end;
-    justify-content: center;
-    gap: 5px;
-    padding: 0 7px 2px;
-  }
-
-  .native-summary-depth .summary-depth-option {
-    width: 34px;
-    height: 34px;
   }
 
   .native-footer-actions {

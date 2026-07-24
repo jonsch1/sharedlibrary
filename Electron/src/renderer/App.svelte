@@ -24,6 +24,7 @@
     Trash2,
     X
   } from '@lucide/svelte';
+  import DepthControl from './DepthControl.svelte';
   import MarkdownView from './MarkdownView.svelte';
   import appIcon from './assets/app-icon.png';
   import type {
@@ -38,21 +39,6 @@
     OpenRouterVoice,
     ShareLinkStatus
   } from '../shared/contracts';
-
-  const variantNames: Record<LibraryVariant, string> = {
-    brief: 'Brief',
-    concise: 'Concise',
-    detailed: 'Detailed',
-    comprehensive: 'Comprehensive',
-    source: 'Original'
-  };
-  const variantOrder: LibraryVariant[] = [
-    'brief',
-    'concise',
-    'detailed',
-    'comprehensive',
-    'source'
-  ];
 
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let selectedID = $state('');
@@ -665,29 +651,11 @@
             ></div>
             <div class="footer-stat">{wordCount.toLocaleString()} words</div>
 
-            <div
-              class="summary-depth-control native-summary-depth"
-              role="radiogroup"
-              aria-label="Summary depth"
-            >
-              {#each availableVariants as variant}
-                <button
-                  type="button"
-                  class="summary-depth-option"
-                  class:active={selectedVariant === variant}
-                  role="radio"
-                  aria-checked={selectedVariant === variant}
-                  aria-label={variantNames[variant]}
-                  title={variantNames[variant]}
-                  onclick={() => selectVariant(variant)}
-                >
-                  <span
-                    class="summary-depth-disc"
-                    style={`--depth-fill: ${(variantOrder.indexOf(variant) + 1) * 20}%`}
-                  ></span>
-                </button>
-              {/each}
-            </div>
+            <DepthControl
+              variants={availableVariants}
+              selected={selectedVariant}
+              onselect={selectVariant}
+            />
 
             <div class="native-footer-actions">
               {#if selectedEntry.sourceURL}
