@@ -19,6 +19,7 @@
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '$lib/MarkdownText.svelte';
+	import DepthControl from '$lib/DepthControl.svelte';
 	import PublicShareReader from '$lib/PublicShareReader.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -68,14 +69,6 @@
 
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 	type OriginFilter = 'all' | 'personal';
-
-	const variantNames: Record<LibraryVariant, string> = {
-		brief: 'Brief',
-		concise: 'Concise',
-		detailed: 'Detailed',
-		comprehensive: 'Comprehensive',
-		source: 'Original'
-	};
 
 	let projection = $state<LibraryProjection | null>(null);
 	let publicShareToken = $state('');
@@ -823,29 +816,11 @@
 
 						<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
 
-						<div
-							class="summary-depth-control native-summary-depth"
-							role="radiogroup"
-							aria-label="Summary depth"
-						>
-							{#each availableVariants as variant}
-								<button
-									type="button"
-									class="summary-depth-option"
-									class:active={selectedVariant === variant}
-									role="radio"
-									aria-checked={selectedVariant === variant}
-									aria-label={variantNames[variant]}
-									title={variantNames[variant]}
-									onclick={() => (selectedVariant = variant)}
-								>
-									<span
-										class="summary-depth-disc"
-										style={`--depth-fill: ${(libraryVariants.indexOf(variant) + 1) * 20}%`}
-									></span>
-								</button>
-							{/each}
-						</div>
+						<DepthControl
+							variants={availableVariants}
+							selected={selectedVariant}
+							onselect={(variant) => (selectedVariant = variant)}
+						/>
 
 						<div class="native-footer-actions">
 							{#if selectedEntry.sourceURL}

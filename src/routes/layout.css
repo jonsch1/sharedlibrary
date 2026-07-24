@@ -2246,88 +2246,6 @@ html {
 	white-space: nowrap;
 }
 
-.summary-depth-control {
-	display: flex;
-	min-width: 0;
-	align-items: center;
-	justify-content: center;
-	gap: 5px;
-}
-
-.summary-depth-option {
-	position: relative;
-	display: grid;
-	width: 36px;
-	height: 36px;
-	flex: 0 0 auto;
-	place-items: center;
-	border: 1px solid transparent;
-	border-radius: 50%;
-	background: transparent;
-	transition:
-		transform 150ms ease,
-		background 150ms ease,
-		border-color 150ms ease,
-		box-shadow 150ms ease;
-}
-
-.summary-depth-option:hover {
-	transform: translateY(-1px);
-	background: rgb(248 248 243 / 48%);
-}
-
-.summary-depth-option.active {
-	border-color: rgb(255 255 255 / 42%);
-	background: rgb(241 241 235 / 86%);
-	box-shadow:
-		0 5px 14px rgb(29 29 26 / 16%),
-		inset 0 1px 0 rgb(255 255 255 / 74%);
-}
-
-.summary-depth-option:active {
-	transform: scale(0.94);
-}
-
-.summary-depth-disc {
-	display: block;
-	width: 26px;
-	height: 26px;
-	border: 1px solid rgb(50 59 51 / 20%);
-	border-radius: 50%;
-	background:
-		repeating-conic-gradient(
-			from -18deg,
-			transparent 0 69.5deg,
-			rgb(248 247 241 / 94%) 69.5deg 72deg
-		),
-		conic-gradient(
-			from -18deg,
-			rgb(26 103 76) 0 var(--depth-fill),
-			rgb(222 222 214) var(--depth-fill) 100%
-		);
-	box-shadow:
-		0 2px 5px rgb(34 38 33 / 18%),
-		inset 0 1px 0 rgb(255 255 255 / 30%);
-	transition:
-		width 150ms ease,
-		height 150ms ease,
-		filter 150ms ease;
-}
-
-.summary-depth-option.active .summary-depth-disc {
-	width: 28px;
-	height: 28px;
-	filter: saturate(1.08);
-}
-
-.native-summary-depth {
-	gap: 4px;
-}
-
-.native-summary-depth .summary-depth-option {
-	cursor: pointer;
-}
-
 .native-footer-actions {
 	display: flex;
 	align-items: center;
@@ -2709,20 +2627,6 @@ html {
 		display: none;
 	}
 
-	.native-summary-depth {
-		grid-area: variant;
-		width: 100%;
-		align-self: end;
-		justify-content: center;
-		gap: 5px;
-		padding: 0 7px 2px;
-	}
-
-	.native-summary-depth .summary-depth-option {
-		width: 34px;
-		height: 34px;
-	}
-
 	.native-footer-actions {
 		grid-area: actions;
 		width: 100%;
@@ -2889,69 +2793,68 @@ html {
 	bottom: max(18px, env(safe-area-inset-bottom));
 	left: 20px;
 	display: grid;
-	width: min(calc(100% - 40px), 600px);
-	min-height: 92px;
-	grid-template-columns: minmax(0, 1fr) 1px 66px 48px;
+	width: min(calc(100% - 40px), 580px);
+	min-height: 102px;
+	grid-template-columns: minmax(0, 1fr) 1px 68px 50px;
 	align-items: center;
-	gap: 16px;
+	gap: 15px;
 	margin: 0 auto;
-	padding: 12px 16px;
-	border: 1px solid rgb(62 60 54 / 16%);
-	border-radius: 28px;
-	background: rgb(240 239 233 / 91%);
+	padding: 12px 18px;
+	border: 1px solid rgb(184 184 177 / 50%);
+	border-radius: 30px;
+	background: linear-gradient(180deg, rgb(238 237 232 / 94%), rgb(240 239 233 / 96%));
 	box-shadow:
-		0 18px 48px rgb(38 36 32 / 15%),
-		inset 0 1px 0 rgb(255 255 255 / 76%);
-	backdrop-filter: blur(24px) saturate(120%);
-}
-
-.public-share-depth {
-	justify-content: flex-start;
-	gap: 3px;
-}
-
-.public-share-depth .summary-depth-option {
-	width: 50px;
-	height: 50px;
-}
-
-.public-share-depth .summary-depth-disc {
-	width: 38px;
-	height: 38px;
-}
-
-.public-share-depth .summary-depth-option.active .summary-depth-disc {
-	width: 41px;
-	height: 41px;
+		0 18px 28px rgb(31 43 38 / 8%),
+		0 4px 8px rgb(31 43 38 / 5%),
+		0 1px 1px rgb(69 74 70 / 16%),
+		inset 0 2px 1px rgb(255 255 255 / 96%),
+		inset 0 -2px 2px rgb(183 181 173 / 17%);
+	backdrop-filter: blur(22px) saturate(112%);
 }
 
 .public-share-divider {
 	display: block;
 	width: 1px;
-	height: 56px;
-	background: rgb(64 62 56 / 14%);
+	height: 58px;
+	border-radius: 999px;
+	background: linear-gradient(
+		180deg,
+		transparent,
+		rgb(181 181 174 / 56%) 12%,
+		rgb(181 181 174 / 56%) 88%,
+		transparent
+	);
+	box-shadow: 1px 0 0 rgb(255 255 255 / 42%);
 }
 
 .public-share-play {
 	display: grid;
-	width: 66px;
-	height: 66px;
+	width: 68px;
+	height: 68px;
 	place-items: center;
+	border: 1px solid rgb(3 68 48 / 72%);
 	border-radius: 50%;
 	background:
-		linear-gradient(145deg, rgb(34 112 83), rgb(21 86 63)),
-		rgb(28 99 73);
+		radial-gradient(circle at 76% 82%, rgb(0 27 17 / 10%), transparent 52%),
+		linear-gradient(145deg, #235f4a 0%, #1e5945 48%, #14513d 100%);
 	box-shadow:
-		0 8px 20px rgb(26 71 57 / 24%),
-		inset 0 1px 0 rgb(255 255 255 / 20%);
-	color: rgb(248 249 245);
+		0 9px 14px rgb(28 56 45 / 13%),
+		0 3px 5px rgb(28 56 45 / 8%),
+		inset 0 1px 1px rgb(255 255 255 / 24%),
+		inset 0 -1px 2px rgb(0 30 19 / 18%);
+	color: #fbfcf9;
 	transition:
 		transform 150ms ease,
-		background 150ms ease;
+		box-shadow 150ms ease;
 }
 
 .public-share-play:hover {
-	background: rgb(26 84 65);
+	transform: translateY(-2px);
+	box-shadow:
+		0 12px 18px rgb(28 56 45 / 20%),
+		0 4px 6px rgb(28 56 45 / 11%),
+		inset 0 1px 1px rgb(255 255 255 / 24%),
+		inset 0 -1px 2px rgb(0 30 19 / 18%);
 }
 
 .public-share-play:active {
@@ -2959,8 +2862,9 @@ html {
 }
 
 .public-share-play svg {
-	width: 28px;
-	height: 28px;
+	width: 29px;
+	height: 29px;
+	stroke-width: 2.15;
 }
 
 .public-share-play:not(.loading) svg[data-lucide='play'] {
@@ -2992,16 +2896,18 @@ html {
 
 .public-share-add {
 	display: grid;
-	width: 48px;
-	height: 48px;
+	width: 50px;
+	height: 50px;
 	place-items: center;
-	border: 1px solid rgb(58 57 52 / 14%);
+	border: 1px solid rgb(190 190 183 / 56%);
 	border-radius: 50%;
-	background: rgb(246 245 240 / 76%);
+	background: linear-gradient(145deg, #f1f0eb 0%, #eae9e3 80%, #e6e5df 100%);
 	box-shadow:
-		0 5px 15px rgb(44 42 38 / 10%),
-		inset 0 1px 0 rgb(255 255 255 / 78%);
-	color: rgb(29 91 69);
+		0 6px 10px rgb(34 47 41 / 9%),
+		0 2px 3px rgb(34 47 41 / 5%),
+		inset 0 1px 1px rgb(255 255 255 / 96%),
+		inset 0 -1px 2px rgb(165 163 156 / 16%);
+	color: #084d38;
 	transition:
 		transform 150ms ease,
 		background 150ms ease,
@@ -3071,30 +2977,11 @@ html {
 		bottom: max(8px, env(safe-area-inset-bottom));
 		left: 8px;
 		width: calc(100% - 16px);
-		min-height: 66px;
+		min-height: 70px;
 		grid-template-columns: minmax(0, 1fr) 1px 50px 40px;
 		gap: 6px;
-		padding: 7px;
+		padding: 8px 9px;
 		border-radius: 21px;
-	}
-
-	.public-share-depth {
-		gap: 0;
-	}
-
-	.public-share-depth .summary-depth-option {
-		width: 32px;
-		height: 32px;
-	}
-
-	.public-share-depth .summary-depth-disc {
-		width: 26px;
-		height: 26px;
-	}
-
-	.public-share-depth .summary-depth-option.active .summary-depth-disc {
-		width: 28px;
-		height: 28px;
 	}
 
 	.public-share-divider {
