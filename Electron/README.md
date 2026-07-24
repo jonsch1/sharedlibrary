@@ -36,8 +36,21 @@ npm run typecheck
 npm run dev
 ```
 
+Run the cross-platform Electron smoke test. This builds the production bundles,
+launches Electron against an isolated temporary library, and verifies rendering
+and preload/IPC reads and writes:
+
+```bash
+npm run test:e2e
+```
+
 Build an unpacked application for the current platform:
 
 ```bash
 npm run package
 ```
+
+GitHub Actions runs the unit and smoke tests on native macOS, Windows, and Linux
+runners. Linux runs Electron under Xvfb. Pushes to `main`, version tags, and
+manual workflow runs also verify that an unpacked app can be packaged on each
+platform.

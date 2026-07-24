@@ -29,6 +29,7 @@
   import DepthControl from './DepthControl.svelte';
   import MarkdownView from './MarkdownView.svelte';
   import appIcon from './assets/app-icon.png';
+  import { shouldRenderSourceAsPlainText } from '../shared/source-presentation';
   import type {
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
@@ -97,6 +98,9 @@
     })
   );
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
+  let renderSelectedTextAsPlain = $derived(
+    shouldRenderSourceAsPlainText(selectedVariant, selectedEntry?.sourceURL)
+  );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
   );
@@ -695,7 +699,7 @@
                   <span class="skeleton-line short"></span>
                 </div>
               {:else if selectedText}
-                <MarkdownView text={selectedText} plain={selectedVariant === 'source'} />
+                <MarkdownView text={selectedText} plain={renderSelectedTextAsPlain} />
               {:else}
                 <p class="missing-text">This version is not available.</p>
               {/if}

@@ -11,6 +11,8 @@ Web/dist/
 Electron/node_modules/
 Electron/out/
 Electron/release/
+Electron/playwright-report/
+Electron/test-results/
 
 # macOS
 .DS_Store
