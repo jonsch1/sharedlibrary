@@ -74,12 +74,13 @@ export async function loadShareLinkStatus(captureID: string): Promise<ShareLinkS
 
 export async function publishShareLink(
 	captureID: string,
-	voice: OpenRouterVoice
+	voice: OpenRouterVoice,
+	model: string
 ): Promise<ShareLinkStatus> {
 	const response = await fetch('/api/share-links', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-		body: JSON.stringify({ captureID, voice })
+		body: JSON.stringify({ captureID, voice, model })
 	});
 	if (response.status === 401) throw new Error('Sign in to create a share link.');
 	if (!response.ok) {

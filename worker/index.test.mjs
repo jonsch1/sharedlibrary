@@ -507,3 +507,22 @@ test('speech requires an account-bound OpenRouter connection', async () => {
 	assert.equal(response.status, 401);
 	assert.deepEqual(await response.json(), { error: 'OpenRouter is not connected.' });
 });
+
+test('speech rejects malformed model identifiers before making a provider request', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/tts', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				input: 'Hello',
+				voice: 'alloy',
+				model: 'not a model slug'
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 400);
+	assert.deepEqual(await response.json(), {
+		error: 'Invalid speech text, voice, or model.'
+	});
+});

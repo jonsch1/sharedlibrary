@@ -67,7 +67,8 @@ export class SpeechPlayer {
 	requiresReconnect = $state(false);
 
 	private credential: OpenRouterCredential | null = null;
-	private voice: OpenRouterVoice = 'eve';
+	private voice: OpenRouterVoice = 'alloy';
+	private model = 'hexgrad/kokoro-82m';
 	private chunks: string[] = [];
 	private chunkIndex = 0;
 	private audio: HTMLAudioElement | null = null;
@@ -80,10 +81,12 @@ export class SpeechPlayer {
 
 	configureOpenRouter(
 		credential: OpenRouterCredential | null,
-		voice: OpenRouterVoice
+		voice: OpenRouterVoice,
+		model: string
 	): void {
 		this.credential = credential;
 		this.voice = voice;
+		this.model = model;
 		this.requiresReconnect = false;
 	}
 
@@ -305,6 +308,7 @@ export class SpeechPlayer {
 			credential,
 			chunk,
 			this.voice,
+			this.model,
 			controller.signal,
 			(phase) => {
 				if (
