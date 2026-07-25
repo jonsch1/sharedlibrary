@@ -798,7 +798,7 @@
 		<section class="privacy-section section-shell">
 			<div class="privacy-heading reveal">
 				<div class="section-number">05 / YOURS MEANS YOURS</div>
-				<h2>Your library is not our content farm.</h2>
+				<h2>Local when you want it. Shared when you choose.</h2>
 			</div>
 			<div class="privacy-grid">
 				<article class="reveal">
