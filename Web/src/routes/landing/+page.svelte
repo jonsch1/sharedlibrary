@@ -6,17 +6,23 @@
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
 	import CommandIcon from '@lucide/svelte/icons/command';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
+	import LaptopIcon from '@lucide/svelte/icons/laptop';
 	import LayersIcon from '@lucide/svelte/icons/layers-3';
 	import LinkIcon from '@lucide/svelte/icons/link-2';
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
 	import MessageIcon from '@lucide/svelte/icons/message-circle';
+	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import PlayIcon from '@lucide/svelte/icons/play';
+	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import RssIcon from '@lucide/svelte/icons/rss';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
+	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import VolumeIcon from '@lucide/svelte/icons/volume-2';
 
 	type SourceCard = {
@@ -170,32 +176,71 @@
 		{
 			label: 'Brief',
 			time: '20 sec',
+			image: '/product-ui-brief.png',
 			copy: 'Agent memory works best when context is curated, structured, and easy to retrieve.'
 		},
 		{
 			label: 'Concise',
 			time: '2 min',
+			image: '/product-ui-concise.png',
 			copy: 'Strong memory systems do more than store information. They compress useful context, preserve source links, and make the right detail easy to retrieve at the moment it matters.'
 		},
 		{
 			label: 'Detailed',
 			time: '7 min',
+			image: '/product-ui-detailed.png',
 			copy: 'Agent memory is less a storage problem than a context-design problem. Useful systems decide what to retain, how to structure it, and which level of detail fits the task. Clear summaries, durable source links, and predictable Markdown give both people and agents a reliable surface to work from.'
 		},
 		{
 			label: 'Comprehensive',
 			time: '18 min',
+			image: '/product-ui-comprehensive.png',
 			copy: 'A complete reading view preserves the source argument, supporting details, and practical implications while keeping the material navigable. Structured headings help an agent locate evidence; a stable original keeps the human reader grounded. The result is not another pile of notes, but a reusable context layer that can move from quick recall to deep work without losing provenance.'
 		}
 	];
 
+	type Platform = 'mac' | 'windows' | 'linux' | 'pwa';
+
+	const downloadBase =
+		'https://github.com/jonsch1/briefly-downloads/releases/latest/download';
+	const desktopDownloads = {
+		mac: {
+			label: 'Download for Mac',
+			href: `${downloadBase}/Briefly-mac-universal.dmg`
+		},
+		windows: {
+			label: 'Download for Windows',
+			href: `${downloadBase}/Briefly-windows-x64.exe`
+		},
+		linux: {
+			label: 'Download for Linux',
+			href: `${downloadBase}/Briefly-linux-x64.AppImage`
+		},
+		pwa: {
+			label: 'Open the web app',
+			href: '/'
+		}
+	} satisfies Record<Platform, { label: string; href: string }>;
+
 	let selectedDepth = $state(1);
 	let collectedCount = $state(0);
 	let fieldComplete = $state(false);
+	let detectedPlatform = $state<Platform>('pwa');
 	let resetSweep = (): void => {};
+	let preferredDownload = $derived(desktopDownloads[detectedPlatform]);
 
 	onMount(() => {
 		document.body.classList.add('landing-body');
+		const userAgent = navigator.userAgent.toLowerCase();
+		detectedPlatform = /iphone|ipad|android/.test(userAgent)
+			? 'pwa'
+			: /macintosh|mac os x/.test(userAgent)
+				? 'mac'
+				: /windows/.test(userAgent)
+					? 'windows'
+					: /linux/.test(userAgent)
+						? 'linux'
+						: 'pwa';
 
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -328,6 +373,22 @@
 			targetY = bounds.height * 0.58;
 		};
 
+		const handleSweepShortcut = (event: KeyboardEvent): void => {
+			const target = event.target as HTMLElement | null;
+			if (
+				event.key.toLowerCase() !== 'r' ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				!heroInView ||
+				target?.matches('input, textarea, select, [contenteditable="true"]')
+			) {
+				return;
+			}
+			event.preventDefault();
+			resetSweep();
+		};
+
 		const animate = (): void => {
 			if (!arena || !collector) return;
 			if (!heroInView || document.hidden || reduceMotion) {
@@ -402,6 +463,7 @@
 				arena.addEventListener('pointerleave', returnCollector, { passive: true });
 			}
 			window.addEventListener('resize', layoutSweep, { passive: true });
+			window.addEventListener('keydown', handleSweepShortcut);
 			animationFrame = window.requestAnimationFrame(animate);
 		}
 
@@ -414,6 +476,7 @@
 			arena?.removeEventListener('pointerdown', setTarget);
 			arena?.removeEventListener('pointerleave', returnCollector);
 			window.removeEventListener('resize', layoutSweep);
+			window.removeEventListener('keydown', handleSweepShortcut);
 		};
 	});
 </script>
@@ -452,11 +515,12 @@
 			<a href="#how">How it works</a>
 			<a href="#depth">Four depths</a>
 			<a href="#agents">For agents</a>
+			<a href="#get-briefly">Downloads</a>
 		</nav>
 
-		<a class="nav-cta" href="/">
-			Open Briefly
-			<ArrowUpRightIcon aria-hidden="true" />
+		<a class="nav-cta" href="#get-briefly">
+			Get Briefly
+			<DownloadIcon aria-hidden="true" />
 		</a>
 	</header>
 
@@ -473,9 +537,9 @@
 						searchable library—ready for you and your agents.
 					</p>
 					<div class="hero-actions">
-						<a class="button button-primary" href="/">
-							Open your library
-							<ArrowRightIcon aria-hidden="true" />
+						<a class="button button-primary" href={preferredDownload.href}>
+							{preferredDownload.label}
+							<DownloadIcon aria-hidden="true" />
 						</a>
 						<a class="text-link" href="#how">
 							See how it works
@@ -530,9 +594,15 @@
 						<span>{fieldComplete ? 'Your page is clean' : 'Sweep over a source to gather it'}</span>
 					</div>
 					{#if fieldComplete}
-						<button type="button" onclick={() => resetSweep()}>Scatter again</button>
+						<button type="button" onclick={() => resetSweep()}>
+							<RotateCcwIcon aria-hidden="true" />
+							Scatter again
+							<kbd>R</kbd>
+						</button>
 					{:else}
-						<span class="sweep-hint">Your cursor is hidden. The Briefly mark is the cursor.</span>
+						<span class="sweep-hint">
+							The Briefly mark is your cursor · <kbd>R</kbd> resets
+						</span>
 					{/if}
 				</div>
 
@@ -672,51 +742,40 @@
 				<div class="listen-chip"><VolumeIcon /> Every level can be read aloud</div>
 			</div>
 
-			<div class="depth-demo reveal">
-				<div class="demo-chrome">
-					<div class="chrome-dots"><i></i><i></i><i></i></div>
-					<span>Memory systems for agents</span>
-					<button type="button" aria-label="Open document menu">•••</button>
+			<div class="product-demo reveal">
+				<div class="product-demo-toolbar">
+					<div>
+						<span class="live-dot"></span>
+						Real Briefly interface
+					</div>
+					<span>{depthOptions[selectedDepth].time} read</span>
 				</div>
 
-				<div class="demo-body">
-					<div class="depth-tabs" role="tablist" aria-label="Reading depth">
-						{#each depthOptions as option, index}
-							<button
-								type="button"
-								class:active={selectedDepth === index}
-								role="tab"
-								aria-selected={selectedDepth === index}
-								onclick={() => (selectedDepth = index)}
-							>
-								<span>{index + 1}</span>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-
-					<div class="demo-document" aria-live="polite">
-						<div class="document-meta">
-							<span>{depthOptions[selectedDepth].label} view</span>
-							<span>{depthOptions[selectedDepth].time} read</span>
-						</div>
-						<h3>Why context design matters</h3>
-						<p>{depthOptions[selectedDepth].copy}</p>
-						{#if selectedDepth > 1}
-							<h4>Retrieval over accumulation</h4>
-							<p class="supporting-copy">
-								The value of a library is measured by what you can reuse, not what you can
-								collect.
-							</p>
-						{/if}
-						{#if selectedDepth > 2}
-							<div class="document-callout">
-								<strong>Practical takeaway</strong>
-								<span>Keep the source, structure the insight, preserve the path back.</span>
-							</div>
-						{/if}
-					</div>
+				<div class="product-screenshot" aria-live="polite">
+					<img
+						src={depthOptions[selectedDepth].image}
+						alt={`The actual Briefly library and reader interface showing the ${depthOptions[selectedDepth].label.toLowerCase()} reading depth`}
+					/>
 				</div>
+
+				<div class="product-depth-picker" role="tablist" aria-label="Preview reading depth">
+					{#each depthOptions as option, index}
+						<button
+							type="button"
+							class:active={selectedDepth === index}
+							role="tab"
+							aria-selected={selectedDepth === index}
+							onclick={() => (selectedDepth = index)}
+						>
+							<span>{index + 1}</span>
+							{option.label}
+						</button>
+					{/each}
+				</div>
+
+				<p class="product-demo-caption">
+					No concept render: this is the current Briefly app using its built-in sample library.
+				</p>
 			</div>
 		</section>
 
@@ -799,6 +858,101 @@
 			</div>
 		</section>
 
+		<section class="downloads-section" id="get-briefly">
+			<div class="downloads-inner section-shell">
+				<div class="downloads-heading reveal">
+					<div class="section-number">06 / GET BRIEFLY</div>
+					<h2>One library.<br />Every screen.</h2>
+					<p>
+						Use the native desktop app for one-shortcut capture, or install the progressive
+						web app on your phone for a focused reader that works like an app.
+					</p>
+				</div>
+
+				<div class="download-grid">
+					<article class="download-card reveal" class:preferred={detectedPlatform === 'mac'}>
+						<div class="download-card-top">
+							<div class="platform-icon"><LaptopIcon /></div>
+							{#if detectedPlatform === 'mac'}<span class="preferred-pill">Best for this device</span>{/if}
+						</div>
+						<div>
+							<p>Desktop</p>
+							<h3>macOS</h3>
+							<span>Universal build for Apple silicon and Intel.</span>
+						</div>
+						<a href={desktopDownloads.mac.href}>
+							<DownloadIcon />
+							Download .dmg
+						</a>
+					</article>
+
+					<article class="download-card reveal" class:preferred={detectedPlatform === 'windows'}>
+						<div class="download-card-top">
+							<div class="platform-icon"><MonitorIcon /></div>
+							{#if detectedPlatform === 'windows'}<span class="preferred-pill">Best for this device</span>{/if}
+						</div>
+						<div>
+							<p>Desktop</p>
+							<h3>Windows</h3>
+							<span>64-bit installer for Windows PCs.</span>
+						</div>
+						<a href={desktopDownloads.windows.href}>
+							<DownloadIcon />
+							Download .exe
+						</a>
+					</article>
+
+					<article class="download-card reveal" class:preferred={detectedPlatform === 'linux'}>
+						<div class="download-card-top">
+							<div class="platform-icon"><TerminalIcon /></div>
+							{#if detectedPlatform === 'linux'}<span class="preferred-pill">Best for this device</span>{/if}
+						</div>
+						<div>
+							<p>Desktop</p>
+							<h3>Linux</h3>
+							<span>Portable AppImage or Debian / Ubuntu package.</span>
+						</div>
+						<div class="linux-actions">
+							<a href={desktopDownloads.linux.href}>
+								<DownloadIcon />
+								AppImage
+							</a>
+							<a href={`${downloadBase}/Briefly-linux-amd64.deb`}>.deb</a>
+						</div>
+					</article>
+
+					<article class="download-card pwa-card reveal" class:preferred={detectedPlatform === 'pwa'}>
+						<div class="download-card-top">
+							<div class="platform-icon"><SmartphoneIcon /></div>
+							<span class="pwa-pill">No app store needed</span>
+						</div>
+						<div>
+							<p>Phone + tablet</p>
+							<h3>Progressive web app</h3>
+							<span>Install from Safari or Chrome and launch Briefly from your home screen.</span>
+						</div>
+						<a href="/">
+							<GlobeIcon />
+							Open the web app
+						</a>
+						<ol>
+							<li><b>iPhone / iPad:</b> Share → Add to Home Screen</li>
+							<li><b>Android:</b> Browser menu → Install app</li>
+						</ol>
+					</article>
+				</div>
+
+				<div class="download-footnote reveal">
+					<CheckCircleIcon />
+					<span>
+						One Briefly library, synchronized through your Google Drive. Desktop builds are
+						currently in public beta, so your operating system may ask you to confirm the first
+						launch.
+					</span>
+				</div>
+			</div>
+		</section>
+
 		<section class="final-cta">
 			<div class="final-orbit orbit-one" aria-hidden="true"></div>
 			<div class="final-orbit orbit-two" aria-hidden="true"></div>
@@ -812,11 +966,11 @@
 				<img src="/icons/icon-192.png" alt="" />
 				<p>THE INTERNET IS ENDLESS. YOUR ATTENTION ISN’T.</p>
 				<h2>Keep the parts<br />worth knowing.</h2>
-				<a class="button button-white" href="/">
-					Open your library
-					<ArrowRightIcon aria-hidden="true" />
+				<a class="button button-white" href={preferredDownload.href}>
+					{preferredDownload.label}
+					<DownloadIcon aria-hidden="true" />
 				</a>
-				<span class="final-note">Capture in seconds. Read at any depth.</span>
+				<span class="final-note">Mac · Windows · Linux · Installable web app</span>
 			</div>
 		</section>
 	</main>
@@ -829,6 +983,7 @@
 		<p>Turn what you find into what you know.</p>
 		<div>
 			<a href="/">Open app</a>
+			<a href="#get-briefly">Downloads</a>
 			<a href="#how">How it works</a>
 			<span>© 2026 Briefly</span>
 		</div>
@@ -1354,9 +1509,28 @@
 	}
 
 	.sweep-hint {
+		display: flex;
+		align-items: center;
+		gap: 5px;
 		padding-left: 18px;
 		border-left: 1px solid rgb(17 17 15 / 10%);
 		color: rgb(17 17 15 / 38%);
+	}
+
+	.sweep-status kbd {
+		display: inline-grid;
+		min-width: 19px;
+		height: 19px;
+		place-items: center;
+		padding: 0 5px;
+		border: 1px solid rgb(17 17 15 / 16%);
+		border-bottom-width: 2px;
+		border-radius: 5px;
+		background: rgb(255 255 255 / 72%);
+		color: rgb(17 17 15 / 64%);
+		font-family: inherit;
+		font-size: 8px;
+		font-weight: 780;
 	}
 
 	.sweep-status.is-complete {
@@ -1365,6 +1539,9 @@
 	}
 
 	.sweep-status button {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 		padding: 7px 11px;
 		border: 0;
 		border-radius: 999px;
@@ -1372,6 +1549,16 @@
 		color: white;
 		font: inherit;
 		cursor: none;
+	}
+
+	.sweep-status button :global(svg) {
+		width: 12px;
+	}
+
+	.sweep-status button kbd {
+		border-color: rgb(255 255 255 / 28%);
+		background: rgb(255 255 255 / 14%);
+		color: white;
 	}
 
 	.scroll-cue {
@@ -1930,177 +2117,125 @@
 		width: 14px;
 	}
 
-	.depth-demo {
-		overflow: hidden;
-		border: 1px solid rgb(17 17 15 / 18%);
-		border-radius: 22px;
-		background: #ddd7ca;
-		box-shadow: 0 35px 80px rgb(43 36 22 / 17%);
-		transform: rotate(1.2deg);
+	.product-demo {
+		position: relative;
+		padding: 10px;
+		border: 1px solid rgb(17 17 15 / 16%);
+		border-radius: 25px;
+		background: #d0d1cd;
+		box-shadow:
+			0 42px 100px rgb(43 36 22 / 21%),
+			inset 0 1px 0 rgb(255 255 255 / 60%);
+		transform: rotate(1deg);
 		transition: transform 350ms ease;
 	}
 
-	.depth-demo:hover {
+	.product-demo:hover {
 		transform: rotate(0);
 	}
 
-	.demo-chrome {
-		display: grid;
-		height: 48px;
-		grid-template-columns: 1fr auto 1fr;
+	.product-demo-toolbar {
+		display: flex;
+		height: 36px;
 		align-items: center;
-		padding: 0 14px;
-		border-bottom: 1px solid rgb(17 17 15 / 12%);
-		background: #cec7ba;
-	}
-
-	.chrome-dots {
-		display: flex;
-		gap: 5px;
-	}
-
-	.chrome-dots i {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: rgb(17 17 15 / 18%);
-	}
-
-	.demo-chrome > span {
-		font-size: 10px;
-		font-weight: 710;
-	}
-
-	.demo-chrome > button {
-		justify-self: end;
-		border: 0;
-		background: none;
-		color: rgb(17 17 15 / 46%);
-		cursor: pointer;
-	}
-
-	.demo-body {
-		display: grid;
-		min-height: 540px;
-		grid-template-columns: 190px 1fr;
-	}
-
-	.depth-tabs {
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-		padding: 18px;
-		border-right: 1px solid rgb(17 17 15 / 11%);
-		background: #d7d0c3;
-	}
-
-	.depth-tabs button {
-		display: flex;
-		height: 48px;
-		align-items: center;
-		gap: 10px;
-		padding: 0 12px;
-		border: 1px solid transparent;
-		border-radius: 10px;
-		background: transparent;
-		color: rgb(17 17 15 / 55%);
-		font-family: inherit;
-		font-size: 11px;
-		font-weight: 660;
-		text-align: left;
-		cursor: pointer;
-		transition:
-			background 180ms ease,
-			color 180ms ease,
-			border-color 180ms ease;
-	}
-
-	.depth-tabs button span {
-		display: grid;
-		width: 21px;
-		height: 21px;
-		place-items: center;
-		border: 1px solid rgb(17 17 15 / 14%);
-		border-radius: 7px;
-		font-size: 8px;
-	}
-
-	.depth-tabs button.active {
-		border-color: rgb(22 77 255 / 18%);
-		background: #f3efe5;
-		box-shadow: 0 7px 18px rgb(40 34 23 / 8%);
-		color: var(--blue);
-	}
-
-	.depth-tabs button.active span {
-		border-color: var(--blue);
-		background: var(--blue);
-		color: white;
-	}
-
-	.demo-document {
-		padding: clamp(30px, 4vw, 58px);
-		background:
-			linear-gradient(rgb(17 17 15 / 2.5%) 1px, transparent 1px),
-			#f9f6ee;
-		background-size: 100% 28px;
-	}
-
-	.document-meta {
-		display: flex;
 		justify-content: space-between;
-		color: var(--blue);
+		padding: 0 8px 0 10px;
+		color: rgb(17 17 15 / 52%);
 		font-size: 8px;
-		font-weight: 790;
+		font-weight: 740;
 		letter-spacing: 0.12em;
 		text-transform: uppercase;
 	}
 
-	.demo-document h3 {
-		margin: 36px 0 28px;
-		font-size: clamp(28px, 3.2vw, 46px);
-		letter-spacing: -0.055em;
-		line-height: 1;
-	}
-
-	.demo-document > p {
-		margin: 0;
-		color: rgb(17 17 15 / 67%);
-		font-family: Georgia, serif;
-		font-size: 16px;
-		line-height: 1.75;
-	}
-
-	.demo-document h4 {
-		margin: 34px 0 13px;
-		font-size: 14px;
-	}
-
-	.demo-document .supporting-copy {
-		font-size: 14px;
-	}
-
-	.document-callout {
+	.product-demo-toolbar > div {
 		display: flex;
-		flex-direction: column;
+		align-items: center;
+		gap: 7px;
+	}
+
+	.live-dot {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #1a7a5c;
+		box-shadow: 0 0 0 4px rgb(26 122 92 / 12%);
+	}
+
+	.product-screenshot {
+		overflow: hidden;
+		aspect-ratio: 16 / 9;
+		border: 1px solid rgb(17 17 15 / 13%);
+		border-radius: 17px;
+		background: #aeb0ab;
+		box-shadow: 0 18px 45px rgb(30 28 22 / 18%);
+	}
+
+	.product-screenshot img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.product-depth-picker {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
 		gap: 6px;
-		margin-top: 30px;
-		padding: 16px;
-		border-left: 3px solid var(--blue);
-		background: rgb(22 77 255 / 6%);
+		padding: 10px 2px 1px;
 	}
 
-	.document-callout strong {
-		color: var(--blue);
+	.product-depth-picker button {
+		display: flex;
+		min-width: 0;
+		height: 42px;
+		align-items: center;
+		justify-content: center;
+		gap: 7px;
+		padding: 0 8px;
+		border: 1px solid transparent;
+		border-radius: 12px;
+		background: transparent;
+		color: rgb(17 17 15 / 52%);
+		font: inherit;
 		font-size: 9px;
-		letter-spacing: 0.11em;
-		text-transform: uppercase;
+		font-weight: 680;
+		cursor: pointer;
+		transition:
+			background 180ms ease,
+			border-color 180ms ease,
+			color 180ms ease;
 	}
 
-	.document-callout span {
-		font-family: Georgia, serif;
-		font-size: 12px;
-		line-height: 1.5;
+	.product-depth-picker button span {
+		display: grid;
+		width: 19px;
+		height: 19px;
+		flex: 0 0 19px;
+		place-items: center;
+		border: 1px solid rgb(17 17 15 / 16%);
+		border-radius: 6px;
+		font-size: 7px;
+	}
+
+	.product-depth-picker button.active {
+		border-color: rgb(11 86 63 / 18%);
+		background: #ecece7;
+		color: #0b563f;
+	}
+
+	.product-depth-picker button.active span {
+		border-color: #0b563f;
+		background: #0b563f;
+		color: white;
+	}
+
+	.product-demo-caption {
+		position: absolute;
+		top: calc(100% + 12px);
+		right: 6px;
+		margin: 0;
+		color: rgb(17 17 15 / 42%);
+		font-size: 9px;
 	}
 
 	.agents-section {
@@ -2383,6 +2518,265 @@
 		color: rgb(17 17 15 / 55%);
 		font-size: 13px;
 		line-height: 1.6;
+	}
+
+	.downloads-section {
+		padding: clamp(110px, 14vw, 210px) 0;
+		border-top: 1px solid var(--line);
+		background:
+			radial-gradient(circle at 84% 16%, rgb(22 77 255 / 12%), transparent 26%),
+			#e7e1d5;
+	}
+
+	.downloads-heading {
+		display: grid;
+		grid-template-columns: 0.28fr 0.8fr 0.72fr;
+		gap: clamp(30px, 5vw, 80px);
+		align-items: end;
+	}
+
+	.downloads-heading h2 {
+		margin: 0;
+		font-size: clamp(62px, 7.6vw, 118px);
+		font-weight: 820;
+		letter-spacing: -0.075em;
+		line-height: 0.87;
+	}
+
+	.downloads-heading > p {
+		max-width: 480px;
+		margin: 0 0 8px;
+		color: rgb(17 17 15 / 58%);
+		font-size: 16px;
+		letter-spacing: -0.025em;
+		line-height: 1.62;
+	}
+
+	.download-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 12px;
+		margin-top: clamp(70px, 8vw, 120px);
+	}
+
+	.download-card {
+		position: relative;
+		display: flex;
+		min-height: 330px;
+		flex-direction: column;
+		padding: 26px;
+		overflow: hidden;
+		border: 1px solid rgb(17 17 15 / 13%);
+		border-radius: 23px;
+		background: rgb(250 247 239 / 75%);
+		box-shadow: 0 20px 50px rgb(31 27 18 / 7%);
+		transition:
+			transform 220ms ease,
+			border-color 220ms ease,
+			box-shadow 220ms ease;
+	}
+
+	.download-card:hover {
+		border-color: rgb(22 77 255 / 25%);
+		box-shadow: 0 26px 60px rgb(31 27 18 / 11%);
+		transform: translateY(-5px);
+	}
+
+	.download-card.preferred {
+		border-color: rgb(22 77 255 / 40%);
+		box-shadow:
+			0 25px 60px rgb(22 77 255 / 11%),
+			inset 0 0 0 1px rgb(22 77 255 / 10%);
+	}
+
+	.download-card-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 14px;
+	}
+
+	.platform-icon {
+		display: grid;
+		width: 48px;
+		height: 48px;
+		place-items: center;
+		border: 1px solid rgb(17 17 15 / 11%);
+		border-radius: 15px;
+		background: white;
+		color: var(--blue);
+		box-shadow: 0 10px 25px rgb(31 27 18 / 8%);
+	}
+
+	.platform-icon :global(svg) {
+		width: 20px;
+	}
+
+	.preferred-pill,
+	.pwa-pill {
+		padding: 7px 9px;
+		border-radius: 999px;
+		background: rgb(22 77 255 / 8%);
+		color: #173ea8;
+		font-size: 8px;
+		font-weight: 760;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.download-card > div:nth-child(2) {
+		margin-top: auto;
+		padding-top: 42px;
+	}
+
+	.download-card p {
+		margin: 0 0 8px;
+		color: rgb(17 17 15 / 42%);
+		font-size: 8px;
+		font-weight: 780;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+	}
+
+	.download-card h3 {
+		margin: 0;
+		font-size: 32px;
+		letter-spacing: -0.055em;
+	}
+
+	.download-card > div:nth-child(2) > span {
+		display: block;
+		max-width: 270px;
+		margin-top: 10px;
+		color: rgb(17 17 15 / 50%);
+		font-size: 12px;
+		line-height: 1.5;
+	}
+
+	.download-card > a,
+	.linux-actions a {
+		display: inline-flex;
+		min-height: 44px;
+		align-items: center;
+		justify-content: center;
+		gap: 8px;
+		margin-top: 25px;
+		padding: 0 15px;
+		border-radius: 999px;
+		background: var(--ink);
+		color: white;
+		font-size: 11px;
+		font-weight: 720;
+	}
+
+	.download-card > a :global(svg),
+	.linux-actions a :global(svg) {
+		width: 14px;
+	}
+
+	.linux-actions {
+		display: grid;
+		grid-template-columns: 1fr auto;
+		gap: 7px;
+	}
+
+	.linux-actions a:last-child {
+		min-width: 60px;
+		border: 1px solid rgb(17 17 15 / 14%);
+		background: transparent;
+		color: var(--ink);
+	}
+
+	.pwa-card {
+		min-height: 250px;
+		grid-column: 1 / -1;
+		display: grid;
+		grid-template-columns: auto minmax(260px, 1fr) auto;
+		align-items: center;
+		gap: clamp(30px, 5vw, 80px);
+		background:
+			radial-gradient(circle at 80% 50%, rgb(92 134 255 / 35%), transparent 25%),
+			linear-gradient(140deg, #092b8d, #031038 72%);
+		color: white;
+	}
+
+	.pwa-card .download-card-top {
+		display: block;
+	}
+
+	.pwa-card .platform-icon {
+		width: 70px;
+		height: 70px;
+		border-color: rgb(255 255 255 / 16%);
+		background: rgb(255 255 255 / 10%);
+		color: white;
+		box-shadow: none;
+	}
+
+	.pwa-card .platform-icon :global(svg) {
+		width: 27px;
+	}
+
+	.pwa-card .pwa-pill {
+		display: inline-flex;
+		margin-top: 12px;
+		background: rgb(255 255 255 / 10%);
+		color: #b8c9ff;
+	}
+
+	.pwa-card > div:nth-child(2) {
+		margin: 0;
+		padding: 0;
+	}
+
+	.pwa-card p {
+		color: #9cb5ff;
+	}
+
+	.pwa-card h3 {
+		font-size: clamp(31px, 3.5vw, 48px);
+	}
+
+	.pwa-card > div:nth-child(2) > span {
+		max-width: 560px;
+		color: rgb(255 255 255 / 62%);
+	}
+
+	.pwa-card > a {
+		min-width: 165px;
+		margin: 0;
+		background: white;
+		color: #09236d;
+	}
+
+	.pwa-card ol {
+		grid-column: 2 / 4;
+		display: flex;
+		gap: 30px;
+		margin: -26px 0 0;
+		padding: 0;
+		color: rgb(255 255 255 / 46%);
+		font-size: 9px;
+		list-style: none;
+	}
+
+	.pwa-card ol b {
+		color: rgb(255 255 255 / 68%);
+	}
+
+	.download-footnote {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 9px;
+		margin-top: 27px;
+		color: rgb(17 17 15 / 45%);
+		font-size: 10px;
+	}
+
+	.download-footnote :global(svg) {
+		width: 14px;
+		color: #0b6a4d;
 	}
 
 	.final-cta {
@@ -2677,6 +3071,23 @@
 			grid-template-columns: 1fr;
 			gap: 32px;
 		}
+
+		.downloads-heading {
+			grid-template-columns: 1fr;
+			align-items: start;
+		}
+
+		.downloads-heading > p {
+			margin-top: 8px;
+		}
+
+		.download-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.pwa-card {
+			grid-column: 1 / -1;
+		}
 	}
 
 	@media (max-width: 720px) {
@@ -2809,7 +3220,8 @@
 		.flow-heading h2,
 		.depth-copy h2,
 		.agents-copy h2,
-		.privacy-heading h2 {
+		.privacy-heading h2,
+		.downloads-heading h2 {
 			font-size: clamp(50px, 15vw, 72px);
 		}
 
@@ -2891,40 +3303,44 @@
 			padding-bottom: 110px;
 		}
 
-		.depth-demo {
+		.product-demo {
+			padding: 6px;
 			border-radius: 16px;
 			transform: none;
 		}
 
-		.demo-body {
-			min-height: 600px;
-			grid-template-columns: 1fr;
+		.product-demo-toolbar {
+			height: 31px;
+			font-size: 7px;
 		}
 
-		.depth-tabs {
-			display: grid;
+		.product-screenshot {
+			border-radius: 11px;
+		}
+
+		.product-depth-picker {
 			grid-template-columns: repeat(4, 1fr);
-			padding: 10px;
-			border-right: 0;
-			border-bottom: 1px solid rgb(17 17 15 / 11%);
+			gap: 3px;
+			padding-top: 7px;
 		}
 
-		.depth-tabs button {
-			height: auto;
+		.product-depth-picker button {
+			height: 47px;
 			flex-direction: column;
-			gap: 6px;
-			padding: 9px 4px;
-			font-size: 8px;
+			gap: 4px;
+			padding: 4px 2px;
+			font-size: 7px;
 			text-align: center;
 		}
 
-		.depth-tabs button span {
-			width: 18px;
-			height: 18px;
+		.product-depth-picker button span {
+			width: 17px;
+			height: 17px;
+			flex-basis: 17px;
 		}
 
-		.demo-document {
-			padding: 30px 24px;
+		.product-demo-caption {
+			display: none;
 		}
 
 		.agents-inner {
@@ -2943,6 +3359,50 @@
 
 		.privacy-grid article {
 			min-height: 240px;
+		}
+
+		.downloads-section {
+			padding: 110px 0;
+		}
+
+		.download-grid {
+			grid-template-columns: 1fr;
+			margin-top: 58px;
+		}
+
+		.download-card {
+			min-height: 300px;
+		}
+
+		.pwa-card {
+			display: flex;
+			min-height: 380px;
+			align-items: stretch;
+			gap: 0;
+		}
+
+		.pwa-card .download-card-top {
+			display: flex;
+		}
+
+		.pwa-card .platform-icon {
+			width: 54px;
+			height: 54px;
+		}
+
+		.pwa-card > div:nth-child(2) {
+			margin-top: auto;
+			padding-top: 36px;
+		}
+
+		.pwa-card > a {
+			margin-top: 25px;
+		}
+
+		.pwa-card ol {
+			display: grid;
+			gap: 7px;
+			margin: 19px 0 0;
 		}
 
 		.final-content h2 {

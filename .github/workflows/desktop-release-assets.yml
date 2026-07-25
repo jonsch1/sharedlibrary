@@ -1,0 +1,101 @@
+name: Desktop release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: 0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS universal
+            os: macos-latest
+            target: mac
+            build_args: --mac dmg --universal
+          - label: Windows x64
+            os: windows-latest
+            target: windows
+            build_args: --win nsis --x64
+          - label: Linux x64
+            os: ubuntu-latest
+            target: linux
+            build_args: --linux AppImage deb --x64
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    defaults:
+      run:
+        working-directory: Electron
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            Electron/package-lock.json
+            Tools/extractor/package-lock.json
+
+      - name: Install Electron dependencies
+        run: npm ci
+
+      - name: Install extractor dependencies
+        run: npm --prefix ../Tools/extractor ci
+
+      - name: Test extractor
+        run: npm --prefix ../Tools/extractor test
+
+      - name: Test Electron main process
+        run: npm test
+
+      - name: Build installer
+        run: npm run dist -- ${{ matrix.build_args }}
+
+      - name: Prepare public filenames
+        shell: bash
+        env:
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          case "$RELEASE_TARGET" in
+            mac)
+              cp "$(find release -maxdepth 1 -name '*.dmg' -print -quit)" \
+                release-assets/Briefly-mac-universal.dmg
+              ;;
+            windows)
+              cp "$(find release -maxdepth 1 -name '*.exe' -print -quit)" \
+                release-assets/Briefly-windows-x64.exe
+              ;;
+            linux)
+              cp "$(find release -maxdepth 1 -name '*.AppImage' -print -quit)" \
+                release-assets/Briefly-linux-x64.AppImage
+              cp "$(find release -maxdepth 1 -name '*.deb' -print -quit)" \
+                release-assets/Briefly-linux-amd64.deb
+              ;;
+          esac
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: briefly-${{ matrix.target }}-${{ inputs.version }}
+          path: Electron/release-assets/*
+          if-no-files-found: error
+          retention-days: 14

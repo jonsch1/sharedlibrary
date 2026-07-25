@@ -420,6 +420,11 @@ export const demoProjection: LibraryProjection = {
 						'## Designing the evidence\n\nPerturbations should be selected for identifiability. Measurements that merely repeat the same biological condition add volume without necessarily separating causal hypotheses.\n\n## Working with prior knowledge\n\nTreat the prior network as evidence with provenance, not as ground truth. Track sources, species, context, and confidence so that assumptions remain visible.\n\n## Validation\n\nReserve observations or experiments before fitting. Compare predictive performance, stability under resampling, and whether the model proposes useful follow-up experiments.'
 				},
 				{
+					variant: 'comprehensive',
+					text:
+						'# A practical guide to biological network inference\n\n## Why the experimental design comes first\n\nNetwork inference can only distinguish causal explanations that the measurements meaningfully separate. Perturbations should therefore be selected before model fitting, with held-out observations reserved for validation rather than reused during selection.\n\n## Treat prior knowledge as evidence\n\nA prior network is useful when its assumptions remain inspectable. Preserve the original source, species, biological context, version, and confidence for every imported interaction. Conflicting evidence should remain visible instead of being silently collapsed.\n\n## Compare models on useful behavior\n\nEvaluate predictive performance, stability under resampling, and whether the inferred network proposes experiments that discriminate between remaining hypotheses. Report uncertainty alongside the graph.\n\n## Practical conclusion\n\nThe strongest inferred network is not necessarily the densest one. It is the smallest defensible model that explains held-out behavior and helps decide what to test next.'
+				},
+				{
 					variant: 'source',
 					text:
 						'This sample document illustrates the format exported by Briefly. Your real snapshot includes the original source text and every available summary level.'
