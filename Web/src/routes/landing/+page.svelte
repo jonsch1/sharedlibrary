@@ -36,8 +36,8 @@
 			kind: 'YouTube',
 			title: 'The AI that remembers',
 			meta: '12:48 · Video',
-			x: -38,
-			y: -14,
+			x: -69,
+			y: 8,
 			rotate: -7,
 			tone: 'red'
 		},
@@ -46,8 +46,8 @@
 			kind: 'arXiv',
 			title: 'Memory systems for agents',
 			meta: 'Research paper',
-			x: 37,
-			y: -16,
+			x: -48,
+			y: -19,
 			rotate: 6,
 			tone: 'orange'
 		},
@@ -56,8 +56,8 @@
 			kind: 'X',
 			title: 'A useful thread on context',
 			meta: '18 posts',
-			x: -39,
-			y: 18,
+			x: -65,
+			y: 29,
 			rotate: 5,
 			tone: 'ink'
 		},
@@ -66,8 +66,8 @@
 			kind: 'Blog',
 			title: 'The shape of a good brief',
 			meta: '8 min read',
-			x: 39,
-			y: 16,
+			x: -34,
+			y: 21,
 			rotate: -5,
 			tone: 'teal'
 		},
@@ -76,7 +76,7 @@
 			kind: 'Podcast',
 			title: 'Designing agents that remember',
 			meta: '42 min · Audio',
-			x: -18,
+			x: -51,
 			y: 35,
 			rotate: -3,
 			tone: 'purple'
@@ -86,10 +86,50 @@
 			kind: 'PDF',
 			title: 'Field notes — context design',
 			meta: '24 pages',
-			x: 19,
-			y: 34,
+			x: -29,
+			y: -31,
 			rotate: 4,
 			tone: 'blue'
+		},
+		{
+			id: 'newsletter',
+			kind: 'Newsletter',
+			title: 'The context issue',
+			meta: 'Saved from email',
+			x: -71,
+			y: -13,
+			rotate: -4,
+			tone: 'teal'
+		},
+		{
+			id: 'web',
+			kind: 'Web page',
+			title: 'Building long-term memory',
+			meta: '6 min read',
+			x: -43,
+			y: 3,
+			rotate: 7,
+			tone: 'blue'
+		},
+		{
+			id: 'notes',
+			kind: 'Notes',
+			title: 'Ideas worth returning to',
+			meta: 'Personal note',
+			x: -23,
+			y: 31,
+			rotate: -6,
+			tone: 'ink'
+		},
+		{
+			id: 'report',
+			kind: 'Report',
+			title: 'State of agent infrastructure',
+			meta: '32 pages',
+			x: -61,
+			y: -33,
+			rotate: 3,
+			tone: 'orange'
 		}
 	];
 
@@ -116,65 +156,45 @@
 		}
 	];
 
-	let heroScene: HTMLElement;
-	let progress = $state(0);
 	let viewportWidth = $state(1440);
 	let viewportHeight = $state(900);
 	let selectedDepth = $state(1);
 
-	const clamp = (value: number, min = 0, max = 1): number =>
-		Math.min(max, Math.max(min, value));
-	const ease = (value: number): number => 1 - Math.pow(1 - clamp(value), 3);
-
-	function sourceCardStyle(card: SourceCard): string {
-		const gather = ease((progress - 0.03) / 0.7);
-		const remaining = 1 - gather;
-		const mobileScale = viewportWidth < 720 ? 0.82 : 1;
-		const x = card.x * viewportWidth * 0.01 * remaining * mobileScale;
-		const y = card.y * viewportHeight * 0.01 * remaining;
-		const scale = 1 - gather * 0.76;
-		const rotation = card.rotate * remaining;
-		const fade = 1 - clamp((gather - 0.76) / 0.24);
-		const blur = clamp((gather - 0.7) / 0.3) * 7;
-		return `transform: translate3d(${x}px, ${y}px, 0) rotate(${rotation}deg) scale(${scale}); opacity: ${fade}; filter: blur(${blur}px);`;
-	}
-
-	function heroCopyStyle(): string {
-		const fade = 1 - ease(progress / 0.34);
-		const y = -progress * 70;
-		return `opacity: ${fade}; transform: translate3d(0, ${y}px, 0);`;
-	}
-
-	function logoStyle(): string {
-		const reveal = ease((progress - 0.2) / 0.5);
-		const scale = 0.56 + reveal * 0.5;
-		const opacity = 0.12 + reveal * 0.88;
-		return `opacity: ${opacity}; transform: scale(${scale});`;
-	}
-
-	function outcomeStyle(): string {
-		const reveal = ease((progress - 0.69) / 0.2);
-		return `opacity: ${reveal}; transform: translate3d(0, ${(1 - reveal) * 34}px, 0);`;
+	function sourceCardStyle(card: SourceCard, index: number): string {
+		const mobileScale = viewportWidth < 720 ? 0.7 : 1;
+		const x0 = card.x * viewportWidth * 0.01 * mobileScale;
+		const y0 = card.y * viewportHeight * 0.01;
+		const bend =
+			(index % 2 === 0 ? -1 : 1) * viewportHeight * (0.035 + (index % 3) * 0.012);
+		const x1 = x0 * 0.64;
+		const y1 = y0 * 0.72 + bend;
+		const x2 = x0 * 0.25;
+		const y2 = y0 * 0.31 - bend * 0.45;
+		const duration = 8.4 + (index % 4) * 0.85;
+		const delay = -(index * 1.38 + 0.6);
+		const scale = 0.82 + (index % 3) * 0.09;
+		return [
+			`--x0:${x0}px`,
+			`--y0:${y0}px`,
+			`--x1:${x1}px`,
+			`--y1:${y1}px`,
+			`--x2:${x2}px`,
+			`--y2:${y2}px`,
+			`--rotate:${card.rotate}deg`,
+			`--rotate-1:${card.rotate * 0.64}deg`,
+			`--rotate-2:${card.rotate * 0.22}deg`,
+			`--source-scale:${scale}`,
+			`animation-duration:${duration}s`,
+			`animation-delay:${delay}s`
+		].join(';');
 	}
 
 	onMount(() => {
-		let frame = 0;
-		const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 		document.body.classList.add('landing-body');
 
-		const update = (): void => {
-			frame = 0;
+		const updateViewport = (): void => {
 			viewportWidth = window.innerWidth;
 			viewportHeight = window.innerHeight;
-			if (!heroScene) return;
-			const bounds = heroScene.getBoundingClientRect();
-			const distance = Math.max(1, bounds.height - window.innerHeight);
-			progress = reducedMotion ? (bounds.top < 0 ? 1 : 0) : clamp(-bounds.top / distance);
-		};
-
-		const scheduleUpdate = (): void => {
-			if (frame) return;
-			frame = window.requestAnimationFrame(update);
 		};
 
 		const observer = new IntersectionObserver(
@@ -187,16 +207,13 @@
 		);
 
 		document.querySelectorAll('.reveal').forEach((element) => observer.observe(element));
-		window.addEventListener('scroll', scheduleUpdate, { passive: true });
-		window.addEventListener('resize', scheduleUpdate, { passive: true });
-		update();
+		window.addEventListener('resize', updateViewport, { passive: true });
+		updateViewport();
 
 		return () => {
-			if (frame) window.cancelAnimationFrame(frame);
 			observer.disconnect();
 			document.body.classList.remove('landing-body');
-			window.removeEventListener('scroll', scheduleUpdate);
-			window.removeEventListener('resize', scheduleUpdate);
+			window.removeEventListener('resize', updateViewport);
 		};
 	});
 </script>
@@ -244,11 +261,11 @@
 	</header>
 
 	<main>
-		<section class="hero-scroll" bind:this={heroScene}>
+		<section class="hero-scroll">
 			<div class="hero-sticky">
 				<div class="hero-grid" aria-hidden="true"></div>
 
-				<div class="hero-copy" style={heroCopyStyle()}>
+				<div class="hero-copy">
 					<div class="eyebrow"><span></span> Your second brain, with taste</div>
 					<h1>Turn what you find<br />into what you know.</h1>
 					<p>
@@ -269,28 +286,46 @@
 
 				<div class="gather-stage" aria-hidden="true">
 					<div class="gather-orbit"></div>
-					<div class="gather-logo" style={logoStyle()}>
+					<div class="stream-rays">
+						{#each Array(8) as _, index}
+							<span
+								style={`--ray-top:${18 + index * 8}%;--ray-height:${18 + index * 4}px;--ray-rotate:${-4 + index * 1.15}deg;--ray-delay:${index * -0.42}s;--ray-pulse-delay:${index * -0.31}s`}
+							></span>
+						{/each}
+					</div>
+					<div class="stream-particles">
+						{#each Array(12) as _, index}
+							<i
+								style={`--particle-x:${-68 + index * 3.8}vw;--particle-y:${-22 + (index % 6) * 8}vh;--particle-delay:${index * -0.41}s`}
+							></i>
+						{/each}
+					</div>
+					<div class="gather-logo">
 						<span class="logo-halo"></span>
+						<span class="intake-ring intake-ring-one"></span>
+						<span class="intake-ring intake-ring-two"></span>
 						<img src="/icons/icon-512.png" alt="" />
 					</div>
 
-					{#each sourceCards as card}
+					{#each sourceCards as card, index}
 						<article
 							class="source-card source-card-{card.tone}"
-							style={sourceCardStyle(card)}
+							style={sourceCardStyle(card, index)}
 						>
 							<div class="source-topline">
 								<span class="source-icon">
 									{#if card.id === 'youtube'}
 										<PlayIcon />
-									{:else if card.id === 'arxiv' || card.id === 'pdf'}
+									{:else if card.id === 'arxiv' || card.id === 'pdf' || card.id === 'report'}
 										<FileTextIcon />
 									{:else if card.id === 'x'}
 										<MessageIcon />
-									{:else if card.id === 'blog'}
+									{:else if card.id === 'blog' || card.id === 'newsletter'}
 										<RssIcon />
-									{:else}
+									{:else if card.id === 'podcast'}
 										<HeadphonesIcon />
+									{:else}
+										<GlobeIcon />
 									{/if}
 								</span>
 								<span>{card.kind}</span>
@@ -300,25 +335,12 @@
 							<small>{card.meta}</small>
 						</article>
 					{/each}
+					<div class="intake-label"><span></span> Always gathering</div>
 				</div>
 
-				<div class="hero-outcome" style={outcomeStyle()}>
-					<div class="outcome-rule"></div>
-					<p>Captured. Clarified. Connected.</p>
-					<h2>One library.<br />Every depth.</h2>
-					<a class="button button-primary" href="/">
-						Start gathering
-						<ArrowRightIcon aria-hidden="true" />
-					</a>
-				</div>
-
-				<div class="scroll-cue" style={`opacity: ${1 - clamp(progress / 0.16)}`}>
-					<span>Scroll to gather</span>
+				<div class="scroll-cue">
+					<span>Scroll to explore</span>
 					<div class="scroll-track"><i></i></div>
-				</div>
-
-				<div class="hero-progress" aria-hidden="true">
-					<span style={`transform: scaleX(${progress})`}></span>
 				</div>
 			</div>
 		</section>
@@ -751,17 +773,17 @@
 
 	.hero-scroll {
 		position: relative;
-		height: 320vh;
+		height: 100svh;
+		min-height: 720px;
 	}
 
 	.hero-sticky {
-		position: sticky;
-		top: 0;
-		height: 100svh;
-		min-height: 680px;
+		position: relative;
+		height: 100%;
+		min-height: inherit;
 		overflow: hidden;
 		background:
-			radial-gradient(circle at 50% 54%, rgb(22 77 255 / 8%), transparent 27%),
+			radial-gradient(circle at 78% 58%, rgb(22 77 255 / 14%), transparent 25%),
 			linear-gradient(180deg, #fbf8f0 0%, var(--paper) 100%);
 	}
 
@@ -780,12 +802,10 @@
 	.hero-copy {
 		position: absolute;
 		z-index: 12;
-		top: clamp(118px, 15vh, 154px);
-		left: 50%;
-		width: min(950px, calc(100% - 40px));
-		text-align: center;
-		transform: translateX(-50%);
-		will-change: opacity, transform;
+		top: clamp(132px, 18vh, 180px);
+		left: clamp(24px, 5vw, 82px);
+		width: min(690px, 54vw);
+		text-align: left;
 	}
 
 	.hero-copy .eyebrow {
@@ -814,8 +834,7 @@
 	.depth-copy h2,
 	.agents-copy h2,
 	.privacy-heading h2,
-	.final-content h2,
-	.hero-outcome h2 {
+	.final-content h2 {
 		margin: 0;
 		font-size: clamp(58px, 8vw, 124px);
 		font-weight: 820;
@@ -824,8 +843,8 @@
 	}
 
 	.hero-copy p {
-		max-width: 650px;
-		margin: 27px auto 0;
+		max-width: 560px;
+		margin: 27px 0 0;
 		color: rgb(17 17 15 / 64%);
 		font-size: clamp(16px, 1.5vw, 20px);
 		letter-spacing: -0.025em;
@@ -835,7 +854,7 @@
 	.hero-actions {
 		display: flex;
 		align-items: center;
-		justify-content: center;
+		justify-content: flex-start;
 		gap: 24px;
 		margin-top: 29px;
 	}
@@ -902,37 +921,37 @@
 	.gather-stage {
 		position: absolute;
 		z-index: 8;
-		top: 54%;
-		left: 50%;
+		top: 58%;
+		left: 79%;
 		width: 1px;
 		height: 1px;
 	}
 
 	.gather-logo {
 		position: absolute;
-		z-index: 4;
+		z-index: 20;
 		top: 50%;
 		left: 50%;
-		width: clamp(124px, 13vw, 190px);
+		width: clamp(190px, 16vw, 250px);
 		aspect-ratio: 1;
-		margin: calc(clamp(124px, 13vw, 190px) / -2);
-		will-change: transform, opacity;
+		margin: calc(clamp(190px, 16vw, 250px) / -2);
+		animation: logo-float 5s ease-in-out infinite;
 	}
 
 	.gather-logo img {
 		position: relative;
-		z-index: 2;
+		z-index: 4;
 		width: 100%;
 		height: 100%;
-		filter: drop-shadow(0 30px 30px rgb(6 24 80 / 22%));
+		filter: drop-shadow(0 34px 34px rgb(6 24 80 / 28%));
 	}
 
 	.logo-halo {
 		position: absolute;
 		z-index: 1;
-		inset: -55%;
+		inset: -70%;
 		border-radius: 50%;
-		background: radial-gradient(circle, rgb(28 82 255 / 20%), transparent 62%);
+		background: radial-gradient(circle, rgb(28 82 255 / 26%), transparent 62%);
 		animation: halo-breathe 3.2s ease-in-out infinite;
 	}
 
@@ -940,7 +959,7 @@
 		position: absolute;
 		top: 50%;
 		left: 50%;
-		width: min(54vw, 760px);
+		width: min(42vw, 620px);
 		aspect-ratio: 1;
 		border: 1px solid rgb(22 77 255 / 10%);
 		border-radius: 50%;
@@ -963,18 +982,117 @@
 		inset: 28%;
 	}
 
+	.stream-rays {
+		position: absolute;
+		z-index: 1;
+		top: 0;
+		right: -15px;
+		width: min(77vw, 1180px);
+		height: 48vh;
+		transform: translateY(-50%);
+	}
+
+	.stream-rays span {
+		position: absolute;
+		top: var(--ray-top);
+		right: 0;
+		width: 100%;
+		height: var(--ray-height);
+		border-top: 1px solid rgb(41 91 255 / 16%);
+		border-radius: 50%;
+		transform: rotate(var(--ray-rotate));
+		transform-origin: right center;
+		animation: stream-shimmer 3.8s ease-in-out infinite;
+		animation-delay: var(--ray-delay);
+	}
+
+	.stream-rays span::after {
+		position: absolute;
+		top: -2px;
+		left: 0;
+		width: 64px;
+		height: 3px;
+		border-radius: 50%;
+		background: linear-gradient(90deg, transparent, rgb(85 126 255 / 90%), transparent);
+		content: '';
+		filter: blur(1px);
+		animation: ray-pulse 3.3s ease-in-out infinite;
+		animation-delay: var(--ray-pulse-delay);
+	}
+
+	.stream-particles {
+		position: absolute;
+		z-index: 2;
+		inset: 0;
+	}
+
+	.stream-particles i {
+		position: absolute;
+		width: 3px;
+		height: 3px;
+		border-radius: 50%;
+		background: #6f98ff;
+		box-shadow: 0 0 10px #3f73ff;
+		animation: particle-ingest 3.6s linear infinite;
+		animation-delay: var(--particle-delay);
+	}
+
+	.intake-ring {
+		position: absolute;
+		z-index: 3;
+		inset: -8%;
+		border: 1px solid rgb(57 106 255 / 34%);
+		border-radius: 30%;
+		opacity: 0;
+		animation: intake-ring 2.4s ease-out infinite;
+	}
+
+	.intake-ring-two {
+		animation-delay: -1.2s;
+	}
+
+	.intake-label {
+		position: absolute;
+		z-index: 22;
+		top: clamp(120px, 10vw, 155px);
+		left: 50%;
+		display: flex;
+		width: max-content;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 11px;
+		border: 1px solid rgb(22 77 255 / 12%);
+		border-radius: 999px;
+		background: rgb(255 255 255 / 62%);
+		color: #173ea8;
+		font-size: 8px;
+		font-weight: 760;
+		letter-spacing: 0.13em;
+		text-transform: uppercase;
+		transform: translateX(-50%);
+		backdrop-filter: blur(12px);
+	}
+
+	.intake-label span {
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: #42a45c;
+		box-shadow: 0 0 0 3px rgb(66 164 92 / 14%);
+	}
+
 	.source-card {
 		position: absolute;
-		z-index: 5;
+		z-index: 8;
 		top: 50%;
 		left: 50%;
 		display: flex;
-		width: clamp(172px, 16vw, 232px);
-		min-height: 116px;
+		width: clamp(148px, 13vw, 196px);
+		min-height: 98px;
 		flex-direction: column;
-		padding: 14px 15px 15px;
+		padding: 12px 13px 13px;
 		border: 1px solid rgb(17 17 15 / 15%);
-		border-radius: 16px;
+		border-radius: 14px;
 		background:
 			linear-gradient(145deg, rgb(255 255 255 / 93%), rgb(241 237 226 / 96%)),
 			var(--paper-bright);
@@ -983,6 +1101,9 @@
 			inset 0 1px 0 white;
 		transform-origin: center;
 		will-change: transform, filter, opacity;
+		animation-name: ingest-card;
+		animation-timing-function: linear;
+		animation-iteration-count: infinite;
 	}
 
 	.source-topline {
@@ -1047,51 +1168,16 @@
 	}
 
 	.source-card strong {
-		margin-top: 14px;
-		font-size: 14px;
+		margin-top: 11px;
+		font-size: 12px;
 		letter-spacing: -0.025em;
 		line-height: 1.15;
 	}
 
 	.source-card small {
-		margin-top: 7px;
+		margin-top: 5px;
 		color: rgb(17 17 15 / 48%);
-		font-size: 10px;
-	}
-
-	.hero-outcome {
-		position: absolute;
-		z-index: 14;
-		top: calc(54% + clamp(112px, 12vw, 170px));
-		left: 50%;
-		width: min(680px, calc(100% - 40px));
-		text-align: center;
-		transform: translateX(-50%);
-		will-change: transform, opacity;
-	}
-
-	.outcome-rule {
-		width: 1px;
-		height: 42px;
-		margin: 0 auto 18px;
-		background: linear-gradient(transparent, var(--blue));
-	}
-
-	.hero-outcome p {
-		margin: 0 0 12px;
-		color: var(--blue);
-		font-size: 11px;
-		font-weight: 800;
-		letter-spacing: 0.18em;
-		text-transform: uppercase;
-	}
-
-	.hero-outcome h2 {
-		font-size: clamp(45px, 6vw, 88px);
-	}
-
-	.hero-outcome .button {
-		margin-top: 25px;
+		font-size: 9px;
 	}
 
 	.scroll-cue {
@@ -1123,24 +1209,6 @@
 		height: 1px;
 		background: var(--blue);
 		animation: scroll-line 1.8s ease-in-out infinite;
-	}
-
-	.hero-progress {
-		position: absolute;
-		z-index: 30;
-		right: 0;
-		bottom: 0;
-		left: 0;
-		height: 2px;
-		background: rgb(17 17 15 / 6%);
-	}
-
-	.hero-progress span {
-		display: block;
-		width: 100%;
-		height: 100%;
-		background: var(--blue);
-		transform-origin: left;
 	}
 
 	.source-marquee {
@@ -2303,6 +2371,105 @@
 		}
 	}
 
+	@keyframes ingest-card {
+		0% {
+			opacity: 0;
+			filter: blur(4px);
+			transform: translate3d(var(--x0), var(--y0), 0) rotate(var(--rotate))
+				scale(var(--source-scale));
+		}
+		8% {
+			opacity: 1;
+			filter: blur(0);
+		}
+		38% {
+			opacity: 1;
+			transform: translate3d(var(--x1), var(--y1), 0) rotate(var(--rotate-1)) scale(0.86);
+		}
+		74% {
+			opacity: 1;
+			filter: blur(0);
+			transform: translate3d(var(--x2), var(--y2), 0) rotate(var(--rotate-2)) scale(0.54);
+		}
+		92% {
+			opacity: 0.9;
+		}
+		100% {
+			opacity: 0;
+			filter: blur(7px);
+			transform: translate3d(0, 0, 0) rotate(0) scale(0.06);
+		}
+	}
+
+	@keyframes logo-float {
+		0%,
+		100% {
+			transform: translateY(-4px);
+		}
+		50% {
+			transform: translateY(5px);
+		}
+	}
+
+	@keyframes intake-ring {
+		0% {
+			opacity: 0;
+			transform: scale(0.76);
+		}
+		16% {
+			opacity: 0.55;
+		}
+		70%,
+		100% {
+			opacity: 0;
+			transform: scale(1.24);
+		}
+	}
+
+	@keyframes stream-shimmer {
+		0%,
+		100% {
+			border-color: rgb(41 91 255 / 9%);
+		}
+		50% {
+			border-color: rgb(41 91 255 / 28%);
+		}
+	}
+
+	@keyframes ray-pulse {
+		0% {
+			opacity: 0;
+			transform: translateX(0);
+		}
+		18% {
+			opacity: 0.85;
+		}
+		85% {
+			opacity: 0.7;
+		}
+		100% {
+			opacity: 0;
+			transform: translateX(calc(min(77vw, 1180px) - 64px));
+		}
+	}
+
+	@keyframes particle-ingest {
+		0% {
+			opacity: 0;
+			transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(0.4);
+		}
+		16% {
+			opacity: 0.85;
+		}
+		82% {
+			opacity: 0.7;
+		}
+		100% {
+			opacity: 0;
+			transform: translate3d(0, 0, 0) scale(0.1);
+		}
+	}
+
 	@keyframes scroll-line {
 		0% {
 			transform: translateX(-20px);
@@ -2413,15 +2580,21 @@
 		}
 
 		.hero-scroll {
-			height: 285vh;
+			height: 100svh;
+			min-height: 820px;
 		}
 
 		.hero-sticky {
-			min-height: 620px;
+			min-height: inherit;
+			background:
+				radial-gradient(circle at 72% 70%, rgb(22 77 255 / 16%), transparent 26%),
+				linear-gradient(180deg, #fbf8f0 0%, var(--paper) 100%);
 		}
 
 		.hero-copy {
 			top: 108px;
+			left: 18px;
+			width: calc(100% - 36px);
 		}
 
 		.hero-copy .eyebrow {
@@ -2456,16 +2629,27 @@
 		}
 
 		.gather-stage {
-			top: 60%;
+			top: 70%;
+			left: 74%;
 		}
 
 		.gather-orbit {
-			width: 96vw;
+			width: 92vw;
+		}
+
+		.gather-logo {
+			width: 160px;
+			margin: -80px;
+		}
+
+		.stream-rays {
+			width: 100vw;
+			height: 36vh;
 		}
 
 		.source-card {
-			width: 146px;
-			min-height: 92px;
+			width: 128px;
+			min-height: 84px;
 			padding: 10px;
 			border-radius: 13px;
 		}
@@ -2488,16 +2672,8 @@
 			height: 19px;
 		}
 
-		.hero-outcome {
-			top: calc(60% + 95px);
-		}
-
-		.hero-outcome h2 {
-			font-size: clamp(40px, 12vw, 58px);
-		}
-
-		.hero-outcome .button {
-			margin-top: 19px;
+		.intake-label {
+			top: 98px;
 		}
 
 		.scroll-cue {
@@ -2697,6 +2873,17 @@
 		.reveal {
 			opacity: 1;
 			transform: none;
+		}
+
+		.source-card,
+		.stream-rays,
+		.stream-particles,
+		.intake-ring {
+			display: none;
+		}
+
+		.gather-logo {
+			animation: none !important;
 		}
 	}
 </style>
