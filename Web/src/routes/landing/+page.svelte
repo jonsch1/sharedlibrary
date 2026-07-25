@@ -3,14 +3,12 @@
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
-	import BotIcon from '@lucide/svelte/icons/bot';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LaptopIcon from '@lucide/svelte/icons/laptop';
-	import LayersIcon from '@lucide/svelte/icons/layers-3';
 	import LinkIcon from '@lucide/svelte/icons/link-2';
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
 	import MessageIcon from '@lucide/svelte/icons/message-circle';
@@ -757,56 +755,43 @@
 
 		<section class="agents-section" id="agents">
 			<div class="agents-inner section-shell">
-				<div class="agents-visual reveal">
-					<div class="file-tree">
-						<div class="tree-header">
-							<span><LayersIcon /> BRIEFLY</span>
-							<i></i>
-						</div>
-						<div class="tree-row folder"><span>⌄</span> library</div>
-						<div class="tree-row nested"><FileTextIcon /> agent-memory.md</div>
-						<div class="tree-row nested"><FileTextIcon /> context-design.md</div>
-						<div class="tree-row nested"><FileTextIcon /> retrieval-notes.md</div>
-						<div class="tree-row"><FileTextIcon /> topics.md</div>
-						<div class="tree-row active"><BotIcon /> AGENTS.md</div>
+				<div class="agents-copy reveal">
+					<div class="agents-heading">
+						<div class="section-number">04 / YOU + YOUR AGENTS</div>
+						<h2>One workspace.<br />Shared context.</h2>
 					</div>
-					<div class="code-pane">
-						<div class="code-header">
-							<span><FileTextIcon /> agent-memory.md</span>
-							<i>Markdown</i>
-						</div>
-						<div class="code-body">
-							<p><b># Agent memory systems</b></p>
-							<p class="code-muted">Source: arxiv.org/abs/...</p>
-							<p><em>## Key idea</em></p>
-							<p>Useful memory is curated context,</p>
-							<p>not an ever-growing transcript.</p>
-							<p><em>## Implications</em></p>
-							<p><span>-</span> preserve provenance</p>
-							<p><span>-</span> retrieve by task</p>
-							<p><span>-</span> match the level of detail</p>
-						</div>
-						<div class="agent-ready-pill"><SparklesIcon /> Ready for an agent</div>
+					<div class="agents-story">
+						<p>
+							Briefly gives you and every agent one place to research, understand, and create.
+							They can build on what you know, investigate further, and leave the useful work
+							in your hands.
+						</p>
+						<ul>
+							<li><CheckCircleIcon /> Research with everything you have already saved</li>
+							<li><CheckCircleIcon /> Give any agent the context to continue</li>
+							<li><CheckCircleIcon /> Keep the insights, drafts, and decisions</li>
+						</ul>
+						<a class="button button-light" href="/">
+							Start your shared workspace
+							<ArrowRightIcon aria-hidden="true" />
+						</a>
 					</div>
 				</div>
 
-				<div class="agents-copy reveal">
-					<div class="section-number">04 / BUILT FOR AGENTS</div>
-					<h2>Context,<br />without the cleanup.</h2>
-					<p>
-						Your library is written in plain Markdown with clear titles, useful headings, and
-						source links. Humans can read it. Agents can work with it.
-					</p>
-					<ul>
-						<li><CheckCircleIcon /> Predictable Markdown files</li>
-						<li><CheckCircleIcon /> Source-aware summaries</li>
-						<li><CheckCircleIcon /> A workspace agents can navigate</li>
-					</ul>
-					<a class="button button-light" href="/">
-						Open Briefly
-						<ArrowRightIcon aria-hidden="true" />
-					</a>
-				</div>
+				<figure class="agents-visual reveal">
+					<img
+						src="/briefly-agent-workspace.webp"
+						alt="Claude Code, Codex, OpenCode, and Pi connect to the same Briefly workspace to produce research, insights, and drafts."
+						width="1672"
+						height="941"
+						loading="lazy"
+						decoding="async"
+					/>
+					<figcaption>
+						<span>You and your agents, working from the same place.</span>
+						<span>Research · insight · useful work</span>
+					</figcaption>
+				</figure>
 			</div>
 		</section>
 
@@ -2282,194 +2267,41 @@
 		padding: clamp(110px, 14vw, 210px) 0;
 		overflow: hidden;
 		background:
-			radial-gradient(circle at 20% 50%, rgb(28 83 255 / 18%), transparent 30%),
+			radial-gradient(circle at 50% 72%, rgb(28 83 255 / 16%), transparent 38%),
 			#030b24;
 		color: white;
 	}
 
 	.agents-inner {
 		display: grid;
-		grid-template-columns: 1.2fr 0.8fr;
-		gap: clamp(70px, 9vw, 150px);
-		align-items: center;
+		gap: clamp(54px, 7vw, 92px);
 	}
 
-	.agents-visual {
+	.agents-copy {
 		display: grid;
-		min-height: 540px;
-		grid-template-columns: 220px 1fr;
-		overflow: hidden;
-		border: 1px solid rgb(255 255 255 / 11%);
-		border-radius: 22px;
-		background: #071433;
-		box-shadow: 0 35px 80px rgb(0 0 0 / 35%);
-		transform: perspective(1200px) rotateY(4deg) rotateX(1deg);
-		transform-origin: right center;
+		grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.55fr);
+		gap: clamp(60px, 9vw, 150px);
+		align-items: end;
 	}
 
-	.file-tree {
-		padding: 17px 10px;
-		border-right: 1px solid rgb(255 255 255 / 8%);
-		background: rgb(0 0 0 / 16%);
-		color: rgb(255 255 255 / 62%);
-	}
-
-	.tree-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 8px 15px;
-		color: rgb(255 255 255 / 42%);
-		font-size: 8px;
-		font-weight: 740;
-		letter-spacing: 0.1em;
-	}
-
-	.tree-header span {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.tree-header :global(svg) {
-		width: 11px;
-	}
-
-	.tree-header i {
-		width: 4px;
-		height: 4px;
-		border-radius: 50%;
-		background: #57d579;
-		box-shadow: 0 0 8px #57d579;
-	}
-
-	.tree-row {
-		display: flex;
-		height: 32px;
-		align-items: center;
-		gap: 7px;
-		padding: 0 8px;
-		border-radius: 6px;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 9px;
-	}
-
-	.tree-row :global(svg) {
-		width: 12px;
-	}
-
-	.tree-row.nested {
-		padding-left: 27px;
-	}
-
-	.tree-row.folder {
-		color: rgb(255 255 255 / 82%);
-	}
-
-	.tree-row.active {
-		background: rgb(58 107 255 / 18%);
-		color: #9fbbff;
-	}
-
-	.code-pane {
-		position: relative;
-	}
-
-	.code-header {
-		display: flex;
-		height: 48px;
-		align-items: center;
-		justify-content: space-between;
-		padding: 0 18px;
-		border-bottom: 1px solid rgb(255 255 255 / 8%);
-		color: rgb(255 255 255 / 56%);
-		font-size: 9px;
-	}
-
-	.code-header span {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-	}
-
-	.code-header :global(svg) {
-		width: 12px;
-	}
-
-	.code-header i {
-		font-style: normal;
-	}
-
-	.code-body {
-		padding: clamp(30px, 4vw, 54px);
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: clamp(10px, 1vw, 13px);
-		line-height: 1.9;
-	}
-
-	.code-body p {
-		margin: 0;
-		color: rgb(255 255 255 / 72%);
-	}
-
-	.code-body b {
-		color: white;
-		font-size: 1.3em;
-	}
-
-	.code-body em {
-		color: #82a7ff;
-		font-style: normal;
-	}
-
-	.code-body span {
-		color: #65dc8b;
-	}
-
-	.code-body .code-muted {
-		margin: 4px 0 25px;
-		color: rgb(255 255 255 / 30%);
-	}
-
-	.agent-ready-pill {
-		position: absolute;
-		right: 24px;
-		bottom: 22px;
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		padding: 8px 11px;
-		border: 1px solid rgb(105 220 139 / 22%);
-		border-radius: 999px;
-		background: rgb(73 192 107 / 10%);
-		color: #7de39b;
-		font-size: 8px;
-		font-weight: 720;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-	}
-
-	.agent-ready-pill :global(svg) {
-		width: 12px;
-	}
-
-	.agents-copy .section-number {
+	.agents-heading .section-number {
 		color: #82a7ff;
 	}
 
-	.agents-copy h2 {
+	.agents-heading h2 {
+		max-width: 900px;
 		font-size: clamp(58px, 6.5vw, 100px);
 	}
 
-	.agents-copy > p {
-		margin: 32px 0 0;
+	.agents-story > p {
+		margin: 0;
 		color: rgb(255 255 255 / 61%);
 		font-size: 17px;
 		letter-spacing: -0.02em;
 		line-height: 1.6;
 	}
 
-	.agents-copy ul {
+	.agents-story ul {
 		display: grid;
 		gap: 14px;
 		margin: 35px 0;
@@ -2479,15 +2311,71 @@
 		font-size: 13px;
 	}
 
-	.agents-copy li {
+	.agents-story li {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		gap: 10px;
 	}
 
-	.agents-copy li :global(svg) {
+	.agents-story li :global(svg) {
 		width: 16px;
+		flex: 0 0 16px;
+		margin-top: 1px;
 		color: #6ee08f;
+	}
+
+	.agents-visual {
+		position: relative;
+		margin: 0;
+		overflow: hidden;
+		border: 1px solid rgb(255 255 255 / 14%);
+		border-radius: 28px;
+		background: #f4eee4;
+		box-shadow: 0 42px 110px rgb(0 0 0 / 36%);
+		isolation: isolate;
+	}
+
+	.agents-visual::after {
+		position: absolute;
+		z-index: 1;
+		inset: 0;
+		background: linear-gradient(
+			110deg,
+			transparent 35%,
+			rgb(255 255 255 / 22%) 48%,
+			transparent 61%
+		);
+		content: '';
+		pointer-events: none;
+		transform: translateX(-120%);
+		animation: workspace-glint 8s ease-in-out infinite;
+	}
+
+	.agents-visual img {
+		display: block;
+		width: 100%;
+		height: auto;
+		transition: transform 900ms cubic-bezier(0.2, 0.75, 0.2, 1);
+	}
+
+	.agents-visual:hover img {
+		transform: scale(1.012);
+	}
+
+	.agents-visual figcaption {
+		position: relative;
+		z-index: 2;
+		display: flex;
+		justify-content: space-between;
+		gap: 24px;
+		padding: 16px 20px;
+		border-top: 1px solid rgb(17 17 15 / 8%);
+		background: #f4eee4;
+		color: rgb(17 17 15 / 52%);
+		font-size: 10px;
+		font-weight: 680;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
 	}
 
 	.button-light {
@@ -3153,6 +3041,17 @@
 		}
 	}
 
+	@keyframes workspace-glint {
+		0%,
+		52% {
+			transform: translateX(-120%);
+		}
+		72%,
+		100% {
+			transform: translateX(120%);
+		}
+	}
+
 	@media (max-width: 1050px) {
 		.landing-nav {
 			grid-template-columns: 1fr 1fr;
@@ -3164,15 +3063,13 @@
 
 		.attention-grid,
 		.flow-heading,
-		.depth-section,
-		.agents-inner {
+		.depth-section {
 			grid-template-columns: 1fr;
 		}
 
 		.attention-copy,
 		.flow-heading > p,
-		.depth-copy > p,
-		.agents-copy {
+		.depth-copy > p {
 			max-width: 650px;
 		}
 
@@ -3203,7 +3100,12 @@
 		}
 
 		.agents-copy {
-			grid-row: 1;
+			grid-template-columns: 1fr;
+			gap: 42px;
+		}
+
+		.agents-story {
+			max-width: 650px;
 		}
 
 		.privacy-heading {
@@ -3519,17 +3421,24 @@
 		}
 
 		.agents-inner {
-			gap: 60px;
+			gap: 42px;
 		}
 
 		.agents-visual {
-			min-height: 470px;
-			grid-template-columns: 1fr;
-			transform: none;
+			border-radius: 18px;
 		}
 
-		.file-tree {
-			display: none;
+		.agents-visual img {
+			min-height: 330px;
+			object-fit: cover;
+			object-position: center;
+		}
+
+		.agents-visual figcaption {
+			flex-direction: column;
+			gap: 5px;
+			padding: 13px 15px;
+			font-size: 8px;
 		}
 
 		.privacy-grid article {
