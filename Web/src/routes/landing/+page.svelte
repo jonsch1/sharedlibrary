@@ -527,7 +527,6 @@
 				<div class="hero-grid" aria-hidden="true"></div>
 
 				<div class="hero-copy">
-					<div class="eyebrow"><span></span> Your second brain, with taste</div>
 					<h1>Turn what you find<br />into what you know.</h1>
 					<p>
 						Capture any source in seconds. Briefly turns the internet into a private,
@@ -1153,26 +1152,6 @@
 		left: clamp(24px, 5vw, 82px);
 		width: min(690px, 54vw);
 		text-align: left;
-	}
-
-	.hero-copy .eyebrow {
-		display: inline-flex;
-		align-items: center;
-		gap: 9px;
-		margin-bottom: 20px;
-		color: #173ea8;
-		font-size: 11px;
-		font-weight: 760;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-	}
-
-	.hero-copy .eyebrow span {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: var(--blue);
-		box-shadow: 0 0 0 5px rgb(22 77 255 / 12%);
 	}
 
 	.hero-copy h1,
@@ -3171,11 +3150,6 @@
 			top: 108px;
 			left: 18px;
 			width: calc(100% - 36px);
-		}
-
-		.hero-copy .eyebrow {
-			margin-bottom: 17px;
-			font-size: 9px;
 		}
 
 		.hero-copy h1 {
