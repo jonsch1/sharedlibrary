@@ -5,7 +5,6 @@
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BotIcon from '@lucide/svelte/icons/bot';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
-	import CommandIcon from '@lucide/svelte/icons/command';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
@@ -205,19 +204,19 @@
 		'https://github.com/jonsch1/briefly-downloads/releases/latest/download';
 	const desktopDownloads = {
 		mac: {
-			label: 'Download for Mac',
+			label: 'Download free for Mac',
 			href: `${downloadBase}/Briefly-mac-universal.dmg`
 		},
 		windows: {
-			label: 'Download for Windows',
+			label: 'Download free for Windows',
 			href: `${downloadBase}/Briefly-windows-x64.exe`
 		},
 		linux: {
-			label: 'Download for Linux',
+			label: 'Download free for Linux',
 			href: `${downloadBase}/Briefly-linux-x64.AppImage`
 		},
 		pwa: {
-			label: 'Open the web app',
+			label: 'Use the free web app',
 			href: '/'
 		}
 	} satisfies Record<Platform, { label: string; href: string }>;
@@ -485,7 +484,7 @@
 	<title>Briefly — Turn what you find into what you know</title>
 	<meta
 		name="description"
-		content="Capture videos, papers, posts, podcasts, and pages. Briefly turns every source into a private, searchable, agent-ready library."
+		content="Capture videos, papers, posts, podcasts, and pages for free. Briefly turns every source into a private, searchable, agent-ready library. Upgrade for sync and sharing."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:title" content="Briefly — Turn what you find into what you know" />
@@ -494,14 +493,14 @@
 		content="Capture anything. Understand it at any depth. Keep the context ready for you and your agents."
 	/>
 	<meta property="og:url" content="https://www.readbriefly.fyi/landing" />
-	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing.png" />
+	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing-free.png" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Briefly — Turn what you find into what you know" />
 	<meta
 		name="twitter:description"
 		content="Your private, searchable, agent-ready library."
 	/>
-	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing.png" />
+	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing-free.png" />
 </svelte:head>
 
 <div class="landing">
@@ -545,6 +544,10 @@
 							See how it works
 							<ArrowDownIcon aria-hidden="true" />
 						</a>
+					</div>
+					<div class="hero-free-note">
+						<CheckCircleIcon aria-hidden="true" />
+						Core app free · sync + sharing with Briefly Plus
 					</div>
 				</div>
 
@@ -668,46 +671,19 @@
 				</p>
 			</div>
 
-			<div class="flow-canvas reveal">
-				<div class="flow-noise" aria-hidden="true"></div>
-				<div class="flow-inputs">
-					<div class="mini-source"><PlayIcon /><span>YouTube</span></div>
-					<div class="mini-source"><FileTextIcon /><span>arXiv</span></div>
-					<div class="mini-source"><RssIcon /><span>Blog</span></div>
-					<div class="mini-source"><HeadphonesIcon /><span>Podcast</span></div>
-				</div>
-
-				<div class="flow-line flow-line-in"><span></span></div>
-
-				<div class="flow-core">
-					<div class="shortcut">
-						<kbd><CommandIcon /> C</kbd>
-						<i></i>
-						<kbd><CommandIcon /> G</kbd>
-					</div>
-					<div class="core-mark">
-						<span></span>
-						<img src="/icons/icon-192.png" alt="" />
-					</div>
-					<strong>Briefly</strong>
-					<small>Capture in seconds</small>
-				</div>
-
-				<div class="flow-line flow-line-out"><span></span></div>
-
-				<div class="flow-output">
-					<div class="stack-card stack-back"></div>
-					<div class="stack-card stack-mid"></div>
-					<div class="stack-card stack-front">
-						<div class="doc-toolbar"><i></i><i></i><i></i><span>briefly.md</span></div>
-						<div class="doc-title"></div>
-						<div class="doc-line long"></div>
-						<div class="doc-line"></div>
-						<div class="doc-line short"></div>
-						<div class="doc-tag">AGENT-READY</div>
-					</div>
-				</div>
-			</div>
+			<figure class="flow-visual reveal">
+				<img
+					src="/briefly-flow-v2.webp"
+					alt="YouTube videos, arXiv papers, blog posts, and podcasts flow through Briefly into four reading depths and agent-ready Markdown."
+				/>
+				<figcaption>
+					<span>Capture any source</span>
+					<i aria-hidden="true"></i>
+					<span>Choose the useful depth</span>
+					<i aria-hidden="true"></i>
+					<span>Keep clean, agent-ready context</span>
+				</figcaption>
+			</figure>
 
 			<div class="steps-grid section-shell">
 				<article class="step-card reveal">
@@ -843,17 +819,17 @@
 				<article class="reveal">
 					<div class="privacy-icon"><LockIcon /></div>
 					<h3>Private by default</h3>
-					<p>Your complete library stays in your own workspace and Google Drive.</p>
+					<p>Your free library stays in your own local workspace until you choose otherwise.</p>
 				</article>
 				<article class="reveal">
 					<div class="privacy-icon"><GlobeIcon /></div>
 					<h3>Offline when you need it</h3>
-					<p>Your mirrored library remains readable even when the connection does not.</p>
+					<p>Capture, search, and read your library locally—even when the connection does not.</p>
 				</article>
 				<article class="reveal">
 					<div class="privacy-icon"><ArrowUpRightIcon /></div>
 					<h3>Shared on purpose</h3>
-					<p>Publish a deliberate link when something is worth passing on.</p>
+					<p>Briefly Plus adds cross-device sync and deliberate share links when you need them.</p>
 				</article>
 			</div>
 		</section>
@@ -864,9 +840,36 @@
 					<div class="section-number">06 / GET BRIEFLY</div>
 					<h2>One library.<br />Every screen.</h2>
 					<p>
-						Use the native desktop app for one-shortcut capture, or install the progressive
-						web app on your phone for a focused reader that works like an app.
+						Briefly’s core capture, reading, and local library are free. Add Plus only when
+						you want your library synchronized and shareable.
 					</p>
+				</div>
+
+				<div class="plan-strip reveal" id="plans">
+					<article class="plan-card plan-free">
+						<div class="plan-card-top">
+							<span>Briefly Free</span>
+							<strong>Free</strong>
+						</div>
+						<h3>Everything you need to turn sources into knowledge.</h3>
+						<ul>
+							<li><CheckCircleIcon /> Capture links, files, and notes</li>
+							<li><CheckCircleIcon /> Four reading depths + read aloud</li>
+							<li><CheckCircleIcon /> Local, searchable Markdown library</li>
+						</ul>
+					</article>
+					<article class="plan-card plan-plus">
+						<div class="plan-card-top">
+							<span>Briefly Plus</span>
+							<strong>Paid plan</strong>
+						</div>
+						<h3>Your library, wherever the work happens.</h3>
+						<ul>
+							<li><CheckCircleIcon /> Sync your library across devices</li>
+							<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
+							<li><CheckCircleIcon /> Everything included in Briefly Free</li>
+						</ul>
+					</article>
 				</div>
 
 				<div class="download-grid">
@@ -876,13 +879,13 @@
 							{#if detectedPlatform === 'mac'}<span class="preferred-pill">Best for this device</span>{/if}
 						</div>
 						<div>
-							<p>Desktop</p>
+							<p>Desktop · Free</p>
 							<h3>macOS</h3>
 							<span>Universal build for Apple silicon and Intel.</span>
 						</div>
 						<a href={desktopDownloads.mac.href}>
 							<DownloadIcon />
-							Download .dmg
+							Free download · .dmg
 						</a>
 					</article>
 
@@ -892,13 +895,13 @@
 							{#if detectedPlatform === 'windows'}<span class="preferred-pill">Best for this device</span>{/if}
 						</div>
 						<div>
-							<p>Desktop</p>
+							<p>Desktop · Free</p>
 							<h3>Windows</h3>
 							<span>64-bit installer for Windows PCs.</span>
 						</div>
 						<a href={desktopDownloads.windows.href}>
 							<DownloadIcon />
-							Download .exe
+							Free download · .exe
 						</a>
 					</article>
 
@@ -908,7 +911,7 @@
 							{#if detectedPlatform === 'linux'}<span class="preferred-pill">Best for this device</span>{/if}
 						</div>
 						<div>
-							<p>Desktop</p>
+							<p>Desktop · Free</p>
 							<h3>Linux</h3>
 							<span>Portable AppImage or Debian / Ubuntu package.</span>
 						</div>
@@ -927,7 +930,7 @@
 							<span class="pwa-pill">No app store needed</span>
 						</div>
 						<div>
-							<p>Phone + tablet</p>
+							<p>Phone + tablet · Free</p>
 							<h3>Progressive web app</h3>
 							<span>Install from Safari or Chrome and launch Briefly from your home screen.</span>
 						</div>
@@ -945,9 +948,9 @@
 				<div class="download-footnote reveal">
 					<CheckCircleIcon />
 					<span>
-						One Briefly library, synchronized through your Google Drive. Desktop builds are
-						currently in public beta, so your operating system may ask you to confirm the first
-						launch.
+						The core Briefly app is free on every platform. Briefly Plus adds Google Drive
+						sync and sharing. Desktop builds are in public beta, so your operating system may
+						ask you to confirm the first launch.
 					</span>
 				</div>
 			</div>
@@ -970,7 +973,7 @@
 					{preferredDownload.label}
 					<DownloadIcon aria-hidden="true" />
 				</a>
-				<span class="final-note">Mac · Windows · Linux · Installable web app</span>
+				<span class="final-note">Free on Mac · Windows · Linux · Installable web app</span>
 			</div>
 		</section>
 	</main>
@@ -1216,6 +1219,22 @@
 		justify-content: flex-start;
 		gap: 24px;
 		margin-top: 29px;
+	}
+
+	.hero-free-note {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		margin-top: 15px;
+		color: rgb(17 17 15 / 49%);
+		font-size: 10px;
+		font-weight: 680;
+		letter-spacing: 0.015em;
+	}
+
+	.hero-free-note :global(svg) {
+		width: 13px;
+		color: #087253;
 	}
 
 	.button {
@@ -1743,6 +1762,53 @@
 		line-height: 1.55;
 	}
 
+	.flow-visual {
+		position: relative;
+		width: min(1480px, calc(100% - 32px));
+		margin: clamp(70px, 8vw, 120px) auto 0;
+		overflow: hidden;
+		border: 1px solid rgb(17 17 15 / 11%);
+		border-radius: 32px;
+		background: #f7f2e9;
+		box-shadow: 0 40px 100px rgb(55 46 29 / 12%);
+	}
+
+	.flow-visual::after {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%);
+		content: '';
+		pointer-events: none;
+	}
+
+	.flow-visual img {
+		display: block;
+		width: 100%;
+		aspect-ratio: 1672 / 941;
+		object-fit: cover;
+	}
+
+	.flow-visual figcaption {
+		display: grid;
+		grid-template-columns: auto 1fr auto 1fr auto;
+		align-items: center;
+		gap: 18px;
+		padding: 18px 24px;
+		border-top: 1px solid rgb(17 17 15 / 8%);
+		background: rgb(250 247 239 / 92%);
+		color: rgb(17 17 15 / 48%);
+		font-size: 9px;
+		font-weight: 760;
+		letter-spacing: 0.09em;
+		text-transform: uppercase;
+	}
+
+	.flow-visual figcaption i {
+		height: 1px;
+		background: linear-gradient(90deg, rgb(22 77 255 / 14%), rgb(22 77 255 / 58%));
+	}
+
 	.flow-canvas {
 		position: relative;
 		display: grid;
@@ -1856,25 +1922,6 @@
 		margin-bottom: 30px;
 	}
 
-	.shortcut kbd {
-		display: flex;
-		height: 35px;
-		align-items: center;
-		gap: 3px;
-		padding: 0 9px;
-		border: 1px solid rgb(255 255 255 / 16%);
-		border-radius: 8px;
-		background: rgb(255 255 255 / 9%);
-		box-shadow: inset 0 -2px 0 rgb(0 0 0 / 26%);
-		color: rgb(255 255 255 / 78%);
-		font-family: inherit;
-		font-size: 11px;
-	}
-
-	.shortcut kbd :global(svg) {
-		width: 11px;
-	}
-
 	.shortcut i {
 		width: 13px;
 		height: 1px;
@@ -1893,13 +1940,6 @@
 		border-radius: 50%;
 		background: radial-gradient(circle, rgb(47 102 255 / 38%), transparent 65%);
 		animation: halo-breathe 3s ease-in-out infinite;
-	}
-
-	.core-mark img {
-		position: relative;
-		z-index: 2;
-		width: 100%;
-		filter: drop-shadow(0 24px 30px rgb(0 0 0 / 35%));
 	}
 
 	.flow-core > strong {
@@ -2552,6 +2592,95 @@
 		line-height: 1.62;
 	}
 
+	.plan-strip {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		margin-top: clamp(64px, 7vw, 100px);
+		overflow: hidden;
+		border: 1px solid rgb(17 17 15 / 13%);
+		border-radius: 28px;
+		background: rgb(250 247 239 / 72%);
+		box-shadow: 0 28px 70px rgb(31 27 18 / 8%);
+	}
+
+	.plan-card {
+		min-height: 330px;
+		padding: clamp(28px, 4vw, 52px);
+	}
+
+	.plan-plus {
+		background:
+			radial-gradient(circle at 88% 12%, rgb(99 139 255 / 42%), transparent 28%),
+			linear-gradient(145deg, #0b2a83, #030d2d 78%);
+		color: white;
+	}
+
+	.plan-card-top {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 24px;
+	}
+
+	.plan-card-top span {
+		font-size: 10px;
+		font-weight: 820;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+
+	.plan-card-top strong {
+		padding: 8px 11px;
+		border-radius: 999px;
+		background: rgb(22 77 255 / 9%);
+		color: #173ea8;
+		font-size: 9px;
+		letter-spacing: 0.04em;
+	}
+
+	.plan-plus .plan-card-top strong {
+		background: rgb(255 255 255 / 11%);
+		color: #c6d3ff;
+	}
+
+	.plan-card h3 {
+		max-width: 570px;
+		margin: 58px 0 0;
+		font-size: clamp(28px, 3vw, 44px);
+		letter-spacing: -0.06em;
+		line-height: 1;
+	}
+
+	.plan-card ul {
+		display: grid;
+		gap: 11px;
+		margin: 34px 0 0;
+		padding: 0;
+		color: rgb(17 17 15 / 57%);
+		font-size: 12px;
+		list-style: none;
+	}
+
+	.plan-plus ul {
+		color: rgb(255 255 255 / 64%);
+	}
+
+	.plan-card li {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+	}
+
+	.plan-card li :global(svg) {
+		width: 15px;
+		flex: 0 0 auto;
+		color: #0c7757;
+	}
+
+	.plan-plus li :global(svg) {
+		color: #8aa9ff;
+	}
+
 	.download-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
@@ -3051,6 +3180,16 @@
 			grid-template-columns: 1fr 0.35fr 0.8fr 0.35fr 1fr;
 		}
 
+		.flow-visual figcaption {
+			grid-template-columns: repeat(3, 1fr);
+			gap: 12px;
+			text-align: center;
+		}
+
+		.flow-visual figcaption i {
+			display: none;
+		}
+
 		.flow-inputs {
 			grid-template-columns: 1fr;
 		}
@@ -3083,6 +3222,10 @@
 
 		.download-grid {
 			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.plan-strip {
+			grid-template-columns: 1fr;
 		}
 
 		.pwa-card {
@@ -3147,6 +3290,12 @@
 		.hero-actions {
 			gap: 16px;
 			margin-top: 22px;
+		}
+
+		.hero-free-note {
+			max-width: 270px;
+			font-size: 9px;
+			line-height: 1.4;
 		}
 
 		.button {
@@ -3234,6 +3383,22 @@
 			padding: 60px 24px;
 		}
 
+		.flow-visual {
+			width: calc(100% - 20px);
+			border-radius: 21px;
+		}
+
+		.flow-visual img {
+			aspect-ratio: 4 / 3;
+			object-position: center;
+		}
+
+		.flow-visual figcaption {
+			padding: 14px 12px;
+			font-size: 7px;
+			line-height: 1.35;
+		}
+
 		.flow-inputs {
 			display: flex;
 			width: 100%;
@@ -3288,6 +3453,16 @@
 		.steps-grid,
 		.privacy-grid {
 			grid-template-columns: 1fr;
+		}
+
+		.plan-card {
+			min-height: 315px;
+			padding: 28px 24px;
+		}
+
+		.plan-card h3 {
+			margin-top: 48px;
+			font-size: 31px;
 		}
 
 		.step-card {
