@@ -23,6 +23,7 @@
 		id: string;
 		kind: string;
 		title: string;
+		source: string;
 		meta: string;
 		x: number;
 		y: number;
@@ -34,102 +35,134 @@
 		{
 			id: 'youtube',
 			kind: 'YouTube',
-			title: 'The AI that remembers',
-			meta: '12:48 · Video',
-			x: -69,
-			y: 8,
-			rotate: -7,
+			title: 'Intro to Large Language Models',
+			source: 'Andrej Karpathy',
+			meta: '1:00:18 · Video',
+			x: 84,
+			y: 18,
+			rotate: 5,
 			tone: 'red'
 		},
 		{
 			id: 'arxiv',
 			kind: 'arXiv',
-			title: 'Memory systems for agents',
-			meta: 'Research paper',
-			x: -48,
-			y: -19,
-			rotate: 6,
+			title: 'Attention Is All You Need',
+			source: 'Vaswani et al.',
+			meta: 'arXiv:1706.03762',
+			x: 58,
+			y: 16,
+			rotate: -5,
 			tone: 'orange'
 		},
 		{
 			id: 'x',
 			kind: 'X',
-			title: 'A useful thread on context',
-			meta: '18 posts',
-			x: -65,
-			y: 29,
-			rotate: 5,
+			title: 'Notes on “vibe coding”',
+			source: '@karpathy',
+			meta: 'Post · Feb 2025',
+			x: 92,
+			y: 42,
+			rotate: -7,
 			tone: 'ink'
 		},
 		{
 			id: 'blog',
 			kind: 'Blog',
-			title: 'The shape of a good brief',
-			meta: '8 min read',
-			x: -34,
-			y: 21,
-			rotate: -5,
+			title: 'The Illustrated Transformer',
+			source: 'Jay Alammar',
+			meta: '12 min read',
+			x: 69,
+			y: 35,
+			rotate: 4,
 			tone: 'teal'
 		},
 		{
 			id: 'podcast',
 			kind: 'Podcast',
-			title: 'Designing agents that remember',
-			meta: '42 min · Audio',
-			x: -51,
-			y: 35,
-			rotate: -3,
+			title: 'Machines of Loving Grace',
+			source: 'Dwarkesh Podcast',
+			meta: '2:02:07 · Audio',
+			x: 83,
+			y: 77,
+			rotate: -4,
 			tone: 'purple'
 		},
 		{
 			id: 'pdf',
 			kind: 'PDF',
-			title: 'Field notes — context design',
-			meta: '24 pages',
-			x: -29,
-			y: -31,
-			rotate: 4,
+			title: 'Constitutional AI: Harmlessness from AI Feedback',
+			source: 'Anthropic',
+			meta: '22 pages',
+			x: 53,
+			y: 64,
+			rotate: 6,
 			tone: 'blue'
 		},
 		{
 			id: 'newsletter',
 			kind: 'Newsletter',
-			title: 'The context issue',
-			meta: 'Saved from email',
-			x: -71,
-			y: -13,
-			rotate: -4,
+			title: 'Centaurs and Cyborgs on the Jagged Frontier',
+			source: 'One Useful Thing',
+			meta: '14 min read',
+			x: 28,
+			y: 80,
+			rotate: -6,
 			tone: 'teal'
 		},
 		{
 			id: 'web',
 			kind: 'Web page',
-			title: 'Building long-term memory',
-			meta: '6 min read',
-			x: -43,
-			y: 3,
-			rotate: 7,
+			title: 'What Is ChatGPT Doing … and Why Does It Work?',
+			source: 'Stephen Wolfram',
+			meta: '35 min read',
+			x: 18,
+			y: 63,
+			rotate: 5,
 			tone: 'blue'
 		},
 		{
 			id: 'notes',
 			kind: 'Notes',
-			title: 'Ideas worth returning to',
-			meta: 'Personal note',
-			x: -23,
-			y: 31,
-			rotate: -6,
+			title: 'Designing reliable scientific data pipelines',
+			source: 'Private Briefly note',
+			meta: '6 highlights',
+			x: 40,
+			y: 41,
+			rotate: -4,
 			tone: 'ink'
 		},
 		{
 			id: 'report',
 			kind: 'Report',
-			title: 'State of agent infrastructure',
-			meta: '32 pages',
-			x: -61,
-			y: -33,
-			rotate: 3,
+			title: 'The 2025 AI Index Report',
+			source: 'Stanford HAI',
+			meta: '456 pages',
+			x: 94,
+			y: 86,
+			rotate: 5,
 			tone: 'orange'
+		},
+		{
+			id: 'github',
+			kind: 'Code',
+			title: 'The Annotated Transformer',
+			source: 'Harvard NLP',
+			meta: 'Notebook · PyTorch',
+			x: 12,
+			y: 88,
+			rotate: -3,
+			tone: 'ink'
+		},
+		{
+			id: 'research',
+			kind: 'Research',
+			title: 'Cell–cell communication workflows',
+			source: 'Private Briefly library',
+			meta: '4 related sources',
+			x: 43,
+			y: 12,
+			rotate: 4,
+			tone: 'purple'
 		}
 	];
 
@@ -156,46 +189,13 @@
 		}
 	];
 
-	let viewportWidth = $state(1440);
-	let viewportHeight = $state(900);
 	let selectedDepth = $state(1);
-
-	function sourceCardStyle(card: SourceCard, index: number): string {
-		const mobileScale = viewportWidth < 720 ? 0.7 : 1;
-		const x0 = card.x * viewportWidth * 0.01 * mobileScale;
-		const y0 = card.y * viewportHeight * 0.01;
-		const bend =
-			(index % 2 === 0 ? -1 : 1) * viewportHeight * (0.035 + (index % 3) * 0.012);
-		const x1 = x0 * 0.64;
-		const y1 = y0 * 0.72 + bend;
-		const x2 = x0 * 0.25;
-		const y2 = y0 * 0.31 - bend * 0.45;
-		const duration = 8.4 + (index % 4) * 0.85;
-		const delay = -(index * 1.38 + 0.6);
-		const scale = 0.82 + (index % 3) * 0.09;
-		return [
-			`--x0:${x0}px`,
-			`--y0:${y0}px`,
-			`--x1:${x1}px`,
-			`--y1:${y1}px`,
-			`--x2:${x2}px`,
-			`--y2:${y2}px`,
-			`--rotate:${card.rotate}deg`,
-			`--rotate-1:${card.rotate * 0.64}deg`,
-			`--rotate-2:${card.rotate * 0.22}deg`,
-			`--source-scale:${scale}`,
-			`animation-duration:${duration}s`,
-			`animation-delay:${delay}s`
-		].join(';');
-	}
+	let collectedCount = $state(0);
+	let fieldComplete = $state(false);
+	let resetSweep = (): void => {};
 
 	onMount(() => {
 		document.body.classList.add('landing-body');
-
-		const updateViewport = (): void => {
-			viewportWidth = window.innerWidth;
-			viewportHeight = window.innerHeight;
-		};
 
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -207,13 +207,213 @@
 		);
 
 		document.querySelectorAll('.reveal').forEach((element) => observer.observe(element));
-		window.addEventListener('resize', updateViewport, { passive: true });
-		updateViewport();
+
+		const arena = document.querySelector<HTMLElement>('[data-sweep-arena]');
+		const collector = document.querySelector<HTMLElement>('[data-sweep-collector]');
+		const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-source-card]'));
+		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		let animationFrame = 0;
+		let heroObserver: IntersectionObserver | null = null;
+		let heroInView = true;
+		let pointerSeen = false;
+		let impact = 0;
+		let collectorX = 0;
+		let collectorY = 0;
+		let targetX = 0;
+		let targetY = 0;
+
+		const motion = cards.map((element, index) => ({
+			element,
+			homeX: 0,
+			homeY: 0,
+			x: 0,
+			y: 0,
+			vx: 0,
+			vy: 0,
+			rotation: sourceCards[index].rotate,
+			scale: 1,
+			opacity: 1,
+			collected: false
+		}));
+
+		const placeCard = (item: (typeof motion)[number]): void => {
+			item.element.style.left = '0';
+			item.element.style.top = '0';
+			item.element.style.opacity = `${item.opacity}`;
+			item.element.style.filter = item.scale < 0.7 ? `blur(${(1 - item.scale) * 4}px)` : '';
+			item.element.style.transform = `translate3d(${item.x}px, ${item.y}px, 0) translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`;
+		};
+
+		const layoutSweep = (): void => {
+			if (!arena || !collector) return;
+			const bounds = arena.getBoundingClientRect();
+			if (!collectorX && !collectorY) {
+				collectorX = bounds.width * 0.78;
+				collectorY = bounds.height * 0.58;
+				targetX = collectorX;
+				targetY = collectorY;
+			}
+
+			motion.forEach((item, index) => {
+				const wasAtHome = Math.abs(item.x - item.homeX) < 4 && Math.abs(item.y - item.homeY) < 4;
+				item.homeX = bounds.width * sourceCards[index].x * 0.01;
+				item.homeY = bounds.height * sourceCards[index].y * 0.01;
+				if (wasAtHome || (!item.x && !item.y)) {
+					item.x = item.homeX;
+					item.y = item.homeY;
+					placeCard(item);
+				}
+			});
+		};
+
+		const collect = (item: (typeof motion)[number]): void => {
+			if (!collector || item.collected) return;
+			item.collected = true;
+			item.vx = 0;
+			item.vy = 0;
+			item.scale = 0.04;
+			item.opacity = 0;
+			item.element.classList.add('is-absorbing');
+			item.element.style.opacity = '0';
+			item.element.style.filter = 'blur(7px)';
+			item.element.style.transform = `translate3d(${collectorX}px, ${collectorY}px, 0) translate(-50%, -50%) rotate(0deg) scale(0.04)`;
+			collectedCount += 1;
+			impact = Math.min(0.28, impact + 0.18);
+			collector.classList.remove('has-impact');
+			void collector.offsetWidth;
+			collector.classList.add('has-impact');
+			fieldComplete = collectedCount === sourceCards.length;
+		};
+
+		resetSweep = (): void => {
+			if (!arena || !collector) return;
+			const bounds = arena.getBoundingClientRect();
+			collectedCount = 0;
+			fieldComplete = false;
+			pointerSeen = false;
+			impact = 0;
+			targetX = bounds.width * 0.78;
+			targetY = bounds.height * 0.58;
+			collectorX = targetX;
+			collectorY = targetY;
+			collector.classList.remove('has-impact', 'is-attracting');
+			motion.forEach((item) => {
+				item.collected = false;
+				item.x = item.homeX;
+				item.y = item.homeY;
+				item.vx = 0;
+				item.vy = 0;
+				item.rotation = sourceCards[motion.indexOf(item)].rotate;
+				item.scale = 1;
+				item.opacity = 1;
+				item.element.classList.remove('is-absorbing');
+				item.element.style.transition = '';
+				placeCard(item);
+			});
+		};
+
+		const setTarget = (event: PointerEvent): void => {
+			if (!arena) return;
+			const bounds = arena.getBoundingClientRect();
+			targetX = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+			targetY = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+			pointerSeen = true;
+			arena.classList.add('has-pointer');
+		};
+
+		const returnCollector = (): void => {
+			if (!arena) return;
+			const bounds = arena.getBoundingClientRect();
+			targetX = bounds.width * 0.78;
+			targetY = bounds.height * 0.58;
+		};
+
+		const animate = (): void => {
+			if (!arena || !collector) return;
+			if (!heroInView || document.hidden || reduceMotion) {
+				animationFrame = window.requestAnimationFrame(animate);
+				return;
+			}
+			const pullRadius = Math.max(135, Math.min(190, arena.clientWidth * 0.13));
+			const absorbRadius = Math.max(68, Math.min(88, arena.clientWidth * 0.06));
+			let attracting = false;
+
+			collectorX += (targetX - collectorX) * 0.2;
+			collectorY += (targetY - collectorY) * 0.2;
+			impact *= 0.86;
+
+			if (pointerSeen && !reduceMotion) {
+				for (const item of motion) {
+					if (item.collected) continue;
+					const dx = collectorX - item.x;
+					const dy = collectorY - item.y;
+					const distance = Math.hypot(dx, dy);
+
+					if (distance < pullRadius) {
+						const force = 1 - distance / pullRadius;
+						attracting = true;
+						item.vx += dx * (0.015 + force * 0.055);
+						item.vy += dy * (0.015 + force * 0.055);
+						item.rotation *= 0.88;
+						item.scale = Math.max(0.2, item.scale - force * 0.04);
+						item.opacity = Math.max(0.35, item.opacity - force * 0.025);
+					} else {
+						item.vx += (item.homeX - item.x) * 0.012;
+						item.vy += (item.homeY - item.y) * 0.012;
+						item.rotation +=
+							(sourceCards[motion.indexOf(item)].rotate - item.rotation) * 0.045;
+						item.scale += (1 - item.scale) * 0.07;
+						item.opacity += (1 - item.opacity) * 0.1;
+					}
+
+					item.vx *= 0.82;
+					item.vy *= 0.82;
+					item.x += item.vx;
+					item.y += item.vy;
+
+					if (distance < absorbRadius) {
+						collect(item);
+					} else {
+						placeCard(item);
+					}
+				}
+			}
+
+			collector.classList.toggle('is-attracting', attracting);
+			const persistentGrowth = Math.min(0.15, collectedCount * 0.0125);
+			const tilt = Math.max(-4, Math.min(4, (targetX - collectorX) * 0.025));
+			collector.style.transform = `translate3d(${collectorX}px, ${collectorY}px, 0) translate(-50%, -50%) rotate(${tilt}deg) scale(${1 + persistentGrowth + impact})`;
+			animationFrame = window.requestAnimationFrame(animate);
+		};
+
+		if (arena && collector) {
+			layoutSweep();
+			heroObserver = new IntersectionObserver(
+				([entry]) => {
+					heroInView = entry?.isIntersecting ?? true;
+				},
+				{ threshold: 0 }
+			);
+			heroObserver.observe(arena);
+
+			if (!reduceMotion) {
+				arena.addEventListener('pointermove', setTarget, { passive: true });
+				arena.addEventListener('pointerdown', setTarget, { passive: true });
+				arena.addEventListener('pointerleave', returnCollector, { passive: true });
+			}
+			window.addEventListener('resize', layoutSweep, { passive: true });
+			animationFrame = window.requestAnimationFrame(animate);
+		}
 
 		return () => {
 			observer.disconnect();
 			document.body.classList.remove('landing-body');
-			window.removeEventListener('resize', updateViewport);
+			window.cancelAnimationFrame(animationFrame);
+			heroObserver?.disconnect();
+			arena?.removeEventListener('pointermove', setTarget);
+			arena?.removeEventListener('pointerdown', setTarget);
+			arena?.removeEventListener('pointerleave', returnCollector);
+			window.removeEventListener('resize', layoutSweep);
 		};
 	});
 </script>
@@ -262,7 +462,7 @@
 
 	<main>
 		<section class="hero-scroll">
-			<div class="hero-sticky">
+			<div class="hero-sticky" data-sweep-arena>
 				<div class="hero-grid" aria-hidden="true"></div>
 
 				<div class="hero-copy">
@@ -285,32 +485,18 @@
 				</div>
 
 				<div class="gather-stage" aria-hidden="true">
-					<div class="gather-orbit"></div>
-					<div class="stream-rays">
-						{#each Array(8) as _, index}
-							<span
-								style={`--ray-top:${18 + index * 8}%;--ray-height:${18 + index * 4}px;--ray-rotate:${-4 + index * 1.15}deg;--ray-delay:${index * -0.42}s;--ray-pulse-delay:${index * -0.31}s`}
-							></span>
-						{/each}
-					</div>
-					<div class="stream-particles">
-						{#each Array(12) as _, index}
-							<i
-								style={`--particle-x:${-68 + index * 3.8}vw;--particle-y:${-22 + (index % 6) * 8}vh;--particle-delay:${index * -0.41}s`}
-							></i>
-						{/each}
-					</div>
-					<div class="gather-logo">
+					<div class="gather-logo" data-sweep-collector>
 						<span class="logo-halo"></span>
 						<span class="intake-ring intake-ring-one"></span>
 						<span class="intake-ring intake-ring-two"></span>
 						<img src="/icons/icon-512.png" alt="" />
 					</div>
 
-					{#each sourceCards as card, index}
+					{#each sourceCards as card}
 						<article
 							class="source-card source-card-{card.tone}"
-							style={sourceCardStyle(card, index)}
+							data-source-card
+							style={`left:${card.x}%;top:${card.y}%;--rotate:${card.rotate}deg`}
 						>
 							<div class="source-topline">
 								<span class="source-icon">
@@ -329,13 +515,25 @@
 									{/if}
 								</span>
 								<span>{card.kind}</span>
-								<span class="source-status"></span>
+								<span class="source-grip"><i></i><i></i><i></i></span>
 							</div>
 							<strong>{card.title}</strong>
+							<span class="source-author">{card.source}</span>
 							<small>{card.meta}</small>
 						</article>
 					{/each}
-					<div class="intake-label"><span></span> Always gathering</div>
+				</div>
+
+				<div class="sweep-status" class:is-complete={fieldComplete} aria-live="polite">
+					<div>
+						<span class="sweep-count">{collectedCount} / {sourceCards.length}</span>
+						<span>{fieldComplete ? 'Your page is clean' : 'Sweep over a source to gather it'}</span>
+					</div>
+					{#if fieldComplete}
+						<button type="button" onclick={() => resetSweep()}>Scatter again</button>
+					{:else}
+						<span class="sweep-hint">Your cursor is hidden. The Briefly mark is the cursor.</span>
+					{/if}
 				</div>
 
 				<div class="scroll-cue">
@@ -782,9 +980,15 @@
 		height: 100%;
 		min-height: inherit;
 		overflow: hidden;
+		cursor: none;
+		touch-action: pan-y;
 		background:
 			radial-gradient(circle at 78% 58%, rgb(22 77 255 / 14%), transparent 25%),
 			linear-gradient(180deg, #fbf8f0 0%, var(--paper) 100%);
+	}
+
+	.hero-sticky * {
+		cursor: none;
 	}
 
 	.hero-grid {
@@ -921,21 +1125,20 @@
 	.gather-stage {
 		position: absolute;
 		z-index: 8;
-		top: 58%;
-		left: 79%;
-		width: 1px;
-		height: 1px;
+		inset: 0;
+		pointer-events: none;
 	}
 
 	.gather-logo {
 		position: absolute;
 		z-index: 20;
-		top: 50%;
-		left: 50%;
-		width: clamp(190px, 16vw, 250px);
+		top: 0;
+		left: 0;
+		width: clamp(156px, 13vw, 208px);
 		aspect-ratio: 1;
-		margin: calc(clamp(190px, 16vw, 250px) / -2);
-		animation: logo-float 5s ease-in-out infinite;
+		transform: translate3d(78vw, 58vh, 0) translate(-50%, -50%);
+		transform-origin: center;
+		will-change: transform;
 	}
 
 	.gather-logo img {
@@ -943,167 +1146,83 @@
 		z-index: 4;
 		width: 100%;
 		height: 100%;
-		filter: drop-shadow(0 34px 34px rgb(6 24 80 / 28%));
+		filter: drop-shadow(0 25px 28px rgb(6 24 80 / 30%));
+		transition: filter 180ms ease;
+	}
+
+	.gather-logo:global(.is-attracting) img {
+		filter:
+			drop-shadow(0 28px 30px rgb(6 24 80 / 32%))
+			drop-shadow(0 0 18px rgb(44 95 255 / 50%));
+	}
+
+	.gather-logo:global(.has-impact) img {
+		animation: logo-impact 360ms cubic-bezier(0.16, 0.8, 0.28, 1);
 	}
 
 	.logo-halo {
 		position: absolute;
 		z-index: 1;
-		inset: -70%;
+		inset: -82%;
 		border-radius: 50%;
-		background: radial-gradient(circle, rgb(28 82 255 / 26%), transparent 62%);
+		background: radial-gradient(circle, rgb(28 82 255 / 21%), transparent 64%);
 		animation: halo-breathe 3.2s ease-in-out infinite;
-	}
-
-	.gather-orbit {
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		width: min(42vw, 620px);
-		aspect-ratio: 1;
-		border: 1px solid rgb(22 77 255 / 10%);
-		border-radius: 50%;
-		transform: translate(-50%, -50%);
-	}
-
-	.gather-orbit::before,
-	.gather-orbit::after {
-		position: absolute;
-		border: 1px solid rgb(22 77 255 / 7%);
-		border-radius: 50%;
-		content: '';
-	}
-
-	.gather-orbit::before {
-		inset: 13%;
-	}
-
-	.gather-orbit::after {
-		inset: 28%;
-	}
-
-	.stream-rays {
-		position: absolute;
-		z-index: 1;
-		top: 0;
-		right: -15px;
-		width: min(77vw, 1180px);
-		height: 48vh;
-		transform: translateY(-50%);
-	}
-
-	.stream-rays span {
-		position: absolute;
-		top: var(--ray-top);
-		right: 0;
-		width: 100%;
-		height: var(--ray-height);
-		border-top: 1px solid rgb(41 91 255 / 16%);
-		border-radius: 50%;
-		transform: rotate(var(--ray-rotate));
-		transform-origin: right center;
-		animation: stream-shimmer 3.8s ease-in-out infinite;
-		animation-delay: var(--ray-delay);
-	}
-
-	.stream-rays span::after {
-		position: absolute;
-		top: -2px;
-		left: 0;
-		width: 64px;
-		height: 3px;
-		border-radius: 50%;
-		background: linear-gradient(90deg, transparent, rgb(85 126 255 / 90%), transparent);
-		content: '';
-		filter: blur(1px);
-		animation: ray-pulse 3.3s ease-in-out infinite;
-		animation-delay: var(--ray-pulse-delay);
-	}
-
-	.stream-particles {
-		position: absolute;
-		z-index: 2;
-		inset: 0;
-	}
-
-	.stream-particles i {
-		position: absolute;
-		width: 3px;
-		height: 3px;
-		border-radius: 50%;
-		background: #6f98ff;
-		box-shadow: 0 0 10px #3f73ff;
-		animation: particle-ingest 3.6s linear infinite;
-		animation-delay: var(--particle-delay);
 	}
 
 	.intake-ring {
 		position: absolute;
 		z-index: 3;
-		inset: -8%;
+		inset: -10%;
 		border: 1px solid rgb(57 106 255 / 34%);
 		border-radius: 30%;
 		opacity: 0;
-		animation: intake-ring 2.4s ease-out infinite;
+	}
+
+	.gather-logo:global(.is-attracting) .intake-ring {
+		animation: intake-ring 1s ease-out infinite;
 	}
 
 	.intake-ring-two {
-		animation-delay: -1.2s;
-	}
-
-	.intake-label {
-		position: absolute;
-		z-index: 22;
-		top: clamp(120px, 10vw, 155px);
-		left: 50%;
-		display: flex;
-		width: max-content;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 11px;
-		border: 1px solid rgb(22 77 255 / 12%);
-		border-radius: 999px;
-		background: rgb(255 255 255 / 62%);
-		color: #173ea8;
-		font-size: 8px;
-		font-weight: 760;
-		letter-spacing: 0.13em;
-		text-transform: uppercase;
-		transform: translateX(-50%);
-		backdrop-filter: blur(12px);
-	}
-
-	.intake-label span {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: #42a45c;
-		box-shadow: 0 0 0 3px rgb(66 164 92 / 14%);
+		animation-delay: -0.5s !important;
 	}
 
 	.source-card {
 		position: absolute;
 		z-index: 8;
-		top: 50%;
-		left: 50%;
 		display: flex;
-		width: clamp(148px, 13vw, 196px);
-		min-height: 98px;
+		width: clamp(162px, 14vw, 214px);
+		min-height: 118px;
 		flex-direction: column;
-		padding: 12px 13px 13px;
+		padding: 12px 13px 12px;
 		border: 1px solid rgb(17 17 15 / 15%);
-		border-radius: 14px;
+		border-radius: 15px;
 		background:
-			linear-gradient(145deg, rgb(255 255 255 / 93%), rgb(241 237 226 / 96%)),
+			linear-gradient(145deg, rgb(255 255 255 / 95%), rgb(241 237 226 / 97%)),
 			var(--paper-bright);
 		box-shadow:
 			0 20px 45px rgb(27 25 17 / 13%),
 			inset 0 1px 0 white;
-		transform-origin: center;
+		transform: translate(-50%, -50%) rotate(var(--rotate));
+		transform-origin: center center;
 		will-change: transform, filter, opacity;
-		animation-name: ingest-card;
-		animation-timing-function: linear;
-		animation-iteration-count: infinite;
+		backdrop-filter: blur(12px);
+	}
+
+	.source-card::after {
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: linear-gradient(115deg, transparent 22%, rgb(255 255 255 / 42%), transparent 58%);
+		content: '';
+		opacity: 0.45;
+		pointer-events: none;
+	}
+
+	.source-card.is-absorbing {
+		transition:
+			opacity 240ms ease,
+			filter 240ms ease,
+			transform 240ms cubic-bezier(0.5, 0, 1, 0.4);
 	}
 
 	.source-topline {
@@ -1117,13 +1236,17 @@
 		text-transform: uppercase;
 	}
 
-	.source-status {
-		width: 5px;
-		height: 5px;
+	.source-grip {
+		display: flex;
+		gap: 2px;
 		margin-left: auto;
+	}
+
+	.source-grip i {
+		width: 2px;
+		height: 2px;
 		border-radius: 50%;
-		background: #42a45c;
-		box-shadow: 0 0 0 3px rgb(66 164 92 / 12%);
+		background: rgb(17 17 15 / 35%);
 	}
 
 	.source-icon {
@@ -1168,16 +1291,87 @@
 	}
 
 	.source-card strong {
-		margin-top: 11px;
+		position: relative;
+		z-index: 1;
+		margin-top: 12px;
 		font-size: 12px;
 		letter-spacing: -0.025em;
-		line-height: 1.15;
+		line-height: 1.2;
+	}
+
+	.source-author {
+		position: relative;
+		z-index: 1;
+		margin-top: 6px;
+		color: rgb(17 17 15 / 68%);
+		font-size: 9px;
+		font-weight: 650;
+		letter-spacing: -0.01em;
 	}
 
 	.source-card small {
-		margin-top: 5px;
+		position: relative;
+		z-index: 1;
+		margin-top: auto;
+		padding-top: 8px;
 		color: rgb(17 17 15 / 48%);
 		font-size: 9px;
+	}
+
+	.sweep-status {
+		position: absolute;
+		z-index: 24;
+		right: clamp(20px, 3vw, 48px);
+		bottom: 24px;
+		display: flex;
+		align-items: center;
+		gap: 20px;
+		padding: 10px 12px 10px 14px;
+		border: 1px solid rgb(17 17 15 / 11%);
+		border-radius: 999px;
+		background: rgb(250 247 239 / 78%);
+		box-shadow: 0 12px 28px rgb(26 23 14 / 8%);
+		color: rgb(17 17 15 / 56%);
+		font-size: 9px;
+		font-weight: 680;
+		letter-spacing: 0.03em;
+		backdrop-filter: blur(18px);
+		transition:
+			border-color 200ms ease,
+			background 200ms ease;
+	}
+
+	.sweep-status > div {
+		display: flex;
+		align-items: center;
+		gap: 9px;
+		white-space: nowrap;
+	}
+
+	.sweep-count {
+		color: var(--blue);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.sweep-hint {
+		padding-left: 18px;
+		border-left: 1px solid rgb(17 17 15 / 10%);
+		color: rgb(17 17 15 / 38%);
+	}
+
+	.sweep-status.is-complete {
+		border-color: rgb(22 77 255 / 22%);
+		background: rgb(247 249 255 / 88%);
+	}
+
+	.sweep-status button {
+		padding: 7px 11px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--blue);
+		color: white;
+		font: inherit;
+		cursor: none;
 	}
 
 	.scroll-cue {
@@ -2371,43 +2565,13 @@
 		}
 	}
 
-	@keyframes ingest-card {
-		0% {
-			opacity: 0;
-			filter: blur(4px);
-			transform: translate3d(var(--x0), var(--y0), 0) rotate(var(--rotate))
-				scale(var(--source-scale));
-		}
-		8% {
-			opacity: 1;
-			filter: blur(0);
-		}
-		38% {
-			opacity: 1;
-			transform: translate3d(var(--x1), var(--y1), 0) rotate(var(--rotate-1)) scale(0.86);
-		}
-		74% {
-			opacity: 1;
-			filter: blur(0);
-			transform: translate3d(var(--x2), var(--y2), 0) rotate(var(--rotate-2)) scale(0.54);
-		}
-		92% {
-			opacity: 0.9;
-		}
-		100% {
-			opacity: 0;
-			filter: blur(7px);
-			transform: translate3d(0, 0, 0) rotate(0) scale(0.06);
-		}
-	}
-
-	@keyframes logo-float {
+	@keyframes logo-impact {
 		0%,
 		100% {
-			transform: translateY(-4px);
+			transform: scale(1);
 		}
-		50% {
-			transform: translateY(5px);
+		48% {
+			transform: scale(1.1);
 		}
 	}
 
@@ -2423,50 +2587,6 @@
 		100% {
 			opacity: 0;
 			transform: scale(1.24);
-		}
-	}
-
-	@keyframes stream-shimmer {
-		0%,
-		100% {
-			border-color: rgb(41 91 255 / 9%);
-		}
-		50% {
-			border-color: rgb(41 91 255 / 28%);
-		}
-	}
-
-	@keyframes ray-pulse {
-		0% {
-			opacity: 0;
-			transform: translateX(0);
-		}
-		18% {
-			opacity: 0.85;
-		}
-		85% {
-			opacity: 0.7;
-		}
-		100% {
-			opacity: 0;
-			transform: translateX(calc(min(77vw, 1180px) - 64px));
-		}
-	}
-
-	@keyframes particle-ingest {
-		0% {
-			opacity: 0;
-			transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(0.4);
-		}
-		16% {
-			opacity: 0.85;
-		}
-		82% {
-			opacity: 0.7;
-		}
-		100% {
-			opacity: 0;
-			transform: translate3d(0, 0, 0) scale(0.1);
 		}
 	}
 
@@ -2628,29 +2748,14 @@
 			display: none;
 		}
 
-		.gather-stage {
-			top: 70%;
-			left: 74%;
-		}
-
-		.gather-orbit {
-			width: 92vw;
-		}
-
 		.gather-logo {
-			width: 160px;
-			margin: -80px;
-		}
-
-		.stream-rays {
-			width: 100vw;
-			height: 36vh;
+			width: 132px;
 		}
 
 		.source-card {
-			width: 128px;
-			min-height: 84px;
-			padding: 10px;
+			width: 126px;
+			min-height: 102px;
+			padding: 9px;
 			border-radius: 13px;
 		}
 
@@ -2663,6 +2768,10 @@
 			font-size: 8px;
 		}
 
+		.source-author {
+			font-size: 8px;
+		}
+
 		.source-topline {
 			font-size: 8px;
 		}
@@ -2672,8 +2781,15 @@
 			height: 19px;
 		}
 
-		.intake-label {
-			top: 98px;
+		.sweep-status {
+			right: 14px;
+			bottom: 14px;
+			left: 14px;
+			justify-content: space-between;
+		}
+
+		.sweep-hint {
+			display: none;
 		}
 
 		.scroll-cue {
@@ -2875,15 +2991,13 @@
 			transform: none;
 		}
 
-		.source-card,
-		.stream-rays,
-		.stream-particles,
 		.intake-ring {
 			display: none;
 		}
 
-		.gather-logo {
-			animation: none !important;
+		.hero-sticky,
+		.hero-sticky * {
+			cursor: auto;
 		}
 	}
 </style>
