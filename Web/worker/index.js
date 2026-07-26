@@ -1,29 +1,17 @@
-const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
-const legacyGrokVoiceModel = 'x-ai/grok-voice-tts-1.0';
-const orpheusVoiceModel = 'canopylabs/orpheus-3b-0.1-ft';
-const openRouterModelVoices = new Map([
-	[
-		defaultOpenRouterModel,
-		[
-			'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
-			'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam',
-			'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
-			'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
-			'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex',
-			'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi',
-			'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi',
-			'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei',
-			'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi',
-			'zm_yunxia', 'zm_yunyang'
-		]
-	],
-	[orpheusVoiceModel, ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']],
-	[legacyGrokVoiceModel, ['eve', 'ara', 'rex', 'sal', 'leo']]
-]);
+import { ttsChargeMicros, ttsModels, ttsTopUpAmounts } from '../tts-pricing.js';
+
+const defaultOpenRouterModel = ttsModels[0].model;
+const legacyGrokVoiceModel = ttsModels[2].model;
+const orpheusVoiceModel = ttsModels[1].model;
+const openRouterModelVoices = new Map(
+	ttsModels.map((option) => [option.model, option.voices])
+);
 const knownVoices = [...new Set([...openRouterModelVoices.values()].flat())];
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const maximumSpeechInputLength = 14_000;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+const ttsRequestIDPattern =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const stripeAPIBase = 'https://api.stripe.com/v1';
 const stripeAPIVersion = '2026-06-24.dahlia';
 const stripeWebhookToleranceSeconds = 5 * 60;
@@ -69,9 +57,17 @@ const pricingTiers = [
 	}
 ];
 
-function stripeConfig(env) {
+function stripeCredentials(env) {
 	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
 	const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || '').trim();
+	if (!/^sk_(?:test|live)_/.test(secretKey) || !webhookSecret.startsWith('whsec_')) {
+		return null;
+	}
+	return { secretKey, webhookSecret };
+}
+
+function stripeConfig(env) {
+	const credentials = stripeCredentials(env);
 	const productID = String(env.STRIPE_PRODUCT_PLUS || '').trim();
 	const portalConfigurationID = String(env.STRIPE_PORTAL_CONFIGURATION_ID || '').trim();
 	const tiers = pricingTiers.map((tier) => ({
@@ -79,15 +75,29 @@ function stripeConfig(env) {
 		priceID: String(env[tier.priceEnvironmentKey] || '').trim()
 	}));
 	if (
-		!/^sk_(?:test|live)_/.test(secretKey) ||
-		!webhookSecret.startsWith('whsec_') ||
+		!credentials ||
 		!/^prod_/.test(productID) ||
 		!/^bpc_/.test(portalConfigurationID) ||
 		tiers.some((tier) => !/^price_/.test(tier.priceID))
 	) {
 		return null;
 	}
-	return { secretKey, webhookSecret, productID, portalConfigurationID, tiers };
+	return { ...credentials, productID, portalConfigurationID, tiers };
+}
+
+function managedTTSKey(env) {
+	if (String(env.BRIEFLY_MANAGED_TTS_ENABLED || '').trim().toLowerCase() !== 'true') {
+		return null;
+	}
+	const apiKey = String(env.OPENROUTER_API_KEY || '').trim();
+	return apiKey || null;
+}
+
+function ttsStripeConfig(env) {
+	const credentials = stripeCredentials(env);
+	const productID = String(env.STRIPE_PRODUCT_TTS || '').trim();
+	if (!credentials || !/^prod_/.test(productID)) return null;
+	return { ...credentials, productID };
 }
 
 function billingEnforcementEnabled(env) {
@@ -420,6 +430,62 @@ async function ensureSchema(database) {
 			)`
 		),
 		database.prepare(
+			`CREATE TABLE IF NOT EXISTS tts_accounts (
+				account_id TEXT PRIMARY KEY NOT NULL,
+				balance_micros INTEGER NOT NULL DEFAULT 0,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS tts_welcome_credits (
+				account_id TEXT PRIMARY KEY NOT NULL,
+				stripe_checkout_session_id TEXT NOT NULL UNIQUE,
+				amount_micros INTEGER NOT NULL,
+				created_at INTEGER NOT NULL,
+				credited_at INTEGER
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS tts_topups (
+				checkout_session_id TEXT PRIMARY KEY NOT NULL,
+				account_id TEXT NOT NULL,
+				stripe_payment_intent_id TEXT NOT NULL,
+				amount_micros INTEGER NOT NULL,
+				refunded_micros INTEGER NOT NULL DEFAULT 0,
+				refund_status TEXT NOT NULL DEFAULT 'disabled',
+				created_at INTEGER NOT NULL,
+				credited_at INTEGER,
+				refunded_at INTEGER
+			)`
+		),
+		database.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS tts_topups_stripe_payment_intent_id_unique
+			 ON tts_topups (stripe_payment_intent_id)`
+		),
+		database.prepare(
+			`CREATE INDEX IF NOT EXISTS tts_topups_account_created_idx
+			 ON tts_topups (account_id, created_at)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS tts_usage (
+				request_id TEXT PRIMARY KEY NOT NULL,
+				account_id TEXT NOT NULL,
+				model TEXT NOT NULL,
+				voice TEXT NOT NULL,
+				character_count INTEGER NOT NULL,
+				amount_micros INTEGER NOT NULL,
+				status TEXT NOT NULL,
+				generation_id TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE INDEX IF NOT EXISTS tts_usage_account_created_idx
+			 ON tts_usage (account_id, created_at)`
+		),
+		database.prepare(
 			`CREATE TABLE IF NOT EXISTS share_links (
 				token TEXT PRIMARY KEY NOT NULL,
 				owner_email TEXT NOT NULL,
@@ -615,10 +681,99 @@ async function disconnect(request, env) {
 	return json({ connected: false });
 }
 
+async function reserveTTSUsage(env, accountID, requestID, model, voice, characterCount, amountMicros) {
+	const now = Date.now();
+	const inserted = await env.DB.prepare(
+		`INSERT OR IGNORE INTO tts_usage (
+			request_id, account_id, model, voice, character_count, amount_micros,
+			status, generation_id, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?)`
+	)
+		.bind(
+			requestID,
+			accountID,
+			model,
+			voice,
+			characterCount,
+			amountMicros,
+			now,
+			now
+		)
+		.run();
+	if (databaseChanges(inserted) === 0) return { duplicate: true, balanceMicros: null };
+
+	await env.DB.prepare(
+		`INSERT OR IGNORE INTO tts_accounts (account_id, balance_micros, created_at, updated_at)
+		 VALUES (?, 0, ?, ?)`
+	)
+		.bind(accountID, now, now)
+		.run();
+	const reserved = await env.DB.prepare(
+		`UPDATE tts_accounts
+		 SET balance_micros = balance_micros - ?, updated_at = ?
+		 WHERE account_id = ? AND balance_micros >= ?`
+	)
+		.bind(amountMicros, now, accountID, amountMicros)
+		.run();
+	if (databaseChanges(reserved) === 0) {
+		await env.DB.prepare(
+			`UPDATE tts_usage SET status = 'declined', updated_at = ?
+			 WHERE request_id = ? AND status = 'pending'`
+		)
+			.bind(now, requestID)
+			.run();
+		return { duplicate: false, balanceMicros: null };
+	}
+	await env.DB.prepare(
+		`UPDATE tts_usage SET status = 'reserved', updated_at = ?
+		 WHERE request_id = ? AND status = 'pending'`
+	)
+		.bind(now, requestID)
+		.run();
+	const account = await env.DB.prepare(
+		'SELECT balance_micros FROM tts_accounts WHERE account_id = ?'
+	)
+		.bind(accountID)
+		.first();
+	return { duplicate: false, balanceMicros: Number(account?.balance_micros ?? 0) };
+}
+
+async function releaseTTSUsage(env, accountID, requestID, amountMicros) {
+	const now = Date.now();
+	await env.DB.batch([
+		env.DB.prepare(
+			`UPDATE tts_accounts
+			 SET balance_micros = balance_micros + ?, updated_at = ?
+			 WHERE account_id = ? AND EXISTS (
+				SELECT 1 FROM tts_usage
+				WHERE request_id = ? AND account_id = ? AND status = 'reserved'
+			 )`
+		).bind(amountMicros, now, accountID, requestID, accountID),
+		env.DB.prepare(
+			`UPDATE tts_usage SET status = 'released', updated_at = ?
+			 WHERE request_id = ? AND account_id = ? AND status IN ('pending', 'reserved')`
+		).bind(now, requestID, accountID)
+	]);
+}
+
+async function settleTTSUsage(env, accountID, requestID, generationID) {
+	await env.DB.prepare(
+		`UPDATE tts_usage
+		 SET status = 'settled', generation_id = ?, updated_at = ?
+		 WHERE request_id = ? AND account_id = ? AND status = 'reserved'`
+	)
+		.bind(generationID || null, Date.now(), requestID, accountID)
+		.run();
+}
+
 async function createSpeech(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	const apiKey = managedTTSKey(env);
+	if (!apiKey) {
+		return json({ error: 'Briefly AI voice is not available yet.' }, { status: 503 });
+	}
 	await ensureSchema(env.DB);
 
 	let value;
@@ -639,53 +794,68 @@ async function createSpeech(request, env) {
 	) {
 		return json({ error: 'Invalid speech text, voice, or model.' }, { status: 400 });
 	}
-
-	const credential = await env.DB.prepare(
-		`SELECT encrypted_api_key, initialization_vector
-		 FROM openrouter_credentials
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	if (!credential) return json({ error: 'OpenRouter is not connected.' }, { status: 401 });
-
-	let apiKey;
-	try {
-		apiKey = await decryptCredential(
-			env,
-			credential.encrypted_api_key,
-			credential.initialization_vector
+	const requestID = request.headers.get('X-Briefly-Request-Id');
+	if (!requestID || !ttsRequestIDPattern.test(requestID)) {
+		return json({ error: 'Invalid speech request identifier.' }, { status: 400 });
+	}
+	const characterCount = [...value.input].length;
+	const amountMicros = ttsChargeMicros(model, characterCount);
+	if (!amountMicros) return json({ error: 'Invalid speech price.' }, { status: 400 });
+	const customer = await ensureBillingCustomer(env, email);
+	const reservation = await reserveTTSUsage(
+		env,
+		customer.account_id,
+		requestID,
+		model,
+		voice,
+		characterCount,
+		amountMicros
+	);
+	if (reservation.duplicate) {
+		return json({ error: 'This speech request is already being processed.' }, { status: 409 });
+	}
+	if (reservation.balanceMicros === null) {
+		return json(
+			{ error: 'Not enough Briefly AI voice credit. Top up in Settings.' },
+			{ status: 402 }
 		);
-	} catch {
-		return json({ error: 'The OpenRouter connection could not be opened.' }, { status: 500 });
 	}
 
-	const response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			'Content-Type': 'application/json',
-			'X-Title': 'Briefly'
-		},
-		body: JSON.stringify({
-			model,
-			input: value.input,
-			voice,
-			response_format: 'mp3'
-		})
-	});
+	let response;
+	try {
+		response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json',
+				'X-Title': 'Briefly'
+			},
+			body: JSON.stringify({
+				model,
+				input: value.input,
+				voice,
+				response_format: 'mp3'
+			})
+		});
+	} catch (error) {
+		await releaseTTSUsage(env, customer.account_id, requestID, amountMicros);
+		throw error;
+	}
 	if (!response.ok) {
+		await releaseTTSUsage(env, customer.account_id, requestID, amountMicros);
 		return json(
 			{ error: await openRouterError(response, `OpenRouter speech failed (${response.status}).`) },
 			{ status: response.status }
 		);
 	}
 
+	const generationID = response.headers.get('X-Generation-Id');
+	await settleTTSUsage(env, customer.account_id, requestID, generationID);
 	const headers = new Headers({
 		'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg',
-		'Cache-Control': 'private, no-store'
+		'Cache-Control': 'private, no-store',
+		'X-Briefly-TTS-Balance-Micros': String(reservation.balanceMicros)
 	});
-	const generationID = response.headers.get('X-Generation-Id');
 	if (generationID) headers.set('X-Generation-Id', generationID);
 	return new Response(response.body, { status: 200, headers });
 }
@@ -1217,15 +1387,7 @@ async function disconnectGoogleDrive(request, env) {
 async function accountStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ authenticated: false });
-	const [google, openrouter] = await Promise.all([
-		googleDriveConnection(env, email),
-		env.DB.prepare(
-			`SELECT openrouter_user_id, connected_at
-			 FROM openrouter_credentials WHERE user_email = ?`
-		)
-			.bind(email)
-			.first()
-	]);
+	const google = await googleDriveConnection(env, email);
 	return json({
 		authenticated: true,
 		email,
@@ -1233,11 +1395,6 @@ async function accountStatus(request, env) {
 			configured: Boolean(googleOAuthConfig(env)),
 			connected: Boolean(google?.encrypted_refresh_token),
 			folderID: google?.folder_id ?? undefined
-		},
-		openrouter: {
-			connected: Boolean(openrouter),
-			userID: openrouter?.openrouter_user_id ?? undefined,
-			connectedAt: openrouter?.connected_at ?? undefined
 		}
 	});
 }
@@ -1390,6 +1547,146 @@ async function billingStatus(request, env) {
 	});
 }
 
+function publicTTSPrices() {
+	return ttsModels.map((option) => ({
+		model: option.model,
+		retailCentsPerMillionCharacters: option.retailCentsPerMillionCharacters
+	}));
+}
+
+async function ttsStatus(request, env) {
+	const configured = Boolean(managedTTSKey(env));
+	const checkoutConfigured = configured && Boolean(ttsStripeConfig(env));
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json({
+			configured,
+			checkoutConfigured,
+			authenticated: false,
+			balanceMicros: 0,
+			topUpAmounts: ttsTopUpAmounts,
+			prices: publicTTSPrices(),
+			usage: []
+		});
+	}
+	await ensureSchema(env.DB);
+	const customer = await billingCustomer(env, email);
+	if (!customer) {
+		return json({
+			configured,
+			checkoutConfigured,
+			authenticated: true,
+			balanceMicros: 0,
+			topUpAmounts: ttsTopUpAmounts,
+			prices: publicTTSPrices(),
+			usage: []
+		});
+	}
+	const [account, usageResult] = await Promise.all([
+		env.DB.prepare('SELECT balance_micros FROM tts_accounts WHERE account_id = ?')
+			.bind(customer.account_id)
+			.first(),
+		env.DB.prepare(
+			`SELECT model, character_count, amount_micros, generation_id, updated_at
+			 FROM tts_usage
+			 WHERE account_id = ? AND status = 'settled'
+			 ORDER BY updated_at DESC
+			 LIMIT 10`
+		)
+			.bind(customer.account_id)
+			.all()
+	]);
+	const balanceMicros = Math.max(0, Number(account?.balance_micros ?? 0));
+	return json({
+		configured,
+		checkoutConfigured,
+		authenticated: true,
+		balanceMicros,
+		topUpAmounts: ttsTopUpAmounts,
+		prices: publicTTSPrices(),
+		usage: (usageResult.results ?? []).map((entry) => ({
+			model: entry.model,
+			characterCount: Number(entry.character_count),
+			amountMicros: Number(entry.amount_micros),
+			generationID: entry.generation_id ?? null,
+			createdAt: Number(entry.updated_at)
+		}))
+	});
+}
+
+async function validateTTSProduct(env, productID) {
+	const product = await stripeRetrieve(env, `/products/${encodeURIComponent(productID)}`);
+	if (product.active === false) throw new Error('The configured AI voice product is inactive.');
+}
+
+async function createTTSCheckoutSession(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const config = ttsStripeConfig(env);
+	if (!managedTTSKey(env) || !config) {
+		return json({ error: 'Briefly AI voice top-ups are not configured yet.' }, { status: 503 });
+	}
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Sign in with Google to top up.' }, { status: 401 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid top-up request.' }, { status: 400 });
+	}
+	const amountCents = Number(value.amountCents);
+	const checkoutID = typeof value.checkoutID === 'string' ? value.checkoutID : '';
+	if (!ttsTopUpAmounts.includes(amountCents) || !ttsRequestIDPattern.test(checkoutID)) {
+		return json({ error: 'Invalid top-up amount.' }, { status: 400 });
+	}
+	await ensureSchema(env.DB);
+	const customer = await ensureBillingCustomer(env, email);
+	const origin = new URL(request.url).origin;
+	const form = {
+		mode: 'payment',
+		'payment_method_types[0]': 'card',
+		'line_items[0][price_data][currency]': 'eur',
+		'line_items[0][price_data][unit_amount]': String(amountCents),
+		'line_items[0][price_data][tax_behavior]': 'inclusive',
+		'line_items[0][price_data][product]': config.productID,
+		'line_items[0][quantity]': '1',
+		client_reference_id: customer.account_id,
+		success_url: `${origin}/?tts=success`,
+		cancel_url: `${origin}/?tts=cancelled`,
+		'metadata[briefly_kind]': 'tts_credit',
+		'metadata[briefly_account_id]': customer.account_id,
+		'metadata[briefly_credit_cents]': String(amountCents),
+		'payment_intent_data[metadata][briefly_kind]': 'tts_credit',
+		'payment_intent_data[metadata][briefly_account_id]': customer.account_id,
+		'custom_text[submit][message]':
+			'AI voice credit is non-refundable except where required by law.',
+		'automatic_tax[enabled]': 'true',
+		'tax_id_collection[enabled]': 'true'
+	};
+	if (customer.stripe_customer_id) {
+		form.customer = customer.stripe_customer_id;
+		form['customer_update[address]'] = 'auto';
+		form['customer_update[name]'] = 'auto';
+	} else {
+		form.customer_email = email;
+	}
+	try {
+		await validateTTSProduct(env, config.productID);
+		const session = await stripeRequest(
+			env,
+			'/checkout/sessions',
+			form,
+			`briefly-tts-checkout-${checkoutID}`
+		);
+		if (typeof session.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');
+		return json({ url: session.url });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The top-up checkout could not be opened.' },
+			{ status: 502 }
+		);
+	}
+}
+
 async function paidAccessResponse(request, env) {
 	if (!billingEnforcementEnabled(env)) return null;
 	const config = stripeConfig(env);
@@ -1438,8 +1735,8 @@ function stripeHeaders(config) {
 }
 
 async function stripeRequest(env, path, form, idempotencyKey) {
-	const config = stripeConfig(env);
-	if (!config) throw new Error('Stripe billing is not configured.');
+	const config = stripeCredentials(env);
+	if (!config) throw new Error('Stripe payments are not configured.');
 	const headers = {
 		...stripeHeaders(config),
 		'Content-Type': 'application/x-www-form-urlencoded'
@@ -1462,8 +1759,8 @@ async function stripeRequest(env, path, form, idempotencyKey) {
 }
 
 async function stripeRetrieve(env, path, query = {}) {
-	const config = stripeConfig(env);
-	if (!config) throw new Error('Stripe billing is not configured.');
+	const config = stripeCredentials(env);
+	if (!config) throw new Error('Stripe payments are not configured.');
 	const url = new URL(`${stripeAPIBase}${path}`);
 	for (const [key, value] of Object.entries(query)) {
 		if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
@@ -1653,6 +1950,8 @@ async function createCheckoutSession(request, env) {
 		'metadata[briefly_tier_key]': reservation.tier.key,
 		'subscription_data[metadata][briefly_account_id]': customer.account_id,
 		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key,
+		'custom_text[submit][message]':
+			'Your first paid month includes matching Briefly AI voice credit.',
 		'automatic_tax[enabled]': 'true',
 		'tax_id_collection[enabled]': 'true'
 	};
@@ -1854,6 +2153,72 @@ async function latestStripeSubscription(env, subscription) {
 	}
 }
 
+async function completeTTSCheckout(env, session) {
+	const accountID = session?.metadata?.briefly_account_id;
+	const customerID =
+		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
+	const paymentIntentID =
+		typeof session?.payment_intent === 'string'
+			? session.payment_intent
+			: session?.payment_intent?.id;
+	const amountCents = Number(session?.metadata?.briefly_credit_cents);
+	if (
+		session?.mode !== 'payment' ||
+		session?.metadata?.briefly_kind !== 'tts_credit' ||
+		!['paid', 'no_payment_required'].includes(session?.payment_status) ||
+		typeof session?.id !== 'string' ||
+		typeof accountID !== 'string' ||
+		session?.client_reference_id !== accountID ||
+		typeof customerID !== 'string' ||
+		typeof paymentIntentID !== 'string' ||
+		!ttsTopUpAmounts.includes(amountCents) ||
+		Number(session?.amount_total) !== amountCents
+	) {
+		return;
+	}
+	const customer = await env.DB.prepare(
+		'SELECT account_id FROM billing_customers WHERE account_id = ?'
+	)
+		.bind(accountID)
+		.first();
+	if (!customer) throw new Error('The AI voice checkout did not match a Briefly account.');
+	const now = Date.now();
+	const created = Number(session.created);
+	const createdAt = Number.isFinite(created) && created > 0 ? Math.floor(created * 1000) : now;
+	const amountMicros = amountCents * 1_000_000;
+	await env.DB.batch([
+		env.DB.prepare(
+			`UPDATE billing_customers
+			 SET stripe_customer_id = COALESCE(stripe_customer_id, ?), updated_at = ?
+			 WHERE account_id = ?`
+		).bind(customerID, now, accountID),
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO tts_accounts (
+				account_id, balance_micros, created_at, updated_at
+			) VALUES (?, 0, ?, ?)`
+		).bind(accountID, now, now),
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO tts_topups (
+				checkout_session_id, account_id, stripe_payment_intent_id,
+				amount_micros, refunded_micros, refund_status,
+				created_at, credited_at, refunded_at
+			) VALUES (?, ?, ?, ?, 0, 'disabled', ?, NULL, NULL)`
+		).bind(session.id, accountID, paymentIntentID, amountMicros, createdAt),
+		env.DB.prepare(
+			`UPDATE tts_accounts
+			 SET balance_micros = balance_micros + ?, updated_at = ?
+			 WHERE account_id = ? AND EXISTS (
+				SELECT 1 FROM tts_topups
+				WHERE checkout_session_id = ? AND account_id = ? AND credited_at IS NULL
+			 )`
+		).bind(amountMicros, now, accountID, session.id, accountID),
+		env.DB.prepare(
+			`UPDATE tts_topups SET credited_at = ?
+			 WHERE checkout_session_id = ? AND account_id = ? AND credited_at IS NULL`
+		).bind(now, session.id, accountID)
+	]);
+}
+
 async function completeStripeCheckout(env, session) {
 	const accountID = session?.client_reference_id;
 	const reservationID = session?.metadata?.briefly_reservation_id;
@@ -1918,7 +2283,7 @@ async function completeStripeCheckout(env, session) {
 	) {
 		throw new Error('Stripe Checkout did not match its Briefly tier reservation.');
 	}
-	await env.DB.batch([
+	const statements = [
 		env.DB.prepare(
 			`INSERT OR IGNORE INTO billing_allocations (
 				reservation_id, account_id, tier_key, allocated_at
@@ -1927,7 +2292,39 @@ async function completeStripeCheckout(env, session) {
 		env.DB.prepare(
 			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
 		).bind(reservationID)
-	]);
+	];
+	const paidCents =
+		session?.currency === 'eur' && Number.isSafeInteger(session?.amount_total)
+			? Math.max(0, session.amount_total)
+			: 0;
+	if (paidCents > 0 && typeof session.id === 'string') {
+		const amountMicros = paidCents * 1_000_000;
+		statements.push(
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO tts_accounts (
+					account_id, balance_micros, created_at, updated_at
+				) VALUES (?, 0, ?, ?)`
+			).bind(accountID, now, now),
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO tts_welcome_credits (
+					account_id, stripe_checkout_session_id, amount_micros, created_at, credited_at
+				) VALUES (?, ?, ?, ?, NULL)`
+			).bind(accountID, session.id, amountMicros, now),
+			env.DB.prepare(
+				`UPDATE tts_accounts
+				 SET balance_micros = balance_micros + ?, updated_at = ?
+				 WHERE account_id = ? AND EXISTS (
+					SELECT 1 FROM tts_welcome_credits
+					WHERE account_id = ? AND stripe_checkout_session_id = ? AND credited_at IS NULL
+				 )`
+			).bind(amountMicros, now, accountID, accountID, session.id),
+			env.DB.prepare(
+				`UPDATE tts_welcome_credits SET credited_at = ?
+				 WHERE account_id = ? AND stripe_checkout_session_id = ? AND credited_at IS NULL`
+			).bind(now, accountID, session.id)
+		);
+	}
+	await env.DB.batch(statements);
 }
 
 function invoiceSubscriptionID(invoice) {
@@ -1962,6 +2359,7 @@ async function processStripeEvent(env, event) {
 		event.type === 'checkout.session.completed' ||
 		event.type === 'checkout.session.async_payment_succeeded'
 	) {
+		await completeTTSCheckout(env, object);
 		await completeStripeCheckout(env, object);
 		return;
 	}
@@ -2022,8 +2420,8 @@ async function claimStripeWebhookEvent(env, event) {
 }
 
 async function stripeWebhook(request, env) {
-	const config = stripeConfig(env);
-	if (!config) return json({ error: 'Stripe billing is not configured.' }, { status: 503 });
+	const config = stripeCredentials(env);
+	if (!config) return json({ error: 'Stripe payments are not configured.' }, { status: 503 });
 	const rawBody = await request.text();
 	if (
 		!(await verifyStripeWebhook(
@@ -2088,6 +2486,26 @@ async function reconcileStripeSubscriptions(env) {
 		if (!startingAfter) return;
 	}
 	throw new Error('Stripe subscription reconciliation exceeded its safety page limit.');
+}
+
+async function releaseStaleTTSReservations(env) {
+	await ensureSchema(env.DB);
+	const result = await env.DB.prepare(
+		`SELECT request_id, account_id, amount_micros
+		 FROM tts_usage
+		 WHERE status IN ('pending', 'reserved') AND updated_at <= ?
+		 LIMIT 100`
+	)
+		.bind(Date.now() - 60 * 60 * 1000)
+		.all();
+	for (const entry of result.results ?? []) {
+		await releaseTTSUsage(
+			env,
+			entry.account_id,
+			entry.request_id,
+			Number(entry.amount_micros)
+		);
+	}
 }
 
 async function googleDriveConnection(env, email) {
@@ -4528,9 +4946,6 @@ const worker = {
 			return importPublicShare(request, env, publicShareImport[1], context);
 		}
 
-		if (url.pathname === '/api/openrouter/status' && request.method === 'GET') {
-			return connectionStatus(request, env);
-		}
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
 			return accountStatus(request, env);
 		}
@@ -4552,14 +4967,11 @@ const worker = {
 		if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
 			return stripeWebhook(request, env);
 		}
-		if (url.pathname === '/api/openrouter/connect/start' && request.method === 'GET') {
-			return startConnection(request, env);
+		if (url.pathname === '/api/tts/status' && request.method === 'GET') {
+			return ttsStatus(request, env);
 		}
-		if (url.pathname === '/api/openrouter/connect/callback' && request.method === 'GET') {
-			return finishConnection(request, env);
-		}
-		if (url.pathname === '/api/openrouter/disconnect' && request.method === 'POST') {
-			return disconnect(request, env);
+		if (url.pathname === '/api/tts/checkout' && request.method === 'POST') {
+			return createTTSCheckoutSession(request, env);
 		}
 		if (url.pathname === '/api/tts' && request.method === 'POST') {
 			return createSpeech(request, env);
@@ -4630,7 +5042,9 @@ const worker = {
 		return env.ASSETS.fetch(new Request(new URL('/', request.url), request));
 	},
 	async scheduled(_controller, env, context) {
-		context.waitUntil(reconcileStripeSubscriptions(env));
+		context.waitUntil(
+			Promise.all([reconcileStripeSubscriptions(env), releaseStaleTTSReservations(env)])
+		);
 	}
 };
 

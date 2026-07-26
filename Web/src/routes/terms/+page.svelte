@@ -57,9 +57,9 @@
 			a way that defeats authentication, pricing, or security controls.
 		</p>
 		<p>
-			Google Drive and OpenRouter connections are optional and can be disconnected in the app.
-			Disconnecting Google does not delete the Briefly files in your Drive. Signing out does not
-			cancel Briefly Plus.
+			The Google Drive connection is optional and can be disconnected in the app. Disconnecting
+			Google does not delete the Briefly files in your Drive. Signing out does not cancel Briefly
+			Plus or remove purchased AI voice credit.
 		</p>
 	</section>
 
@@ -117,6 +117,16 @@
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
 
+		<h3>Briefly AI voice credit</h3>
+		<ul>
+			<li>Purchased AI voice credit is a limited, non-transferable right to use Briefly's managed narration service. It is not money, a bank account, or a general-purpose wallet and cannot be sent to another person or payment destination.</li>
+			<li>Your account's first successfully paid Briefly Plus Checkout receives a one-time AI voice credit equal to the total EUR amount paid. Renewals and later subscriptions do not grant another welcome credit.</li>
+			<li>The top-up amount, taxes, available balance, and character-based narration prices are shown in the product or Stripe Checkout. Pricing changes apply prospectively and do not reduce credit already purchased.</li>
+			<li>Briefly reserves the displayed charge before requesting narration, settles successful generations, and restores the reservation when the provider request fails. A completed provider generation is chargeable even if you dislike its style or choose not to listen.</li>
+			<li>Purchased and welcome credit have no short product expiry.</li>
+			<li>Top-ups are final and non-refundable except where withdrawal, defect, termination, or refund rights are required by law.</li>
+		</ul>
+
 		<h3>German and EEA consumer right of withdrawal</h3>
 		<p>
 			If you are a consumer in Germany or elsewhere in the EEA, you generally have 14 days from
@@ -127,7 +137,7 @@
 			rules on full performance and your express consent remain unaffected.
 		</p>
 		<p>
-			To withdraw, email an unambiguous statement to
+			To withdraw from Plus or an AI voice top-up, email an unambiguous statement to
 			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a> before the deadline. You
 			may use this optional model:
 		</p>

@@ -60,8 +60,8 @@
 				</tr>
 				<tr>
 					<td>Optional narration</td>
-					<td>Encrypted OpenRouter key, OpenRouter user ID, selected model/voice, and the text you ask to narrate.</td>
-					<td>Generate speech on request. The requested text is sent to OpenRouter; returned audio may be cached locally and saved in your Drive.</td>
+					<td>Your account ID, selected model/voice, requested text, character count, charge, generation ID, and timestamps.</td>
+					<td>Generate speech using Briefly's managed OpenRouter account, debit only successful usage, show your history, and return failed reservations. Returned audio may be cached locally and saved in your Drive.</td>
 					<td>Performance of the feature you request.</td>
 				</tr>
 				<tr>
@@ -72,8 +72,8 @@
 				</tr>
 				<tr>
 					<td>Briefly Plus billing</td>
-					<td>Email, internal account ID, Stripe customer/subscription/price IDs, status, billing dates, and webhook event IDs. Stripe separately receives payment, billing-address, and tax details.</td>
-					<td>Start and administer a subscription, prevent duplicate allocations, collect payment, and keep accounting records.</td>
+					<td>Email, internal account ID, Stripe customer/subscription/price/payment/refund IDs, status, billing dates, AI voice balance and top-ups, usage charges, and webhook event IDs. Stripe separately receives payment, billing-address, and tax details.</td>
+					<td>Start and administer subscriptions and AI voice credit, prevent duplicate allocations, collect or refund payment, and keep accounting records.</td>
 					<td>Contract and legal obligations; fraud prevention is a legitimate interest.</td>
 				</tr>
 				<tr>
@@ -96,7 +96,7 @@
 		<ul>
 			<li>Directly from you when you sign in, connect a provider, subscribe, contact us, or publish a document.</li>
 			<li>From Google when it confirms your account email and returns OAuth credentials or Drive files within the narrow <code>drive.file</code> permission.</li>
-			<li>From Stripe when it reports checkout and subscription status.</li>
+			<li>From Stripe when it reports checkout, subscription, top-up, and refund status.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
 			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
 		</ul>
@@ -127,7 +127,7 @@
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
-					<td>Optional OAuth key and text-to-speech requests; receives the selected text, model, voice, and associated technical/account data only when you request narration.</td>
+					<td>Managed text-to-speech provider; receives the selected text, model, voice, and associated technical request data only when you request paid narration.</td>
 				</tr>
 				<tr>
 					<td><a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub</a></td>
@@ -181,8 +181,8 @@
 					<td>Up to 90 days, until you sign out, or until the session is otherwise revoked.</td>
 				</tr>
 				<tr>
-					<td>Google/OpenRouter connections</td>
-					<td>Until you disconnect the provider or ask us to delete the account data. Disconnecting deletes the stored connection credentials.</td>
+					<td>Google connection</td>
+					<td>Until you disconnect Google or ask us to delete the account data. Disconnecting deletes the stored connection credentials.</td>
 				</tr>
 				<tr>
 					<td>Google Drive files</td>
@@ -245,7 +245,8 @@
 		<h2>8. Security, children, and changes</h2>
 		<p>
 			Briefly uses encrypted transport, secure HTTP-only session cookies, same-origin checks, and
-			encryption for stored Google and OpenRouter credentials. Access is scoped to the signed-in
+			encryption for stored Google credentials. The managed OpenRouter credential remains
+			server-side and is never returned to users. Access is scoped to the signed-in
 			account. No internet service is risk-free, so protect forwardable share links and revoke a
 			link if it reaches the wrong person.
 		</p>

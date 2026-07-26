@@ -39,12 +39,12 @@
 		type LibraryVariant
 	} from '$lib/library.js';
 	import {
-		beginOpenRouterConnection,
-		completeOpenRouterConnection,
+		beginManagedTTSTopUp,
+		consumeManagedTTSResult,
 		defaultOpenRouterModel,
-		disconnectOpenRouter,
+		formatTTSMicros,
+		loadManagedTTSStatus,
 		loadOpenRouterPreferences,
-		loadOpenRouterCredential,
 		normalizeOpenRouterModel,
 		normalizeOpenRouterVoice,
 		openRouterTTSOptions,
@@ -54,6 +54,7 @@
 		synchronizeOpenRouterAudioCache,
 		voiceName,
 		voicesForModel,
+		type ManagedTTSStatus,
 		type OpenRouterCredential,
 		type OpenRouterTTSModel,
 		type OpenRouterVoice
@@ -105,10 +106,10 @@
 	const sharingWatchTokens = new Map<string, string>();
 	let narrationAudio = $state<HTMLAudioElement>();
 	let playbackRate = $state(1);
-	let openRouterCredential = $state<OpenRouterCredential | null>(null);
+	let managedTTS = $state<ManagedTTSStatus | null>(null);
 	let openRouterVoice = $state<OpenRouterVoice>('af_heart');
 	let openRouterModel = $state<OpenRouterTTSModel>(defaultOpenRouterModel);
-	let openRouterBusy = $state(false);
+	let managedTTSBusy = $state(false);
 	let audioMessage = $state('');
 	let connectionMessage = $state('');
 	let googleConnection = $state<GoogleDriveConnection>({
@@ -189,6 +190,9 @@
 	let currentBillingTier = $derived(
 		billing?.tiers.find((tier) => tier.current) ?? billing?.tiers.at(-1) ?? null
 	);
+	let managedTTSAccess = $derived<OpenRouterCredential | null>(
+		managedTTS?.configured && managedTTS.authenticated ? { connected: true } : null
+	);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
@@ -224,6 +228,7 @@
 			loading = false;
 			return;
 		}
+		const ttsResult = consumeManagedTTSResult();
 		let active = true;
 		let lastAutomaticSync = 0;
 		let reloadingForServiceWorker = false;
@@ -247,7 +252,14 @@
 		openRouterModel = narrationPreferences.model;
 		saveVoicePreference(openRouterVoice);
 		saveModelPreference(openRouterModel);
-		void initializeOpenRouter(() => active);
+		void initializeManagedTTS(() => active, ttsResult);
+		const updateTTSBalance = (event: Event): void => {
+			const balanceMicros = (event as CustomEvent<number>).detail;
+			if (managedTTS && Number.isSafeInteger(balanceMicros) && balanceMicros >= 0) {
+				managedTTS = { ...managedTTS, balanceMicros };
+			}
+		};
+		window.addEventListener('briefly:tts-balance', updateTTSBalance);
 		loadLibraryProjection()
 			.then((saved) => {
 				if (!active || !saved) return;
@@ -272,6 +284,7 @@
 		return () => {
 			active = false;
 			window.clearInterval(syncInterval);
+			window.removeEventListener('briefly:tts-balance', updateTTSBalance);
 			window.removeEventListener('online', automaticallySync);
 			window.removeEventListener('focus', automaticallySync);
 			document.removeEventListener('visibilitychange', automaticallySync);
@@ -337,21 +350,37 @@
 		}
 	}
 
-	async function initializeOpenRouter(isActive: () => boolean): Promise<void> {
+	async function initializeManagedTTS(
+		isActive: () => boolean,
+		result: string | null = null
+	): Promise<void> {
 		try {
-			const connected = await completeOpenRouterConnection();
-			const credential = connected ?? (await loadOpenRouterCredential());
+			let status = await loadManagedTTSStatus();
+			if (result === 'success') {
+				for (let attempt = 0; attempt < 5 && status.balanceMicros === 0; attempt += 1) {
+					await new Promise((resolve) => window.setTimeout(resolve, 800));
+					if (!isActive()) return;
+					status = await loadManagedTTSStatus();
+				}
+			}
 			if (!isActive()) return;
-			openRouterCredential = credential;
-			player.configureOpenRouter(credential, openRouterVoice, openRouterModel);
-			if (connected) {
-				audioMessage = `OpenRouter connected. ${currentVoiceName} is ready.`;
+			managedTTS = status;
+			player.configureOpenRouter(
+				status.configured && status.authenticated ? { connected: true } : null,
+				openRouterVoice,
+				openRouterModel
+			);
+			if (result === 'success') {
+				audioMessage = `${formatTTSMicros(status.balanceMicros)} of AI voice credit is ready.`;
+				connectionsVisible = true;
+			} else if (result === 'cancelled') {
+				audioMessage = 'The AI voice top-up was cancelled.';
 				connectionsVisible = true;
 			}
 		} catch (error) {
 			if (!isActive()) return;
 			audioMessage =
-				error instanceof Error ? error.message : 'OpenRouter sign-in could not be completed.';
+				error instanceof Error ? error.message : 'The AI voice balance could not be loaded.';
 			connectionsVisible = true;
 		}
 	}
@@ -528,9 +557,16 @@
 		}
 	}
 
-	function toggleConnections(): void {
+	async function toggleConnections(): Promise<void> {
 		connectionsVisible = !connectionsVisible;
 		sharingVisible = false;
+		if (!connectionsVisible) return;
+		try {
+			managedTTS = await loadManagedTTSStatus();
+		} catch (error) {
+			audioMessage =
+				error instanceof Error ? error.message : 'The AI voice balance could not be refreshed.';
+		}
 	}
 
 	async function openSharing(entry: LibraryEntry | null = selectedEntry): Promise<void> {
@@ -692,7 +728,7 @@
 			return;
 		}
 		if (!(await ensureTextLoaded(selectedEntry, selectedVariant, true))) return;
-		player.configureOpenRouter(openRouterCredential, openRouterVoice, openRouterModel);
+		player.configureOpenRouter(managedTTSAccess, openRouterVoice, openRouterModel);
 		player.play(selectedEntry, selectedVariant);
 	}
 
@@ -707,30 +743,16 @@
 		updateRate(rates[(currentIndex + 1) % rates.length]);
 	}
 
-	async function connectOpenRouter(): Promise<void> {
-		openRouterBusy = true;
+	async function topUpManagedTTS(amountCents: number): Promise<void> {
+		if (managedTTSBusy) return;
+		managedTTSBusy = true;
 		audioMessage = '';
 		try {
-			await beginOpenRouterConnection();
-		} catch (error) {
-			openRouterBusy = false;
-			audioMessage =
-				error instanceof Error ? error.message : 'Could not start OpenRouter sign-in.';
-		}
-	}
-
-	async function removeOpenRouterConnection(): Promise<void> {
-		openRouterBusy = true;
-		try {
-			await disconnectOpenRouter();
-			openRouterCredential = null;
-			player.configureOpenRouter(null, openRouterVoice, openRouterModel);
-			audioMessage = 'OpenRouter disconnected. Device speech remains available.';
+			await beginManagedTTSTopUp(amountCents);
 		} catch (error) {
 			audioMessage =
-				error instanceof Error ? error.message : 'Could not disconnect OpenRouter.';
-		} finally {
-			openRouterBusy = false;
+				error instanceof Error ? error.message : 'Could not open the AI voice top-up.';
+			managedTTSBusy = false;
 		}
 	}
 
@@ -745,7 +767,7 @@
 		openRouterVoice = selected;
 		input.value = selected;
 		saveVoicePreference(selected);
-		player.configureOpenRouter(openRouterCredential, selected, openRouterModel);
+		player.configureOpenRouter(managedTTSAccess, selected, openRouterModel);
 		audioMessage = `${voiceName(selected)} selected.`;
 	}
 
@@ -765,7 +787,7 @@
 			openRouterVoice = recommendedVoice;
 			saveVoicePreference(recommendedVoice);
 		}
-		player.configureOpenRouter(openRouterCredential, openRouterVoice, nextModel);
+		player.configureOpenRouter(managedTTSAccess, openRouterVoice, nextModel);
 		const option = openRouterTTSOptions.find((candidate) => candidate.model === nextModel);
 		audioMessage = `${option?.quality ?? 'Selected'} quality selected for new narration.`;
 	}
@@ -1204,40 +1226,52 @@
 					</section>
 				{/if}
 
-				<section class="audio-connection" class:connected={openRouterCredential}>
+				<section class="audio-connection" class:connected={managedTTS?.configured}>
 					<div class="audio-connection-heading">
 						<div class="provider-mark"><HeadphonesIcon /></div>
 						<div>
 							<div class="provider-title">
-								<h3>OpenRouter</h3>
-								<Badge variant={openRouterCredential ? 'secondary' : 'outline'}>
-									{openRouterCredential ? 'Connected' : 'Optional'}
+								<h3>Briefly AI voice</h3>
+								<Badge variant={managedTTS?.configured ? 'secondary' : 'outline'}>
+									{managedTTS?.configured ? 'Managed' : 'Unavailable'}
 								</Badge>
 							</div>
-							<p>Streaming narration in three quality and cost levels.</p>
+							<p>
+								Your first paid month of Plus is matched in AI voice credit. Top up after that;
+								device speech stays free.
+							</p>
 						</div>
 					</div>
 
-					{#if player.requiresReconnect}
-						<p class="reconnect-warning">
-							Your OpenRouter connection needs to be renewed.
+					{#if managedTTS}
+						<div class="billing-summary">
+							<strong>{formatTTSMicros(managedTTS.balanceMicros)}</strong>
+							<span>AI voice credit · successful generations only</span>
+						</div>
+						{#if managedTTS.checkoutConfigured && managedTTS.authenticated}
+							<div class="tts-topups" aria-label="Top up AI voice credit">
+								{#each managedTTS.topUpAmounts as amount}
+									<Button
+										variant="outline"
+										disabled={managedTTSBusy}
+										onclick={() => topUpManagedTTS(amount)}
+									>
+										{formatMonthlyPrice(amount)}
+									</Button>
+								{/each}
+							</div>
+						{:else if managedTTS.configured}
+							<p class="connection-help">
+								{managedTTS.authenticated
+									? 'Top-ups have not been configured for this deployment.'
+									: 'Sign in with Google to buy and use AI voice credit.'}
+							</p>
+						{/if}
+						<p class="connection-help">
+							AI voice credit is non-refundable except where required by law.
 						</p>
-					{/if}
-
-					{#if openRouterCredential && !player.requiresReconnect}
-						<Button
-							variant="outline"
-							disabled={openRouterBusy}
-							onclick={removeOpenRouterConnection}
-						>
-							<LogOutIcon data-icon="inline-start" />
-							Disconnect
-						</Button>
 					{:else}
-						<Button disabled={openRouterBusy} onclick={connectOpenRouter}>
-							<ArrowUpRightIcon data-icon="inline-start" />
-							{openRouterBusy ? 'Opening OpenRouter…' : 'Connect OpenRouter'}
-						</Button>
+						<p class="connection-help">Loading AI voice credit…</p>
 					{/if}
 				</section>
 
@@ -1250,8 +1284,8 @@
 						<select
 							class="audio-voice-input"
 							value={openRouterVoice}
-							disabled={!openRouterCredential}
-							aria-label="OpenRouter narrator"
+							disabled={!managedTTSAccess}
+							aria-label="AI voice narrator"
 							onchange={updateVoice}
 						>
 							{#each voicesForModel(openRouterModel) as voice}
@@ -1268,7 +1302,8 @@
 						>
 							{#each openRouterTTSOptions as option}
 								<option value={option.model}>
-									{option.quality} · {option.name} · ${option.pricePerMillionCharacters}/M chars
+									{option.quality} · {option.name} ·
+									{formatTTSMicros(option.retailCentsPerMillionCharacters * 100_000)}/100k chars
 								</option>
 							{/each}
 						</select>
@@ -1276,6 +1311,17 @@
 					<p class="voice-description">
 						{currentTTSOption.description} Audio starts as bytes arrive.
 					</p>
+					{#if managedTTS?.usage.length}
+						<div class="tts-usage">
+							<strong>Recent usage</strong>
+							{#each managedTTS.usage.slice(0, 5) as entry}
+								<span>
+									{entry.characterCount.toLocaleString()} characters ·
+									{formatTTSMicros(entry.amountMicros)}
+								</span>
+							{/each}
+						</div>
+					{/if}
 				</section>
 
 				<section class="audio-connection connected">

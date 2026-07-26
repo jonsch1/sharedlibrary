@@ -25,10 +25,18 @@ audio under `audio/` in a visible `Briefly` folder. It reuses existing
 
 ## OpenRouter
 
-OpenRouter OAuth is optional and account-scoped. Its key is encrypted in D1 and used
-only by the server-side speech route. Readers choose Low (Kokoro), Medium (Orpheus),
+Briefly uses one server-side OpenRouter account for optional paid narration. Users
+never connect or see that credential. Readers choose Low (Kokoro), Medium (Orpheus),
 or High (Grok Voice) quality. Supported browsers begin playback as MP3 bytes arrive;
-the complete result is still cached in the browser and copied to Google Drive.
+the complete result is cached in the browser and copied to Google Drive.
+
+AI voice credit is prepaid in €5, €10, or €20 increments through Stripe. The server
+reserves the exact character-based retail charge before requesting speech, releases
+it on provider failure, and records successful usage in D1. Purchased credit is
+non-refundable except where required by law and has no short product expiry.
+The first successfully paid Briefly Plus Checkout also grants that account a
+one-time AI voice credit equal to the total EUR amount paid; renewals and later
+subscriptions do not grant it again.
 
 ## Development
 
@@ -48,10 +56,11 @@ The deployment needs:
 - a D1 binding named `DB`;
 - an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
   64 hexadecimal characters;
+- an `OPENROUTER_API_KEY` secret for Briefly's managed OpenRouter account;
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
-  `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe Price IDs described
-  below;
+  `STRIPE_PRODUCT_TTS`, `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
+  Price IDs described below;
 - public access to the Google sign-in and capability-link routes. Provider
   credentials and library operations remain account-scoped by the app's secure,
   HTTP-only Google session cookie.
@@ -99,6 +108,12 @@ Configure Stripe before enabling paid access:
 5. Complete Stripe Tax registration and set the Briefly Plus product's tax code
    to the appropriate software-as-a-service code. Checkout collects and validates
    billing location and tax IDs.
+6. Create a separate one-time Product named **Briefly AI voice credit**, set its
+   appropriate digital-service tax code, and save its ID as `STRIPE_PRODUCT_TTS`.
+   Top-up Prices are created inline by Checkout so no separate Price IDs are
+   needed. Keep the existing webhook subscribed to Checkout completion and async
+   payment events; the same idempotent handler credits both subscriptions and
+   narration top-ups.
 
 Leave `BRIEFLY_BILLING_ENABLED=false` until the sandbox and live-mode setup is
 verified. When the flag is `true`, missing or invalid Stripe configuration fails
@@ -107,13 +122,20 @@ access. `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement
 window and defaults to seven days. A daily Worker cron reconciles D1 subscription
 state with Stripe.
 
+Leave `BRIEFLY_MANAGED_TTS_ENABLED=false` until OpenRouter has confirmed the
+embedded managed-narration use in writing, the managed key has a hard upstream
+spend limit, and the Stripe AI voice Product has been verified. Setting the flag
+to `true` enables managed generation and top-up Checkout; device speech remains
+available without it.
+
 ## Cloudflare deployment
 
 `wrangler.jsonc` is the source of truth for the Worker, static assets, D1
-database, R2 bucket, and custom domains. Configure deployment secrets with
-`wrangler secret put`, then deploy the current build and outstanding D1
-migrations with:
+database, R2 bucket, and custom domains. Production deployments are automated:
+push completed Web changes to `main` and
+`.github/workflows/deploy-web.yml` runs the checks, worker tests, production
+build, outstanding D1 migrations, and Cloudflare deployment.
 
-```bash
-npm run deploy
-```
+Do not run `npm run deploy` from a local checkout. Configure production secrets
+and variables in the GitHub `production` environment and Cloudflare before
+merging changes that depend on them.

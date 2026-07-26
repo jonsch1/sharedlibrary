@@ -1476,6 +1476,13 @@
 	line-height: 1.4;
 }
 
+.tts-topups {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
 .connection-help a,
 .device-code-card a {
 	display: inline-flex;
@@ -1635,6 +1642,20 @@
 	font-weight: 650;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
+}
+
+.tts-usage {
+	display: grid;
+	gap: 4px;
+	margin-top: 14px;
+	color: var(--muted-foreground);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+}
+
+.tts-usage strong {
+	color: var(--foreground);
+	font-size: 11px;
 }
 
 .audio-model-field select {
