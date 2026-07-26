@@ -3,59 +3,56 @@ import {
 	loadGoogleDriveAudio,
 	storeGoogleDriveAudio
 } from '$lib/google-drive.js';
+import { ttsModels } from '../../tts-pricing.js';
 
 export const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
 export const grokVoiceModel = 'x-ai/grok-voice-tts-1.0';
 export const orpheusVoiceModel = 'canopylabs/orpheus-3b-0.1-ft';
 
-const kokoroVoices = [
-	'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
-	'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam',
-	'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
-	'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
-	'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex',
-	'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi',
-	'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi',
-	'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei',
-	'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi',
-	'zm_yunxia', 'zm_yunyang'
-] as const;
-
-export const openRouterTTSOptions = [
-	{
-		model: defaultOpenRouterModel,
-		quality: 'Low',
-		name: 'Kokoro 82M',
-		pricePerMillionCharacters: 0.62,
-		description: 'Fast, clear narration at the lowest cost.',
-		voices: kokoroVoices
-	},
-	{
-		model: orpheusVoiceModel,
-		quality: 'Medium',
-		name: 'Orpheus 3B',
-		pricePerMillionCharacters: 7,
-		description: 'More expressive delivery at a mid-range price.',
-		voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']
-	},
-	{
-		model: grokVoiceModel,
-		quality: 'High',
-		name: 'Grok Voice',
-		pricePerMillionCharacters: 15,
-		description: 'The most natural, polished narration.',
-		voices: ['eve', 'ara', 'rex', 'sal', 'leo']
-	}
-] as const;
-
 export type OpenRouterVoice = string;
-export type OpenRouterTTSModel = (typeof openRouterTTSOptions)[number]['model'];
+export type OpenRouterTTSModel =
+	| typeof defaultOpenRouterModel
+	| typeof orpheusVoiceModel
+	| typeof grokVoiceModel;
+export const openRouterTTSOptions = ttsModels as ReadonlyArray<{
+	model: OpenRouterTTSModel;
+	quality: string;
+	name: string;
+	retailCentsPerMillionCharacters: number;
+	description: string;
+	voices: readonly string[];
+}>;
 export type SpeechLoadingPhase = 'checking' | 'downloading' | 'generating';
 
 export interface OpenRouterCredential {
 	connected: true;
-	userID?: string;
-	connectedAt?: string;
+}
+
+export interface ManagedTTSUsage {
+	model: string;
+	characterCount: number;
+	amountMicros: number;
+	generationID: string | null;
+	createdAt: number;
+}
+
+export interface ManagedTTSStatus {
+	configured: boolean;
+	checkoutConfigured: boolean;
+	authenticated: boolean;
+	balanceMicros: number;
+	topUpAmounts: number[];
+	prices: Array<{ model: string; retailCentsPerMillionCharacters: number }>;
+	usage: ManagedTTSUsage[];
+}
+
+export function formatTTSMicros(micros: number): string {
+	return new Intl.NumberFormat(undefined, {
+		style: 'currency',
+		currency: 'EUR',
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 4
+	}).format(micros / 100_000_000);
 }
 
 const audioCacheName = 'shared-library-openrouter-audio-v1';
@@ -84,67 +81,42 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
 	return fallback;
 }
 
-export async function loadOpenRouterCredential(): Promise<OpenRouterCredential | null> {
-	const response = await fetch('/api/openrouter/status', {
+export async function loadManagedTTSStatus(): Promise<ManagedTTSStatus> {
+	const response = await fetch('/api/tts/status', {
 		headers: { Accept: 'application/json' },
 		cache: 'no-store'
 	});
-	if (response.status === 401 || response.status === 404) return null;
 	if (!response.ok) {
 		throw new Error(
-			await errorMessage(response, `Could not read the OpenRouter connection (${response.status}).`)
+			await errorMessage(response, `Could not read the AI voice balance (${response.status}).`)
 		);
 	}
-	const value = (await response.json()) as {
-		connected?: unknown;
-		userID?: unknown;
-		connectedAt?: unknown;
-	};
-	if (value.connected !== true) return null;
-	return {
-		connected: true,
-		userID: typeof value.userID === 'string' ? value.userID : undefined,
-		connectedAt: typeof value.connectedAt === 'string' ? value.connectedAt : undefined
-	};
+	return (await response.json()) as ManagedTTSStatus;
 }
 
-export async function disconnectOpenRouter(): Promise<void> {
-	const response = await fetch('/api/openrouter/disconnect', {
+export async function beginManagedTTSTopUp(amountCents: number): Promise<void> {
+	const response = await fetch('/api/tts/checkout', {
 		method: 'POST',
-		headers: { Accept: 'application/json' }
+		headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+		body: JSON.stringify({ amountCents, checkoutID: crypto.randomUUID() })
 	});
 	if (!response.ok) {
 		throw new Error(
-			await errorMessage(response, `Could not disconnect OpenRouter (${response.status}).`)
+			await errorMessage(response, `Could not open the top-up checkout (${response.status}).`)
 		);
 	}
+	const value = (await response.json()) as { url?: unknown };
+	if (typeof value.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');
+	window.location.assign(value.url);
 }
 
-export async function beginOpenRouterConnection(): Promise<void> {
-	window.location.assign('/api/openrouter/connect/start');
-}
-
-function consumeConnectionResult(): string | null {
+export function consumeManagedTTSResult(): string | null {
 	const url = new URL(window.location.href);
-	const result = url.searchParams.get('openrouter');
+	const result = url.searchParams.get('tts');
 	if (!result) return null;
-	url.searchParams.delete('openrouter');
+	url.searchParams.delete('tts');
 	window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 	return result;
-}
-
-export async function completeOpenRouterConnection(): Promise<OpenRouterCredential | null> {
-	const result = consumeConnectionResult();
-	if (!result) return null;
-	if (result === 'expired') {
-		throw new Error('The OpenRouter sign-in expired. Open Audio settings and connect again.');
-	}
-	if (result !== 'connected') {
-		throw new Error('OpenRouter sign-in could not be completed. Please try again.');
-	}
-	const credential = await loadOpenRouterCredential();
-	if (!credential) throw new Error('OpenRouter connected, but the saved connection was not found.');
-	return credential;
 }
 
 export function normalizeOpenRouterModel(value: unknown): OpenRouterTTSModel | null {
@@ -531,7 +503,8 @@ export async function createOpenRouterSpeechSource(
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
-			Accept: 'audio/mpeg'
+			Accept: 'audio/mpeg',
+			'X-Briefly-Request-Id': crypto.randomUUID()
 		},
 		body: JSON.stringify({ input: text, voice, model }),
 		signal
@@ -541,6 +514,10 @@ export async function createOpenRouterSpeechSource(
 			await errorMessage(response, `OpenRouter speech failed (${response.status}).`),
 			response.status
 		);
+	}
+	const balanceMicros = Number(response.headers.get('X-Briefly-TTS-Balance-Micros'));
+	if (Number.isSafeInteger(balanceMicros) && balanceMicros >= 0) {
+		window.dispatchEvent(new CustomEvent('briefly:tts-balance', { detail: balanceMicros }));
 	}
 
 	onLoadingPhase?.('downloading');

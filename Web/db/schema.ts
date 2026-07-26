@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const openRouterCredentials = sqliteTable('openrouter_credentials', {
 	userEmail: text('user_email').primaryKey(),
@@ -105,6 +105,59 @@ export const stripeWebhookEvents = sqliteTable('stripe_webhook_events', {
 	attempts: integer('attempts').notNull().default(1),
 	processedAt: integer('processed_at').notNull()
 });
+
+export const ttsAccounts = sqliteTable('tts_accounts', {
+	accountID: text('account_id').primaryKey(),
+	balanceMicros: integer('balance_micros').notNull().default(0),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
+export const ttsWelcomeCredits = sqliteTable('tts_welcome_credits', {
+	accountID: text('account_id').primaryKey(),
+	stripeCheckoutSessionID: text('stripe_checkout_session_id').notNull().unique(),
+	amountMicros: integer('amount_micros').notNull(),
+	createdAt: integer('created_at').notNull(),
+	creditedAt: integer('credited_at')
+});
+
+export const ttsTopUps = sqliteTable(
+	'tts_topups',
+	{
+		checkoutSessionID: text('checkout_session_id').primaryKey(),
+		accountID: text('account_id').notNull(),
+		stripePaymentIntentID: text('stripe_payment_intent_id').notNull(),
+		amountMicros: integer('amount_micros').notNull(),
+		refundedMicros: integer('refunded_micros').notNull().default(0),
+		refundStatus: text('refund_status').notNull().default('disabled'),
+		createdAt: integer('created_at').notNull(),
+		creditedAt: integer('credited_at'),
+		refundedAt: integer('refunded_at')
+	},
+	(table) => [
+		uniqueIndex('tts_topups_stripe_payment_intent_id_unique').on(
+			table.stripePaymentIntentID
+		),
+		index('tts_topups_account_created_idx').on(table.accountID, table.createdAt)
+	]
+);
+
+export const ttsUsage = sqliteTable(
+	'tts_usage',
+	{
+		requestID: text('request_id').primaryKey(),
+		accountID: text('account_id').notNull(),
+		model: text('model').notNull(),
+		voice: text('voice').notNull(),
+		characterCount: integer('character_count').notNull(),
+		amountMicros: integer('amount_micros').notNull(),
+		status: text('status').notNull(),
+		generationID: text('generation_id'),
+		createdAt: integer('created_at').notNull(),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [index('tts_usage_account_created_idx').on(table.accountID, table.createdAt)]
+);
 
 export const shareLinks = sqliteTable(
 	'share_links',

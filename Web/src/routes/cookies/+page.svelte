@@ -46,8 +46,8 @@
 			</tbody>
 		</table>
 		<p>
-			Google, Stripe, OpenRouter, or GitHub may set their own cookies when you choose to visit
-			their domains for sign-in, checkout, optional narration connection, billing management, or
+			Google, Stripe, or GitHub may set their own cookies when you choose to visit
+			their domains for sign-in, AI voice top-up, billing management, or
 			downloads. Their notices govern those cookies; Briefly cannot read them.
 		</p>
 	</section>
@@ -78,7 +78,7 @@
 				</tr>
 				<tr>
 					<td>Local storage</td>
-					<td>Selected topic and your preferred OpenRouter model and voice.</td>
+					<td>Selected topic and your preferred AI voice quality and narrator.</td>
 					<td>Restores the interface choices you made.</td>
 					<td>Until you change them or clear the site's data.</td>
 				</tr>
@@ -96,7 +96,7 @@
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
 			<li>Use your browser's site-data settings to remove Briefly's cookie, IndexedDB, local storage, service worker, and caches.</li>
 			<li>Removing site data signs you out and deletes the offline web copy and preferences on that device. It does not delete files in your Google Drive, an active subscription, or a public share.</li>
-			<li>Disconnect Google Drive or OpenRouter from Connections to delete the corresponding stored provider credentials.</li>
+			<li>Disconnect Google Drive from Settings to delete the stored Google provider credentials.</li>
 			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel Briefly Plus.</li>
 		</ul>
 		<p>

@@ -3,7 +3,9 @@
 - After changing `Electron/`, run its tests, typecheck, and build. Package and
   restart the Electron app after desktop-facing changes so the user can test it.
 - After changing `Web/`, run its checks, worker tests, and production build.
-  Deploy completed web changes to Cloudflare with `npm run deploy`.
+  Do not deploy from a local checkout. Pushing completed changes to `main`
+  triggers `.github/workflows/deploy-web.yml`, which applies D1 migrations and
+  deploys to Cloudflare.
 
 ## Generated Briefly workspace instructions
 

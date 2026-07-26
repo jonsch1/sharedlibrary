@@ -200,7 +200,7 @@ export class SpeechPlayer {
 			return;
 		}
 		if (!this.credential) {
-			this.fallbackToDevice(chunk, 'OpenRouter was disconnected. Using the device voice.');
+			this.fallbackToDevice(chunk, 'Briefly AI voice is unavailable. Using the device voice.');
 			return;
 		}
 
@@ -209,7 +209,6 @@ export class SpeechPlayer {
 		const fail = (message: string, status?: number): void => {
 			if (failureHandled || sessionID !== this.sessionID) return;
 			failureHandled = true;
-			if (status === 401 || status === 403) this.requiresReconnect = true;
 			this.fallbackToDevice(chunk, `${message} Using the device voice.`);
 		};
 		try {

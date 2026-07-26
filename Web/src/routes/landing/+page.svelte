@@ -993,6 +993,7 @@
 						<ul>
 							<li><CheckCircleIcon /> Sync your library across devices</li>
 							<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
+							<li><CheckCircleIcon /> First month's payment matched in AI voice credit</li>
 							<li><CheckCircleIcon /> Everything included in Briefly Free</li>
 						</ul>
 						{#if billing?.entitled && billing.subscription}
