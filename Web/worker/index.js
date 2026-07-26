@@ -1664,7 +1664,7 @@ async function createTTSCheckoutSession(request, env) {
 			env,
 			'/checkout/sessions',
 			form,
-			`briefly-tts-checkout-${checkoutID}`
+			`briefly-tts-checkout-v2-${checkoutID}`
 		);
 		if (typeof session.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');
 		return json({ url: session.url });
@@ -1955,7 +1955,7 @@ async function createCheckoutSession(request, env) {
 			env,
 			'/checkout/sessions',
 			form,
-			`briefly-checkout-${reservation.reservationID}`
+			`briefly-checkout-v2-${reservation.reservationID}`
 		);
 		if (typeof session.id !== 'string' || typeof session.url !== 'string') {
 			throw new Error('Stripe did not return a Checkout URL.');

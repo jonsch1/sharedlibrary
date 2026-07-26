@@ -783,7 +783,7 @@ test('checkout validates its Price, pins the API version, and reuses one open Se
 		);
 		assert.equal(creations.length, 1);
 		assert.equal(creations[0].init.headers['Stripe-Version'], '2026-06-24.dahlia');
-		assert.match(creations[0].init.headers['Idempotency-Key'], /^briefly-checkout-/);
+		assert.match(creations[0].init.headers['Idempotency-Key'], /^briefly-checkout-v2-/);
 		const form = creations[0].init.body;
 		assert.equal(form.get('payment_method_types[0]'), 'card');
 		assert.equal(form.get('automatic_tax[enabled]'), 'true');
@@ -799,6 +799,7 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 	const env = stripeEnvironment(database);
 	const originalFetch = globalThis.fetch;
 	let checkoutForm;
+	let checkoutHeaders;
 	globalThis.fetch = async (input, init = {}) => {
 		const url = new URL(input);
 		if (url.pathname === '/v1/products/prod_briefly_tts') {
@@ -806,6 +807,7 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 		}
 		if (url.pathname === '/v1/checkout/sessions') {
 			checkoutForm = init.body;
+			checkoutHeaders = init.headers;
 			return Response.json({
 				id: 'cs_tts_topup',
 				url: 'https://checkout.stripe.test/c/pay/cs_tts_topup'
@@ -834,6 +836,7 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 		assert.equal(checkoutForm.get('line_items[0][price_data][tax_behavior]'), 'inclusive');
 		assert.equal(checkoutForm.get('line_items[0][price_data][product]'), 'prod_briefly_tts');
 		assert.equal(checkoutForm.get('metadata[briefly_kind]'), 'tts_credit');
+		assert.match(checkoutHeaders['Idempotency-Key'], /^briefly-tts-checkout-v2-/);
 		assert.equal(checkoutForm.get('custom_text[submit][message]'), null);
 	} finally {
 		globalThis.fetch = originalFetch;
