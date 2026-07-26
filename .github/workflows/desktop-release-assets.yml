@@ -38,12 +38,12 @@ jobs:
             os: windows-latest
             target: windows
             artifact_name: briefly-windows
-            build_args: --win nsis --x64 -c.win.forceCodeSigning=true
+            build_args: --win nsis --x64 --config.win.forceCodeSigning=true
           - label: Microsoft Store x64
             os: windows-latest
             target: windows-store
             artifact_name: store-windows
-            build_args: --win appx --x64 -c.win.signExecutable=false
+            build_args: --win appx --x64 --config.win.signExecutable=false
           - label: Linux x64
             os: ubuntu-latest
             target: linux
@@ -168,7 +168,7 @@ jobs:
       - run: npm ci
       - run: npm --prefix ../Tools/extractor ci
       - run: npm test
-      - run: npm run dist -- --win appx --x64 -c.win.signExecutable=false --publish never
+      - run: npm run dist -- --win appx --x64 --config.win.signExecutable=false --publish never
 
       - uses: actions/upload-artifact@v6
         with:
