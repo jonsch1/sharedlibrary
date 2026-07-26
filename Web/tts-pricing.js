@@ -5,7 +5,8 @@ export const ttsModels = [
 		model: 'hexgrad/kokoro-82m',
 		quality: 'Low',
 		name: 'Kokoro 82M',
-		retailCentsPerMillionCharacters: 180,
+		hoursPerEuro: 10,
+		retailCentsPerMillionCharacters: 75,
 		description: 'Fast, clear narration at the lowest cost.',
 		voices: [
 			'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
@@ -24,7 +25,8 @@ export const ttsModels = [
 		model: 'canopylabs/orpheus-3b-0.1-ft',
 		quality: 'Medium',
 		name: 'Orpheus 3B',
-		retailCentsPerMillionCharacters: 1800,
+		hoursPerEuro: 2,
+		retailCentsPerMillionCharacters: 840,
 		description: 'More expressive delivery at a mid-range price.',
 		voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']
 	},
@@ -32,7 +34,8 @@ export const ttsModels = [
 		model: 'x-ai/grok-voice-tts-1.0',
 		quality: 'High',
 		name: 'Grok Voice',
-		retailCentsPerMillionCharacters: 4000,
+		hoursPerEuro: 1,
+		retailCentsPerMillionCharacters: 1800,
 		description: 'The most natural, polished narration.',
 		voices: ['eve', 'ara', 'rex', 'sal', 'leo']
 	}

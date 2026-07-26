@@ -16,6 +16,10 @@ test("selectInput routes supported links to explicit modules", () => {
     selectInput("https://bsky.app/profile/example.com/post/abc")?.id,
     "bluesky"
   );
+  assert.equal(
+    selectInput("https://www.threads.com/@example/post/abc")?.id,
+    "threads"
+  );
   assert.equal(selectInput("https://example.com/article")?.id, "generic-html");
   assert.equal(selectInput("file:///tmp/report.html"), null);
 });

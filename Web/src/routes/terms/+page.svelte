@@ -36,9 +36,9 @@
 			your Google Drive, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li><strong>Briefly Free</strong> provides the core local desktop experience and any free web features shown in the product.</li>
-			<li><strong>Briefly Plus</strong> is a recurring subscription for cross-device Google Drive synchronization and public share links.</li>
-			<li>Features may require a supported operating system, browser, internet connection, Google account, or optional third-party account.</li>
+			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device Google Drive synchronization, and public share links.</li>
+			<li>An account and active membership are required to access the apps and downloads.</li>
+			<li>Features may require a supported operating system, browser, internet connection, Google account, or third-party service.</li>
 			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
@@ -208,7 +208,7 @@
 			To the extent the law permits, neither side is responsible for indirect or unforeseeable
 			loss. Briefly is not responsible for loss caused by your unlawful content, disclosure of a
 			forwardable share link, failure to secure your account, or a third-party service outside
-			our reasonable control. For free business use, Briefly's aggregate liability is limited to
+			our reasonable control. For business use, Briefly's aggregate liability is limited to
 			€100; for paid business use, it is limited to the fees paid for Plus in the 12 months before
 			the event. These business caps do not apply to consumers where mandatory law provides a
 			greater remedy.

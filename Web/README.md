@@ -42,14 +42,46 @@ subscriptions do not grant it again.
 
 ```bash
 npm install
-npm run check
-npm run test:worker
+npm test
 npm run db:generate
-npm run build
 ```
 
 Database definitions live in `db/schema.ts`; generated migrations live in
 `drizzle/`. The worker also creates missing active tables defensively.
+
+### Local Stripe sandbox
+
+Use one isolated Stripe sandbox for local development:
+
+1. Copy `.env.example` to `.env`. Fill it with the sandbox's `sk_test_` or
+   restricted `rk_test_` key, Product, Price, and portal configuration IDs.
+   Never mix live and sandbox IDs.
+2. Add `http://localhost:8787/api/google/connect/callback` to the Google OAuth
+   client's authorized redirect URIs, then start the production-like local app:
+
+   ```bash
+   npm run dev:full
+   ```
+
+3. In another terminal, run the Stripe CLI against the same sandbox:
+
+   ```bash
+   stripe listen \
+     --events checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed \
+     --forward-to http://localhost:8787/api/billing/webhook
+   ```
+
+   Put the printed `whsec_...` signing secret in `.env` as
+   `STRIPE_WEBHOOK_SECRET`, then restart `npm run dev:full`.
+
+For an end-to-end pass, sign in with Google, buy Plus with Stripe's successful
+test card `4242 4242 4242 4242` (any future expiry and any CVC), verify the
+account and desktop app unlock, open the customer portal, cancel at period end,
+and confirm access remains until the period ends. Also test checkout cancellation,
+the declined card `4000 0000 0000 0002`, the 3D Secure card
+`4000 0025 0000 3155`, an AI voice top-up, duplicate webhook delivery, and a
+renewal/payment failure with a Stripe Billing simulation. Local Wrangler uses
+its own D1 and R2 data, not production data.
 
 The deployment needs:
 
@@ -67,8 +99,9 @@ The deployment needs:
 
 ## Briefly Plus and Stripe
 
-Briefly keeps the local desktop experience free. Plus pays for cross-device
-Google Drive synchronization and deliberate public share links. Launch pricing
+Briefly requires an account and active membership for app access and downloads.
+The subscription includes cross-device Google Drive synchronization and deliberate
+public share links. Launch pricing
 is a grandfathered monthly ladder:
 
 | Subscribers | Price | Stripe environment variable |
@@ -118,6 +151,8 @@ Configure Stripe for paid access:
 Paid access and managed narration activate automatically when their required
 deployment secrets and Stripe IDs are present. Missing or invalid Stripe
 configuration fails closed instead of granting free Plus access.
+The owner account `schauljonathan@gmail.com` has complimentary Plus entitlement;
+it does not receive unlimited metered AI voice credit.
 `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement window and
 defaults to seven days. A daily Worker cron reconciles D1 subscription state with
 Stripe.

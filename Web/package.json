@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
+		"dev:full": "npm run build && wrangler dev",
 		"build": "vite build",
 		"deploy": "npm run build && wrangler d1 migrations apply DB --remote && wrangler deploy",
 		"db:generate": "drizzle-kit generate",
@@ -12,6 +13,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"test": "npm run check && npm run test:worker && npm run build",
 		"test:worker": "node --test worker/index.test.mjs"
 	},
 	"devDependencies": {

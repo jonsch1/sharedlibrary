@@ -857,7 +857,7 @@
 					<h1>Take your library everywhere</h1>
 					<p class="empty-copy">
 						Briefly Plus adds secure Google Drive synchronization and deliberate share links.
-						Your local desktop library stays free.
+						Your local desktop files remain on your device.
 					</p>
 					<div class="empty-actions">
 						<Button size="lg" disabled={billingBusy} onclick={startBrieflyPlus}>
@@ -1126,8 +1126,8 @@
 							<div class="provider-title">
 								<h3>Briefly Plus</h3>
 								<Badge variant={billing?.entitled ? 'secondary' : 'outline'}>
-									{billing?.entitled && billing.subscription
-										? billing.subscription.cancelAtPeriodEnd
+									{billing?.entitled
+										? billing.subscription?.cancelAtPeriodEnd
 											? 'Cancels soon'
 											: 'Active'
 										: billing?.subscription
@@ -1153,6 +1153,8 @@
 							<ArrowUpRightIcon data-icon="inline-start" />
 							{billingBusy ? 'Opening billing…' : 'Manage billing'}
 						</Button>
+					{:else if billing?.entitled}
+						<p class="connection-help">Complimentary Plus access for this account.</p>
 					{:else if billing?.configured}
 						<Button disabled={billingBusy} onclick={startBrieflyPlus}>
 							<CreditCardIcon data-icon="inline-start" />
@@ -1170,6 +1172,10 @@
 							Stripe checkout is ready in the app but has not been configured for this deployment.
 						</p>
 					{/if}
+					<Button variant="outline" onclick={() => window.location.assign('/account')}>
+						<ArrowUpRightIcon data-icon="inline-start" />
+						Account and app downloads
+					</Button>
 				</section>
 
 				<section class="audio-connection" class:connected={googleConnection.connected}>
@@ -1238,7 +1244,7 @@
 							</div>
 							<p>
 								Your first paid month of Plus is matched in AI voice credit. Top up after that;
-								device speech stays free.
+								device speech remains available without AI credit.
 							</p>
 						</div>
 					</div>
@@ -1302,8 +1308,8 @@
 						>
 							{#each openRouterTTSOptions as option}
 								<option value={option.model}>
-									{option.quality} · {option.name} ·
-									{formatTTSMicros(option.retailCentsPerMillionCharacters * 100_000)}/100k chars
+									{option.quality} · {option.name} · ≈{option.hoursPerEuro}
+									{option.hoursPerEuro === 1 ? 'hour' : 'hours'}/€
 								</option>
 							{/each}
 						</select>
@@ -1353,6 +1359,7 @@
 					</div>
 				</div>
 				<nav class="connections-legal" aria-label="Legal">
+					<a href="/feedback">Feedback</a>
 					<a href="/privacy">Privacy</a>
 					<a href="/terms">Terms</a>
 					<a href="/cookies">Cookies & storage</a>

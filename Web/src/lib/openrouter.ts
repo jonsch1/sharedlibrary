@@ -18,6 +18,7 @@ export const openRouterTTSOptions = ttsModels as ReadonlyArray<{
 	model: OpenRouterTTSModel;
 	quality: string;
 	name: string;
+	hoursPerEuro: number;
 	retailCentsPerMillionCharacters: number;
 	description: string;
 	voices: readonly string[];

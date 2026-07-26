@@ -140,7 +140,7 @@ export class NarrationService {
       .arrayBuffer()
       .then(async (buffer) => {
         const bytes = new Uint8Array(buffer);
-        if (!bytes.byteLength) throw new Error('OpenRouter returned empty narration.');
+        if (!bytes.byteLength) throw new Error('Briefly AI voice returned empty narration.');
         await atomicWrite(path, bytes);
         void this.backend.storeAudio(hash, bytes).catch(() => {
           // Playback is local-first; Drive backup can retry later.

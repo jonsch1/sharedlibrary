@@ -29,12 +29,21 @@ app.once('ready', () => {
         url.origin ===
         'https://www.readbriefly.fyi'
       ) {
-        const body =
-          url.pathname === '/api/auth/status'
-            ? { authenticated: false }
-            : { error: 'Unavailable in the Electron smoke test.' };
+        const body = {
+          '/api/auth/status': {
+            authenticated: true,
+            email: 'schauljonathan@gmail.com'
+          },
+          '/api/google/status': { configured: true, connected: false },
+          '/api/billing/status': { entitled: true, complimentary: true },
+          '/api/tts/status': {
+            configured: false,
+            checkoutConfigured: false,
+            balanceMicros: 0
+          }
+        }[url.pathname] ?? { error: 'Unavailable in the Electron smoke test.' };
         return new Response(JSON.stringify(body), {
-          status: url.pathname === '/api/auth/status' ? 200 : 401,
+          status: 'error' in body ? 401 : 200,
           headers: { 'content-type': 'application/json' }
         });
       }

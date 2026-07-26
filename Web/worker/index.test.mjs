@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import worker from './index.js';
+import { ttsModels } from '../tts-pricing.js';
 
 class MockStatement {
 	constructor(database, sql) {
@@ -79,14 +80,44 @@ class MockStatement {
 			}
 			if (this.sql.includes('FROM app_sessions')) {
 				return {
-					user_email: 'reader@example.com',
+					user_email: this.database.sessionEmail,
 					expires_at: Date.now() + 60_000
+				};
+			}
+			if (this.sql.includes('FROM feedback_upvotes')) {
+				const [userEmail, itemID] = this.arguments;
+				const upvotes = [...this.database.feedbackUpvotes.values()].filter(
+					(upvote) => upvote.feedback_item_id === itemID
+				);
+				return {
+					upvotes: upvotes.length,
+					upvoted: upvotes.some((upvote) => upvote.user_email === userEmail) ? 1 : 0
 				};
 			}
 		return null;
 	}
 
 	async all() {
+		if (this.sql.includes('FROM feedback_items')) {
+			const userEmail = this.arguments[0];
+			return {
+				results: [...this.database.feedbackItems.values()]
+					.map((item) => {
+						const upvotes = [...this.database.feedbackUpvotes.values()].filter(
+							(upvote) => upvote.feedback_item_id === item.id
+						);
+						return {
+							...item,
+							upvotes: upvotes.length,
+							upvoted: upvotes.some((upvote) => upvote.user_email === userEmail) ? 1 : 0
+						};
+					})
+					.sort(
+						(left, right) =>
+							right.upvotes - left.upvotes || right.created_at - left.created_at
+					)
+			};
+		}
 		if (this.sql.includes('FROM tts_usage')) {
 			return {
 				results: [...this.database.ttsUsage.values()]
@@ -99,6 +130,14 @@ class MockStatement {
 					)
 					.sort((left, right) => right.updated_at - left.updated_at)
 					.slice(0, 10)
+			};
+		}
+		if (this.sql.includes('FROM share_links')) {
+			return {
+				results: [...this.database.shareLinks.values()]
+					.filter((row) => row.owner_email === this.arguments[0])
+					.sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+					.slice(0, Number(this.arguments[1]))
 			};
 		}
 		if (this.sql.includes('FROM share_texts')) {
@@ -124,6 +163,34 @@ class MockStatement {
 
 	async run() {
 		let changes = 0;
+			if (this.sql.includes('INSERT INTO feedback_items')) {
+				const [id, userEmail, title, details, createdAt] = this.arguments;
+				this.database.feedbackItems.set(id, {
+					id,
+					user_email: userEmail,
+					title,
+					details,
+					created_at: createdAt
+				});
+				changes = 1;
+			}
+			if (this.sql.includes('INTO feedback_upvotes')) {
+				const [feedbackItemID, userEmail, createdAt] = this.arguments;
+				const key = `${feedbackItemID}:${userEmail}`;
+				if (!this.database.feedbackUpvotes.has(key)) {
+					this.database.feedbackUpvotes.set(key, {
+						feedback_item_id: feedbackItemID,
+						user_email: userEmail,
+						created_at: createdAt
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('DELETE FROM feedback_upvotes')) {
+				changes = Number(
+					this.database.feedbackUpvotes.delete(`${this.arguments[0]}:${this.arguments[1]}`)
+				);
+			}
 			if (this.sql.includes('INSERT INTO openrouter_oauth_states')) {
 			this.database.oauthState = {
 				state: this.arguments[0],
@@ -317,6 +384,12 @@ class MockStatement {
 					record.owner_email === this.arguments[1] &&
 					record.capture_id === this.arguments[2]
 			);
+			const ownerLinkCount = [...this.database.shareLinks.values()].filter(
+				(record) => record.owner_email === this.arguments[1]
+			).length;
+			if (!existing && ownerLinkCount >= Number(this.arguments[10])) {
+				return { success: true, meta: { changes: 0 } };
+			}
 			const record = {
 				token: existing?.token ?? this.arguments[0],
 				owner_email: this.arguments[1],
@@ -509,6 +582,7 @@ class MockStatement {
 }
 
 class MockDatabase {
+	sessionEmail = 'reader@example.com';
 	credential = null;
 	oauthState = null;
 	pendingOAuthState = null;
@@ -525,6 +599,8 @@ class MockDatabase {
 	ttsWelcomeCredits = new Map();
 	ttsTopUps = new Map();
 	ttsUsage = new Map();
+	feedbackItems = new Map();
+	feedbackUpvotes = new Map();
 
 	prepare(sql) {
 		return new MockStatement(this, sql);
@@ -644,6 +720,10 @@ test('managed speech status exposes balance and prices, never the server key', a
 	assert.equal(JSON.stringify(status).includes('sk-or-managed'), false);
 });
 
+test('managed speech pricing reports rounded audio hours per euro', () => {
+	assert.deepEqual(ttsModels.map((option) => option.hoursPerEuro), [10, 2, 1]);
+});
+
 test('Google Drive setup is centrally configured without exposing OAuth credentials', async () => {
 	const env = environment();
 	const googleResponse = await worker.fetch(authenticatedRequest('/api/google/status'), env);
@@ -711,10 +791,89 @@ test('client-supplied identity headers cannot impersonate a Briefly account', as
 	assert.deepEqual(await response.json(), { authenticated: false });
 });
 
+test('users can post feedback and independently upvote it', async () => {
+	const database = new MockDatabase();
+	const env = environment(database);
+	const createdResponse = await worker.fetch(
+		authenticatedRequest('/api/feedback', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				title: 'Add keyboard shortcuts',
+				details: 'Let readers move between documents without reaching for the mouse.'
+			})
+		}),
+		env
+	);
+	assert.equal(createdResponse.status, 201);
+	const created = await createdResponse.json();
+	assert.equal(created.upvotes, 1);
+	assert.equal(created.upvoted, true);
+
+	database.sessionEmail = 'second-reader@example.com';
+	const upvoteResponse = await worker.fetch(
+		authenticatedRequest(`/api/feedback/${created.id}/upvote`, {
+			method: 'PUT',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ upvoted: true })
+		}),
+		env
+	);
+	assert.deepEqual(await upvoteResponse.json(), {
+		id: created.id,
+		upvotes: 2,
+		upvoted: true
+	});
+
+	const boardResponse = await worker.fetch(
+		new Request('https://library.example/api/feedback'),
+		env
+	);
+	const board = await boardResponse.json();
+	assert.equal(board.authenticated, false);
+	assert.deepEqual(
+		board.items.map((item) => [item.title, item.upvotes, item.upvoted]),
+		[['Add keyboard shortcuts', 2, false]]
+	);
+});
+
 test('billing fails closed when Stripe configuration is incomplete', async () => {
 	const response = await worker.fetch(authenticatedRequest('/api/library'), environment());
 	assert.equal(response.status, 503);
 	assert.equal((await response.json()).code, 'billing_unavailable');
+});
+
+test('the owner account has complimentary Plus access without Stripe', async () => {
+	const database = new MockDatabase();
+	database.sessionEmail = 'SchaulJonathan@gmail.com';
+	const env = environment(database);
+	const response = await worker.fetch(authenticatedRequest('/api/billing/status'), env);
+	assert.equal(response.status, 200);
+	const { configured, entitled, complimentary, subscription } = await response.json();
+	assert.deepEqual({ configured, entitled, complimentary, subscription }, {
+		configured: false,
+		entitled: true,
+		complimentary: true,
+		subscription: null
+	});
+	const checkout = await worker.fetch(
+		authenticatedRequest('/api/billing/checkout', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example' }
+		}),
+		env
+	);
+	assert.equal(checkout.status, 409);
+	assert.equal((await checkout.json()).code, 'access_exists');
+	const library = await worker.fetch(authenticatedRequest('/api/library'), env);
+	assert.equal(library.status, 401);
+	assert.equal((await library.json()).error, 'Connect Google Drive first.');
 });
 
 test('configured Stripe checkout requires an authenticated Briefly account', async () => {
@@ -1182,6 +1341,103 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 	assert.equal(status.token, published.token);
 });
 
+test('owners can list and revoke their published links from the account', async () => {
+	const database = new MockDatabase();
+	const ownToken = 'A'.repeat(32);
+	const otherToken = 'B'.repeat(32);
+	database.shareLinks.set(ownToken, {
+		token: ownToken,
+		owner_email: 'reader@example.com',
+		capture_id: 'capture-1',
+		generation: 'generation-1',
+		revision: 1,
+		status: 'ready',
+		metadata_json: JSON.stringify({ title: 'Published research' }),
+		source_filename: 'published-research.md',
+		voice: 'eve',
+		error_message: null,
+		created_at: '2026-07-23T10:00:00Z',
+		updated_at: '2026-07-23T11:00:00Z'
+	});
+	database.shareLinks.set(otherToken, {
+		...database.shareLinks.get(ownToken),
+		token: otherToken,
+		owner_email: 'other@example.com',
+		capture_id: 'capture-2'
+	});
+
+	const response = await worker.fetch(
+		authenticatedRequest('/api/share-links'),
+		environment(database)
+	);
+	assert.equal(response.status, 200);
+	const published = await response.json();
+	assert.equal(published.limit, 200);
+	assert.equal(published.links.length, 1);
+	assert.equal(published.links[0].token, ownToken);
+	assert.equal(published.links[0].captureID, 'capture-1');
+	assert.equal(published.links[0].metadata.title, 'Published research');
+
+	const revoked = await worker.fetch(
+		authenticatedRequest(`/api/share-links/${ownToken}`, {
+			method: 'DELETE',
+			headers: { Origin: 'https://library.example' }
+		}),
+		environment(database)
+	);
+	assert.equal(revoked.status, 200);
+	assert.equal(database.shareLinks.has(ownToken), false);
+});
+
+test('an account can update at 200 active links but cannot publish a 201st', async () => {
+	const database = new MockDatabase();
+	for (let index = 0; index < 200; index += 1) {
+		const token = index.toString(36).padStart(32, '0');
+		database.shareLinks.set(token, {
+			token,
+			owner_email: 'reader@example.com',
+			capture_id: `capture-${index}`,
+			generation: `generation-${index}`,
+			revision: 1,
+			status: 'ready',
+			metadata_json: null,
+			source_filename: null,
+			voice: 'eve',
+			error_message: null,
+			created_at: '2026-07-23T10:00:00Z',
+			updated_at: '2026-07-23T10:00:00Z'
+		});
+	}
+	const request = (captureID) =>
+		authenticatedRequest('/api/share-links', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ captureID, voice: 'eve' })
+		});
+
+	const denied = await worker.fetch(request('capture-200'), entitledEnvironment(database));
+	assert.equal(denied.status, 409);
+	assert.equal((await denied.json()).code, 'share_limit_reached');
+	assert.equal(database.shareLinks.size, 200);
+
+	let backgroundTask;
+	const updated = await worker.fetch(
+		request('capture-0'),
+		entitledEnvironment(database),
+		{
+			waitUntil(task) {
+				backgroundTask = task;
+			}
+		}
+	);
+	assert.equal(updated.status, 202);
+	assert.equal((await updated.json()).revision, 2);
+	await backgroundTask;
+});
+
 test('a ready share document is readable anonymously at all stored conciseness levels', async () => {
 	const database = new MockDatabase();
 	const token = 'A'.repeat(32);
@@ -1522,7 +1778,7 @@ test('speech forwards provider audio progressively', async (context) => {
 	assert.equal(response.headers.get('X-Generation-Id'), 'generation-1');
 	assert.equal(
 		response.headers.get('X-Briefly-TTS-Balance-Micros'),
-		String(500_000_000 - 27 * 4000)
+		String(500_000_000 - 27 * 1800)
 	);
 	const reader = response.body.getReader();
 	assert.deepEqual(await reader.read(), {

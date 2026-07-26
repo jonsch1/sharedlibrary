@@ -210,28 +210,33 @@ function activateCaptureShortcut(next: string): boolean {
 
 async function connectionStatus(): Promise<DesktopConnectionStatus> {
   const account = await backend.accountStatus();
-  const [google, openrouter] = account.authenticated
+  const [google, billing, tts] = account.authenticated
     ? await Promise.all([
         backend.providerStatus('google'),
-        backend.providerStatus('openrouter')
+        backend.billingStatus(),
+        backend.ttsStatus()
       ])
-    : [{ configured: true, connected: false }, { connected: false }];
+    : [
+        { configured: true, connected: false },
+        { entitled: false },
+        { configured: false, checkoutConfigured: false, balanceMicros: 0 }
+      ];
   return {
     authenticated: account.authenticated,
+    entitled: billing.entitled === true,
     google: {
       configured: google.configured !== false,
       connected: google.connected === true,
       connectedAt:
         typeof google.connectedAt === 'string' ? google.connectedAt : undefined
     },
-    openrouter: {
-      connected: openrouter.connected === true,
-      connectedAt:
-        typeof openrouter.connectedAt === 'string'
-          ? openrouter.connectedAt
-          : undefined,
-      userID:
-        typeof openrouter.userID === 'string' ? openrouter.userID : undefined
+    tts: {
+      configured: tts.configured === true,
+      checkoutConfigured: tts.checkoutConfigured === true,
+      balanceMicros:
+        typeof tts.balanceMicros === 'number' && Number.isSafeInteger(tts.balanceMicros)
+          ? Math.max(0, tts.balanceMicros)
+          : 0
     },
     sync: sync.currentStatus(),
     voice,
@@ -406,7 +411,7 @@ function registerIPC(): void {
   ipcMain.handle(
     'services:connect',
     async (_event, provider: ConnectionProvider) => {
-      if (provider !== 'google' && provider !== 'openrouter') {
+      if (provider !== 'google') {
         throw new Error('Unknown connection provider.');
       }
       await backend.connect(provider, mainWindow);
@@ -417,7 +422,7 @@ function registerIPC(): void {
   ipcMain.handle(
     'services:disconnect',
     async (_event, provider: ConnectionProvider) => {
-      if (provider !== 'google' && provider !== 'openrouter') {
+      if (provider !== 'google') {
         throw new Error('Unknown connection provider.');
       }
       await backend.disconnect(provider);

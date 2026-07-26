@@ -10,10 +10,10 @@
 	<section>
 		<h2>Clear rules, without the fog.</h2>
 		<p>
-			Briefly is designed around a local-first library. Your free desktop workspace stays on your
-			device. If you choose Briefly Plus, Google Drive becomes your private source of truth for
-			synchronization. Server-side copies are limited to the account, billing, and share-link data
-			needed to provide the features you request.
+			Briefly is designed around a local-first library. Your desktop workspace stays on your
+			device, while Google Drive can become your private source of truth for synchronization.
+			Server-side copies are limited to the account, billing, and share-link data needed to
+			provide the features you request.
 		</p>
 
 		<div class="legal-cards">

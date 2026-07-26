@@ -25,13 +25,14 @@ This directory contains the cross-platform Briefly desktop application.
 - Versioned workspace input packages in `.briefly/inputs/` can override extraction
   for narrowly matched sites. They are hot-discovered and execute in restricted,
   secret-free child processes with optional built-in fallback.
-- OpenRouter OAuth narration offers Low (Kokoro), Medium (Orpheus), and High
-  (Grok Voice) quality. The first MP3 segment plays as provider bytes arrive while
-  later segments are generated, cached locally, and backed up to Drive.
+- Managed Briefly AI voice offers Low (Kokoro), Medium (Orpheus), and High
+  (Grok Voice) quality using prepaid account credit. The first MP3 segment plays as
+  provider bytes arrive while later segments are generated, cached locally, and
+  backed up to Drive.
 - Share links publish all text levels and already-generated narration through the
   same D1/R2 sharing service as the web reader.
 
-Google and OpenRouter credentials remain in the hosted account service; the
+Google and managed narration credentials remain in the hosted account service; the
 sandboxed renderer and local workspace never receive OAuth refresh tokens or API
 keys.
 

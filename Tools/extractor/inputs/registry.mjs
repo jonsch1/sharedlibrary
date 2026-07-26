@@ -8,10 +8,11 @@ import {
 } from "../extension-contract.mjs";
 import { blueskyInput } from "./bluesky.mjs";
 import { genericHTMLInput } from "./generic-html.mjs";
+import { threadsInput } from "./threads.mjs";
 import { xInput } from "./x.mjs";
 import { youtubeInput } from "./youtube.mjs";
 
-const specializedInputs = [youtubeInput, xInput, blueskyInput];
+const specializedInputs = [youtubeInput, xInput, blueskyInput, threadsInput];
 const extensionRunnerPath = fileURLToPath(
   new URL("../extension-runner.mjs", import.meta.url)
 );

@@ -3,7 +3,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { defaultOpenRouterTTSModel } from '../shared/contracts.js';
+import {
+  defaultOpenRouterTTSModel,
+  openRouterTTSModels
+} from '../shared/contracts.js';
 import type { BackendClient } from './backend.js';
 import { NarrationService, speechChunks } from './narration.js';
 
@@ -19,6 +22,10 @@ test('narration starts with short playable segments and preserves the text', () 
     chunks.join(' ').replace(/\s+/g, ' ').trim(),
     text.replace(/\s+/g, ' ').trim()
   );
+});
+
+test('narration pricing reports rounded audio hours per euro', () => {
+  assert.deepEqual(openRouterTTSModels.map((option) => option.hoursPerEuro), [10, 2, 1]);
 });
 
 test('the first generated segment is exposed as a progressive audio stream', async () => {

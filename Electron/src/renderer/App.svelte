@@ -11,7 +11,6 @@
     FolderOpen,
     Headphones,
     Keyboard,
-    Link,
     LoaderCircle,
     LogIn,
     Pause,
@@ -387,22 +386,33 @@
     void window.sharedLibrary.showEntryContextMenu(entry.id, variant);
   }
 
-  async function connect(provider: 'google' | 'openrouter'): Promise<void> {
+  async function connect(provider: 'google'): Promise<void> {
     await run(async () => {
       connections = await window.sharedLibrary.connect(provider);
       syncStatus = connections.sync;
-      message =
-        provider === 'google'
-          ? 'Google account connected. Your Drive location is now configured for this account.'
-          : 'OpenRouter narration connected.';
+      message = 'Google account connected. Your Drive location is now configured for this account.';
     });
   }
 
-  async function disconnect(provider: 'google' | 'openrouter'): Promise<void> {
+  async function disconnect(provider: 'google'): Promise<void> {
     await run(async () => {
       connections = await window.sharedLibrary.disconnect(provider);
-      message = provider === 'google' ? 'Google Drive disconnected.' : 'OpenRouter disconnected.';
+      message = 'Google Drive disconnected.';
     });
+  }
+
+  async function refreshAccount(): Promise<void> {
+    await run(async () => {
+      connections = await window.sharedLibrary.getConnectionStatus();
+      syncStatus = connections.sync;
+      message = connections.entitled
+        ? 'Your Briefly membership is active.'
+        : 'An active Briefly membership is still required.';
+    });
+  }
+
+  function openAccount(): void {
+    void window.sharedLibrary.openExternal('https://www.readbriefly.fyi/account');
   }
 
   async function changeVoice(event: Event): Promise<void> {
@@ -434,7 +444,7 @@
       message =
         error instanceof Error
           ? error.message
-          : 'The OpenRouter TTS model could not be changed.';
+          : 'The AI voice quality could not be changed.';
     }
   }
 
@@ -518,9 +528,14 @@
       await narrationAudio.play();
       return;
     }
-    if (!connections?.openrouter.connected) {
+    if (!connections?.authenticated) {
       settingsOpen = true;
-      message = 'Connect OpenRouter to generate narration.';
+      message = 'Sign in to use Briefly AI voice.';
+      return;
+    }
+    if (!connections.tts.configured || connections.tts.balanceMicros === 0) {
+      settingsOpen = true;
+      message = 'Add AI voice credit from your Briefly account.';
       return;
     }
     narrationState = 'loading';
@@ -668,6 +683,48 @@
         <p class="loading-copy">Preparing the local collection</p>
         <div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
       </div>
+    </main>
+  {:else if !connections?.authenticated}
+    <main class="center-stage">
+      <section class="empty-card">
+        <div class="empty-illustration">
+          <LogIn />
+          <span class="empty-check"><Check /></span>
+        </div>
+        <p class="eyebrow">Briefly account</p>
+        <h1>Sign in to continue</h1>
+        <p class="empty-copy">
+          Your account keeps membership, downloads, sync, and AI voice credit together.
+        </p>
+        <div class="empty-actions">
+          <button class="primary-button" onclick={() => connect('google')} disabled={busy}>
+            {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
+            Sign in with Google
+          </button>
+        </div>
+      </section>
+    </main>
+  {:else if !connections.entitled}
+    <main class="center-stage">
+      <section class="empty-card">
+        <div class="empty-illustration">
+          <Sparkles />
+          <span class="empty-check"><Check /></span>
+        </div>
+        <p class="eyebrow">Briefly membership</p>
+        <h1>Activate your account</h1>
+        <p class="empty-copy">
+          Choose your plan and manage billing on the web, then refresh access here.
+        </p>
+        <div class="empty-actions">
+          <button class="primary-button" onclick={openAccount}>
+            <ArrowUpRight /> Open account
+          </button>
+          <button class="secondary-button" onclick={refreshAccount} disabled={busy}>
+            <RefreshCw class={busy ? 'spin' : ''} /> Refresh access
+          </button>
+        </div>
+      </section>
     </main>
   {:else if entries.length === 0}
     <main class="center-stage">
@@ -1028,8 +1085,8 @@
           <div>
             <h3>Narration</h3>
             <p>
-              Connect OpenRouter for streaming narration. Completed audio is cached
-              locally and backed up to your Drive folder.
+              Briefly AI voice uses prepaid account credit. Audio streams as it is
+              generated, caches locally, and is backed up to your Drive folder.
             </p>
           </div>
         </div>
@@ -1042,7 +1099,8 @@
           >
             {#each openRouterTTSModels as option}
               <option value={option.id}>
-                {option.quality} · {option.name} · ${option.pricePerMillionCharacters}/M chars
+                {option.quality} · {option.name} · ≈{option.hoursPerEuro}
+                {option.hoursPerEuro === 1 ? 'hour' : 'hours'}/€
               </option>
             {/each}
           </select>
@@ -1052,7 +1110,7 @@
           <span>Voice</span>
           <select
             value={voice}
-            aria-label="OpenRouter voice"
+            aria-label="AI voice narrator"
             onchange={changeVoice}
           >
             {#each voicesForTTSModel(ttsModel) as option}
@@ -1060,17 +1118,22 @@
             {/each}
           </select>
         </label>
+        <div class="connection-status">
+          <span class="status-dot"></span>
+          <span>
+            {new Intl.NumberFormat(undefined, {
+              style: 'currency',
+              currency: 'EUR',
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 4
+            }).format((connections?.tts.balanceMicros ?? 0) / 100_000_000)}
+            AI voice credit
+          </span>
+        </div>
         <div class="panel-actions">
-          {#if connections?.openrouter.connected}
-            <button class="secondary-button danger-button" onclick={() => disconnect('openrouter')} disabled={busy}>
-              Disconnect OpenRouter
-            </button>
-          {:else}
-            <button class="primary-button" onclick={() => connect('openrouter')} disabled={busy}>
-              {#if busy}<LoaderCircle class="spin" />{:else}<Link />{/if}
-              Connect OpenRouter
-            </button>
-          {/if}
+          <button class="secondary-button" onclick={openAccount}>
+            <ArrowUpRight /> Manage account and credit
+          </button>
         </div>
       </section>
 

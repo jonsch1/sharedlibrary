@@ -22,11 +22,6 @@ interface AccountStatus {
     connectedAt?: string;
     folderID?: string;
   };
-  openrouter?: {
-    connected?: boolean;
-    connectedAt?: string;
-    userID?: string;
-  };
 }
 
 export class BackendClient {
@@ -36,31 +31,29 @@ export class BackendClient {
     return response.json() as Promise<AccountStatus>;
   }
 
-  async providerStatus(provider: ConnectionProvider): Promise<Record<string, unknown>> {
-    const path =
-      provider === 'google' ? '/api/google/status' : '/api/openrouter/status';
-    const response = await this.fetch(path);
+  async providerStatus(_provider: ConnectionProvider): Promise<Record<string, unknown>> {
+    const response = await this.fetch('/api/google/status');
     if (response.status === 401) return { connected: false };
-    return this.json(response, `Could not read the ${provider} connection.`);
+    return this.json(response, 'Could not read the Google connection.');
   }
 
-  async connect(provider: ConnectionProvider, parent: BrowserWindow | null): Promise<void> {
-    if (provider === 'openrouter') {
-      const status = await this.accountStatus();
-      if (!status.authenticated) {
-        await this.openConnectionWindow('google', parent);
-      }
-    }
-    await this.openConnectionWindow(provider, parent);
+  async billingStatus(): Promise<Record<string, unknown>> {
+    const response = await this.fetch('/api/billing/status');
+    return this.json(response, 'Could not read the Briefly account.');
   }
 
-  async disconnect(provider: ConnectionProvider): Promise<void> {
-    const path =
-      provider === 'google'
-        ? '/api/google/disconnect'
-        : '/api/openrouter/disconnect';
-    const response = await this.fetch(path, { method: 'POST' });
-    await this.json(response, `Could not disconnect ${provider}.`);
+  async ttsStatus(): Promise<Record<string, unknown>> {
+    const response = await this.fetch('/api/tts/status');
+    return this.json(response, 'Could not read the AI voice balance.');
+  }
+
+  async connect(_provider: ConnectionProvider, parent: BrowserWindow | null): Promise<void> {
+    await this.openConnectionWindow(parent);
+  }
+
+  async disconnect(_provider: ConnectionProvider): Promise<void> {
+    const response = await this.fetch('/api/google/disconnect', { method: 'POST' });
+    await this.json(response, 'Could not disconnect Google.');
   }
 
   async signOut(): Promise<void> {
@@ -133,7 +126,7 @@ export class BackendClient {
   ): Promise<Uint8Array> {
     const response = await this.createSpeechResponse(text, voice, model);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.byteLength) throw new Error('OpenRouter returned empty narration.');
+    if (!bytes.byteLength) throw new Error('Briefly AI voice returned empty narration.');
     return bytes;
   }
 
@@ -153,7 +146,7 @@ export class BackendClient {
     if (!response.ok) {
       throw new Error(await this.errorMessage(response, 'Narration could not be generated.'));
     }
-    if (!response.body) throw new Error('OpenRouter returned empty narration.');
+    if (!response.body) throw new Error('Briefly AI voice returned empty narration.');
     return response;
   }
 
@@ -184,19 +177,12 @@ export class BackendClient {
     await this.json(response, 'Could not revoke the share link.');
   }
 
-  private async openConnectionWindow(
-    provider: ConnectionProvider,
-    parent: BrowserWindow | null
-  ): Promise<void> {
-    const parameter = provider === 'google' ? 'google' : 'openrouter';
-    const path =
-      provider === 'google'
-        ? '/api/auth/google/start?return_to=%2F%3Fdesktop%3D1'
-        : '/api/openrouter/connect/start';
+  private async openConnectionWindow(parent: BrowserWindow | null): Promise<void> {
+    const path = '/api/auth/google/start?return_to=%2F%3Fdesktop%3D1';
     const window = new BrowserWindow({
       parent: parent ?? undefined,
       modal: Boolean(parent),
-      title: provider === 'google' ? 'Sign in with Google' : 'Connect OpenRouter',
+      title: 'Sign in with Google',
       width: 560,
       height: 720,
       minWidth: 420,
@@ -222,13 +208,13 @@ export class BackendClient {
         try {
           const url = new URL(value);
           if (url.origin !== backendOrigin) return;
-          const result = url.searchParams.get(parameter);
+          const result = url.searchParams.get('google');
           if (!result) return;
           if (result === 'connected') finish();
           else if (result === 'expired') {
-            finish(new Error(`${provider === 'google' ? 'Google' : 'OpenRouter'} sign-in expired.`));
+            finish(new Error('Google sign-in expired.'));
           } else {
-            finish(new Error(`${provider === 'google' ? 'Google' : 'OpenRouter'} sign-in failed.`));
+            finish(new Error('Google sign-in failed.'));
           }
         } catch {
           // OAuth navigates across several unrelated origins.

@@ -213,3 +213,26 @@ export const shareAudioSegments = sqliteTable(
 		})
 	]
 );
+
+export const feedbackItems = sqliteTable('feedback_items', {
+	id: text('id').primaryKey(),
+	userEmail: text('user_email').notNull(),
+	title: text('title').notNull(),
+	details: text('details').notNull(),
+	createdAt: integer('created_at').notNull()
+});
+
+export const feedbackUpvotes = sqliteTable(
+	'feedback_upvotes',
+	{
+		feedbackItemID: text('feedback_item_id')
+			.notNull()
+			.references(() => feedbackItems.id, { onDelete: 'cascade' }),
+		userEmail: text('user_email').notNull(),
+		createdAt: integer('created_at').notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.feedbackItemID, table.userEmail] }),
+		index('feedback_upvotes_item_idx').on(table.feedbackItemID)
+	]
+);

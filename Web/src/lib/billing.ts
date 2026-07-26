@@ -24,6 +24,7 @@ export interface BillingStatus {
 	configured: boolean;
 	authenticated: boolean;
 	entitled: boolean;
+	complimentary: boolean;
 	subscription: BillingSubscription | null;
 	tiers: PricingTier[];
 }

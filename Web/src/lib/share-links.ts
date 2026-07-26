@@ -5,11 +5,21 @@ export interface ShareLinkStatus {
 	shared: boolean;
 	token?: string;
 	url?: string;
+	captureID?: string;
 	status?: 'preparing' | 'ready' | 'failed';
 	revision?: number;
 	error?: string;
+	metadata?: {
+		title?: string;
+		excerpt?: string;
+	};
 	voice?: OpenRouterVoice;
 	updatedAt?: string;
+}
+
+export interface PublishedShareLinks {
+	limit: number;
+	links: ShareLinkStatus[];
 }
 
 export interface PublicShareText {
@@ -70,6 +80,18 @@ export async function loadShareLinkStatus(captureID: string): Promise<ShareLinkS
 		throw new Error(await responseError(response, 'Could not load the share link.'));
 	}
 	return (await response.json()) as ShareLinkStatus;
+}
+
+export async function loadPublishedShareLinks(): Promise<PublishedShareLinks> {
+	const response = await fetch('/api/share-links', {
+		headers: { Accept: 'application/json' },
+		cache: 'no-store'
+	});
+	if (response.status === 401) return { limit: 200, links: [] };
+	if (!response.ok) {
+		throw new Error(await responseError(response, 'Could not load your published links.'));
+	}
+	return (await response.json()) as PublishedShareLinks;
 }
 
 export async function publishShareLink(

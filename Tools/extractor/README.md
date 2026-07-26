@@ -17,6 +17,7 @@ Supported specialized inputs:
   transcript-unavailable notice.
 - `x.mjs` reads X posts and Articles through the public FXTwitter response.
 - `bluesky.mjs` reads public Bluesky posts through the AT Protocol API.
+- `threads.mjs` reads public Threads post preview metadata.
 
 The generic HTML input fetches text documents directly, extracts metadata and
 JSON-LD, and uses Mozilla Readability with a sanitized DOM-text fallback.

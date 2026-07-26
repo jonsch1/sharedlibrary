@@ -4,22 +4,17 @@
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
-	import DownloadIcon from '@lucide/svelte/icons/download';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import LaptopIcon from '@lucide/svelte/icons/laptop';
 	import LinkIcon from '@lucide/svelte/icons/link-2';
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
 	import MessageIcon from '@lucide/svelte/icons/message-circle';
-	import MonitorIcon from '@lucide/svelte/icons/monitor';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import RssIcon from '@lucide/svelte/icons/rss';
 	import SearchIcon from '@lucide/svelte/icons/search';
-	import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
-	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import VolumeIcon from '@lucide/svelte/icons/volume-2';
 	import {
 		beginBrieflyPlusCheckout,
@@ -204,29 +199,6 @@
 		}
 	];
 
-	type Platform = 'mac' | 'windows' | 'linux' | 'pwa';
-
-	const downloadBase =
-		'https://github.com/jonsch1/briefly-downloads/releases/latest/download';
-	const desktopDownloads = {
-		mac: {
-			label: 'Download free for Mac',
-			href: `${downloadBase}/Briefly-mac-universal.dmg`
-		},
-		windows: {
-			label: 'Download free for Windows',
-			href: `${downloadBase}/Briefly-windows-x64.exe`
-		},
-		linux: {
-			label: 'Download free for Linux',
-			href: `${downloadBase}/Briefly-linux-x64.AppImage`
-		},
-		pwa: {
-			label: 'Use the free web app',
-			href: '/'
-		}
-	} satisfies Record<Platform, { label: string; href: string }>;
-
 	const defaultPricingTiers: PricingTier[] = [
 		{
 			key: 'founding',
@@ -273,12 +245,10 @@
 	let selectedDepth = $state(1);
 	let collectedCount = $state(0);
 	let fieldComplete = $state(false);
-	let detectedPlatform = $state<Platform>('pwa');
 	let resetSweep = (): void => {};
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
 	let billingMessage = $state('');
-	let preferredDownload = $derived(desktopDownloads[detectedPlatform]);
 	let displayedPricingTiers = $derived(billing?.tiers ?? defaultPricingTiers);
 	let currentPricingTier = $derived(
 		displayedPricingTiers.find((tier) => tier.current) ?? displayedPricingTiers.at(-1)!
@@ -342,17 +312,6 @@
 	onMount(() => {
 		document.body.classList.add('landing-body');
 		void initializePricing();
-		const userAgent = navigator.userAgent.toLowerCase();
-		detectedPlatform = /iphone|ipad|android/.test(userAgent)
-			? 'pwa'
-			: /macintosh|mac os x/.test(userAgent)
-				? 'mac'
-				: /windows/.test(userAgent)
-					? 'windows'
-					: /linux/.test(userAgent)
-						? 'linux'
-						: 'pwa';
-
 		const observer = new IntersectionObserver(
 			(entries) => {
 				for (const entry of entries) {
@@ -596,7 +555,7 @@
 	<title>Briefly — Turn what you find into what you know</title>
 	<meta
 		name="description"
-		content="Capture videos, papers, posts, podcasts, and pages for free. Briefly turns every source into a private, searchable, agent-ready library. Upgrade for sync and sharing."
+		content="Capture videos, papers, posts, podcasts, and pages. Briefly turns every source into a private, searchable, agent-ready library for you and your agents."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:title" content="Briefly — Turn what you find into what you know" />
@@ -605,14 +564,14 @@
 		content="Capture anything. Understand it at any depth. Keep the context ready for you and your agents."
 	/>
 	<meta property="og:url" content="https://www.readbriefly.fyi/landing" />
-	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing-free.png" />
+	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing.png" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Briefly — Turn what you find into what you know" />
 	<meta
 		name="twitter:description"
 		content="Your private, searchable, agent-ready library."
 	/>
-	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing-free.png" />
+	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing.png" />
 </svelte:head>
 
 <div class="landing">
@@ -627,12 +586,13 @@
 			<a href="#depth">Four depths</a>
 			<a href="#agents">For agents</a>
 			<a href="#pricing">Pricing</a>
-			<a href="#get-briefly">Downloads</a>
+			<a href="/feedback">Feedback</a>
+			<a href="/account">Account</a>
 		</nav>
 
-		<a class="nav-cta" href="#get-briefly">
-			Get Briefly
-			<DownloadIcon aria-hidden="true" />
+		<a class="nav-cta" href="/account">
+			{billing?.authenticated ? 'Your account' : 'Sign up'}
+			<ArrowRightIcon aria-hidden="true" />
 		</a>
 	</header>
 
@@ -648,9 +608,9 @@
 						searchable library—ready for you and your agents.
 					</p>
 					<div class="hero-actions">
-						<a class="button button-primary" href={preferredDownload.href}>
-							{preferredDownload.label}
-							<DownloadIcon aria-hidden="true" />
+						<a class="button button-primary" href="/account">
+							{billing?.authenticated ? 'Open your account' : 'Create your account'}
+							<ArrowRightIcon aria-hidden="true" />
 						</a>
 						<a class="text-link" href="#how">
 							See how it works
@@ -659,7 +619,7 @@
 					</div>
 					<div class="hero-free-note">
 						<CheckCircleIcon aria-hidden="true" />
-						Core app free · sync + sharing with Briefly Plus
+						Account required · plans and app downloads in one place
 					</div>
 				</div>
 
@@ -918,7 +878,7 @@
 				<article class="reveal">
 					<div class="privacy-icon"><LockIcon /></div>
 					<h3>Private by default</h3>
-					<p>Your free library stays in your own local workspace until you choose otherwise.</p>
+					<p>Your library stays in your own local workspace until you choose otherwise.</p>
 				</article>
 				<article class="reveal">
 					<div class="privacy-icon"><GlobeIcon /></div>
@@ -928,7 +888,7 @@
 				<article class="reveal">
 					<div class="privacy-icon"><ArrowUpRightIcon /></div>
 					<h3>Shared on purpose</h3>
-					<p>Briefly Plus adds cross-device sync and deliberate share links when you need them.</p>
+					<p>Your membership adds cross-device sync and deliberate share links when you need them.</p>
 				</article>
 			</div>
 		</section>
@@ -939,27 +899,15 @@
 					<div class="section-number">06 / GET BRIEFLY</div>
 					<h2>One library.<br />Every screen.</h2>
 					<p>
-						Briefly’s core capture, reading, and local library are free. Add Plus only when
-						you want your library synchronized and shareable.
+						Create your account, choose your membership, then install Briefly on every
+						device you use.
 					</p>
 				</div>
 
 				<div class="plan-strip reveal" id="pricing">
-					<article class="plan-card plan-free">
-						<div class="plan-card-top">
-							<span>Briefly Free</span>
-							<strong>Free</strong>
-						</div>
-						<h3>Everything you need to turn sources into knowledge.</h3>
-						<ul>
-							<li><CheckCircleIcon /> Capture links, files, and notes</li>
-							<li><CheckCircleIcon /> Four reading depths + read aloud</li>
-							<li><CheckCircleIcon /> Local, searchable Markdown library</li>
-						</ul>
-					</article>
 					<article class="plan-card plan-plus">
 						<div class="plan-card-top">
-							<span>Briefly Plus</span>
+							<span>Briefly membership</span>
 							<strong>{formatMonthlyPrice(currentPricingTier.amount)}/month</strong>
 						</div>
 						<h3>Join earlier. Keep the lower price.</h3>
@@ -991,10 +939,12 @@
 							{/each}
 						</div>
 						<ul>
+							<li><CheckCircleIcon /> Capture links, files, and notes</li>
+							<li><CheckCircleIcon /> Four reading depths + read aloud</li>
+							<li><CheckCircleIcon /> Local, searchable Markdown library</li>
 							<li><CheckCircleIcon /> Sync your library across devices</li>
 							<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
 							<li><CheckCircleIcon /> First month's payment matched in AI voice credit</li>
-							<li><CheckCircleIcon /> Everything included in Briefly Free</li>
 						</ul>
 						{#if billing?.entitled && billing.subscription}
 							<button
@@ -1005,6 +955,11 @@
 							>
 								{billingBusy ? 'Opening billing…' : 'Manage billing'}
 								<ArrowUpRightIcon aria-hidden="true" />
+							</button>
+						{:else if billing?.entitled}
+							<button class="pricing-cta" type="button" disabled>
+								Plus access active
+								<CheckCircleIcon aria-hidden="true" />
 							</button>
 						{:else}
 							<button
@@ -1032,86 +987,16 @@
 					</article>
 				</div>
 
-				<div class="download-grid">
-					<article class="download-card reveal" class:preferred={detectedPlatform === 'mac'}>
-						<div class="download-card-top">
-							<div class="platform-icon"><LaptopIcon /></div>
-							{#if detectedPlatform === 'mac'}<span class="preferred-pill">Best for this device</span>{/if}
-						</div>
-						<div>
-							<p>Desktop · Free</p>
-							<h3>macOS</h3>
-							<span>Universal build for Apple silicon and Intel.</span>
-						</div>
-						<a href={desktopDownloads.mac.href}>
-							<DownloadIcon />
-							Free download · .dmg
-						</a>
-					</article>
-
-					<article class="download-card reveal" class:preferred={detectedPlatform === 'windows'}>
-						<div class="download-card-top">
-							<div class="platform-icon"><MonitorIcon /></div>
-							{#if detectedPlatform === 'windows'}<span class="preferred-pill">Best for this device</span>{/if}
-						</div>
-						<div>
-							<p>Desktop · Free</p>
-							<h3>Windows</h3>
-							<span>64-bit installer for Windows PCs.</span>
-						</div>
-						<a href={desktopDownloads.windows.href}>
-							<DownloadIcon />
-							Free download · .exe
-						</a>
-					</article>
-
-					<article class="download-card reveal" class:preferred={detectedPlatform === 'linux'}>
-						<div class="download-card-top">
-							<div class="platform-icon"><TerminalIcon /></div>
-							{#if detectedPlatform === 'linux'}<span class="preferred-pill">Best for this device</span>{/if}
-						</div>
-						<div>
-							<p>Desktop · Free</p>
-							<h3>Linux</h3>
-							<span>Portable AppImage or Debian / Ubuntu package.</span>
-						</div>
-						<div class="linux-actions">
-							<a href={desktopDownloads.linux.href}>
-								<DownloadIcon />
-								AppImage
-							</a>
-							<a href={`${downloadBase}/Briefly-linux-amd64.deb`}>.deb</a>
-						</div>
-					</article>
-
-					<article class="download-card pwa-card reveal" class:preferred={detectedPlatform === 'pwa'}>
-						<div class="download-card-top">
-							<div class="platform-icon"><SmartphoneIcon /></div>
-							<span class="pwa-pill">No app store needed</span>
-						</div>
-						<div>
-							<p>Phone + tablet · Free</p>
-							<h3>Progressive web app</h3>
-							<span>Install from Safari or Chrome and launch Briefly from your home screen.</span>
-						</div>
-						<a href="/">
-							<GlobeIcon />
-							Open the web app
-						</a>
-						<ol>
-							<li><b>iPhone / iPad:</b> Share → Add to Home Screen</li>
-							<li><b>Android:</b> Browser menu → Install app</li>
-						</ol>
-					</article>
-				</div>
-
-				<div class="download-footnote reveal">
-					<CheckCircleIcon />
-					<span>
-						The core Briefly app is free on every platform. Briefly Plus adds Google Drive
-						sync and sharing. Desktop builds are in public beta, so your operating system may
-						ask you to confirm the first launch.
-					</span>
+				<div class="download-gate reveal">
+					<LockIcon />
+					<div>
+						<h3>Downloads live in your account.</h3>
+						<p>Sign in and activate your membership to get the macOS, Windows, Linux, and web apps.</p>
+					</div>
+					<a class="button button-primary" href="/account">
+						{billing?.authenticated ? 'Go to your account' : 'Sign up to continue'}
+						<ArrowRightIcon />
+					</a>
 				</div>
 			</div>
 		</section>
@@ -1129,11 +1014,11 @@
 				<img src="/icons/icon-192.png" alt="" />
 				<p>THE INTERNET IS ENDLESS. YOUR ATTENTION ISN’T.</p>
 				<h2>Keep the parts<br />worth knowing.</h2>
-				<a class="button button-white" href={preferredDownload.href}>
-					{preferredDownload.label}
-					<DownloadIcon aria-hidden="true" />
+				<a class="button button-white" href="/account">
+					{billing?.authenticated ? 'Open your account' : 'Create your account'}
+					<ArrowRightIcon aria-hidden="true" />
 				</a>
-				<span class="final-note">Free on Mac · Windows · Linux · Installable web app</span>
+				<span class="final-note">One account · Mac · Windows · Linux · Web</span>
 			</div>
 		</section>
 	</main>
@@ -1146,7 +1031,8 @@
 		<p>Turn what you find into what you know.</p>
 		<div>
 			<a href="/">Open app</a>
-			<a href="#get-briefly">Downloads</a>
+			<a href="/account">Account</a>
+			<a href="/feedback">Feedback</a>
 			<a class="footer-legal" href="/privacy">Privacy</a>
 			<a class="footer-legal" href="/terms">Terms</a>
 			<a class="footer-legal" href="/cookies">Cookies</a>
@@ -2640,8 +2526,10 @@
 
 	.plan-strip {
 		display: grid;
-		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+		width: min(820px, 100%);
 		margin-top: clamp(64px, 7vw, 100px);
+		margin-right: auto;
+		margin-left: auto;
 		overflow: hidden;
 		border: 1px solid rgb(17 17 15 / 13%);
 		border-radius: 28px;
@@ -2861,231 +2749,44 @@
 		color: #f8cfa7;
 	}
 
-	.download-grid {
+	.download-gate {
 		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		gap: 12px;
-		margin-top: clamp(70px, 8vw, 120px);
-	}
-
-	.download-card {
-		position: relative;
-		display: flex;
-		min-height: 330px;
-		flex-direction: column;
-		padding: 26px;
-		overflow: hidden;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: center;
+		gap: clamp(18px, 4vw, 42px);
+		margin-top: clamp(48px, 6vw, 82px);
+		padding: clamp(24px, 4vw, 38px);
 		border: 1px solid rgb(17 17 15 / 13%);
 		border-radius: 23px;
 		background: rgb(250 247 239 / 75%);
 		box-shadow: 0 20px 50px rgb(31 27 18 / 7%);
-		transition:
-			transform 220ms ease,
-			border-color 220ms ease,
-			box-shadow 220ms ease;
 	}
 
-	.download-card:hover {
-		border-color: rgb(22 77 255 / 25%);
-		box-shadow: 0 26px 60px rgb(31 27 18 / 11%);
-		transform: translateY(-5px);
-	}
-
-	.download-card.preferred {
-		border-color: rgb(22 77 255 / 40%);
-		box-shadow:
-			0 25px 60px rgb(22 77 255 / 11%),
-			inset 0 0 0 1px rgb(22 77 255 / 10%);
-	}
-
-	.download-card-top {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 14px;
-	}
-
-	.platform-icon {
-		display: grid;
-		width: 48px;
-		height: 48px;
-		place-items: center;
-		border: 1px solid rgb(17 17 15 / 11%);
-		border-radius: 15px;
-		background: white;
-		color: var(--blue);
-		box-shadow: 0 10px 25px rgb(31 27 18 / 8%);
-	}
-
-	.platform-icon :global(svg) {
-		width: 20px;
-	}
-
-	.preferred-pill,
-	.pwa-pill {
-		padding: 7px 9px;
-		border-radius: 999px;
-		background: rgb(22 77 255 / 8%);
+	.download-gate > :global(svg) {
+		width: 28px;
 		color: #173ea8;
-		font-size: 8px;
-		font-weight: 760;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
 	}
 
-	.download-card > div:nth-child(2) {
-		margin-top: auto;
-		padding-top: 42px;
-	}
-
-	.download-card p {
-		margin: 0 0 8px;
-		color: rgb(17 17 15 / 42%);
-		font-size: 8px;
-		font-weight: 780;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-	}
-
-	.download-card h3 {
+	.download-gate h3,
+	.download-gate p {
 		margin: 0;
-		font-size: 32px;
-		letter-spacing: -0.055em;
 	}
 
-	.download-card > div:nth-child(2) > span {
-		display: block;
-		max-width: 270px;
-		margin-top: 10px;
-		color: rgb(17 17 15 / 50%);
+	.download-gate h3 {
+		font-size: clamp(22px, 3vw, 34px);
+		letter-spacing: -0.045em;
+	}
+
+	.download-gate p {
+		max-width: 570px;
+		margin-top: 7px;
+		color: rgb(17 17 15 / 52%);
 		font-size: 12px;
 		line-height: 1.5;
 	}
 
-	.download-card > a,
-	.linux-actions a {
-		display: inline-flex;
-		min-height: 44px;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		margin-top: 25px;
-		padding: 0 15px;
-		border-radius: 999px;
-		background: var(--ink);
-		color: white;
-		font-size: 11px;
-		font-weight: 720;
-	}
-
-	.download-card > a :global(svg),
-	.linux-actions a :global(svg) {
-		width: 14px;
-	}
-
-	.linux-actions {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: 7px;
-	}
-
-	.linux-actions a:last-child {
-		min-width: 60px;
-		border: 1px solid rgb(17 17 15 / 14%);
-		background: transparent;
-		color: var(--ink);
-	}
-
-	.pwa-card {
-		min-height: 250px;
-		grid-column: 1 / -1;
-		display: grid;
-		grid-template-columns: auto minmax(260px, 1fr) auto;
-		align-items: center;
-		gap: clamp(30px, 5vw, 80px);
-		background:
-			radial-gradient(circle at 80% 50%, rgb(92 134 255 / 35%), transparent 25%),
-			linear-gradient(140deg, #092b8d, #031038 72%);
-		color: white;
-	}
-
-	.pwa-card .download-card-top {
-		display: block;
-	}
-
-	.pwa-card .platform-icon {
-		width: 70px;
-		height: 70px;
-		border-color: rgb(255 255 255 / 16%);
-		background: rgb(255 255 255 / 10%);
-		color: white;
-		box-shadow: none;
-	}
-
-	.pwa-card .platform-icon :global(svg) {
-		width: 27px;
-	}
-
-	.pwa-card .pwa-pill {
-		display: inline-flex;
-		margin-top: 12px;
-		background: rgb(255 255 255 / 10%);
-		color: #b8c9ff;
-	}
-
-	.pwa-card > div:nth-child(2) {
-		margin: 0;
-		padding: 0;
-	}
-
-	.pwa-card p {
-		color: #9cb5ff;
-	}
-
-	.pwa-card h3 {
-		font-size: clamp(31px, 3.5vw, 48px);
-	}
-
-	.pwa-card > div:nth-child(2) > span {
-		max-width: 560px;
-		color: rgb(255 255 255 / 62%);
-	}
-
-	.pwa-card > a {
-		min-width: 165px;
-		margin: 0;
-		background: white;
-		color: #09236d;
-	}
-
-	.pwa-card ol {
-		grid-column: 2 / 4;
-		display: flex;
-		gap: 30px;
-		margin: -26px 0 0;
-		padding: 0;
-		color: rgb(255 255 255 / 46%);
-		font-size: 9px;
-		list-style: none;
-	}
-
-	.pwa-card ol b {
-		color: rgb(255 255 255 / 68%);
-	}
-
-	.download-footnote {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 9px;
-		margin-top: 27px;
-		color: rgb(17 17 15 / 45%);
-		font-size: 10px;
-	}
-
-	.download-footnote :global(svg) {
-		width: 14px;
-		color: #0b6a4d;
+	.download-gate .button {
+		white-space: nowrap;
 	}
 
 	.final-cta {
@@ -3414,10 +3115,6 @@
 			margin-top: 8px;
 		}
 
-		.download-grid {
-			grid-template-columns: repeat(2, 1fr);
-		}
-
 		.plan-strip {
 			grid-template-columns: 1fr;
 		}
@@ -3428,6 +3125,14 @@
 	}
 
 	@media (max-width: 720px) {
+		.download-gate {
+			grid-template-columns: 1fr;
+		}
+
+		.download-gate .button {
+			width: 100%;
+		}
+
 		.landing-nav {
 			padding: 18px 18px;
 		}
@@ -3751,46 +3456,6 @@
 
 		.downloads-section {
 			padding: 110px 0;
-		}
-
-		.download-grid {
-			grid-template-columns: 1fr;
-			margin-top: 58px;
-		}
-
-		.download-card {
-			min-height: 300px;
-		}
-
-		.pwa-card {
-			display: flex;
-			min-height: 380px;
-			align-items: stretch;
-			gap: 0;
-		}
-
-		.pwa-card .download-card-top {
-			display: flex;
-		}
-
-		.pwa-card .platform-icon {
-			width: 54px;
-			height: 54px;
-		}
-
-		.pwa-card > div:nth-child(2) {
-			margin-top: auto;
-			padding-top: 36px;
-		}
-
-		.pwa-card > a {
-			margin-top: 25px;
-		}
-
-		.pwa-card ol {
-			display: grid;
-			gap: 7px;
-			margin: 19px 0 0;
 		}
 
 		.final-content h2 {

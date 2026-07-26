@@ -21,7 +21,7 @@
 		</p>
 		<div class="legal-callout">
 			<p>
-				<strong>Local-first by default.</strong> The free desktop app keeps your workspace on
+				<strong>Local-first by default.</strong> The desktop app keeps your workspace on
 				your device. Briefly does not receive that library unless you choose a connected
 				feature such as Google Drive synchronization, narration, or a public share link.
 			</p>

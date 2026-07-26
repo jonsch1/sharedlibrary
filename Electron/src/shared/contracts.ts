@@ -68,7 +68,7 @@ export interface ProcessingPreferencesUpdate {
   prompt: string;
 }
 
-export type ConnectionProvider = 'google' | 'openrouter';
+export type ConnectionProvider = 'google';
 export type OpenRouterVoice = string;
 export const defaultOpenRouterTTSModel = 'hexgrad/kokoro-82m';
 export const grokVoiceTTSModel = 'x-ai/grok-voice-tts-1.0';
@@ -78,7 +78,8 @@ export const openRouterTTSModels = [
     id: defaultOpenRouterTTSModel,
     quality: 'Low',
     name: 'Kokoro 82M',
-    pricePerMillionCharacters: 0.62,
+    hoursPerEuro: 10,
+    retailCentsPerMillionCharacters: 75,
     description: 'Fast, clear narration at the lowest cost.',
     voices: [
       'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
@@ -97,7 +98,8 @@ export const openRouterTTSModels = [
     id: orpheusVoiceTTSModel,
     quality: 'Medium',
     name: 'Orpheus 3B',
-    pricePerMillionCharacters: 7,
+    hoursPerEuro: 2,
+    retailCentsPerMillionCharacters: 840,
     description: 'More expressive delivery at a mid-range price.',
     voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']
   },
@@ -105,7 +107,8 @@ export const openRouterTTSModels = [
     id: grokVoiceTTSModel,
     quality: 'High',
     name: 'Grok Voice',
-    pricePerMillionCharacters: 15,
+    hoursPerEuro: 1,
+    retailCentsPerMillionCharacters: 1800,
     description: 'The most natural, polished narration.',
     voices: ['eve', 'ara', 'rex', 'sal', 'leo']
   }
@@ -165,15 +168,16 @@ export function migrateVoiceForTTSModel(
 
 export interface DesktopConnectionStatus {
   authenticated: boolean;
+  entitled: boolean;
   google: {
     configured: boolean;
     connected: boolean;
     connectedAt?: string;
   };
-  openrouter: {
-    connected: boolean;
-    connectedAt?: string;
-    userID?: string;
+  tts: {
+    configured: boolean;
+    checkoutConfigured: boolean;
+    balanceMicros: number;
   };
   sync: DesktopSyncStatus;
   voice: OpenRouterVoice;

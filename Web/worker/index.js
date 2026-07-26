@@ -18,7 +18,9 @@ const stripeWebhookToleranceSeconds = 5 * 60;
 const checkoutLifetimeSeconds = 31 * 60;
 const checkoutReservationLifetimeMilliseconds = 35 * 60 * 1000;
 const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
+const maximumActiveShareLinks = 200;
 const entitledSubscriptionStatuses = new Set(['active', 'trialing']);
+const complimentaryPlusEmails = new Set(['schauljonathan@gmail.com']);
 const liveSubscriptionStatuses = new Set([
 	'active',
 	'trialing',
@@ -521,6 +523,28 @@ async function ensureSchema(database) {
 				voice TEXT NOT NULL,
 				PRIMARY KEY (share_token, generation, variant, segment_index)
 			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS feedback_items (
+				id TEXT PRIMARY KEY NOT NULL,
+				user_email TEXT NOT NULL,
+				title TEXT NOT NULL,
+				details TEXT NOT NULL,
+				created_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS feedback_upvotes (
+				feedback_item_id TEXT NOT NULL,
+				user_email TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				PRIMARY KEY (feedback_item_id, user_email),
+				FOREIGN KEY (feedback_item_id) REFERENCES feedback_items(id) ON DELETE CASCADE
+			)`
+		),
+		database.prepare(
+			`CREATE INDEX IF NOT EXISTS feedback_upvotes_item_idx
+			 ON feedback_upvotes (feedback_item_id)`
 		)
 	]);
 }
@@ -1392,6 +1416,115 @@ async function accountStatus(request, env) {
 	});
 }
 
+async function feedbackBoard(request, env) {
+	const email = await authenticatedEmail(request, env);
+	await ensureSchema(env.DB);
+	const result = await env.DB.prepare(
+		`SELECT
+			item.id,
+			item.title,
+			item.details,
+			item.created_at,
+			COUNT(upvote.user_email) AS upvotes,
+			MAX(CASE WHEN upvote.user_email = ? THEN 1 ELSE 0 END) AS upvoted
+		 FROM feedback_items item
+		 LEFT JOIN feedback_upvotes upvote ON upvote.feedback_item_id = item.id
+		 GROUP BY item.id
+		 ORDER BY upvotes DESC, item.created_at DESC
+		 LIMIT 200`
+	)
+		.bind(email ?? '')
+		.all();
+	return json({
+		authenticated: Boolean(email),
+		items: (result.results ?? []).map((item) => ({
+			id: item.id,
+			title: item.title,
+			details: item.details,
+			createdAt: Number(item.created_at),
+			upvotes: Number(item.upvotes),
+			upvoted: Boolean(item.upvoted)
+		}))
+	});
+}
+
+async function createFeedback(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid feedback request.' }, { status: 400 });
+	}
+	const title = typeof value?.title === 'string' ? value.title.trim() : '';
+	const details = typeof value?.details === 'string' ? value.details.trim() : '';
+	if (title.length < 3 || title.length > 120 || details.length > 2_000) {
+		return json(
+			{ error: 'Use a title between 3 and 120 characters and details under 2,000 characters.' },
+			{ status: 400 }
+		);
+	}
+	const item = {
+		id: crypto.randomUUID(),
+		title,
+		details,
+		createdAt: Date.now(),
+		upvotes: 1,
+		upvoted: true
+	};
+	await env.DB.batch([
+		env.DB.prepare(
+			`INSERT INTO feedback_items (id, user_email, title, details, created_at)
+			 VALUES (?, ?, ?, ?, ?)`
+		).bind(item.id, email, title, details, item.createdAt),
+		env.DB.prepare(
+			`INSERT INTO feedback_upvotes (feedback_item_id, user_email, created_at)
+			 VALUES (?, ?, ?)`
+		).bind(item.id, email, item.createdAt)
+	]);
+	return json(item, { status: 201 });
+}
+
+async function setFeedbackUpvote(request, env, itemID) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid upvote request.' }, { status: 400 });
+	}
+	if (typeof value?.upvoted !== 'boolean') {
+		return json({ error: 'Invalid upvote request.' }, { status: 400 });
+	}
+	const statement = value.upvoted
+		? env.DB.prepare(
+				`INSERT OR IGNORE INTO feedback_upvotes (feedback_item_id, user_email, created_at)
+				 SELECT ?, ?, ? FROM feedback_items WHERE id = ?`
+			).bind(itemID, email, Date.now(), itemID)
+		: env.DB.prepare(
+				'DELETE FROM feedback_upvotes WHERE feedback_item_id = ? AND user_email = ?'
+			).bind(itemID, email);
+	await statement.run();
+	const result = await env.DB.prepare(
+		`SELECT
+			COUNT(*) AS upvotes,
+			MAX(CASE WHEN user_email = ? THEN 1 ELSE 0 END) AS upvoted
+		 FROM feedback_upvotes
+		 WHERE feedback_item_id = ?`
+	)
+		.bind(email, itemID)
+		.first();
+	return json({
+		id: itemID,
+		upvotes: Number(result?.upvotes ?? 0),
+		upvoted: Boolean(result?.upvoted)
+	});
+}
+
 async function signOut(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const cookie = request.headers.get('Cookie') ?? '';
@@ -1485,6 +1618,10 @@ function configuredTierForRecord(record, config) {
 	return config.tiers.find((tier) => tier.priceID === record.stripe_price_id) ?? null;
 }
 
+function hasComplimentaryPlusAccess(email) {
+	return complimentaryPlusEmails.has(String(email || '').trim().toLowerCase());
+}
+
 function pastDueGraceMilliseconds(env) {
 	const requestedDays = Number(env.STRIPE_PAST_DUE_GRACE_DAYS ?? 7);
 	const days = Number.isFinite(requestedDays)
@@ -1529,10 +1666,12 @@ async function billingStatus(request, env) {
 		record = await billingCustomer(env, email);
 	}
 	const subscription = publicSubscription(record, config);
+	const complimentary = hasComplimentaryPlusAccess(email);
 	return json({
 		configured: Boolean(config),
 		authenticated: Boolean(email),
-		entitled: subscriptionIsEntitled(record, config, env),
+		entitled: complimentary || subscriptionIsEntitled(record, config, env),
+		complimentary,
 		subscription,
 		tiers: await pricingAvailability(env)
 	});
@@ -1640,8 +1779,8 @@ async function createTTSCheckoutSession(request, env) {
 		'line_items[0][price_data][product]': config.productID,
 		'line_items[0][quantity]': '1',
 		client_reference_id: customer.account_id,
-		success_url: `${origin}/?tts=success`,
-		cancel_url: `${origin}/?tts=cancelled`,
+		success_url: `${origin}/account?tts=success`,
+		cancel_url: `${origin}/account?tts=cancelled`,
 		'metadata[briefly_kind]': 'tts_credit',
 		'metadata[briefly_account_id]': customer.account_id,
 		'metadata[briefly_credit_cents]': String(amountCents),
@@ -1672,6 +1811,14 @@ async function createTTSCheckoutSession(request, env) {
 }
 
 async function paidAccessResponse(request, env) {
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json(
+			{ error: 'Sign in before using Briefly Plus.', code: 'authentication_required' },
+			{ status: 401 }
+		);
+	}
+	if (hasComplimentaryPlusAccess(email)) return null;
 	const config = stripeConfig(env);
 	if (!config) {
 		return json(
@@ -1680,13 +1827,6 @@ async function paidAccessResponse(request, env) {
 				code: 'billing_unavailable'
 			},
 			{ status: 503 }
-		);
-	}
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json(
-			{ error: 'Sign in before using Briefly Plus.', code: 'authentication_required' },
-			{ status: 401 }
 		);
 	}
 	await ensureSchema(env.DB);
@@ -1860,16 +2000,25 @@ async function reservePricingTier(env, accountID) {
 
 async function createCheckoutSession(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const config = stripeConfig(env);
-	if (!config) {
-		return json({ error: 'Briefly Plus checkout is not configured yet.' }, { status: 503 });
-	}
 	const email = await authenticatedEmail(request, env);
 	if (!email) {
 		return json(
 			{ error: 'Sign in with Google to continue.', code: 'authentication_required' },
 			{ status: 401 }
 		);
+	}
+	if (hasComplimentaryPlusAccess(email)) {
+		return json(
+			{
+				error: 'This account already has complimentary Briefly Plus access.',
+				code: 'access_exists'
+			},
+			{ status: 409 }
+		);
+	}
+	const config = stripeConfig(env);
+	if (!config) {
+		return json({ error: 'Briefly Plus checkout is not configured yet.' }, { status: 503 });
 	}
 	await ensureSchema(env.DB);
 	const customer = await ensureBillingCustomer(env, email);
@@ -1925,8 +2074,8 @@ async function createCheckoutSession(request, env) {
 		'line_items[0][price]': configuredTier.priceID,
 		'line_items[0][quantity]': '1',
 		client_reference_id: customer.account_id,
-		success_url: `${origin}/?billing=success`,
-		cancel_url: `${origin}/landing?billing=cancelled#pricing`,
+		success_url: `${origin}/account?billing=success`,
+		cancel_url: `${origin}/account?billing=cancelled`,
 		expires_at: String(Math.floor(Date.now() / 1000) + checkoutLifetimeSeconds),
 		'metadata[briefly_reservation_id]': reservation.reservationID,
 		'metadata[briefly_tier_key]': reservation.tier.key,
@@ -2820,6 +2969,19 @@ async function shareLinkByToken(env, token) {
 		.first();
 }
 
+async function shareLinksForOwner(env, email) {
+	return env.DB.prepare(
+		`SELECT token, owner_email, capture_id, generation, revision, status,
+		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		 FROM share_links
+		 WHERE owner_email = ?
+		 ORDER BY updated_at DESC
+		 LIMIT ?`
+	)
+		.bind(email, maximumActiveShareLinks)
+		.all();
+}
+
 function shareLinkResponse(request, record) {
 	if (!record) return { shared: false };
 	let metadata;
@@ -3150,6 +3312,16 @@ async function ownerShareLinkStatus(request, env) {
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	const captureID = new URL(request.url).searchParams.get('captureID');
+	if (!captureID) {
+		const result = await shareLinksForOwner(env, email);
+		return json({
+			limit: maximumActiveShareLinks,
+			links: (result.results ?? []).map((record) => ({
+				...shareLinkResponse(request, record),
+				captureID: record.capture_id
+			}))
+		});
+	}
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
 	}
@@ -3179,11 +3351,17 @@ async function publishShareLink(request, env, context) {
 	const token = randomBase64URL(24);
 	const generation = crypto.randomUUID();
 	const now = new Date().toISOString();
-	await env.DB.prepare(
+	const published = await env.DB.prepare(
 		`INSERT INTO share_links (
 			token, owner_email, capture_id, generation, revision, status,
 			metadata_json, source_filename, voice, error_message, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 1, 'preparing', NULL, NULL, ?, NULL, ?, ?)
+		)
+		SELECT ?, ?, ?, ?, 1, 'preparing', NULL, NULL, ?, NULL, ?, ?
+		WHERE EXISTS (
+			SELECT 1 FROM share_links WHERE owner_email = ? AND capture_id = ?
+		) OR (
+			SELECT COUNT(*) FROM share_links WHERE owner_email = ?
+		) < ?
 		ON CONFLICT(owner_email, capture_id) DO UPDATE SET
 			generation = excluded.generation,
 			revision = share_links.revision + 1,
@@ -3192,8 +3370,29 @@ async function publishShareLink(request, env, context) {
 			error_message = NULL,
 			updated_at = excluded.updated_at`
 	)
-		.bind(token, email, captureID, generation, voice, now, now)
+		.bind(
+			token,
+			email,
+			captureID,
+			generation,
+			voice,
+			now,
+			now,
+			email,
+			captureID,
+			email,
+			maximumActiveShareLinks
+		)
 		.run();
+	if (Number(published?.meta?.changes ?? 0) === 0) {
+		return json(
+			{
+				error: `You can publish up to ${maximumActiveShareLinks} active links. Stop sharing one before creating another.`,
+				code: 'share_limit_reached'
+			},
+			{ status: 409 }
+		);
+	}
 	const record = await shareLinkForOwner(env, email, captureID);
 	scheduleSharingOperation(
 		context,
@@ -4930,6 +5129,18 @@ const worker = {
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
+		}
+		if (url.pathname === '/api/feedback' && request.method === 'GET') {
+			return feedbackBoard(request, env);
+		}
+		if (url.pathname === '/api/feedback' && request.method === 'POST') {
+			return createFeedback(request, env);
+		}
+		const feedbackUpvote = url.pathname.match(
+			/^\/api\/feedback\/([0-9a-f-]{36})\/upvote$/
+		);
+		if (feedbackUpvote && request.method === 'PUT') {
+			return setFeedbackUpvote(request, env, feedbackUpvote[1]);
 		}
 		if (url.pathname === '/api/billing/status' && request.method === 'GET') {
 			return billingStatus(request, env);
