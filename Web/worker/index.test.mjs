@@ -783,10 +783,11 @@ test('checkout validates its Price, pins the API version, and reuses one open Se
 		);
 		assert.equal(creations.length, 1);
 		assert.equal(creations[0].init.headers['Stripe-Version'], '2026-06-24.dahlia');
-		assert.match(creations[0].init.headers['Idempotency-Key'], /^briefly-checkout-v2-/);
+		assert.match(creations[0].init.headers['Idempotency-Key'], /^briefly-checkout-v3-/);
 		const form = creations[0].init.body;
-		assert.equal(form.get('payment_method_types[0]'), 'card');
-		assert.equal(form.get('automatic_tax[enabled]'), 'true');
+		assert.equal(form.get('payment_method_types[0]'), null);
+		assert.equal(form.get('automatic_tax[enabled]'), null);
+		assert.equal(form.get('tax_id_collection[enabled]'), null);
 		assert.equal(form.get('line_items[0][price]'), 'price_founding');
 		assert.equal(form.get('custom_text[submit][message]'), null);
 	} finally {
@@ -836,7 +837,10 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 		assert.equal(checkoutForm.get('line_items[0][price_data][tax_behavior]'), 'inclusive');
 		assert.equal(checkoutForm.get('line_items[0][price_data][product]'), 'prod_briefly_tts');
 		assert.equal(checkoutForm.get('metadata[briefly_kind]'), 'tts_credit');
-		assert.match(checkoutHeaders['Idempotency-Key'], /^briefly-tts-checkout-v2-/);
+		assert.match(checkoutHeaders['Idempotency-Key'], /^briefly-tts-checkout-v3-/);
+		assert.equal(checkoutForm.get('payment_method_types[0]'), null);
+		assert.equal(checkoutForm.get('automatic_tax[enabled]'), null);
+		assert.equal(checkoutForm.get('tax_id_collection[enabled]'), null);
 		assert.equal(checkoutForm.get('custom_text[submit][message]'), null);
 	} finally {
 		globalThis.fetch = originalFetch;
