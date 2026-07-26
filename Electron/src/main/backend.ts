@@ -1,5 +1,6 @@
 import { BrowserWindow, session } from 'electron';
 import type {
+  AccountProvider,
   ConnectionProvider,
   OpenRouterTTSModel,
   OpenRouterVoice,
@@ -16,22 +17,45 @@ const backendOrigin = 'https://www.readbriefly.fyi';
 interface AccountStatus {
   authenticated: boolean;
   email?: string;
+  syncProvider?: ConnectionProvider | null;
+  providers?: {
+    google?: boolean;
+    apple?: boolean;
+  };
   google?: {
     configured?: boolean;
     connected?: boolean;
     connectedAt?: string;
     folderID?: string;
   };
+  icloud?: {
+    configured?: boolean;
+    connected?: boolean;
+  };
 }
 
 export class BackendClient {
+  private bridgeWindow: BrowserWindow | null = null;
+  private activeSyncProvider: ConnectionProvider | null = null;
+
   async accountStatus(): Promise<AccountStatus> {
     const response = await this.fetch('/api/auth/status');
     if (!response.ok) return { authenticated: false };
-    return response.json() as Promise<AccountStatus>;
+    const value = (await response.json()) as AccountStatus;
+    this.activeSyncProvider = value.syncProvider ?? null;
+    return value;
   }
 
-  async providerStatus(_provider: ConnectionProvider): Promise<Record<string, unknown>> {
+  async providerStatus(provider: ConnectionProvider): Promise<Record<string, unknown>> {
+    if (provider === 'icloud') {
+      const account = await this.accountStatus();
+      const configured = account.icloud?.configured === true;
+      const connected =
+        configured &&
+        account.syncProvider === 'icloud' &&
+        (await this.callICloud<boolean>('status').catch(() => false));
+      return { configured, connected };
+    }
     const response = await this.fetch('/api/google/status');
     if (response.status === 401) return { connected: false };
     return this.json(response, 'Could not read the Google connection.');
@@ -47,21 +71,70 @@ export class BackendClient {
     return this.json(response, 'Could not read the AI voice balance.');
   }
 
-  async connect(_provider: ConnectionProvider, parent: BrowserWindow | null): Promise<void> {
-    await this.openConnectionWindow(parent);
+  async signIn(provider: AccountProvider, parent: BrowserWindow | null): Promise<void> {
+    await this.openProviderWindow(
+      `/api/auth/${provider}/start?return_to=%2F%3Fdesktop%3D1`,
+      provider,
+      'signed-in',
+      `Sign in with ${provider === 'apple' ? 'Apple' : 'Google'}`,
+      parent
+    );
   }
 
-  async disconnect(_provider: ConnectionProvider): Promise<void> {
-    const response = await this.fetch('/api/google/disconnect', { method: 'POST' });
-    await this.json(response, 'Could not disconnect Google.');
+  async manageAccount(parent: BrowserWindow | null): Promise<void> {
+    const window = new BrowserWindow({
+      parent: parent ?? undefined,
+      modal: Boolean(parent),
+      title: 'Briefly account',
+      width: 860,
+      height: 760,
+      minWidth: 560,
+      minHeight: 600,
+      backgroundColor: '#f3f1e9',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+    window.webContents.setWindowOpenHandler(() => ({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: window,
+        modal: true,
+        width: 560,
+        height: 720,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      }
+    }));
+    try {
+      await window.loadURL(`${backendOrigin}/account?desktop=1#sync`);
+      await new Promise<void>((resolve) => window.once('closed', resolve));
+    } catch (error) {
+      if (!window.isDestroyed()) window.destroy();
+      throw error;
+    } finally {
+      this.destroyBridgeWindow();
+    }
   }
 
   async signOut(): Promise<void> {
     const response = await this.fetch('/api/auth/logout', { method: 'POST' });
     await this.json(response, 'Could not sign out.');
+    this.activeSyncProvider = null;
+    this.destroyBridgeWindow();
   }
 
-  async fetchLibraryIndex(): Promise<DriveLibraryIndex | null> {
+  async fetchLibraryIndex(
+    provider: ConnectionProvider
+  ): Promise<DriveLibraryIndex | null> {
+    if (provider === 'icloud') {
+      return this.callICloud<DriveLibraryIndex | null>('fetchLibraryIndex');
+    }
     const response = await this.fetch('/api/library', {
       headers: { Accept: 'application/json' }
     });
@@ -69,7 +142,13 @@ export class BackendClient {
     return this.json(response, 'Could not read the library from Google Drive.');
   }
 
-  async fetchLibraryFile(file: DriveLibraryFile): Promise<string> {
+  async fetchLibraryFile(
+    file: DriveLibraryFile,
+    provider: ConnectionProvider
+  ): Promise<string> {
+    if (provider === 'icloud') {
+      return this.callICloud<string>('fetchLibraryFile', [file]);
+    }
     const parameters = new URLSearchParams({
       path: file.path,
       hash: file.contentHash
@@ -83,10 +162,13 @@ export class BackendClient {
     return response.text();
   }
 
-  async uploadLibrary(mirror: DriveLibraryMirror): Promise<{
+  async uploadLibrary(mirror: DriveLibraryMirror, provider: ConnectionProvider): Promise<{
     changed: number;
     syncedAt: string;
   }> {
+    if (provider === 'icloud') {
+      return this.callICloud<{ changed: number; syncedAt: string }>('uploadLibrary', [mirror]);
+    }
     const response = await this.fetch('/api/library/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -100,6 +182,10 @@ export class BackendClient {
   }
 
   async loadAudio(hash: string): Promise<Uint8Array | null> {
+    if (this.activeSyncProvider === 'icloud') {
+      const base64 = await this.callICloud<string | null>('loadAudio', [hash]).catch(() => null);
+      return base64 ? new Uint8Array(Buffer.from(base64, 'base64')) : null;
+    }
     const response = await this.fetch(`/api/media/audio/${hash}`);
     if (response.status === 401 || response.status === 404) return null;
     if (!response.ok) return null;
@@ -107,6 +193,10 @@ export class BackendClient {
   }
 
   async storeAudio(hash: string, bytes: Uint8Array): Promise<void> {
+    if (this.activeSyncProvider === 'icloud') {
+      await this.callICloud<void>('storeAudio', [hash, Buffer.from(bytes).toString('base64')]);
+      return;
+    }
     const response = await this.fetch(`/api/media/audio/${hash}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'audio/mpeg' },
@@ -162,6 +252,11 @@ export class BackendClient {
     voice: OpenRouterVoice,
     model: OpenRouterTTSModel
   ): Promise<ShareLinkStatus> {
+    if (this.activeSyncProvider === 'icloud') {
+      throw new Error(
+        'Creating new public links from iCloud libraries is not available yet.'
+      );
+    }
     const response = await this.fetch('/api/share-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,12 +272,17 @@ export class BackendClient {
     await this.json(response, 'Could not revoke the share link.');
   }
 
-  private async openConnectionWindow(parent: BrowserWindow | null): Promise<void> {
-    const path = '/api/auth/google/start?return_to=%2F%3Fdesktop%3D1';
+  private async openProviderWindow(
+    path: string,
+    resultParameter: 'google' | 'apple' | 'icloud',
+    successfulResult: 'signed-in' | 'connected',
+    title: string,
+    parent: BrowserWindow | null
+  ): Promise<void> {
     const window = new BrowserWindow({
       parent: parent ?? undefined,
       modal: Boolean(parent),
-      title: 'Sign in with Google',
+      title,
       width: 560,
       height: 720,
       minWidth: 420,
@@ -194,6 +294,20 @@ export class BackendClient {
         sandbox: true
       }
     });
+    window.webContents.setWindowOpenHandler(() => ({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        parent: window,
+        modal: true,
+        width: 560,
+        height: 720,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true
+        }
+      }
+    }));
 
     await new Promise<void>((resolve, reject) => {
       let completed = false;
@@ -208,13 +322,13 @@ export class BackendClient {
         try {
           const url = new URL(value);
           if (url.origin !== backendOrigin) return;
-          const result = url.searchParams.get('google');
+          const result = url.searchParams.get(resultParameter);
           if (!result) return;
-          if (result === 'connected') finish();
+          if (result === successfulResult) finish();
           else if (result === 'expired') {
-            finish(new Error('Google sign-in expired.'));
+            finish(new Error(`${title} expired.`));
           } else {
-            finish(new Error('Google sign-in failed.'));
+            finish(new Error(`${title} failed.`));
           }
         } catch {
           // OAuth navigates across several unrelated origins.
@@ -227,9 +341,55 @@ export class BackendClient {
         if (!completed) finish(new Error('Sign-in was cancelled.'));
       });
       void window.loadURL(`${backendOrigin}${path}`).catch((error) => {
-        finish(error instanceof Error ? error : new Error('The sign-in page could not be opened.'));
+        finish(error instanceof Error ? error : new Error(`${title} could not be opened.`));
       });
     });
+  }
+
+  private async iCloudBridge(): Promise<BrowserWindow> {
+    if (this.bridgeWindow && !this.bridgeWindow.isDestroyed()) return this.bridgeWindow;
+    const window = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false
+      }
+    });
+    this.bridgeWindow = window;
+    window.on('closed', () => {
+      if (this.bridgeWindow === window) this.bridgeWindow = null;
+    });
+    await window.loadURL(`${backendOrigin}/icloud?bridge=1`);
+    await window.webContents.executeJavaScript(`
+      new Promise((resolve, reject) => {
+        const started = Date.now();
+        const timer = setInterval(() => {
+          if (window.brieflyICloud) {
+            clearInterval(timer);
+            resolve(true);
+          } else if (Date.now() - started > 10000) {
+            clearInterval(timer);
+            reject(new Error('The iCloud bridge did not start.'));
+          }
+        }, 25);
+      })
+    `);
+    return window;
+  }
+
+  private async callICloud<T>(method: string, arguments_: unknown[] = []): Promise<T> {
+    const window = await this.iCloudBridge();
+    return window.webContents.executeJavaScript(
+      `window.brieflyICloud.${method}(...${JSON.stringify(arguments_)})`,
+      true
+    ) as Promise<T>;
+  }
+
+  private destroyBridgeWindow(): void {
+    if (this.bridgeWindow && !this.bridgeWindow.isDestroyed()) this.bridgeWindow.destroy();
+    this.bridgeWindow = null;
   }
 
   private fetch(path: string, init: RequestInit = {}): Promise<Response> {

@@ -30,8 +30,8 @@ const api: SharedLibraryDesktopAPI = {
   showEntryContextMenu: (entryID: string, variant?: LibraryVariant) =>
     ipcRenderer.invoke('library:show-entry-context-menu', entryID, variant),
   getConnectionStatus: () => ipcRenderer.invoke('services:get-status'),
-  connect: (provider) => ipcRenderer.invoke('services:connect', provider),
-  disconnect: (provider) => ipcRenderer.invoke('services:disconnect', provider),
+  signIn: (provider) => ipcRenderer.invoke('services:sign-in', provider),
+  manageAccount: () => ipcRenderer.invoke('services:manage-account'),
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
   setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
   setTTSModel: (model: OpenRouterTTSModel) =>

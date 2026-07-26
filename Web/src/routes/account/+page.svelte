@@ -28,11 +28,20 @@
 		type PublishedShareLinks,
 		type ShareLinkStatus
 	} from '$lib/share-links.js';
+	import {
+		beginGoogleDriveConnection,
+		consumeGoogleDriveConnectionResult,
+		disconnectGoogleDrive
+	} from '$lib/google-drive.js';
+	import { disconnectICloud } from '$lib/icloud.js';
 
 	type AccountStatus = {
 		authenticated: boolean;
 		email?: string;
-		google?: { connected?: boolean };
+		syncProvider?: 'google' | 'icloud' | null;
+		providers?: { google?: boolean; apple?: boolean };
+		google?: { configured?: boolean; connected?: boolean };
+		icloud?: { configured?: boolean; connected?: boolean };
 	};
 
 	const downloadBase =
@@ -63,6 +72,17 @@
 	async function initialize(): Promise<void> {
 		const billingResult = consumeBillingResult();
 		const ttsResult = consumeManagedTTSResult();
+		const googleResult = consumeGoogleDriveConnectionResult();
+		const resultURL = new URL(window.location.href);
+		const iCloudResult = resultURL.searchParams.get('icloud');
+		if (iCloudResult) {
+			resultURL.searchParams.delete('icloud');
+			window.history.replaceState(
+				{},
+				'',
+				`${resultURL.pathname}${resultURL.search}${resultURL.hash}`
+			);
+		}
 		try {
 			const [accountResponse, nextBilling, nextTTS, nextPublished] = await Promise.all([
 				fetch('/api/auth/status', { cache: 'no-store' }),
@@ -80,6 +100,12 @@
 					: 'Payment completed. Membership activation may take a moment.';
 			} else if (ttsResult === 'success') {
 				message = 'Your AI voice credit is ready.';
+			} else if (googleResult === 'connected') {
+				message = 'Google Drive is connected and selected for library sync.';
+			} else if (iCloudResult === 'connected') {
+				message = 'iCloud is selected. This device is authorized for your private library.';
+			} else if (googleResult) {
+				message = 'Google Drive could not be connected.';
 			} else if (billingResult === 'cancelled' || ttsResult === 'cancelled') {
 				message = 'Checkout was cancelled.';
 			} else if (account.authenticated && !nextPublished) {
@@ -90,6 +116,66 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function selectGoogleDrive(): Promise<void> {
+		if (busy || !account) return;
+		busy = true;
+		try {
+			const response = await fetch('/api/sync/provider', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ provider: 'google' })
+			});
+			if (!response.ok) throw new Error('Google Drive could not be selected.');
+			account = { ...account, syncProvider: 'google' };
+			message = 'Google Drive is selected for library sync.';
+		} catch (error) {
+			message = error instanceof Error ? error.message : 'Google Drive could not be selected.';
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function removeGoogleDrive(): Promise<void> {
+		if (busy || !account) return;
+		busy = true;
+		try {
+			await disconnectGoogleDrive();
+			account = {
+				...account,
+				syncProvider: account.syncProvider === 'google' ? null : account.syncProvider,
+				google: { ...account.google, connected: false }
+			};
+			message = 'Google Drive was disconnected. Its existing files were not deleted.';
+		} catch (error) {
+			message = error instanceof Error ? error.message : 'Google Drive could not be disconnected.';
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function removeICloud(): Promise<void> {
+		if (busy || !account) return;
+		busy = true;
+		try {
+			await disconnectICloud();
+			account = {
+				...account,
+				syncProvider: account.syncProvider === 'icloud' ? null : account.syncProvider,
+				icloud: { ...account.icloud, connected: false }
+			};
+			message = 'iCloud sync was stopped. Its existing private data was not deleted.';
+		} catch (error) {
+			message = error instanceof Error ? error.message : 'iCloud sync could not be stopped.';
+		} finally {
+			busy = false;
+		}
+	}
+
+	function connectICloud(): void {
+		const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+		window.location.assign(`/icloud?return_to=${encodeURIComponent(returnTo)}`);
 	}
 
 	async function subscribe(): Promise<void> {
@@ -186,10 +272,19 @@
 		<section class="account-state">
 			<p class="eyebrow">Briefly account</p>
 			<h1>Sign in before you start.</h1>
-			<p>Your account holds your membership, app downloads, library sync, and AI voice credit.</p>
-			<a class="primary-action" href="/api/auth/google/start?return_to=%2Faccount">
-				<LogInIcon /> Continue with Google
-			</a>
+			<p>Your account holds membership, app downloads, sync settings, and AI voice credit.</p>
+			<div class="sign-in-actions">
+				{#if account?.providers?.apple !== false}
+					<a class="primary-action" href="/api/auth/apple/start?return_to=%2Faccount">
+						<LogInIcon /> Continue with Apple
+					</a>
+				{/if}
+				{#if account?.providers?.google !== false}
+					<a class="secondary-action" href="/api/auth/google/start?return_to=%2Faccount">
+						<LogInIcon /> Continue with Google
+					</a>
+				{/if}
+			</div>
 			<small>By signing in, you agree to the <a href="/terms">Terms</a> and acknowledge the <a href="/privacy">Privacy Notice</a>.</small>
 		</section>
 	{:else}
@@ -254,12 +349,76 @@
 					</div>
 				</section>
 
-				<section class="account-card">
+				<section class="account-card sync-card" id="sync">
 					<div>
-						<p class="eyebrow">Library</p>
-						<h2>{account.google?.connected ? 'Google Drive connected' : 'Ready to connect'}</h2>
-						<p>Manage your synced library and Drive connection in the web app.</p>
-						<a class="secondary-action" href="/">Open web app <ArrowUpRightIcon /></a>
+						<p class="eyebrow">Library sync</p>
+						<h2>
+							{account.syncProvider === 'icloud'
+								? 'iCloud selected'
+								: account.syncProvider === 'google'
+									? 'Google Drive selected'
+									: 'Ready to connect'}
+						</h2>
+						<div class="sync-providers">
+							<div>
+								<span>
+									<strong>iCloud</strong>
+									<small>
+										{account.icloud?.configured
+											? account.syncProvider === 'icloud'
+												? 'Selected'
+												: 'Available'
+											: 'Not configured'}
+									</small>
+								</span>
+								<button
+									class="secondary-action"
+									onclick={connectICloud}
+									disabled={busy || !account.icloud?.configured}
+								>
+									{account.syncProvider === 'icloud' ? 'Authorize this device' : 'Use iCloud'}
+								</button>
+								{#if account.syncProvider === 'icloud'}
+									<button class="text-action" onclick={removeICloud} disabled={busy}>
+										Stop sync
+									</button>
+								{/if}
+							</div>
+							<div>
+								<span>
+									<strong>Google Drive</strong>
+									<small>
+										{account.google?.connected
+											? account.syncProvider === 'google'
+												? 'Selected'
+												: 'Connected'
+											: account.google?.configured
+												? 'Available'
+												: 'Not configured'}
+									</small>
+								</span>
+								{#if account.google?.connected}
+									<button
+										class="secondary-action"
+										onclick={selectGoogleDrive}
+										disabled={busy || account.syncProvider === 'google'}
+									>
+										{account.syncProvider === 'google' ? 'Selected' : 'Use Google Drive'}
+									</button>
+									<button class="text-action" onclick={removeGoogleDrive} disabled={busy}>
+										Disconnect
+									</button>
+								{:else}
+									<button
+										class="secondary-action"
+										onclick={beginGoogleDriveConnection}
+										disabled={busy || !account.google?.configured}
+									>
+										Connect
+									</button>
+								{/if}
+							</div>
+						</div>
 					</div>
 				</section>
 			</div>
@@ -486,6 +645,18 @@
 		text-underline-offset: 2px;
 	}
 
+	.sign-in-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 10px;
+		margin-top: 22px;
+	}
+
+	.sign-in-actions .primary-action {
+		margin-top: 0;
+	}
+
 	.eyebrow {
 		margin: 0;
 		color: #5d5b53;
@@ -597,6 +768,54 @@
 		color: #69675e;
 		font-size: 12px;
 		line-height: 1.55;
+	}
+
+	.sync-providers {
+		display: grid;
+		gap: 10px;
+		margin-top: 18px;
+	}
+
+	.sync-providers > div,
+	.sync-providers span {
+		display: flex;
+		align-items: center;
+	}
+
+	.sync-providers > div {
+		flex-wrap: wrap;
+		gap: 8px;
+		padding-top: 10px;
+		border-top: 1px solid rgb(21 21 18 / 10%);
+	}
+
+	.sync-providers span {
+		min-width: 120px;
+		flex: 1;
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.sync-providers small {
+		color: #77746a;
+		font-size: 10px;
+	}
+
+	.sync-providers .secondary-action {
+		min-height: 32px;
+		padding: 0 11px;
+		font-size: 10px;
+	}
+
+	.text-action {
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: #69675e;
+		font: inherit;
+		font-size: 10px;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 
 	.topups {

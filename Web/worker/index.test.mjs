@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHmac, generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import test from 'node:test';
 import worker from './index.js';
 import { ttsModels } from '../tts-pricing.js';
@@ -58,8 +58,33 @@ class MockStatement {
 			return this.database.pendingOAuthState;
 		}
 			if (this.sql.includes('FROM openrouter_credentials')) {
-			return this.database.credential;
-		}
+				return this.database.credential;
+			}
+			if (this.sql.includes('FROM google_login_states')) {
+				return this.database.googleLoginState?.state === this.arguments[0]
+					? this.database.googleLoginState
+					: null;
+			}
+			if (this.sql.includes('FROM google_oauth_states')) {
+				return this.database.googleOAuthState?.state === this.arguments[0]
+					? this.database.googleOAuthState
+					: null;
+			}
+			if (this.sql.includes('FROM apple_login_states')) {
+				return this.database.appleLoginState?.state === this.arguments[0]
+					? this.database.appleLoginState
+					: null;
+			}
+			if (this.sql.includes('FROM auth_identities')) {
+				return (
+					this.database.authIdentities.get(`${this.arguments[0]}:${this.arguments[1]}`) ??
+					null
+				);
+			}
+			if (this.sql.includes('FROM sync_preferences')) {
+				const provider = this.database.syncPreferences.get(this.arguments[0]);
+				return provider ? { provider } : null;
+			}
 			if (this.sql.includes('FROM tts_accounts')) {
 				return this.database.ttsAccounts.get(this.arguments[0]) ?? null;
 			}
@@ -199,6 +224,52 @@ class MockStatement {
 				createdAt: this.arguments[3]
 			};
 			changes = 1;
+		}
+		if (this.sql.includes('INSERT INTO google_login_states')) {
+			this.database.googleLoginState = {
+				state: this.arguments[0],
+				code_verifier: this.arguments[1],
+				return_to: this.arguments[2],
+				created_at: this.arguments[3]
+			};
+			changes = 1;
+		}
+		if (this.sql.includes('INSERT INTO google_oauth_states')) {
+			this.database.googleOAuthState = {
+				state: this.arguments[0],
+				user_email: this.arguments[1],
+				code_verifier: this.arguments[2],
+				created_at: this.arguments[3]
+			};
+			changes = 1;
+		}
+		if (this.sql.includes('INSERT INTO apple_login_states')) {
+			this.database.appleLoginState = {
+				state: this.arguments[0],
+				nonce: this.arguments[1],
+				return_to: this.arguments[2],
+				created_at: this.arguments[3]
+			};
+			changes = 1;
+		}
+		if (this.sql.includes('INSERT OR IGNORE INTO auth_identities')) {
+			const key = `${this.arguments[0]}:${this.arguments[1]}`;
+			if (!this.database.authIdentities.has(key)) {
+				this.database.authIdentities.set(key, {
+					user_email: this.arguments[2]
+				});
+				changes = 1;
+			}
+		}
+		if (this.sql.includes('INSERT INTO sync_preferences')) {
+			this.database.syncPreferences.set(
+				this.arguments[0],
+				this.sql.includes("'google'") ? 'google' : this.arguments[1]
+			);
+			changes = 1;
+		}
+		if (this.sql.includes('DELETE FROM sync_preferences')) {
+			changes = Number(this.database.syncPreferences.delete(this.arguments[0]));
 		}
 		if (this.sql.includes('DELETE FROM openrouter_credentials')) {
 			this.database.credential = null;
@@ -614,6 +685,11 @@ class MockDatabase {
 	sessionEmail = 'reader@example.com';
 	credential = null;
 	oauthState = null;
+	googleLoginState = null;
+	googleOAuthState = null;
+	appleLoginState = null;
+	authIdentities = new Map();
+	syncPreferences = new Map();
 	pendingOAuthState = null;
 	savedCredential = null;
 	shareLinks = new Map();
@@ -650,6 +726,13 @@ function environment(database = new MockDatabase()) {
 		GOOGLE_DRIVE_WEB_CLIENT_ID:
 			'123456789-sharedlibrary.apps.googleusercontent.com',
 		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
+		APPLE_CLIENT_ID: 'fyi.readbriefly.web',
+		APPLE_TEAM_ID: 'ABCDEFGHIJ',
+		APPLE_KEY_ID: 'K123456789',
+		APPLE_PRIVATE_KEY:
+			'-----BEGIN PRIVATE KEY-----\\ntest-private-key\\n-----END PRIVATE KEY-----',
+		CLOUDKIT_CONTAINER_ID: 'iCloud.fyi.readbriefly',
+		CLOUDKIT_API_TOKEN: 'test-cloudkit-api-token-123456789',
 		SHARED_LIBRARY_GROUP_FOLDER_ID: '1ConfiguredGroupFolder234567890',
 		SHARE_PREPARE_RETRY_DELAY_MS: 0,
 		ASSETS: {
@@ -805,7 +888,91 @@ test('Google sign-in is available without an existing Sites account session', as
 		env
 	);
 	assert.equal(startResponse.status, 302);
-	assert.equal(new URL(startResponse.headers.get('location')).hostname, 'accounts.google.com');
+	const authorizationURL = new URL(startResponse.headers.get('location'));
+	assert.equal(authorizationURL.hostname, 'accounts.google.com');
+	assert.equal(authorizationURL.searchParams.get('scope'), 'openid email');
+	assert.equal(authorizationURL.searchParams.has('access_type'), false);
+});
+
+test('Apple sign-in is a separate account flow', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/api/auth/apple/start?return_to=%2Faccount'),
+		environment()
+	);
+	assert.equal(response.status, 302);
+	const authorizationURL = new URL(response.headers.get('location'));
+	assert.equal(authorizationURL.origin, 'https://appleid.apple.com');
+	assert.equal(authorizationURL.searchParams.get('client_id'), 'fyi.readbriefly.web');
+	assert.equal(authorizationURL.searchParams.get('scope'), 'name email');
+	assert.equal(authorizationURL.searchParams.get('response_mode'), 'form_post');
+	assert.equal(
+		authorizationURL.searchParams.get('redirect_uri'),
+		'https://library.example/api/auth/apple/callback'
+	);
+});
+
+test('Apple callback verifies the identity token before creating a session', async (context) => {
+	const database = new MockDatabase();
+	database.appleLoginState = {
+		state: 'apple-state',
+		nonce: 'apple-nonce',
+		return_to: '/account',
+		created_at: Date.now()
+	};
+	const clientKeys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+	const appleKeys = generateKeyPairSync('rsa', { modulusLength: 2048 });
+	const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'APPLEKEY01' })).toString(
+		'base64url'
+	);
+	const claims = Buffer.from(
+		JSON.stringify({
+			iss: 'https://appleid.apple.com',
+			aud: 'fyi.readbriefly.web',
+			exp: Math.floor(Date.now() / 1000) + 300,
+			nonce: 'apple-nonce',
+			sub: 'apple-user-1',
+			email: 'apple-reader@example.com',
+			email_verified: 'true'
+		})
+	).toString('base64url');
+	const input = `${header}.${claims}`;
+	const idToken = `${input}.${signBytes('RSA-SHA256', Buffer.from(input), appleKeys.privateKey).toString('base64url')}`;
+	context.mock.method(globalThis, 'fetch', async (input, init) => {
+		const url = new URL(input);
+		if (url.pathname === '/auth/token') {
+			assert.equal(init.method, 'POST');
+			assert.equal(new URLSearchParams(init.body).get('client_secret').split('.').length, 3);
+			return Response.json({ id_token: idToken });
+		}
+		if (url.pathname === '/auth/keys') {
+			return Response.json({
+				keys: [{ ...appleKeys.publicKey.export({ format: 'jwk' }), kid: 'APPLEKEY01' }]
+			});
+		}
+		return new Response('not found', { status: 404 });
+	});
+	const env = {
+		...environment(database),
+		APPLE_PRIVATE_KEY: clientKeys.privateKey.export({ format: 'pem', type: 'pkcs8' })
+	};
+	const response = await worker.fetch(
+		new Request('https://library.example/api/auth/apple/callback', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ state: 'apple-state', code: 'apple-code' })
+		}),
+		env
+	);
+	assert.equal(response.status, 302);
+	assert.equal(
+		response.headers.get('location'),
+		'https://library.example/account?apple=signed-in'
+	);
+	assert.match(response.headers.get('set-cookie'), /^shared_library_session=/);
+	assert.equal(
+		database.authIdentities.get('apple:apple-user-1').user_email,
+		'apple-reader@example.com'
+	);
 });
 
 test('billing publishes the launch ladder and fails closed until Stripe is configured', async () => {
@@ -837,7 +1004,10 @@ test('client-supplied identity headers cannot impersonate a Briefly account', as
 		environment()
 	);
 	assert.equal(response.status, 200);
-	assert.deepEqual(await response.json(), { authenticated: false });
+	assert.deepEqual(await response.json(), {
+		authenticated: false,
+		providers: { google: true, apple: true }
+	});
 });
 
 test('users can post feedback and independently upvote it', async () => {
@@ -935,7 +1105,7 @@ test('configured Stripe checkout requires an authenticated Briefly account', asy
 	);
 	assert.equal(response.status, 401);
 	assert.deepEqual(await response.json(), {
-		error: 'Sign in with Google to continue.',
+		error: 'Sign in to continue.',
 		code: 'authentication_required'
 	});
 });
@@ -1572,8 +1742,30 @@ test('Google authorization uses the central web client with each user account', 
 	);
 	assert.equal(
 		authorizationURL.searchParams.get('scope'),
-		'openid email https://www.googleapis.com/auth/drive.file'
+		'https://www.googleapis.com/auth/drive.file'
 	);
+});
+
+test('sync provider selection is independent from account sign-in', async () => {
+	const database = new MockDatabase();
+	const env = environment(database);
+	const response = await worker.fetch(
+		authenticatedRequest('/api/sync/provider', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ provider: 'icloud' })
+		}),
+		env
+	);
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { provider: 'icloud' });
+	assert.equal(database.syncPreferences.get('reader@example.com'), 'icloud');
+
+	const status = await worker.fetch(authenticatedRequest('/api/auth/status'), env);
+	assert.equal((await status.json()).syncProvider, 'icloud');
 });
 
 test('library file access rejects paths outside the mirrored workspace', async () => {

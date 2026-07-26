@@ -10,7 +10,7 @@ export class SyncCoordinator {
   private timer: NodeJS.Timeout | null = null;
   private status: DesktopSyncStatus = {
     phase: 'idle',
-    message: 'Sign in with Google to synchronize this library.'
+    message: 'Sign in and choose a sync service.'
   };
 
   constructor(
@@ -55,27 +55,33 @@ export class SyncCoordinator {
     try {
       this.update('checking', `Checking ${reason}…`);
       const account = await this.backend.accountStatus();
-      if (!account.authenticated || !account.google?.connected) {
+      if (!account.authenticated) {
+        return this.update('idle', 'Sign in to synchronize this library.');
+      }
+      const provider = account.syncProvider;
+      if (!provider) return this.update('idle', 'Choose iCloud or Google Drive for sync.');
+      const connection = await this.backend.providerStatus(provider);
+      if (connection.connected !== true) {
         return this.update(
           'idle',
-          'Sign in with Google to synchronize this library.'
+          `Connect ${provider === 'icloud' ? 'iCloud' : 'Google Drive'} to synchronize this library.`
         );
       }
 
-      const remote = await this.backend.fetchLibraryIndex();
+      const remote = await this.backend.fetchLibraryIndex(provider);
       let downloaded = 0;
       if (remote) {
         this.update('downloading', 'Downloading newer library files…');
         downloaded = await this.library.mergeRemoteMirror(
           remote,
-          (file) => this.backend.fetchLibraryFile(file)
+          (file) => this.backend.fetchLibraryFile(file, provider)
         );
         if (downloaded > 0) await this.onLibraryChanged();
       }
 
       this.update('uploading', 'Uploading local changes…');
       const mirror = await this.library.buildDriveMirror();
-      const result = await this.backend.uploadLibrary(mirror);
+      const result = await this.backend.uploadLibrary(mirror, provider);
       await this.library.saveSyncBaseline(mirror.index.files);
       const changed = downloaded + Number(result.changed || 0);
       const updatedAt = result.syncedAt || new Date().toISOString();
@@ -89,7 +95,7 @@ export class SyncCoordinator {
     } catch (error) {
       return this.update(
         'error',
-        error instanceof Error ? error.message : 'Google Drive synchronization failed.'
+        error instanceof Error ? error.message : 'Library synchronization failed.'
       );
     }
   }

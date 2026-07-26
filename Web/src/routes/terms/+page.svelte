@@ -33,12 +33,12 @@
 		<p>
 			Briefly helps you capture sources and notes into a local Markdown library, read them at
 			different levels of detail, generate optional narration, synchronize selected files through
-			your Google Drive, and deliberately publish individual documents using share links.
+			your selected iCloud or Google Drive provider, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device Google Drive synchronization, and public share links.</li>
+			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device iCloud or Google Drive synchronization, and public share links.</li>
 			<li>An account and active membership are required to access the apps and downloads.</li>
-			<li>Features may require a supported operating system, browser, internet connection, Google account, or third-party service.</li>
+			<li>Features may require a supported operating system, browser, internet connection, Apple or Google account, or third-party service.</li>
 			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
@@ -51,15 +51,15 @@
 	<section>
 		<h2>3. Accounts and security</h2>
 		<p>
-			You are responsible for your Google account, devices, access to your email, and activity
+			You are responsible for your Apple or Google account, devices, access to your email, and activity
 			under your Briefly session. Keep access secure, sign out on shared devices, and tell us
 			promptly if you suspect unauthorized use. You may not transfer, sell, or lend an account in
 			a way that defeats authentication, pricing, or security controls.
 		</p>
 		<p>
-			The Google Drive connection is optional and can be disconnected in the app. Disconnecting
-			Google does not delete the Briefly files in your Drive. Signing out does not cancel Briefly
-			Plus or remove purchased AI voice credit.
+			Cloud sync is optional and can be stopped or disconnected in the app. Doing so does not
+			delete Briefly files already stored in iCloud or Google Drive. Signing out does not cancel
+			Briefly Plus or remove purchased AI voice credit.
 		</p>
 	</section>
 

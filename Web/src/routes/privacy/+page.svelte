@@ -23,7 +23,8 @@
 			<p>
 				<strong>Local-first by default.</strong> The desktop app keeps your workspace on
 				your device. Briefly does not receive that library unless you choose a connected
-				feature such as Google Drive synchronization, narration, or a public share link.
+				feature such as cloud synchronization, narration, or a public share link. Private
+				iCloud sync passes directly between your device and Apple.
 			</p>
 		</div>
 	</section>
@@ -47,10 +48,16 @@
 					<td>Legitimate interests in a secure and reliable service.</td>
 				</tr>
 				<tr>
-					<td>Google sign-in</td>
-					<td>Email address, a hashed session token, session dates, and short-lived OAuth state.</td>
+					<td>Apple or Google sign-in</td>
+					<td>Email address, provider account identifier, a hashed session token, session dates, and short-lived OAuth state.</td>
 					<td>Authenticate you and keep the correct account connected.</td>
 					<td>Performance of our contract with you.</td>
+				</tr>
+				<tr>
+					<td>iCloud sync</td>
+					<td>Your selected-provider preference. Apple processes the private CloudKit records, documents, and audio exchanged directly with your device.</td>
+					<td>Synchronize the Briefly files you choose without sending private iCloud content through Briefly's application server.</td>
+					<td>Performance of our contract; you choose whether to connect iCloud.</td>
 				</tr>
 				<tr>
 					<td>Google Drive sync</td>
@@ -61,7 +68,7 @@
 				<tr>
 					<td>Optional narration</td>
 					<td>Your account ID, selected model/voice, requested text, character count, charge, generation ID, and timestamps.</td>
-					<td>Generate speech using Briefly's managed OpenRouter account, debit only successful usage, show your history, and return failed reservations. Returned audio may be cached locally and saved in your Drive.</td>
+					<td>Generate speech using Briefly's managed OpenRouter account, debit only successful usage, show your history, and return failed reservations. Returned audio may be cached locally and saved through your selected sync provider.</td>
 					<td>Performance of the feature you request.</td>
 				</tr>
 				<tr>
@@ -95,6 +102,7 @@
 		<h2>3. Where data comes from</h2>
 		<ul>
 			<li>Directly from you when you sign in, connect a provider, subscribe, contact us, or publish a document.</li>
+			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
 			<li>From Google when it confirms your account email and returns OAuth credentials or Drive files within the narrow <code>drive.file</code> permission.</li>
 			<li>From Stripe when it reports checkout, subscription, top-up, and refund status.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
@@ -120,6 +128,10 @@
 				<tr>
 					<td><a href="https://policies.google.com/privacy" rel="noreferrer">Google</a></td>
 					<td>Optional sign-in and Drive storage/API access; processes account information, OAuth data, and the files held in your Google account.</td>
+				</tr>
+				<tr>
+					<td><a href="https://www.apple.com/legal/privacy/" rel="noreferrer">Apple</a></td>
+					<td>Optional account sign-in and private CloudKit storage; processes account information, authentication data, and the records and assets held in your iCloud account.</td>
 				</tr>
 				<tr>
 					<td><a href="https://stripe.com/privacy" rel="noreferrer">Stripe</a></td>
@@ -189,6 +201,10 @@
 					<td>Controlled by you in your Google account. Disconnecting Briefly does not delete your Drive files.</td>
 				</tr>
 				<tr>
+					<td>iCloud records</td>
+					<td>Controlled by you in your Apple account. Stopping iCloud sync does not delete private CloudKit records.</td>
+				</tr>
+				<tr>
 					<td>Public shares</td>
 					<td>Until you revoke or replace the share. Revocation deletes its text and stored narration from Briefly's active systems; provider backups may age out later.</td>
 				</tr>
@@ -247,7 +263,8 @@
 			Briefly uses encrypted transport, secure HTTP-only session cookies, same-origin checks, and
 			encryption for stored Google credentials. The managed OpenRouter credential remains
 			server-side and is never returned to users. Access is scoped to the signed-in
-			account. No internet service is risk-free, so protect forwardable share links and revoke a
+			account. iCloud content is protected by Apple's private CloudKit database and does not
+			pass through Briefly's Worker. No internet service is risk-free, so protect forwardable share links and revoke a
 			link if it reaches the wrong person.
 		</p>
 		<p>

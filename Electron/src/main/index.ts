@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import electronUpdater from 'electron-updater';
 import type {
-  ConnectionProvider,
+  AccountProvider,
   DesktopConnectionStatus,
   DesktopIngestionStatus,
   DesktopShortcutPreferences,
@@ -210,25 +210,32 @@ function activateCaptureShortcut(next: string): boolean {
 
 async function connectionStatus(): Promise<DesktopConnectionStatus> {
   const account = await backend.accountStatus();
-  const [google, billing, tts] = account.authenticated
+  const [google, icloud, billing, tts] = account.authenticated
     ? await Promise.all([
         backend.providerStatus('google'),
+        backend.providerStatus('icloud'),
         backend.billingStatus(),
         backend.ttsStatus()
       ])
     : [
         { configured: true, connected: false },
+        { configured: false, connected: false },
         { entitled: false },
         { configured: false, checkoutConfigured: false, balanceMicros: 0 }
       ];
   return {
     authenticated: account.authenticated,
     entitled: billing.entitled === true,
+    syncProvider: account.syncProvider ?? null,
     google: {
       configured: google.configured !== false,
       connected: google.connected === true,
       connectedAt:
         typeof google.connectedAt === 'string' ? google.connectedAt : undefined
+    },
+    icloud: {
+      configured: icloud.configured === true,
+      connected: icloud.connected === true
     },
     tts: {
       configured: tts.configured === true,
@@ -409,23 +416,20 @@ function registerIPC(): void {
   );
   ipcMain.handle('services:get-status', () => connectionStatus());
   ipcMain.handle(
-    'services:connect',
-    async (_event, provider: ConnectionProvider) => {
-      if (provider !== 'google') {
-        throw new Error('Unknown connection provider.');
+    'services:sign-in',
+    async (_event, provider: AccountProvider) => {
+      if (provider !== 'google' && provider !== 'apple') {
+        throw new Error('Unknown account provider.');
       }
-      await backend.connect(provider, mainWindow);
-      if (provider === 'google') await sync.synchronize('Google Drive');
+      await backend.signIn(provider, mainWindow);
       return connectionStatus();
     }
   );
   ipcMain.handle(
-    'services:disconnect',
-    async (_event, provider: ConnectionProvider) => {
-      if (provider !== 'google') {
-        throw new Error('Unknown connection provider.');
-      }
-      await backend.disconnect(provider);
+    'services:manage-account',
+    async () => {
+      await backend.manageAccount(mainWindow);
+      await sync.synchronize('account settings');
       return connectionStatus();
     }
   );
@@ -765,7 +769,7 @@ app.whenReady().then(async () => {
   registerIPC();
   installMenu();
   await createWindow();
-  if (app.isPackaged) {
+  if (app.isPackaged && !process.windowsStore) {
     void electronUpdater.autoUpdater.checkForUpdatesAndNotify().catch((error) => {
       console.error('Desktop update check failed:', error);
     });

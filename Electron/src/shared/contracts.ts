@@ -68,7 +68,8 @@ export interface ProcessingPreferencesUpdate {
   prompt: string;
 }
 
-export type ConnectionProvider = 'google';
+export type AccountProvider = 'google' | 'apple';
+export type ConnectionProvider = 'google' | 'icloud';
 export type OpenRouterVoice = string;
 export const defaultOpenRouterTTSModel = 'hexgrad/kokoro-82m';
 export const grokVoiceTTSModel = 'x-ai/grok-voice-tts-1.0';
@@ -169,10 +170,15 @@ export function migrateVoiceForTTSModel(
 export interface DesktopConnectionStatus {
   authenticated: boolean;
   entitled: boolean;
+  syncProvider: ConnectionProvider | null;
   google: {
     configured: boolean;
     connected: boolean;
     connectedAt?: string;
+  };
+  icloud: {
+    configured: boolean;
+    connected: boolean;
   };
   tts: {
     configured: boolean;
@@ -235,8 +241,8 @@ export interface SharedLibraryDesktopAPI {
   revealEntry(entryID: string): Promise<void>;
   showEntryContextMenu(entryID: string, variant?: LibraryVariant): Promise<void>;
   getConnectionStatus(): Promise<DesktopConnectionStatus>;
-  connect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
-  disconnect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
+  signIn(provider: AccountProvider): Promise<DesktopConnectionStatus>;
+  manageAccount(): Promise<DesktopConnectionStatus>;
   syncNow(): Promise<DesktopConnectionStatus>;
   setVoice(voice: OpenRouterVoice): Promise<DesktopConnectionStatus>;
   setTTSModel(model: OpenRouterTTSModel): Promise<DesktopConnectionStatus>;

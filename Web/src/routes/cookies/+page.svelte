@@ -46,8 +46,8 @@
 			</tbody>
 		</table>
 		<p>
-			Google, Stripe, or GitHub may set their own cookies when you choose to visit
-			their domains for sign-in, AI voice top-up, billing management, or
+			Apple, Google, Stripe, or GitHub may set their own cookies when you choose to visit
+			their domains for sign-in, iCloud or Drive connection, AI voice top-up, billing management, or
 			downloads. Their notices govern those cookies; Briefly cannot read them.
 		</p>
 	</section>
@@ -95,8 +95,9 @@
 		<ul>
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
 			<li>Use your browser's site-data settings to remove Briefly's cookie, IndexedDB, local storage, service worker, and caches.</li>
-			<li>Removing site data signs you out and deletes the offline web copy and preferences on that device. It does not delete files in your Google Drive, an active subscription, or a public share.</li>
+			<li>Removing site data signs you out and deletes the offline web copy and preferences on that device. It does not delete files in iCloud or Google Drive, an active subscription, or a public share.</li>
 			<li>Disconnect Google Drive from Settings to delete the stored Google provider credentials.</li>
+			<li>Stop iCloud sync from Settings to clear the selected-provider preference. Manage private CloudKit data through your Apple account.</li>
 			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel Briefly Plus.</li>
 		</ul>
 		<p>

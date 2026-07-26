@@ -12,8 +12,9 @@ This directory contains the cross-platform Briefly desktop application.
   Node.js access, and a narrow preload API keyed by library entry IDs.
 - Configurable system-wide clipboard capture shortcut (default:
   `CommandOrControl-G`).
-- Google sign-in configures one personal Drive location per account. Folder-structured
-  Markdown and content-addressed audio are mirrored locally on every client.
+- Apple or Google signs in to the Briefly account; iCloud or Google Drive is chosen
+  separately on the hosted account page for folder-structured Markdown and
+  content-addressed audio sync.
 - Clipboard URLs use the bundled extractor, then the local Codex CLI creates four
   summaries and assigns a topic in the background. The app shows persistent ingest
   status and mirrors active work on the dock/taskbar progress indicator; macOS also
@@ -28,11 +29,14 @@ This directory contains the cross-platform Briefly desktop application.
 - Managed Briefly AI voice offers Low (Kokoro), Medium (Orpheus), and High
   (Grok Voice) quality using prepaid account credit. The first MP3 segment plays as
   provider bytes arrive while later segments are generated, cached locally, and
-  backed up to Drive.
+  backed up through the selected sync service.
 - Share links publish all text levels and already-generated narration through the
   same D1/R2 sharing service as the web reader.
 
-Google and managed narration credentials remain in the hosted account service; the
+Google and managed narration credentials remain in the hosted account service;
+CloudKit access stays in an authenticated Apple web context. Account and sync
+settings open in an Electron-hosted `/account` window so its per-device CloudKit
+authorization is available to desktop sync. The
 sandboxed renderer and local workspace never receive OAuth refresh tokens or API
 keys.
 
@@ -74,3 +78,5 @@ The workflow requires `BRIEFLY_DOWNLOADS_TOKEN`, `MAC_CSC_LINK`,
 `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
 `APPLE_TEAM_ID`, `WIN_CSC_LINK`, and `WIN_CSC_KEY_PASSWORD` repository secrets.
 The downloads token needs release write access only to `briefly-downloads`.
+It also uploads an unsigned `store-windows` AppX artifact for Partner Center;
+Microsoft signs that package after Store certification.

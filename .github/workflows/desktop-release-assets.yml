@@ -26,14 +26,22 @@ jobs:
           - label: macOS universal
             os: macos-latest
             target: mac
+            artifact_name: briefly-mac
             build_args: --mac dmg zip --universal -c.mac.forceCodeSigning=true
           - label: Windows x64
             os: windows-latest
             target: windows
+            artifact_name: briefly-windows
             build_args: --win nsis --x64 -c.win.forceCodeSigning=true
+          - label: Microsoft Store x64
+            os: windows-latest
+            target: windows-store
+            artifact_name: store-windows
+            build_args: --win appx --x64 -c.win.signExecutable=false
           - label: Linux x64
             os: ubuntu-latest
             target: linux
+            artifact_name: briefly-linux
             build_args: --linux AppImage deb --x64
 
     env:
@@ -86,14 +94,45 @@ jobs:
       - name: Build installer
         run: npm run dist -- ${{ matrix.build_args }} --publish never
 
+      - name: Notarize macOS disk image
+        if: matrix.target == 'mac'
+        run: |
+          xcrun notarytool submit release/Briefly-mac-universal.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple release/Briefly-mac-universal.dmg
+
+      - name: Verify macOS signature and notarization
+        if: matrix.target == 'mac'
+        run: |
+          codesign --verify --deep --strict --verbose=2 release/mac-universal/Briefly.app
+          xcrun stapler validate release/mac-universal/Briefly.app
+          spctl --assess --type execute --verbose=4 release/mac-universal/Briefly.app
+          codesign --verify --verbose=2 release/Briefly-mac-universal.dmg
+          xcrun stapler validate release/Briefly-mac-universal.dmg
+          spctl --assess --type open --context context:primary-signature \
+            --verbose=4 release/Briefly-mac-universal.dmg
+
+      - name: Verify Windows signature
+        if: matrix.target == 'windows'
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature release/Briefly-windows-x64.exe
+          if ($signature.Status -ne 'Valid') {
+            throw "Windows installer signature is $($signature.Status): $($signature.StatusMessage)"
+          }
+
       - name: Upload release files
         uses: actions/upload-artifact@v6
         with:
-          name: briefly-${{ matrix.target }}
+          name: ${{ matrix.artifact_name }}
           path: |
             Electron/release/*.dmg
             Electron/release/*.zip
             Electron/release/*.exe
+            Electron/release/*.appx
             Electron/release/*.AppImage
             Electron/release/*.deb
             Electron/release/*.blockmap

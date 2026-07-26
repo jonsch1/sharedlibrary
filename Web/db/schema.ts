@@ -38,6 +38,30 @@ export const googleOAuthStates = sqliteTable('google_oauth_states', {
 	createdAt: integer('created_at').notNull()
 });
 
+export const appleLoginStates = sqliteTable('apple_login_states', {
+	state: text('state').primaryKey(),
+	nonce: text('nonce').notNull(),
+	returnTo: text('return_to').notNull(),
+	createdAt: integer('created_at').notNull()
+});
+
+export const authIdentities = sqliteTable(
+	'auth_identities',
+	{
+		provider: text('provider').notNull(),
+		subject: text('subject').notNull(),
+		userEmail: text('user_email').notNull(),
+		createdAt: integer('created_at').notNull()
+	},
+	(table) => [primaryKey({ columns: [table.provider, table.subject] })]
+);
+
+export const syncPreferences = sqliteTable('sync_preferences', {
+	userEmail: text('user_email').primaryKey(),
+	provider: text('provider').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
 export const billingCustomers = sqliteTable(
 	'billing_customers',
 	{

@@ -30,6 +30,7 @@
   import appIcon from './assets/app-icon.png';
   import { shouldRenderSourceAsPlainText } from '../shared/source-presentation';
   import type {
+    AccountProvider,
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
     DesktopConnectionStatus,
@@ -76,7 +77,7 @@
   let connections = $state<DesktopConnectionStatus | null>(null);
   let syncStatus = $state<DesktopSyncStatus>({
     phase: 'idle',
-    message: 'Sign in with Google to synchronize this library.'
+    message: 'Sign in and choose a sync service.'
   });
   let voice = $state<OpenRouterVoice>('af_heart');
   let ttsModel = $state<OpenRouterTTSModel>(defaultOpenRouterTTSModel);
@@ -385,11 +386,11 @@
     void window.sharedLibrary.showEntryContextMenu(entry.id, variant);
   }
 
-  async function connect(provider: 'google'): Promise<void> {
+  async function signIn(provider: AccountProvider): Promise<void> {
     await run(async () => {
-      connections = await window.sharedLibrary.connect(provider);
+      connections = await window.sharedLibrary.signIn(provider);
       syncStatus = connections.sync;
-      message = 'Google account connected. Your Drive location is now configured for this account.';
+      message = `Signed in with ${provider === 'apple' ? 'Apple' : 'Google'}.`;
     });
   }
 
@@ -403,8 +404,12 @@
     });
   }
 
-  function openAccount(): void {
-    void window.sharedLibrary.openExternal('https://www.readbriefly.fyi/account');
+  async function openAccount(): Promise<void> {
+    await run(async () => {
+      connections = await window.sharedLibrary.manageAccount();
+      syncStatus = connections.sync;
+      message = 'Account settings refreshed.';
+    });
   }
 
   async function changeVoice(event: Event): Promise<void> {
@@ -686,10 +691,15 @@
         <p class="eyebrow">Briefly account</p>
         <h1>Sign in to continue</h1>
         <p class="empty-copy">
-          Your account keeps membership, downloads, sync, and AI voice credit together.
+          Sign in manages your Briefly membership and AI voice credit. You will choose
+          sync separately.
         </p>
         <div class="empty-actions">
-          <button class="primary-button" onclick={() => connect('google')} disabled={busy}>
+          <button class="primary-button" onclick={() => signIn('apple')} disabled={busy}>
+            {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
+            Sign in with Apple
+          </button>
+          <button class="secondary-button" onclick={() => signIn('google')} disabled={busy}>
             {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
             Sign in with Google
           </button>
@@ -1038,24 +1048,26 @@
         <div class="settings-card-heading">
           <div>
             <h3>Briefly account</h3>
-            <p>Manage your membership, Google Drive connection, and AI voice credit on the web.</p>
+            <p>Manage membership, AI voice credit, and library sync on the web.</p>
           </div>
         </div>
         <div class="connection-status">
-          {#if connections?.google.connected}
+          {#if connections?.syncProvider}
             <span class="status-dot"></span>
           {/if}
           <span>
-            {connections?.google.connected ? syncStatus.message : 'Google Drive is not connected.'}
+            {connections?.syncProvider
+              ? syncStatus.message
+              : 'Choose iCloud or Google Drive for sync.'}
           </span>
-          {#if connections?.google.connected &&
+          {#if connections?.syncProvider &&
           (syncStatus.phase === 'checking' || syncStatus.phase === 'downloading' || syncStatus.phase === 'uploading')}
             <LoaderCircle class="spin" />
           {/if}
         </div>
         <div class="panel-actions">
-          <button class="secondary-button" onclick={openAccount}>
-            <ArrowUpRight /> Open account
+          <button class="secondary-button" onclick={openAccount} disabled={busy}>
+            <ArrowUpRight /> Manage account and sync
           </button>
         </div>
       </section>
@@ -1067,7 +1079,7 @@
             <h3>Narration</h3>
             <p>
               Briefly AI voice uses prepaid account credit. Audio streams as it is
-              generated, caches locally, and is backed up to your Drive folder.
+              generated, caches locally, and is backed up to your selected sync service.
             </p>
           </div>
         </div>

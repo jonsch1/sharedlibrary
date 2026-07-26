@@ -9,7 +9,6 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -48,6 +47,7 @@
 		recommendedVoiceForModel,
 		saveModelPreference,
 		saveVoicePreference,
+		setDurableAudioProvider,
 		synchronizeOpenRouterAudioCache,
 		voiceName,
 		voicesForModel,
@@ -57,13 +57,16 @@
 		type OpenRouterVoice
 	} from '$lib/openrouter.js';
 	import {
-		beginGoogleDriveConnection,
 		consumeGoogleDriveConnectionResult,
-		disconnectGoogleDrive,
 		loadGoogleDriveConnection,
 		syncGoogleDriveLibrary,
 		type GoogleDriveConnection
 	} from '$lib/google-drive.js';
+	import {
+		iCloudIdentity,
+		syncICloudLibrary,
+		type SyncProvider
+	} from '$lib/icloud.js';
 	import {
 		loadShareLinkStatus,
 		publishShareLink,
@@ -82,6 +85,13 @@
 
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 	type OriginFilter = 'all' | 'personal';
+	type AccountStatus = {
+		authenticated: boolean;
+		email?: string;
+		syncProvider?: SyncProvider | null;
+		providers?: { google?: boolean; apple?: boolean };
+		icloud?: { configured?: boolean; connected?: boolean };
+	};
 
 	let projection = $state<LibraryProjection | null>(null);
 	let publicShareToken = $state('');
@@ -112,7 +122,9 @@
 		configured: false,
 		connected: false
 	});
-	let googleBusy = $state(false);
+	let account = $state<AccountStatus>({ authenticated: false });
+	let syncProvider = $state<SyncProvider | null>(null);
+	let iCloudConnection = $state({ configured: false, connected: false });
 	let googleSyncing = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
@@ -268,7 +280,7 @@
 		const automaticallySync = (): void => {
 			if (!navigator.onLine || Date.now() - lastAutomaticSync < 30_000) return;
 			lastAutomaticSync = Date.now();
-			void syncFromGoogleDrive(false);
+			void syncFromProvider(false);
 		};
 		const syncInterval = window.setInterval(automaticallySync, 30_000);
 		window.addEventListener('online', automaticallySync);
@@ -289,6 +301,16 @@
 	async function initializeConnections(isActive: () => boolean): Promise<void> {
 		try {
 			const googleResult = consumeGoogleDriveConnectionResult();
+			const resultURL = new URL(window.location.href);
+			const appleResult = resultURL.searchParams.get('apple');
+			if (appleResult) {
+				resultURL.searchParams.delete('apple');
+				window.history.replaceState(
+					{},
+					'',
+					`${resultURL.pathname}${resultURL.search}${resultURL.hash}`
+				);
+			}
 			const billingResult = consumeBillingResult();
 			const checkoutURL = new URL(window.location.href);
 			const continueCheckout = checkoutURL.searchParams.get('checkout') === 'plus';
@@ -300,13 +322,23 @@
 					`${checkoutURL.pathname}${checkoutURL.search}${checkoutURL.hash}`
 				);
 			}
-			const [google, initialBilling] = await Promise.all([
+			const [accountResponse, google, initialBilling] = await Promise.all([
+				fetch('/api/auth/status', { cache: 'no-store' }),
 				loadGoogleDriveConnection(),
 				loadBillingStatus()
 			]);
 			if (!isActive()) return;
+			account = (await accountResponse.json()) as AccountStatus;
 			googleConnection = google;
 			billing = initialBilling;
+			syncProvider = account.syncProvider ?? null;
+			setDurableAudioProvider(syncProvider);
+			iCloudConnection = {
+				configured: account.icloud?.configured === true,
+				connected:
+					syncProvider === 'icloud' &&
+					Boolean((await iCloudIdentity().catch(() => null))?.userRecordName)
+			};
 			if (continueCheckout && billing.authenticated) {
 				await startBrieflyPlus();
 				return;
@@ -322,19 +354,23 @@
 					: 'Payment completed. Briefly Plus is still being activated.';
 				connectionsVisible = true;
 			}
-			if (googleResult === 'connected') {
-				connectionMessage =
-					billing.entitled
-						? 'Google Drive connected. The complete library and existing narration are being saved on this device.'
-						: 'Google Drive connected. Add Briefly Plus to synchronize this library.';
+			if (googleResult === 'signed-in') {
+				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
 				connectionsVisible = true;
 			} else if (googleResult) {
-				connectionMessage = 'Google Drive sign-in could not be completed. Check the callback URL.';
+				connectionMessage = 'Google could not be connected. Check the callback URL.';
 				connectionsVisible = true;
 			}
-			if (google.connected && billing.entitled) {
+			if (appleResult === 'signed-in') {
+				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
+				connectionsVisible = true;
+			} else if (appleResult) {
+				connectionMessage = 'Apple sign-in could not be completed.';
+				connectionsVisible = true;
+			}
+			if (syncProvider && billing.entitled) {
 				void requestPersistentOfflineStorage();
-				await syncFromGoogleDrive(false);
+				await syncFromProvider(false);
 			}
 		} catch (error) {
 			if (!isActive()) return;
@@ -423,8 +459,15 @@
 		queueMicrotask(() => void openSharing(entry));
 	}
 
-	async function syncFromGoogleDrive(showError = true): Promise<void> {
-		if (!googleConnection.connected || googleSyncing) return;
+	async function syncFromProvider(showError = true): Promise<void> {
+		if (
+			!syncProvider ||
+			googleSyncing ||
+			(syncProvider === 'google' && !googleConnection.connected) ||
+			(syncProvider === 'icloud' && !iCloudConnection.connected)
+		) {
+			return;
+		}
 		if (billing?.configured && !billing.entitled) {
 			connectionMessage = 'Briefly Plus is required to synchronize your library.';
 			connectionsVisible = true;
@@ -435,7 +478,9 @@
 		googleSyncCompleted = 0;
 		googleSyncTotal = 0;
 		try {
-			await syncGoogleDriveLibrary(
+			const syncLibrary =
+				syncProvider === 'icloud' ? syncICloudLibrary : syncGoogleDriveLibrary;
+			await syncLibrary(
 				(personalProjection) => {
 					applySyncedProjection(personalProjection);
 					googleSyncPhase = 'library';
@@ -445,13 +490,15 @@
 					googleSyncTotal = total;
 				}
 			);
-			googleSyncPhase = 'audio';
-			googleSyncCompleted = 0;
-			googleSyncTotal = 0;
-			await synchronizeOpenRouterAudioCache((completed, total) => {
-				googleSyncCompleted = completed;
-				googleSyncTotal = total;
-			});
+			if (syncProvider === 'google') {
+				googleSyncPhase = 'audio';
+				googleSyncCompleted = 0;
+				googleSyncTotal = 0;
+				await synchronizeOpenRouterAudioCache((completed, total) => {
+					googleSyncCompleted = completed;
+					googleSyncTotal = total;
+				});
+			}
 			connectionMessage = showError
 				? `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
 						hour: 'numeric',
@@ -463,7 +510,7 @@
 				connectionMessage =
 					error instanceof Error
 						? error.message
-						: 'The library could not be synced from Google Drive.';
+						: 'The library could not be synchronized.';
 			}
 		} finally {
 			googleSyncing = false;
@@ -479,7 +526,7 @@
 		}
 	}
 
-	function googleSyncDescription(): string {
+	function syncDescription(): string {
 		if (!googleSyncing) return '';
 		if (googleSyncTotal > 0) {
 			const noun = googleSyncPhase === 'audio' ? 'audio files' : 'files';
@@ -487,18 +534,16 @@
 		}
 		return googleSyncPhase === 'audio'
 			? 'Checking offline audio…'
-			: 'Checking Google Drive…';
+			: `Checking ${syncProvider === 'icloud' ? 'iCloud' : 'Google Drive'}…`;
 	}
 
 	function showDemo(): void {
 		setProjection(demoProjection);
-		importMessage = 'This is sample content. Connect Google Drive when you are ready.';
+		importMessage = 'This is sample content. Choose a sync provider when you are ready.';
 	}
 
-	async function connectGoogleDrive(): Promise<void> {
-		googleBusy = true;
-		connectionMessage = '';
-		beginGoogleDriveConnection();
+	function signIn(provider: 'google' | 'apple'): void {
+		window.location.assign(`/api/auth/${provider}/start`);
 	}
 
 	async function startBrieflyPlus(): Promise<void> {
@@ -510,8 +555,8 @@
 		} catch (error) {
 			const checkoutError = error as Error & { code?: string };
 			if (checkoutError.code === 'authentication_required') {
-				const returnTo = encodeURIComponent('/?checkout=plus');
-				window.location.assign(`/api/auth/google/start?return_to=${returnTo}`);
+				connectionMessage = 'Sign in with Apple or Google before choosing Briefly Plus.';
+				connectionsVisible = true;
 				return;
 			}
 			connectionMessage = checkoutError.message;
@@ -531,20 +576,6 @@
 				error instanceof Error ? error.message : 'The billing portal could not be opened.';
 		} finally {
 			billingBusy = false;
-		}
-	}
-
-	async function removeGoogleDriveConnection(): Promise<void> {
-		googleBusy = true;
-		try {
-			await disconnectGoogleDrive();
-			googleConnection = { configured: googleConnection.configured, connected: false };
-			connectionMessage = 'Google Drive disconnected. The downloaded library and audio remain on this device.';
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'Could not disconnect Google Drive.';
-		} finally {
-			googleBusy = false;
 		}
 	}
 
@@ -589,6 +620,11 @@
 	async function saveSharing(): Promise<void> {
 		const target = shareTarget;
 		if (!target) return;
+		if (syncProvider === 'icloud') {
+			shareError =
+				'Creating new public links from iCloud libraries is not available yet. Existing links can still be managed here.';
+			return;
+		}
 		shareBusy = true;
 		shareError = '';
 		try {
@@ -796,7 +832,7 @@
 	<title>Briefly</title>
 	<meta
 		name="description"
-		content="A private, offline-friendly reader synchronized through your Google Drive."
+		content="A private, offline-friendly reader synchronized through your iCloud or Google Drive."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:title" content="Briefly" />
@@ -841,13 +877,13 @@
 					<span class="empty-check"><CheckIcon /></span>
 				</div>
 				<p class="eyebrow">Briefly</p>
-				{#if googleConnection.connected && googleSyncing}
+				{#if syncProvider && googleSyncing}
 					<h1>Making your library available</h1>
-					<p class="empty-copy">{googleSyncDescription()}</p>
-				{:else if googleConnection.connected && billing?.configured && !billing.entitled}
+					<p class="empty-copy">{syncDescription()}</p>
+				{:else if syncProvider && billing?.configured && !billing.entitled}
 					<h1>Take your library everywhere</h1>
 					<p class="empty-copy">
-						Briefly Plus adds secure Google Drive synchronization and deliberate share links.
+						Briefly Plus adds private cloud synchronization and deliberate share links.
 						Your local desktop files remain on your device.
 					</p>
 					<div class="empty-actions">
@@ -864,16 +900,41 @@
 							Explore a sample
 						</Button>
 					</div>
-				{:else}
-					<h1>Sign in with Google</h1>
+				{:else if !account.authenticated}
+					<h1>Sign in to Briefly</h1>
 					<p class="empty-copy">
-						Configure one personal Drive location for the account, then mirror the complete
-						local-first library on every client.
+						Your account keeps membership and sync settings together. Choose Apple or Google.
 					</p>
 					<div class="empty-actions">
-						<Button size="lg" onclick={() => (connectionsVisible = true)}>
-							<CloudIcon data-icon="inline-start" />
+						<Button
+							size="lg"
+							disabled={account.providers?.apple === false}
+							onclick={() => signIn('apple')}
+						>
+							Sign in with Apple
+						</Button>
+						<Button
+							size="lg"
+							variant="outline"
+							disabled={account.providers?.google === false}
+							onclick={() => signIn('google')}
+						>
 							Sign in with Google
+						</Button>
+						<Button size="lg" variant="ghost" onclick={showDemo}>
+							<BookOpenIcon data-icon="inline-start" />
+							Explore a sample
+						</Button>
+					</div>
+				{:else}
+					<h1>Set up library sync</h1>
+					<p class="empty-copy">
+						Choose iCloud or Google Drive from your account page.
+					</p>
+					<div class="empty-actions">
+						<Button size="lg" href="/account#sync">
+							<CloudIcon data-icon="inline-start" />
+							Open sync settings
 						</Button>
 						<Button size="lg" variant="ghost" onclick={showDemo}>
 							<BookOpenIcon data-icon="inline-start" />
@@ -1126,7 +1187,7 @@
 											: 'Optional'}
 								</Badge>
 							</div>
-							<p>Cross-device Google Drive sync and deliberate share links.</p>
+							<p>Cross-device library sync and deliberate share links.</p>
 						</div>
 					</div>
 
@@ -1169,44 +1230,38 @@
 					</Button>
 				</section>
 
-				<section class="audio-connection" class:connected={googleConnection.connected}>
+				<section
+					class="audio-connection"
+					class:connected={Boolean(syncProvider)}
+				>
 					<div class="audio-connection-heading">
 						<div class="provider-mark"><CloudIcon /></div>
 						<div>
 							<div class="provider-title">
-								<h3>Google Drive</h3>
-								<Badge variant={googleConnection.connected ? 'secondary' : 'outline'}>
-									{googleConnection.connected ? 'Connected' : 'Required'}
+								<h3>Library sync</h3>
+								<Badge variant={syncProvider ? 'secondary' : 'outline'}>
+									{syncProvider === 'icloud'
+										? 'iCloud'
+										: syncProvider === 'google'
+											? 'Google Drive'
+											: 'Not set'}
 								</Badge>
 							</div>
-							<p>Your complete Markdown library and generated audio, mirrored locally on every device.</p>
+							<p>
+								{syncProvider === 'icloud'
+									? iCloudConnection.connected
+										? 'This browser is authorized to synchronize your private CloudKit library.'
+										: 'Authorize iCloud for this browser from your account page.'
+									: syncProvider === 'google'
+										? 'Your private library synchronizes through the connected Google Drive.'
+										: 'Choose iCloud or Google Drive from your account page.'}
+							</p>
 						</div>
 					</div>
-
-					{#if googleConnection.connected}
-						<Button variant="outline" disabled={googleBusy} onclick={removeGoogleDriveConnection}>
-							<LogOutIcon data-icon="inline-start" />
-							Disconnect
-						</Button>
-					{:else}
-						<Button
-							disabled={googleBusy || !googleConnection.configured}
-							onclick={connectGoogleDrive}
-						>
-							<CloudIcon data-icon="inline-start" />
-							{googleBusy ? 'Opening Google…' : 'Sign in with Google'}
-						</Button>
-						<p class="connection-help">
-							{#if googleConnection.configured}
-								Briefly remembers one personal folder for this Google account.
-								The narrow <code>drive.file</code> permission limits access to the
-								library and audio files the app creates or you explicitly select.
-							{:else}
-								This deployment has not been configured with Google OAuth yet. The site
-								administrator needs to add it once—users never paste a client secret.
-							{/if}
-						</p>
-					{/if}
+					<Button href="/account#sync">
+						<ArrowUpRightIcon data-icon="inline-start" />
+						Manage sync
+					</Button>
 				</section>
 
 				{#if installedAppleWebApp}
@@ -1261,7 +1316,7 @@
 							<p class="connection-help">
 								{managedTTS.authenticated
 									? 'Top-ups have not been configured for this deployment.'
-									: 'Sign in with Google to buy and use AI voice credit.'}
+									: 'Sign in to buy and use AI voice credit.'}
 							</p>
 						{/if}
 						<p class="connection-help">
@@ -1341,12 +1396,12 @@
 				<div class="audio-privacy">
 					<ShieldCheckIcon />
 					<div>
-						<strong>Your Drive remains the source of truth</strong>
-						<p>
-							OAuth app credentials are configured once for the deployment. Your account
-							tokens are encrypted per signed-in account. Your private library stays in
-							your Drive; only documents you deliberately publish are copied to the
-							sharing service until you stop sharing them.
+							<strong>Your selected storage remains the source of truth</strong>
+							<p>
+								Your private library stays in iCloud or Google Drive. Google credentials
+								are encrypted per signed-in account; iCloud content goes directly between
+								this device and Apple. Only documents you deliberately publish are copied
+								to the sharing service.
 						</p>
 					</div>
 				</div>

@@ -11,7 +11,7 @@
 		<h2>Clear rules, without the fog.</h2>
 		<p>
 			Briefly is designed around a local-first library. Your desktop workspace stays on your
-			device, while Google Drive can become your private source of truth for synchronization.
+			device, while iCloud or Google Drive can become your private source of truth for synchronization.
 			Server-side copies are limited to the account, billing, and share-link data needed to
 			provide the features you request.
 		</p>

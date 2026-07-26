@@ -344,6 +344,23 @@ async function ensureSchema(database) {
 			)`
 		),
 		database.prepare(
+			`CREATE TABLE IF NOT EXISTS apple_login_states (
+				state TEXT PRIMARY KEY NOT NULL,
+				nonce TEXT NOT NULL,
+				return_to TEXT NOT NULL,
+				created_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS auth_identities (
+				provider TEXT NOT NULL,
+				subject TEXT NOT NULL,
+				user_email TEXT NOT NULL,
+				created_at INTEGER NOT NULL,
+				PRIMARY KEY (provider, subject)
+			)`
+		),
+		database.prepare(
 			`CREATE TABLE IF NOT EXISTS app_sessions (
 				token_hash TEXT PRIMARY KEY NOT NULL,
 				user_email TEXT NOT NULL,
@@ -354,6 +371,13 @@ async function ensureSchema(database) {
 		database.prepare(
 			`CREATE INDEX IF NOT EXISTS app_sessions_user_email_idx
 			 ON app_sessions (user_email)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS sync_preferences (
+				user_email TEXT PRIMARY KEY NOT NULL,
+				provider TEXT NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`
 		),
 		database.prepare(
 			`CREATE TABLE IF NOT EXISTS billing_customers (
@@ -1031,7 +1055,7 @@ async function driveItemsByKind(env, email, kind) {
 async function syncLibraryMirror(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Sign in with Google first.' }, { status: 401 });
+	if (!email) return json({ error: 'Sign in before synchronizing.' }, { status: 401 });
 	await ensureSchema(env.DB);
 	let value;
 	try {
@@ -1179,6 +1203,349 @@ function googleOAuthConfig(env) {
 	return { clientID, clientSecret };
 }
 
+function appleAuthConfig(env) {
+	const clientID = String(env.APPLE_CLIENT_ID || '').trim();
+	const teamID = String(env.APPLE_TEAM_ID || '').trim();
+	const keyID = String(env.APPLE_KEY_ID || '').trim();
+	const privateKey = String(env.APPLE_PRIVATE_KEY || '').replaceAll('\\n', '\n').trim();
+	if (
+		!/^[A-Za-z0-9.-]{3,255}$/.test(clientID) ||
+		!/^[A-Z0-9]{10}$/.test(teamID) ||
+		!/^[A-Z0-9]{10}$/.test(keyID) ||
+		!privateKey.includes('BEGIN PRIVATE KEY')
+	) {
+		return null;
+	}
+	return { clientID, teamID, keyID, privateKey };
+}
+
+function cloudKitConfig(env) {
+	const containerIdentifier = String(env.CLOUDKIT_CONTAINER_ID || '').trim();
+	const apiToken = String(env.CLOUDKIT_API_TOKEN || '').trim();
+	const environment = env.CLOUDKIT_ENVIRONMENT === 'development' ? 'development' : 'production';
+	if (!/^iCloud\.[A-Za-z0-9.-]{3,255}$/.test(containerIdentifier) || apiToken.length < 20) {
+		return null;
+	}
+	return { containerIdentifier, apiToken, environment };
+}
+
+function safeReturnTo(value, fallback = '/') {
+	return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
+		? value
+		: fallback;
+}
+
+async function identityEmail(env, provider, subject, verifiedEmail) {
+	const existing = await env.DB.prepare(
+		`SELECT user_email FROM auth_identities WHERE provider = ? AND subject = ?`
+	)
+		.bind(provider, subject)
+		.first();
+	if (existing?.user_email) return existing.user_email;
+	if (!verifiedEmail) return null;
+	await env.DB.prepare(
+		`INSERT OR IGNORE INTO auth_identities (provider, subject, user_email, created_at)
+		 VALUES (?, ?, ?, ?)`
+	)
+		.bind(provider, subject, verifiedEmail, Date.now())
+		.run();
+	const identity = await env.DB.prepare(
+		`SELECT user_email FROM auth_identities WHERE provider = ? AND subject = ?`
+	)
+		.bind(provider, subject)
+		.first();
+	return identity?.user_email ?? null;
+}
+
+async function authenticatedRedirect(request, env, email, returnTo, provider) {
+	const sessionToken = randomBase64URL(32);
+	await env.DB.prepare(
+		`INSERT INTO app_sessions (token_hash, user_email, created_at, expires_at)
+		 VALUES (?, ?, ?, ?)`
+	)
+		.bind(
+			await sha256Hex(sessionToken),
+			email,
+			Date.now(),
+			Date.now() + sessionLifetimeMilliseconds
+		)
+		.run();
+	const destination = new URL(safeReturnTo(returnTo), request.url);
+	destination.searchParams.set(provider, 'signed-in');
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: destination.toString(),
+			'Set-Cookie': sessionCookie(
+				sessionToken,
+				Math.floor(sessionLifetimeMilliseconds / 1000)
+			)
+		}
+	});
+}
+
+async function startGoogleLogin(request, env) {
+	await ensureSchema(env.DB);
+	const config = googleOAuthConfig(env);
+	if (!config) return json({ error: 'Google sign-in is not configured.' }, { status: 503 });
+	const state = randomBase64URL();
+	const verifier = randomBase64URL(64);
+	const now = Date.now();
+	await env.DB.batch([
+		env.DB
+			.prepare('DELETE FROM google_login_states WHERE created_at < ?')
+			.bind(now - oauthStateLifetimeMilliseconds),
+		env.DB
+			.prepare(
+				`INSERT INTO google_login_states (state, code_verifier, return_to, created_at)
+				 VALUES (?, ?, ?, ?)`
+			)
+			.bind(
+				state,
+				verifier,
+				safeReturnTo(new URL(request.url).searchParams.get('return_to')),
+				now
+			)
+	]);
+	const callbackURL = new URL('/api/auth/google/callback', request.url);
+	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+	authorizationURL.searchParams.set('client_id', config.clientID);
+	authorizationURL.searchParams.set('redirect_uri', callbackURL.toString());
+	authorizationURL.searchParams.set('response_type', 'code');
+	authorizationURL.searchParams.set('scope', 'openid email');
+	authorizationURL.searchParams.set('prompt', 'select_account');
+	authorizationURL.searchParams.set('state', state);
+	authorizationURL.searchParams.set('code_challenge', await sha256Base64URL(verifier));
+	authorizationURL.searchParams.set('code_challenge_method', 'S256');
+	return Response.redirect(authorizationURL.toString(), 302);
+}
+
+async function finishGoogleLogin(request, env) {
+	await ensureSchema(env.DB);
+	const url = new URL(request.url);
+	const state = url.searchParams.get('state');
+	const code = url.searchParams.get('code');
+	if (!state || !code) return redirectWithProviderResult(request, 'google', 'error');
+	const pending = await env.DB.prepare(
+		`SELECT code_verifier, return_to, created_at FROM google_login_states WHERE state = ?`
+	)
+		.bind(state)
+		.first();
+	if (!pending || Date.now() - pending.created_at > oauthStateLifetimeMilliseconds) {
+		return redirectWithProviderResult(request, 'google', 'expired');
+	}
+	await env.DB.prepare('DELETE FROM google_login_states WHERE state = ?').bind(state).run();
+	const config = googleOAuthConfig(env);
+	if (!config) return redirectWithProviderResult(request, 'google', 'error');
+	const callbackURL = new URL('/api/auth/google/callback', request.url);
+	const response = await fetch('https://oauth2.googleapis.com/token', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			client_id: config.clientID,
+			client_secret: config.clientSecret,
+			code,
+			code_verifier: pending.code_verifier,
+			grant_type: 'authorization_code',
+			redirect_uri: callbackURL.toString()
+		})
+	});
+	const value = await response.json();
+	if (!response.ok || typeof value.access_token !== 'string') {
+		return redirectWithProviderResult(request, 'google', 'error');
+	}
+	const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+		headers: { Authorization: `Bearer ${value.access_token}` }
+	});
+	const profile = await profileResponse.json();
+	const verifiedEmail =
+		profileResponse.ok &&
+		profile.email_verified === true &&
+		typeof profile.email === 'string'
+			? profile.email.trim().toLowerCase()
+			: '';
+	const email =
+		typeof profile.sub === 'string'
+			? await identityEmail(env, 'google', profile.sub, verifiedEmail)
+			: null;
+	if (!email) return redirectWithProviderResult(request, 'google', 'error');
+	return authenticatedRedirect(request, env, email, pending.return_to, 'google');
+}
+
+function pemBytes(value) {
+	const encoded = value
+		.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '');
+	return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
+}
+
+async function appleClientSecret(config) {
+	const now = Math.floor(Date.now() / 1000);
+	const encodedHeader = bytesToBase64URL(
+		new TextEncoder().encode(JSON.stringify({ alg: 'ES256', kid: config.keyID }))
+	);
+	const encodedClaims = bytesToBase64URL(
+		new TextEncoder().encode(
+			JSON.stringify({
+				iss: config.teamID,
+				iat: now,
+				exp: now + 300,
+				aud: 'https://appleid.apple.com',
+				sub: config.clientID
+			})
+		)
+	);
+	const key = await crypto.subtle.importKey(
+		'pkcs8',
+		pemBytes(config.privateKey),
+		{ name: 'ECDSA', namedCurve: 'P-256' },
+		false,
+		['sign']
+	);
+	const input = `${encodedHeader}.${encodedClaims}`;
+	const signature = await crypto.subtle.sign(
+		{ name: 'ECDSA', hash: 'SHA-256' },
+		key,
+		new TextEncoder().encode(input)
+	);
+	return `${input}.${bytesToBase64URL(new Uint8Array(signature))}`;
+}
+
+function decodeJWTPart(value) {
+	return JSON.parse(new TextDecoder().decode(base64URLToBytes(value)));
+}
+
+async function verifiedAppleIdentity(idToken, config, expectedNonce) {
+	const parts = String(idToken || '').split('.');
+	if (parts.length !== 3) return null;
+	let header;
+	let claims;
+	try {
+		header = decodeJWTPart(parts[0]);
+		claims = decodeJWTPart(parts[1]);
+	} catch {
+		return null;
+	}
+	if (
+		header.alg !== 'RS256' ||
+		typeof header.kid !== 'string' ||
+		claims.iss !== 'https://appleid.apple.com' ||
+		!(claims.aud === config.clientID ||
+			(Array.isArray(claims.aud) && claims.aud.includes(config.clientID))) ||
+		claims.nonce !== expectedNonce ||
+		Number(claims.exp) * 1000 <= Date.now()
+	) {
+		return null;
+	}
+	const keysResponse = await fetch('https://appleid.apple.com/auth/keys');
+	const keys = keysResponse.ok ? (await keysResponse.json()).keys : [];
+	const jwk = Array.isArray(keys) ? keys.find((key) => key?.kid === header.kid) : null;
+	if (!jwk) return null;
+	const key = await crypto.subtle.importKey(
+		'jwk',
+		jwk,
+		{ name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+		false,
+		['verify']
+	);
+	const valid = await crypto.subtle.verify(
+		'RSASSA-PKCS1-v1_5',
+		key,
+		base64URLToBytes(parts[2]),
+		new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+	);
+	return valid ? claims : null;
+}
+
+async function startAppleLogin(request, env) {
+	await ensureSchema(env.DB);
+	const config = appleAuthConfig(env);
+	if (!config) return json({ error: 'Apple sign-in is not configured.' }, { status: 503 });
+	const state = randomBase64URL();
+	const nonce = randomBase64URL();
+	const now = Date.now();
+	await env.DB.batch([
+		env.DB
+			.prepare('DELETE FROM apple_login_states WHERE created_at < ?')
+			.bind(now - oauthStateLifetimeMilliseconds),
+		env.DB
+			.prepare(
+				`INSERT INTO apple_login_states (state, nonce, return_to, created_at)
+				 VALUES (?, ?, ?, ?)`
+			)
+			.bind(
+				state,
+				nonce,
+				safeReturnTo(new URL(request.url).searchParams.get('return_to')),
+				now
+			)
+	]);
+	const authorizationURL = new URL('https://appleid.apple.com/auth/authorize');
+	authorizationURL.searchParams.set('client_id', config.clientID);
+	authorizationURL.searchParams.set(
+		'redirect_uri',
+		new URL('/api/auth/apple/callback', request.url).toString()
+	);
+	authorizationURL.searchParams.set('response_type', 'code');
+	authorizationURL.searchParams.set('response_mode', 'form_post');
+	authorizationURL.searchParams.set('scope', 'name email');
+	authorizationURL.searchParams.set('state', state);
+	authorizationURL.searchParams.set('nonce', nonce);
+	return Response.redirect(authorizationURL.toString(), 302);
+}
+
+async function finishAppleLogin(request, env) {
+	await ensureSchema(env.DB);
+	let form;
+	try {
+		form = await request.formData();
+	} catch {
+		return redirectWithProviderResult(request, 'apple', 'error');
+	}
+	const state = form.get('state');
+	const code = form.get('code');
+	if (typeof state !== 'string' || typeof code !== 'string') {
+		return redirectWithProviderResult(request, 'apple', 'error');
+	}
+	const pending = await env.DB.prepare(
+		`SELECT nonce, return_to, created_at FROM apple_login_states WHERE state = ?`
+	)
+		.bind(state)
+		.first();
+	if (!pending || Date.now() - pending.created_at > oauthStateLifetimeMilliseconds) {
+		return redirectWithProviderResult(request, 'apple', 'expired');
+	}
+	await env.DB.prepare('DELETE FROM apple_login_states WHERE state = ?').bind(state).run();
+	const config = appleAuthConfig(env);
+	if (!config) return redirectWithProviderResult(request, 'apple', 'error');
+	const response = await fetch('https://appleid.apple.com/auth/token', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			client_id: config.clientID,
+			client_secret: await appleClientSecret(config),
+			code,
+			grant_type: 'authorization_code',
+			redirect_uri: new URL('/api/auth/apple/callback', request.url).toString()
+		})
+	});
+	const value = await response.json();
+	const claims = response.ok
+		? await verifiedAppleIdentity(value.id_token, config, pending.nonce)
+		: null;
+	const verifiedEmail =
+		claims &&
+		(claims.email_verified === true || claims.email_verified === 'true') &&
+		typeof claims.email === 'string'
+			? claims.email.trim().toLowerCase()
+			: '';
+	const email =
+		claims && typeof claims.sub === 'string'
+			? await identityEmail(env, 'apple', claims.sub, verifiedEmail)
+			: null;
+	if (!email) return redirectWithProviderResult(request, 'apple', 'error');
+	return authenticatedRedirect(request, env, email, pending.return_to, 'apple');
+}
+
 async function storedGoogleOAuthConfig(env, connection) {
 	if (!connection?.client_id || !connection.encrypted_client_secret || !connection.client_secret_iv) {
 		return null;
@@ -1223,6 +1590,8 @@ async function googleDriveStatus(request, env) {
 
 async function startGoogleDriveConnection(request, env) {
 	await ensureSchema(env.DB);
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Sign in before connecting Google Drive.' }, { status: 401 });
 	const config = googleOAuthConfig(env);
 	if (!config) {
 		return json(
@@ -1235,23 +1604,16 @@ async function startGoogleDriveConnection(request, env) {
 	const verifier = randomBase64URL(64);
 	const challenge = await sha256Base64URL(verifier);
 	const now = Date.now();
-	const requestedReturnTo = new URL(request.url).searchParams.get('return_to');
-	const returnTo =
-		typeof requestedReturnTo === 'string' &&
-		requestedReturnTo.startsWith('/') &&
-		!requestedReturnTo.startsWith('//')
-			? requestedReturnTo
-			: '/';
 	await env.DB.batch([
 		env.DB
-			.prepare('DELETE FROM google_login_states WHERE created_at < ?')
-			.bind(now - oauthStateLifetimeMilliseconds),
+			.prepare('DELETE FROM google_oauth_states WHERE created_at < ? OR user_email = ?')
+			.bind(now - oauthStateLifetimeMilliseconds, email),
 		env.DB
 			.prepare(
-				`INSERT INTO google_login_states (state, code_verifier, return_to, created_at)
+				`INSERT INTO google_oauth_states (state, user_email, code_verifier, created_at)
 				 VALUES (?, ?, ?, ?)`
 			)
-			.bind(state, verifier, returnTo, now)
+			.bind(state, email, verifier, now)
 	]);
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -1260,7 +1622,7 @@ async function startGoogleDriveConnection(request, env) {
 	authorizationURL.searchParams.set('response_type', 'code');
 	authorizationURL.searchParams.set(
 		'scope',
-		'openid email https://www.googleapis.com/auth/drive.file'
+		'https://www.googleapis.com/auth/drive.file'
 	);
 	authorizationURL.searchParams.set('access_type', 'offline');
 	authorizationURL.searchParams.set('prompt', 'consent');
@@ -1275,10 +1637,12 @@ async function finishGoogleDriveConnection(request, env) {
 	const url = new URL(request.url);
 	const state = url.searchParams.get('state');
 	const code = url.searchParams.get('code');
-	if (!state || !code) return redirectWithProviderResult(request, 'google', 'error');
+	if (!state || !code) {
+		return redirectWithProviderResult(request, 'google', 'error', '/account');
+	}
 	const pending = await env.DB.prepare(
-		`SELECT code_verifier, return_to, created_at
-		 FROM google_login_states WHERE state = ?`
+		`SELECT user_email, code_verifier, created_at
+		 FROM google_oauth_states WHERE state = ?`
 	)
 		.bind(state)
 		.first();
@@ -1286,10 +1650,10 @@ async function finishGoogleDriveConnection(request, env) {
 		!pending ||
 		Date.now() - pending.created_at > oauthStateLifetimeMilliseconds
 	) {
-		return redirectWithProviderResult(request, 'google', 'expired');
+		return redirectWithProviderResult(request, 'google', 'expired', '/account');
 	}
 	const config = googleOAuthConfig(env);
-	if (!config) return redirectWithProviderResult(request, 'google', 'error');
+	if (!config) return redirectWithProviderResult(request, 'google', 'error', '/account');
 	const callbackURL = new URL('/api/google/connect/callback', request.url);
 	const response = await fetch('https://oauth2.googleapis.com/token', {
 		method: 'POST',
@@ -1308,19 +1672,9 @@ async function finishGoogleDriveConnection(request, env) {
 		!response.ok ||
 		typeof value.access_token !== 'string'
 	) {
-		return redirectWithProviderResult(request, 'google', 'error');
+		return redirectWithProviderResult(request, 'google', 'error', '/account');
 	}
-	const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-		headers: { Authorization: `Bearer ${value.access_token}` }
-	});
-	const profile = await profileResponse.json();
-	const email =
-		profileResponse.ok &&
-		profile.email_verified === true &&
-		typeof profile.email === 'string'
-			? profile.email.trim().toLowerCase()
-			: '';
-	if (!email) return redirectWithProviderResult(request, 'google', 'error');
+	const email = pending.user_email;
 	const existing = await googleDriveConnection(env, email);
 	const refreshToken =
 		typeof value.refresh_token === 'string' && value.refresh_token
@@ -1332,14 +1686,13 @@ async function finishGoogleDriveConnection(request, env) {
 						existing.refresh_token_iv
 					)
 				: null;
-	if (!refreshToken) return redirectWithProviderResult(request, 'google', 'error');
+	if (!refreshToken) {
+		return redirectWithProviderResult(request, 'google', 'error', '/account');
+	}
 	const encryptedAccess = await encryptCredential(env, value.access_token);
 	const encryptedRefresh = await encryptCredential(env, refreshToken);
 	const encryptedSecret = await encryptCredential(env, config.clientSecret);
 	const timestamp = new Date().toISOString();
-	const sessionToken = randomBase64URL(32);
-	const sessionHash = await sha256Hex(sessionToken);
-	const sessionExpiresAt = Date.now() + sessionLifetimeMilliseconds;
 	await env.DB.batch([
 		env.DB.prepare(
 			`INSERT INTO google_drive_connections (
@@ -1372,33 +1725,24 @@ async function finishGoogleDriveConnection(request, env) {
 			timestamp,
 			timestamp,
 		),
-		env.DB.prepare('DELETE FROM google_login_states WHERE state = ?').bind(state),
+		env.DB.prepare('DELETE FROM google_oauth_states WHERE state = ?').bind(state),
 		env.DB.prepare(
-			`INSERT INTO app_sessions (token_hash, user_email, created_at, expires_at)
-			 VALUES (?, ?, ?, ?)`
-		).bind(sessionHash, email, Date.now(), sessionExpiresAt)
+				`INSERT INTO sync_preferences (user_email, provider, updated_at)
+				 VALUES (?, 'google', ?)
+				 ON CONFLICT(user_email) DO UPDATE SET
+					provider = excluded.provider, updated_at = excluded.updated_at`
+		).bind(email, Date.now())
 	]);
 	try {
 		await ensureDriveRootFolder(env, email);
 	} catch {
 		// The account is still connected; the UI can retry folder setup.
 	}
-	const destination = new URL(pending.return_to || '/', request.url);
-	destination.searchParams.set('google', 'connected');
-	return new Response(null, {
-		status: 302,
-		headers: {
-			Location: destination.toString(),
-			'Set-Cookie': sessionCookie(
-				sessionToken,
-				Math.floor(sessionLifetimeMilliseconds / 1000)
-			)
-		}
-	});
+	return redirectWithProviderResult(request, 'google', 'connected', '/account');
 }
 
-function redirectWithProviderResult(request, provider, result) {
-	const destination = new URL('/', request.url);
+function redirectWithProviderResult(request, provider, result, path = '/') {
+	const destination = new URL(path, request.url);
 	destination.searchParams.set(provider, result);
 	return Response.redirect(destination.toString(), 302);
 }
@@ -1410,22 +1754,100 @@ async function disconnectGoogleDrive(request, env) {
 	await ensureSchema(env.DB);
 	await env.DB.batch([
 		env.DB.prepare('DELETE FROM google_drive_connections WHERE user_email = ?').bind(email),
-		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email)
+		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email),
+		env.DB.prepare(
+			`DELETE FROM sync_preferences WHERE user_email = ? AND provider = 'google'`
+		).bind(email)
 	]);
 	return json({ configured: Boolean(googleOAuthConfig(env)), connected: false });
 }
 
+async function setSyncProvider(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid sync provider.' }, { status: 400 });
+	}
+	if (value?.provider !== 'google' && value?.provider !== 'icloud') {
+		return json({ error: 'Choose iCloud or Google Drive.' }, { status: 400 });
+	}
+	if (value.provider === 'google' && !(await googleDriveConnection(env, email))?.encrypted_refresh_token) {
+		return json({ error: 'Connect Google Drive first.' }, { status: 409 });
+	}
+	if (value.provider === 'icloud' && !cloudKitConfig(env)) {
+		return json({ error: 'iCloud sync is not configured.' }, { status: 503 });
+	}
+	await ensureSchema(env.DB);
+	await env.DB.prepare(
+			`INSERT INTO sync_preferences (user_email, provider, updated_at)
+			 VALUES (?, ?, ?)
+			 ON CONFLICT(user_email) DO UPDATE SET
+				provider = excluded.provider, updated_at = excluded.updated_at`
+	)
+		.bind(email, value.provider, Date.now())
+		.run();
+	return json({ provider: value.provider });
+}
+
+async function disconnectICloud(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	await env.DB.prepare(
+		`DELETE FROM sync_preferences WHERE user_email = ? AND provider = 'icloud'`
+	)
+		.bind(email)
+		.run();
+	return json({ configured: Boolean(cloudKitConfig(env)), connected: false });
+}
+
+async function iCloudConfiguration(request, env) {
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	const config = cloudKitConfig(env);
+	if (!config) return json({ error: 'iCloud sync is not configured.' }, { status: 503 });
+	return json(config);
+}
+
 async function accountStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ authenticated: false });
-	const google = await googleDriveConnection(env, email);
+	const providers = {
+		google: Boolean(googleOAuthConfig(env)),
+		apple: Boolean(appleAuthConfig(env))
+	};
+	if (!email) return json({ authenticated: false, providers });
+	const [google, preference] = await Promise.all([
+		googleDriveConnection(env, email),
+		env.DB.prepare(`SELECT provider FROM sync_preferences WHERE user_email = ?`)
+			.bind(email)
+			.first()
+	]);
+	const syncProvider =
+		preference?.provider === 'google' || preference?.provider === 'icloud'
+			? preference.provider
+			: google?.encrypted_refresh_token
+				? 'google'
+				: null;
 	return json({
 		authenticated: true,
 		email,
+		providers,
+		syncProvider,
 		google: {
 			configured: Boolean(googleOAuthConfig(env)),
 			connected: Boolean(google?.encrypted_refresh_token),
+			selected: syncProvider === 'google',
 			folderID: google?.folder_id ?? undefined
+		},
+		icloud: {
+			configured: Boolean(cloudKitConfig(env)),
+			connected: syncProvider === 'icloud',
+			selected: syncProvider === 'icloud'
 		}
 	});
 }
@@ -1816,7 +2238,7 @@ async function createTTSCheckoutSession(request, env) {
 		return json({ error: 'Briefly AI voice top-ups are not configured yet.' }, { status: 503 });
 	}
 	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Sign in with Google to top up.' }, { status: 401 });
+	if (!email) return json({ error: 'Sign in to top up.' }, { status: 401 });
 	let value;
 	try {
 		value = await request.json();
@@ -2069,7 +2491,7 @@ async function createCheckoutSession(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) {
 		return json(
-			{ error: 'Sign in with Google to continue.', code: 'authentication_required' },
+			{ error: 'Sign in to continue.', code: 'authentication_required' },
 			{ status: 401 }
 		);
 	}
@@ -5212,7 +5634,16 @@ const worker = {
 			return accountStatus(request, env);
 		}
 		if (url.pathname === '/api/auth/google/start' && request.method === 'GET') {
-			return startGoogleDriveConnection(request, env);
+			return startGoogleLogin(request, env);
+		}
+		if (url.pathname === '/api/auth/google/callback' && request.method === 'GET') {
+			return finishGoogleLogin(request, env);
+		}
+		if (url.pathname === '/api/auth/apple/start' && request.method === 'GET') {
+			return startAppleLogin(request, env);
+		}
+		if (url.pathname === '/api/auth/apple/callback' && request.method === 'POST') {
+			return finishAppleLogin(request, env);
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
@@ -5288,6 +5719,15 @@ const worker = {
 		}
 		if (url.pathname === '/api/google/disconnect' && request.method === 'POST') {
 			return disconnectGoogleDrive(request, env);
+		}
+		if (url.pathname === '/api/icloud/config' && request.method === 'GET') {
+			return iCloudConfiguration(request, env);
+		}
+		if (url.pathname === '/api/icloud/disconnect' && request.method === 'POST') {
+			return disconnectICloud(request, env);
+		}
+		if (url.pathname === '/api/sync/provider' && request.method === 'POST') {
+			return setSyncProvider(request, env);
 		}
 		if (url.pathname === '/api/media/audio' && request.method === 'GET') {
 			const denied = await paidAccessResponse(request, env);

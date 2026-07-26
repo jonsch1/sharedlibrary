@@ -3,6 +3,7 @@ import {
 	loadGoogleDriveAudio,
 	storeGoogleDriveAudio
 } from '$lib/google-drive.js';
+import { loadICloudAudio, storeICloudAudio, type SyncProvider } from '$lib/icloud.js';
 import { ttsModels } from '../../tts-pricing.js';
 
 export const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
@@ -61,10 +62,15 @@ const voicePreferenceKey = 'shared-library-openrouter-voice';
 const modelPreferenceKey = 'shared-library-openrouter-model';
 const maximumSpeechSegmentLength = 360;
 const voiceIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+let durableAudioProvider: SyncProvider | null = null;
 
 export interface OpenRouterSpeechSource {
 	url: string;
 	release: () => void;
+}
+
+export function setDurableAudioProvider(provider: SyncProvider | null): void {
+	durableAudioProvider = provider;
 }
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
@@ -266,14 +272,19 @@ export async function loadCachedSpeech(
 		// Fall through to the durable Google Drive copy.
 	}
 	onLoadingPhase?.('downloading');
-	const driveAudio = await loadGoogleDriveAudio(hash);
-	if (!driveAudio) return null;
+	const cloudAudio =
+		durableAudioProvider === 'icloud'
+			? await loadICloudAudio(hash)
+			: durableAudioProvider === 'google'
+				? await loadGoogleDriveAudio(hash)
+				: null;
+	if (!cloudAudio) return null;
 	try {
-		await cacheSpeech(hash, driveAudio);
+		await cacheSpeech(hash, cloudAudio);
 	} catch {
 		// Playback can continue when local storage is unavailable.
 	}
-	return driveAudio;
+	return cloudAudio;
 }
 
 async function cacheSpeech(hash: string, audio: Blob): Promise<void> {
@@ -293,7 +304,7 @@ async function cacheSpeech(hash: string, audio: Blob): Promise<void> {
 export async function synchronizeOpenRouterAudioCache(
 	onProgress?: (completed: number, total: number) => void
 ): Promise<void> {
-	if (!('caches' in globalThis)) return;
+	if (!('caches' in globalThis) || durableAudioProvider !== 'google') return;
 	const files = await listGoogleDriveAudio();
 	const cache = await caches.open(audioCacheName);
 	const missing: typeof files = [];
@@ -415,8 +426,14 @@ async function persistGeneratedSpeech(hash: string, audio: Blob): Promise<void> 
 	} catch {
 		// Playback should still succeed when browser storage is full or unavailable.
 	}
-	void storeGoogleDriveAudio(hash, audio).catch(() => {
-		// Google Drive is optional; playback should not wait for or fail with its upload.
+	const store =
+		durableAudioProvider === 'icloud'
+			? storeICloudAudio
+			: durableAudioProvider === 'google'
+				? storeGoogleDriveAudio
+				: null;
+	void store?.(hash, audio).catch(() => {
+		// Cloud backup is optional; playback should not wait for or fail with its upload.
 	});
 }
 

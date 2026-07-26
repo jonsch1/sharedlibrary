@@ -325,7 +325,8 @@ async function removeStaleLibraryFiles(activeKeys: Set<string>): Promise<void> {
 
 export async function mirrorLibraryProjection(
 	projection: LibraryProjection,
-	onProgress?: (progress: LibrarySyncProgress) => void
+	onProgress?: (progress: LibrarySyncProgress) => void,
+	download: (reference: LibraryFile) => Promise<string> = downloadLibraryFile
 ): Promise<void> {
 	const activeKeys = new Set(
 		projection.files
@@ -347,7 +348,7 @@ export async function mirrorLibraryProjection(
 			while (nextIndex < missing.length) {
 				const file = missing[nextIndex];
 				nextIndex += 1;
-				await downloadLibraryFile(file);
+				await download(file);
 				completed += 1;
 				onProgress?.({ completed, total: projection.files.length });
 			}

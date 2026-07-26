@@ -3,11 +3,11 @@
 Briefly is a cross-platform Electron desktop app for capturing, processing,
 browsing, editing, and listening to a local text library. A Svelte web reader
 provides mobile access, narration, offline caching, and deliberate public share
-links. Google Drive is the private-library synchronization service; the sharing
-service stores only documents the user explicitly publishes.
+links. iCloud or Google Drive stores the private library; the sharing service
+stores only documents the user explicitly publishes.
 
 The desktop app supports macOS, Windows, and Linux. It opens the workspace directly
-and includes capture extraction, Codex processing, Google Drive synchronization,
+and includes capture extraction, Codex processing, iCloud or Google Drive synchronization,
 OpenRouter narration, share links, editing, and coordinated Trash.
 
 The default workspace is `~/Documents/Briefly`.
@@ -101,32 +101,30 @@ records and media. A recipient can read without an account or sign in and choose
 **Add to my library**, which creates an independent capture in their personal
 Google Drive and copies published narration into their private audio mirror.
 
-## Google Drive synchronization
+## Cloud synchronization
 
-Every desktop client is an editing source. After meaningful changes—captures, edits,
-processing, deletions, launch, wake, or restored connectivity—it mirrors `library/`
-and `topics.md` to the same folder structure in Drive. Files are compared by SHA-256
-hash, so unchanged files are not uploaded. Deletions are moved to Drive Trash, and
-the lightweight index is updated last.
+Every desktop client is an editing source. Account sign-in (Apple or Google) is
+separate from library storage (iCloud or Google Drive). After meaningful
+changes—captures, edits, processing, deletions, launch, wake, or restored
+connectivity—it mirrors `library/` and `topics.md` through the selected provider.
+Files are compared by SHA-256 hash, so unchanged files are not uploaded.
 
-The web reader checks Drive when it opens, every few minutes while running, when it
+The web reader checks the selected provider when it opens, every few minutes while running, when it
 regains focus, and when it returns online. It downloads every changed Markdown file
 before activating the new index, keeps the folder paths and content hashes in
 IndexedDB, and removes stale local copies after a successful sync. The previous
 complete mirror opens immediately while the next sync runs in the background.
 
 Generated narration is content-addressed by its model, voice, and text hash. It is
-cached locally on every connected client and stored under `audio/` in the visible
-`Briefly` folder in the user's own Google Drive. Existing `Shared Library` and
-`Shared Library Media` folders are reused so earlier content is not orphaned.
-Existing audio is mirrored in the background and remains playable offline.
+cached locally on every connected client and backed up through the selected sync
+provider. Google Drive uses the visible `Briefly/audio/` folder and reuses legacy
+folders. iCloud uses asset-backed records in the user's private CloudKit database.
 
-Google is the account boundary for the web and Electron clients. The first sign-in
-creates one visible `Briefly` folder or reuses a legacy folder and saves that folder
-ID for the account; later clients discover the same location after Google sign-in. The
-integration requests `openid`, `email`, and the narrow `drive.file` scope, so it can
-identify the account and access only files created by Briefly or explicitly
-selected by the user—not the rest of the user's Drive.
+Apple and Google sign-in establish the Briefly account without requesting storage
+access. Google sign-in requests `openid email`; connecting Drive later requests only
+the narrow `drive.file` scope. Sign in with Apple uses the web Services ID flow.
+Provider connection, selection, and removal all live on `/account`; the readers only
+show the resulting status.
 
 For the web reader, create a Google OAuth **Web application** client. Set
 `GOOGLE_DRIVE_WEB_CLIENT_ID` and the `GOOGLE_DRIVE_WEB_CLIENT_SECRET` deployment
@@ -136,12 +134,19 @@ authorized redirect URIs. The Electron app uses the same hosted account
 connection, so Drive is configured once per account. Account tokens are
 encrypted per signed-in user.
 
+For iCloud, configure a private CloudKit container, a web-services token restricted
+to `https://www.readbriefly.fyi`, and the three record types documented in
+`Web/README.md`. CloudKit JS talks directly to Apple's private database from the web
+reader and an authenticated hidden web context in Electron. CloudKit authorization
+is per browser/device, so Electron opens the hosted account page in its own session
+when the user manages sync.
+
 ## OpenRouter narration
 
 OpenRouter OAuth is optional. Its account-controlled API key is encrypted in the web
 backend and is never placed in Google Drive or the library projection. Text is sent
 to OpenRouter and xAI only when the user requests narration. Generated MP3 segments
-are cached locally and, when Drive is connected, uploaded automatically.
+are cached locally and uploaded automatically through the selected sync provider.
 
 ## Hotkeys
 
@@ -157,7 +162,7 @@ are cached locally and, when Drive is connected, uploaded automatically.
 | Desktop services and local library | `Electron/src/main/` |
 | Desktop UI | `Electron/src/renderer/` |
 | Capture extraction | `Tools/extractor/` |
-| Google Drive library and audio | `Electron/src/main/sync.ts` |
+| Cloud library and audio sync | `Electron/src/main/sync.ts`, `Web/src/lib/icloud.ts` |
 | Svelte web reader and backend | `Web/` |
 | Desktop tests | `Electron/src/main/*.test.ts` |
 | Web worker tests | `Web/worker/index.test.mjs` |

@@ -90,11 +90,16 @@
     "mac": {
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
+      "identity": "Developer ID Application",
+      "notarize": true,
       "artifactName": "Briefly-mac-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
       ]
+    },
+    "dmg": {
+      "sign": true
     },
     "win": {
       "icon": "build/icon.ico",
@@ -102,6 +107,13 @@
       "target": [
         "nsis"
       ]
+    },
+    "appx": {
+      "identityName": "gutercomputer.BrieflyDesktop",
+      "publisher": "CN=C904E9B2-14E0-4A8B-AFD2-BE4354B83009",
+      "publisherDisplayName": "gutercomputer",
+      "displayName": "Briefly",
+      "artifactName": "Briefly-windows-store-${arch}.${ext}"
     },
     "linux": {
       "icon": "build/icon.png",
