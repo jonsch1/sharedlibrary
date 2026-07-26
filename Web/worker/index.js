@@ -1634,7 +1634,6 @@ async function createTTSCheckoutSession(request, env) {
 	const origin = new URL(request.url).origin;
 	const form = {
 		mode: 'payment',
-		'payment_method_types[0]': 'card',
 		'line_items[0][price_data][currency]': 'eur',
 		'line_items[0][price_data][unit_amount]': String(amountCents),
 		'line_items[0][price_data][tax_behavior]': 'inclusive',
@@ -1647,14 +1646,10 @@ async function createTTSCheckoutSession(request, env) {
 		'metadata[briefly_account_id]': customer.account_id,
 		'metadata[briefly_credit_cents]': String(amountCents),
 		'payment_intent_data[metadata][briefly_kind]': 'tts_credit',
-		'payment_intent_data[metadata][briefly_account_id]': customer.account_id,
-		'automatic_tax[enabled]': 'true',
-		'tax_id_collection[enabled]': 'true'
+		'payment_intent_data[metadata][briefly_account_id]': customer.account_id
 	};
 	if (customer.stripe_customer_id) {
 		form.customer = customer.stripe_customer_id;
-		form['customer_update[address]'] = 'auto';
-		form['customer_update[name]'] = 'auto';
 	} else {
 		form.customer_email = email;
 	}
@@ -1664,7 +1659,7 @@ async function createTTSCheckoutSession(request, env) {
 			env,
 			'/checkout/sessions',
 			form,
-			`briefly-tts-checkout-v2-${checkoutID}`
+			`briefly-tts-checkout-v3-${checkoutID}`
 		);
 		if (typeof session.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');
 		return json({ url: session.url });
@@ -1927,7 +1922,6 @@ async function createCheckoutSession(request, env) {
 	const origin = new URL(request.url).origin;
 	const form = {
 		mode: 'subscription',
-		'payment_method_types[0]': 'card',
 		'line_items[0][price]': configuredTier.priceID,
 		'line_items[0][quantity]': '1',
 		client_reference_id: customer.account_id,
@@ -1937,14 +1931,10 @@ async function createCheckoutSession(request, env) {
 		'metadata[briefly_reservation_id]': reservation.reservationID,
 		'metadata[briefly_tier_key]': reservation.tier.key,
 		'subscription_data[metadata][briefly_account_id]': customer.account_id,
-		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key,
-		'automatic_tax[enabled]': 'true',
-		'tax_id_collection[enabled]': 'true'
+		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key
 	};
 	if (customer.stripe_customer_id) {
 		form.customer = customer.stripe_customer_id;
-		form['customer_update[address]'] = 'auto';
-		form['customer_update[name]'] = 'auto';
 	} else {
 		form.customer_email = email;
 	}
@@ -1955,7 +1945,7 @@ async function createCheckoutSession(request, env) {
 			env,
 			'/checkout/sessions',
 			form,
-			`briefly-checkout-v2-${reservation.reservationID}`
+			`briefly-checkout-v3-${reservation.reservationID}`
 		);
 		if (typeof session.id !== 'string' || typeof session.url !== 'string') {
 			throw new Error('Stripe did not return a Checkout URL.');
