@@ -7,14 +7,11 @@
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import LinkIcon from '@lucide/svelte/icons/link-2';
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
 	import MessageIcon from '@lucide/svelte/icons/message-circle';
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import RssIcon from '@lucide/svelte/icons/rss';
-	import SearchIcon from '@lucide/svelte/icons/search';
-	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import VolumeIcon from '@lucide/svelte/icons/volume-2';
 	import {
 		beginBrieflyPlusCheckout,
@@ -170,6 +167,18 @@
 			rotate: 4,
 			tone: 'purple'
 		}
+	];
+
+	const marqueeSources = [
+		{ id: 'youtube', label: 'YouTube' },
+		{ id: 'arxiv', label: 'arXiv' },
+		{ id: 'podcast', label: 'Podcasts' },
+		{ id: 'blog', label: 'Blog posts' },
+		{ id: 'x', label: 'X posts' },
+		{ id: 'bluesky', label: 'Bluesky' },
+		{ id: 'pdf', label: 'PDFs' },
+		{ id: 'website', label: 'Any website' },
+		{ id: 'notes', label: 'Your notes' }
 	];
 
 	const depthOptions = [
@@ -436,13 +445,6 @@
 			arena.classList.add('has-pointer');
 		};
 
-		const returnCollector = (): void => {
-			if (!arena) return;
-			const bounds = arena.getBoundingClientRect();
-			targetX = bounds.width * 0.78;
-			targetY = bounds.height * 0.58;
-		};
-
 		const handleSweepShortcut = (event: KeyboardEvent): void => {
 			const target = event.target as HTMLElement | null;
 			if (
@@ -530,7 +532,6 @@
 			if (!reduceMotion) {
 				arena.addEventListener('pointermove', setTarget, { passive: true });
 				arena.addEventListener('pointerdown', setTarget, { passive: true });
-				arena.addEventListener('pointerleave', returnCollector, { passive: true });
 			}
 			window.addEventListener('resize', layoutSweep, { passive: true });
 			window.addEventListener('keydown', handleSweepShortcut);
@@ -544,7 +545,6 @@
 			heroObserver?.disconnect();
 			arena?.removeEventListener('pointermove', setTarget);
 			arena?.removeEventListener('pointerdown', setTarget);
-			arena?.removeEventListener('pointerleave', returnCollector);
 			window.removeEventListener('resize', layoutSweep);
 			window.removeEventListener('keydown', handleSweepShortcut);
 		};
@@ -607,10 +607,6 @@
 							See how it works
 							<ArrowDownIcon aria-hidden="true" />
 						</a>
-					</div>
-					<div class="hero-free-note">
-						<CheckCircleIcon aria-hidden="true" />
-						Account required · plans and app downloads in one place
 					</div>
 				</div>
 
@@ -683,14 +679,37 @@
 			<div class="marquee-track">
 				{#each Array(2) as _}
 					<div class="marquee-set" aria-hidden="true">
-						<span>YouTube</span><i></i>
-						<span>arXiv</span><i></i>
-						<span>Podcasts</span><i></i>
-						<span>Blog posts</span><i></i>
-						<span>X posts</span><i></i>
-						<span>PDFs</span><i></i>
-						<span>Any URL</span><i></i>
-						<span>Your notes</span><i></i>
+						{#each marqueeSources as source}
+							<span class="marquee-item">
+								<span class="marquee-logo marquee-logo-{source.id}">
+									{#if source.id === 'youtube'}
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.5 2.5 0 0 0-1.8 1.8A26 26 0 0 0 2 12a26 26 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.8 1.8c1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8A26 26 0 0 0 22 12a26 26 0 0 0-.4-4.8Z" />
+											<path d="m10 15 5-3-5-3Z" class="logo-cutout" />
+										</svg>
+									{:else if source.id === 'x'}
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M18.2 2h3.7l-8 9.1L23.3 22h-7.4l-5.8-7.6L3.5 22H-.2l8.5-9.8L-.7 2h7.6l5.2 6.9L18.2 2Zm-1.3 18h2L5.8 3.9h-2Z" />
+										</svg>
+									{:else if source.id === 'bluesky'}
+										<svg viewBox="0 0 24 24" aria-hidden="true">
+											<path d="M12 10.8C10.9 8.7 8 4.7 5.2 2.8 2.6.9 1.6 1.3.9 1.6.1 1.9 0 3.1 0 3.8s.4 5.6.6 6.5c.8 2.7 3.7 3.6 6.4 3.3-4.6.7-8.7 2.4-3.3 8.4 5.9 6.1 8.1-1.4 8.8-3.7.6 2.3 2.3 9.8 8.6 3.7 4.7-4.5 1.3-7.2-3.7-8.4 2.7.3 5.6-.6 6.4-3.3.2-.9.6-5.8.6-6.5s-.1-1.9-.9-2.2c-.7-.3-1.7-.7-4.3 1.2-2.8 1.9-5.7 5.9-6.8 8Z" />
+										</svg>
+									{:else if source.id === 'podcast'}
+										<HeadphonesIcon />
+									{:else if source.id === 'blog'}
+										<RssIcon />
+									{:else if source.id === 'website'}
+										<GlobeIcon />
+									{:else if source.id === 'notes'}
+										<MessageIcon />
+									{:else}
+										<FileTextIcon />
+									{/if}
+								</span>
+								{source.label}
+							</span>
+						{/each}
 					</div>
 				{/each}
 			</div>
@@ -711,13 +730,6 @@
 						Briefly turns scattered sources into durable understanding—without another
 						inbox to triage or a note-taking ritual to maintain.
 					</p>
-					<div class="proof-note">
-						<span class="proof-icon"><CheckCircleIcon /></span>
-						<div>
-							<strong>Save once. Use repeatedly.</strong>
-							<small>Your context stays searchable, readable, and ready to work.</small>
-						</div>
-					</div>
 				</div>
 			</div>
 		</section>
@@ -751,19 +763,16 @@
 			<div class="steps-grid section-shell">
 				<article class="step-card reveal">
 					<span>01</span>
-					<div class="step-icon"><LinkIcon /></div>
 					<h3>Capture</h3>
 					<p>Copy anything worth keeping. One shortcut gets it out of your tabs.</p>
 				</article>
 				<article class="step-card reveal">
 					<span>02</span>
-					<div class="step-icon"><SparklesIcon /></div>
 					<h3>Clarify</h3>
 					<p>Briefly extracts the signal and writes every useful level of detail.</p>
 				</article>
 				<article class="step-card reveal">
 					<span>03</span>
-					<div class="step-icon"><SearchIcon /></div>
 					<h3>Connect</h3>
 					<p>Find it, read it, hear it, share it, or give it to an agent.</p>
 				</article>
@@ -812,9 +821,6 @@
 					{/each}
 				</div>
 
-				<p class="product-demo-caption">
-					No concept render: this is the current Briefly app using its built-in sample library.
-				</p>
 			</div>
 		</section>
 
@@ -831,11 +837,6 @@
 							They can build on what you know, investigate further, and leave the useful work
 							in your hands.
 						</p>
-						<ul>
-							<li><CheckCircleIcon /> Research with everything you have already saved</li>
-							<li><CheckCircleIcon /> Give any agent the context to continue</li>
-							<li><CheckCircleIcon /> Keep the insights, drafts, and decisions</li>
-						</ul>
 						<a class="button button-light" href="/">
 							Start your shared workspace
 							<ArrowRightIcon aria-hidden="true" />
@@ -1208,22 +1209,6 @@
 		margin-top: 29px;
 	}
 
-	.hero-free-note {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		margin-top: 15px;
-		color: rgb(17 17 15 / 49%);
-		font-size: 10px;
-		font-weight: 680;
-		letter-spacing: 0.015em;
-	}
-
-	.hero-free-note :global(svg) {
-		width: 13px;
-		color: #087253;
-	}
-
 	.button {
 		display: inline-flex;
 		align-items: center;
@@ -1295,7 +1280,7 @@
 		z-index: 20;
 		top: 0;
 		left: 0;
-		width: clamp(156px, 13vw, 208px);
+		width: clamp(190px, 16vw, 256px);
 		aspect-ratio: 1;
 		transform: translate3d(78vw, 58vh, 0) translate(-50%, -50%);
 		transform-origin: center;
@@ -1609,28 +1594,63 @@
 	.marquee-track {
 		display: flex;
 		width: max-content;
-		animation: marquee 30s linear infinite;
+		animation: marquee 36s linear infinite;
 	}
 
 	.marquee-set {
 		display: flex;
+		min-width: 100vw;
+		flex: 0 0 auto;
 		align-items: center;
-		gap: 24px;
-		padding-right: 24px;
+		justify-content: space-around;
+		gap: 32px;
+		padding: 0 16px;
 	}
 
-	.marquee-set span {
+	.marquee-item {
+		display: inline-flex;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: 8px;
 		font-size: 11px;
 		font-weight: 780;
 		letter-spacing: 0.13em;
 		text-transform: uppercase;
 	}
 
-	.marquee-set i {
-		width: 4px;
-		height: 4px;
-		border-radius: 50%;
-		background: var(--blue);
+	.marquee-logo {
+		display: grid;
+		width: 20px;
+		height: 20px;
+		place-items: center;
+		color: rgb(17 17 15 / 75%);
+	}
+
+	.marquee-logo :global(svg) {
+		width: 18px;
+		height: 18px;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 2;
+	}
+
+	.marquee-logo-youtube {
+		color: #f03;
+	}
+
+	.marquee-logo-youtube svg,
+	.marquee-logo-x svg,
+	.marquee-logo-bluesky svg {
+		fill: currentColor;
+		stroke: none;
+	}
+
+	.marquee-logo-youtube .logo-cutout {
+		fill: white;
+	}
+
+	.marquee-logo-bluesky {
+		color: #087bed;
 	}
 
 	.section-shell {
@@ -1678,46 +1698,6 @@
 	.attention-copy > p:first-child {
 		color: var(--ink);
 		font-weight: 610;
-	}
-
-	.proof-note {
-		display: flex;
-		align-items: flex-start;
-		gap: 13px;
-		margin-top: 40px;
-		padding-top: 21px;
-		border-top: 1px solid var(--line);
-	}
-
-	.proof-icon {
-		display: grid;
-		width: 34px;
-		height: 34px;
-		flex: 0 0 34px;
-		place-items: center;
-		border-radius: 50%;
-		background: rgb(22 77 255 / 9%);
-		color: var(--blue);
-	}
-
-	.proof-icon :global(svg) {
-		width: 17px;
-	}
-
-	.proof-note strong,
-	.proof-note small {
-		display: block;
-	}
-
-	.proof-note strong {
-		font-size: 13px;
-	}
-
-	.proof-note small {
-		margin-top: 5px;
-		color: rgb(17 17 15 / 50%);
-		font-size: 11px;
-		line-height: 1.45;
 	}
 
 	.flow-section {
@@ -2074,24 +2054,8 @@
 		letter-spacing: 0.12em;
 	}
 
-	.step-icon {
-		display: grid;
-		width: 58px;
-		height: 58px;
-		margin-top: 58px;
-		place-items: center;
-		border: 1px solid rgb(22 77 255 / 14%);
-		border-radius: 18px;
-		background: rgb(22 77 255 / 7%);
-		color: var(--blue);
-	}
-
-	.step-icon :global(svg) {
-		width: 23px;
-	}
-
 	.step-card h3 {
-		margin: 23px 0 9px;
+		margin: 135px 0 9px;
 		font-size: 23px;
 		letter-spacing: -0.045em;
 	}
@@ -2256,15 +2220,6 @@
 		color: white;
 	}
 
-	.product-demo-caption {
-		position: absolute;
-		top: calc(100% + 12px);
-		right: 6px;
-		margin: 0;
-		color: rgb(17 17 15 / 42%);
-		font-size: 9px;
-	}
-
 	.agents-section {
 		padding: clamp(110px, 14vw, 210px) 0;
 		overflow: hidden;
@@ -2303,27 +2258,8 @@
 		line-height: 1.6;
 	}
 
-	.agents-story ul {
-		display: grid;
-		gap: 14px;
-		margin: 35px 0;
-		padding: 0;
-		list-style: none;
-		color: rgb(255 255 255 / 78%);
-		font-size: 13px;
-	}
-
-	.agents-story li {
-		display: flex;
-		align-items: flex-start;
-		gap: 10px;
-	}
-
-	.agents-story li :global(svg) {
-		width: 16px;
-		flex: 0 0 16px;
-		margin-top: 1px;
-		color: #6ee08f;
+	.agents-story .button {
+		margin-top: 35px;
 	}
 
 	.agents-visual {
@@ -3136,12 +3072,6 @@
 			margin-top: 22px;
 		}
 
-		.hero-free-note {
-			max-width: 270px;
-			font-size: 9px;
-			line-height: 1.4;
-		}
-
 		.button {
 			min-height: 46px;
 			padding: 0 17px;
@@ -3153,7 +3083,7 @@
 		}
 
 		.gather-logo {
-			width: 132px;
+			width: 160px;
 		}
 
 		.source-card {
@@ -3332,8 +3262,8 @@
 			min-height: 270px;
 		}
 
-		.step-icon {
-			margin-top: 36px;
+		.step-card h3 {
+			margin-top: 100px;
 		}
 
 		.depth-section {
@@ -3375,10 +3305,6 @@
 			width: 17px;
 			height: 17px;
 			flex-basis: 17px;
-		}
-
-		.product-demo-caption {
-			display: none;
 		}
 
 		.agents-inner {
