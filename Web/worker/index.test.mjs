@@ -541,7 +541,6 @@ function environment(database = new MockDatabase()) {
 		DB: database,
 		OPENROUTER_CREDENTIAL_KEY: '0'.repeat(64),
 		OPENROUTER_API_KEY: 'sk-or-managed',
-		BRIEFLY_MANAGED_TTS_ENABLED: 'true',
 		GOOGLE_DRIVE_WEB_CLIENT_ID:
 			'123456789-sharedlibrary.apps.googleusercontent.com',
 		GOOGLE_DRIVE_WEB_CLIENT_SECRET: 'central-google-secret',
@@ -558,7 +557,7 @@ function environment(database = new MockDatabase()) {
 function stripeEnvironment(database = new MockDatabase()) {
 	return {
 		...environment(database),
-		STRIPE_SECRET_KEY: 'sk_test_briefly',
+		STRIPE_SECRET_KEY: 'rk_test_briefly',
 		STRIPE_WEBHOOK_SECRET: 'whsec_briefly_test',
 		STRIPE_PRODUCT_PLUS: 'prod_briefly_plus',
 		STRIPE_PRODUCT_TTS: 'prod_briefly_tts',
@@ -566,9 +565,29 @@ function stripeEnvironment(database = new MockDatabase()) {
 		STRIPE_PRICE_FOUNDING: 'price_founding',
 		STRIPE_PRICE_EARLY: 'price_early',
 		STRIPE_PRICE_GROWING: 'price_growing',
-		STRIPE_PRICE_STANDARD: 'price_standard',
-		BRIEFLY_BILLING_ENABLED: 'true'
+		STRIPE_PRICE_STANDARD: 'price_standard'
 	};
+}
+
+function entitledEnvironment(database = new MockDatabase()) {
+	database.billingCustomers.set('reader@example.com', {
+		user_email: 'reader@example.com',
+		account_id: 'account-reader',
+		stripe_customer_id: 'cus_reader'
+	});
+	database.billingSubscriptions.set('account-reader', {
+		account_id: 'account-reader',
+		stripe_subscription_id: 'sub_reader',
+		stripe_customer_id: 'cus_reader',
+		stripe_price_id: 'price_founding',
+		tier_key: 'founding',
+		status: 'active',
+		status_changed_at: Date.now(),
+		stripe_created_at: Date.now(),
+		current_period_end: null,
+		cancel_at_period_end: 0
+	});
+	return stripeEnvironment(database);
 }
 
 function fundedTTSEnvironment(database, balanceMicros = 500_000_000) {
@@ -660,7 +679,7 @@ test('Google sign-in is available without an existing Sites account session', as
 	assert.equal(new URL(startResponse.headers.get('location')).hostname, 'accounts.google.com');
 });
 
-test('billing publishes the launch ladder without enforcing an unconfigured checkout', async () => {
+test('billing publishes the launch ladder and fails closed until Stripe is configured', async () => {
 	const response = await worker.fetch(
 		new Request('https://library.example/api/billing/status'),
 		environment()
@@ -668,7 +687,8 @@ test('billing publishes the launch ladder without enforcing an unconfigured chec
 	assert.equal(response.status, 200);
 	const status = await response.json();
 	assert.equal(status.configured, false);
-	assert.equal(status.entitled, true);
+	assert.equal(status.entitled, false);
+	assert.equal('enforced' in status, false);
 	assert.deepEqual(
 		status.tiers.map((tier) => [tier.key, tier.amount, tier.capacity, tier.current]),
 		[
@@ -691,11 +711,8 @@ test('client-supplied identity headers cannot impersonate a Briefly account', as
 	assert.deepEqual(await response.json(), { authenticated: false });
 });
 
-test('enabled billing fails closed when Stripe configuration is incomplete', async () => {
-	const response = await worker.fetch(authenticatedRequest('/api/library'), {
-		...environment(),
-		BRIEFLY_BILLING_ENABLED: 'true'
-	});
+test('billing fails closed when Stripe configuration is incomplete', async () => {
+	const response = await worker.fetch(authenticatedRequest('/api/library'), environment());
 	assert.equal(response.status, 503);
 	assert.equal((await response.json()).code, 'billing_unavailable');
 });
@@ -1108,7 +1125,7 @@ test('desktop library uploads validate the index before touching Drive', async (
 				]
 			})
 		}),
-		environment()
+		entitledEnvironment()
 	);
 	assert.equal(response.status, 413);
 });
@@ -1135,7 +1152,7 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 				voice: 'eve'
 			})
 		}),
-		environment(database),
+		entitledEnvironment(database),
 		{
 			waitUntil(task) {
 				backgroundTask = task;
@@ -1156,7 +1173,7 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 
 	const statusResponse = await worker.fetch(
 		authenticatedRequest('/api/share-links?captureID=capture-1'),
-		environment(database)
+		entitledEnvironment(database)
 	);
 	assert.equal(statusResponse.status, 200);
 	const status = await statusResponse.json();
@@ -1241,7 +1258,7 @@ test('library file access rejects paths outside the mirrored workspace', async (
 		authenticatedRequest(
 			`/api/library/file?path=${encodeURIComponent('../secrets.md')}&hash=${'a'.repeat(64)}`
 		),
-		environment()
+		entitledEnvironment()
 	);
 	assert.equal(response.status, 400);
 	assert.deepEqual(await response.json(), { error: 'Invalid library file request.' });
@@ -1250,10 +1267,13 @@ test('library file access rejects paths outside the mirrored workspace', async (
 test('audio mirror listing requires an authenticated account', async () => {
 	const response = await worker.fetch(
 		new Request('https://library.example/api/media/audio'),
-		environment()
+		stripeEnvironment()
 	);
 	assert.equal(response.status, 401);
-	assert.deepEqual(await response.json(), { error: 'Authentication required.' });
+	assert.deepEqual(await response.json(), {
+		error: 'Sign in before using Briefly Plus.',
+		code: 'authentication_required'
+	});
 });
 
 test('GitHub endpoints are no longer exposed', async () => {
@@ -1276,7 +1296,7 @@ test('user-managed OpenRouter OAuth endpoints are no longer exposed', async () =
 });
 
 test('credential and media mutations reject cross-origin requests', async () => {
-	const env = environment();
+	const env = entitledEnvironment();
 	const mutations = [
 		{ path: '/api/tts', body: { input: 'Hello', voice: 'eve' } },
 		{ path: '/api/tts/checkout', body: { amountCents: 500 } },

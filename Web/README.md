@@ -83,7 +83,7 @@ Prices matching that table. Existing subscribers remain on their Price while
 their subscription stays active. A customer who cancels and later returns joins
 at the price then available.
 
-Configure Stripe before enabling paid access:
+Configure Stripe for paid access:
 
 1. Create a single `Briefly Plus` Product and four flat-rate recurring monthly
    Prices. Add their Product and Price IDs plus a least-privilege
@@ -115,18 +115,12 @@ Configure Stripe before enabling paid access:
    payment events; the same idempotent handler credits both subscriptions and
    narration top-ups.
 
-Leave `BRIEFLY_BILLING_ENABLED=false` until the sandbox and live-mode setup is
-verified. When the flag is `true`, missing or invalid Stripe configuration fails
-closed: Plus routes return a temporary billing error instead of granting free
-access. `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement
-window and defaults to seven days. A daily Worker cron reconciles D1 subscription
-state with Stripe.
-
-Leave `BRIEFLY_MANAGED_TTS_ENABLED=false` until OpenRouter has confirmed the
-embedded managed-narration use in writing, the managed key has a hard upstream
-spend limit, and the Stripe AI voice Product has been verified. Setting the flag
-to `true` enables managed generation and top-up Checkout; device speech remains
-available without it.
+Paid access and managed narration activate automatically when their required
+deployment secrets and Stripe IDs are present. Missing or invalid Stripe
+configuration fails closed instead of granting free Plus access.
+`STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement window and
+defaults to seven days. A daily Worker cron reconciles D1 subscription state with
+Stripe.
 
 ## Cloudflare deployment
 

@@ -22,7 +22,6 @@ export interface BillingSubscription {
 
 export interface BillingStatus {
 	configured: boolean;
-	enforced: boolean;
 	authenticated: boolean;
 	entitled: boolean;
 	subscription: BillingSubscription | null;
