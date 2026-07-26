@@ -1648,8 +1648,6 @@ async function createTTSCheckoutSession(request, env) {
 		'metadata[briefly_credit_cents]': String(amountCents),
 		'payment_intent_data[metadata][briefly_kind]': 'tts_credit',
 		'payment_intent_data[metadata][briefly_account_id]': customer.account_id,
-		'custom_text[submit][message]':
-			'AI voice credit is non-refundable except where required by law.',
 		'automatic_tax[enabled]': 'true',
 		'tax_id_collection[enabled]': 'true'
 	};
@@ -1940,8 +1938,6 @@ async function createCheckoutSession(request, env) {
 		'metadata[briefly_tier_key]': reservation.tier.key,
 		'subscription_data[metadata][briefly_account_id]': customer.account_id,
 		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key,
-		'custom_text[submit][message]':
-			'Your first paid month includes matching Briefly AI voice credit.',
 		'automatic_tax[enabled]': 'true',
 		'tax_id_collection[enabled]': 'true'
 	};

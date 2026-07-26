@@ -788,10 +788,7 @@ test('checkout validates its Price, pins the API version, and reuses one open Se
 		assert.equal(form.get('payment_method_types[0]'), 'card');
 		assert.equal(form.get('automatic_tax[enabled]'), 'true');
 		assert.equal(form.get('line_items[0][price]'), 'price_founding');
-		assert.equal(
-			form.get('custom_text[submit][message]'),
-			'Your first paid month includes matching Briefly AI voice credit.'
-		);
+		assert.equal(form.get('custom_text[submit][message]'), null);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
@@ -837,10 +834,7 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 		assert.equal(checkoutForm.get('line_items[0][price_data][tax_behavior]'), 'inclusive');
 		assert.equal(checkoutForm.get('line_items[0][price_data][product]'), 'prod_briefly_tts');
 		assert.equal(checkoutForm.get('metadata[briefly_kind]'), 'tts_credit');
-		assert.equal(
-			checkoutForm.get('custom_text[submit][message]'),
-			'AI voice credit is non-refundable except where required by law.'
-		);
+		assert.equal(checkoutForm.get('custom_text[submit][message]'), null);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
