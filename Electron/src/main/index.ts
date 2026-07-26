@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import electronUpdater from 'electron-updater';
 import type {
   ConnectionProvider,
   DesktopConnectionStatus,
@@ -759,6 +760,11 @@ app.whenReady().then(async () => {
   registerIPC();
   installMenu();
   await createWindow();
+  if (app.isPackaged) {
+    void electronUpdater.autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+      console.error('Desktop update check failed:', error);
+    });
+  }
   sync.request('the library', 1500);
   setInterval(() => sync.request('background changes', 100), 5 * 60 * 1000).unref();
   app.on('activate', () => {

@@ -23,6 +23,7 @@
   "dependencies": {
     "@lucide/svelte": "1.26.0",
     "dompurify": "3.4.12",
+    "electron-updater": "6.8.9",
     "marked": "18.0.7",
     "svelte": "5.56.7"
   },
@@ -43,6 +44,11 @@
     "productName": "Briefly",
     "directories": {
       "output": "release"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "jonsch1",
+      "repo": "briefly-downloads"
     },
     "files": [
       "out/**/*",
@@ -84,6 +90,7 @@
     "mac": {
       "icon": "build/icon.png",
       "category": "public.app-category.productivity",
+      "artifactName": "Briefly-mac-${arch}.${ext}",
       "target": [
         "dmg",
         "zip"
@@ -91,6 +98,7 @@
     },
     "win": {
       "icon": "build/icon.ico",
+      "artifactName": "Briefly-windows-${arch}.${ext}",
       "target": [
         "nsis"
       ]
@@ -98,10 +106,14 @@
     "linux": {
       "icon": "build/icon.png",
       "category": "Office",
+      "artifactName": "Briefly-linux-${arch}.${ext}",
       "target": [
         "AppImage",
         "deb"
       ]
+    },
+    "deb": {
+      "artifactName": "Briefly-linux-amd64.${ext}"
     }
   }
 }

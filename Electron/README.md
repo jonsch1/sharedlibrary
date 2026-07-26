@@ -62,3 +62,14 @@ GitHub Actions runs the unit and smoke tests on native macOS, Windows, and Linux
 runners. Linux runs Electron under Xvfb. Pushes to `main`, version tags, and
 manual workflow runs also verify that an unpacked app can be packaged on each
 platform.
+
+## Desktop releases
+
+Update `version` in `package.json` and `package-lock.json`, then push the matching
+`v*` tag. The desktop release workflow signs each native build and publishes the
+installers, blockmaps, and update metadata to `jonsch1/briefly-downloads`.
+
+The workflow requires `BRIEFLY_DOWNLOADS_TOKEN`, `MAC_CSC_LINK`,
+`MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`,
+`APPLE_TEAM_ID`, `WIN_CSC_LINK`, and `WIN_CSC_KEY_PASSWORD` repository secrets.
+The downloads token needs release write access only to `briefly-downloads`.

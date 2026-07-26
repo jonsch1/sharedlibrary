@@ -1,10 +1,13 @@
 name: Desktop release assets
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: Release version without the v prefix
+        description: Electron/package.json version to publish
         required: true
         default: 0.1.0
 
@@ -23,18 +26,24 @@ jobs:
           - label: macOS universal
             os: macos-latest
             target: mac
-            build_args: --mac dmg --universal
+            build_args: --mac dmg zip --universal -c.mac.forceCodeSigning=true
           - label: Windows x64
             os: windows-latest
             target: windows
-            build_args: --win nsis --x64
+            build_args: --win nsis --x64 -c.win.forceCodeSigning=true
           - label: Linux x64
             os: ubuntu-latest
             target: linux
             build_args: --linux AppImage deb --x64
 
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      CSC_LINK: ${{ matrix.target == 'mac' && secrets.MAC_CSC_LINK || '' }}
+      CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+      APPLE_ID: ${{ matrix.target == 'mac' && secrets.APPLE_ID || '' }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.target == 'mac' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+      APPLE_TEAM_ID: ${{ matrix.target == 'mac' && secrets.APPLE_TEAM_ID || '' }}
+      WIN_CSC_LINK: ${{ matrix.target == 'windows' && secrets.WIN_CSC_LINK || '' }}
+      WIN_CSC_KEY_PASSWORD: ${{ matrix.target == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
 
     defaults:
       run:
@@ -59,6 +68,15 @@ jobs:
       - name: Install extractor dependencies
         run: npm --prefix ../Tools/extractor ci
 
+      - name: Verify release version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          test "$package_version" = "${REQUESTED_VERSION#v}"
+
       - name: Test extractor
         run: npm --prefix ../Tools/extractor test
 
@@ -68,34 +86,67 @@ jobs:
       - name: Build installer
         run: npm run dist -- ${{ matrix.build_args }} --publish never
 
-      - name: Prepare public filenames
-        shell: bash
-        env:
-          RELEASE_TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          mkdir -p release-assets
-          case "$RELEASE_TARGET" in
-            mac)
-              cp "$(find release -maxdepth 1 -name '*.dmg' -print -quit)" \
-                release-assets/Briefly-mac-universal.dmg
-              ;;
-            windows)
-              cp "$(find release -maxdepth 1 -name '*.exe' -print -quit)" \
-                release-assets/Briefly-windows-x64.exe
-              ;;
-            linux)
-              cp "$(find release -maxdepth 1 -name '*.AppImage' -print -quit)" \
-                release-assets/Briefly-linux-x64.AppImage
-              cp "$(find release -maxdepth 1 -name '*.deb' -print -quit)" \
-                release-assets/Briefly-linux-amd64.deb
-              ;;
-          esac
-
-      - name: Upload installer
+      - name: Upload release files
         uses: actions/upload-artifact@v6
         with:
-          name: briefly-${{ matrix.target }}-${{ inputs.version }}
-          path: Electron/release-assets/*
+          name: briefly-${{ matrix.target }}
+          path: |
+            Electron/release/*.dmg
+            Electron/release/*.zip
+            Electron/release/*.exe
+            Electron/release/*.AppImage
+            Electron/release/*.deb
+            Electron/release/*.blockmap
+            Electron/release/latest*.yml
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    name: Publish update
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Download release files
+        uses: actions/download-artifact@v7
+        with:
+          pattern: briefly-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify differential update files
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            Briefly-mac-universal.dmg \
+            Briefly-mac-universal.zip \
+            Briefly-mac-universal.zip.blockmap \
+            Briefly-windows-x64.exe \
+            Briefly-windows-x64.exe.blockmap \
+            Briefly-linux-x64.AppImage \
+            Briefly-linux-amd64.deb \
+            latest-mac.yml \
+            latest.yml \
+            latest-linux.yml
+          do
+            test -f "release-assets/$file"
+          done
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BRIEFLY_DOWNLOADS_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./Electron/package.json').version")"
+          tag="v$version"
+          gh release view "$tag" --repo jonsch1/briefly-downloads >/dev/null 2>&1 ||
+            gh release create "$tag" --repo jonsch1/briefly-downloads --draft \
+              --title "Briefly $version" --notes "Briefly desktop $version"
+          gh release upload "$tag" release-assets/* \
+            --repo jonsch1/briefly-downloads --clobber
+          gh release edit "$tag" --repo jonsch1/briefly-downloads --draft=false
