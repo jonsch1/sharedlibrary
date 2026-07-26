@@ -42,6 +42,7 @@
     NarrationLoadingPhase,
     NarrationSegment,
     NarrationStatus,
+    OpenRouterTTSModel,
     OpenRouterVoice,
     ProcessingPreferences,
     TopicDefinition,
@@ -51,6 +52,13 @@
     captureShortcutFromKeyboardEvent,
     formatCaptureShortcut
   } from '../shared/shortcuts';
+  import {
+    defaultOpenRouterTTSModel,
+    normalizeOpenRouterTTSModel,
+    openRouterTTSModels,
+    openRouterVoiceName,
+    voicesForTTSModel
+  } from '../shared/contracts';
 
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let selectedID = $state('');
@@ -73,7 +81,7 @@
     message: 'Sign in with Google to synchronize this library.'
   });
   let voice = $state<OpenRouterVoice>('af_heart');
-  let ttsModel = $state('hexgrad/kokoro-82m');
+  let ttsModel = $state<OpenRouterTTSModel>(defaultOpenRouterTTSModel);
   let narrationState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
   let narrationLoadingPhase = $state<NarrationLoadingPhase>('checking');
   let narrationRequestID = 0;
@@ -125,6 +133,10 @@
       : narrationLoadingPhase === 'downloading'
         ? 'Downloading audio'
         : 'Checking audio'
+  );
+  let currentTTSOption = $derived(
+    openRouterTTSModels.find((option) => option.id === ttsModel) ??
+      openRouterTTSModels[0]
   );
   let captureShortcutLabel = $derived(
     shortcutRecording
@@ -394,7 +406,7 @@
   }
 
   async function changeVoice(event: Event): Promise<void> {
-    const input = event.currentTarget as HTMLInputElement;
+    const input = event.currentTarget as HTMLSelectElement;
     try {
       connections = await window.sharedLibrary.setVoice(input.value);
       voice = connections.voice;
@@ -407,13 +419,16 @@
   }
 
   async function changeTTSModel(event: Event): Promise<void> {
-    const input = event.currentTarget as HTMLInputElement;
+    const input = event.currentTarget as HTMLSelectElement;
     try {
-      connections = await window.sharedLibrary.setTTSModel(input.value);
+      const selected = normalizeOpenRouterTTSModel(input.value);
+      if (!selected) throw new Error('Choose Low, Medium, or High narration quality.');
+      connections = await window.sharedLibrary.setTTSModel(selected);
       ttsModel = connections.ttsModel;
       voice = connections.voice;
       input.value = ttsModel;
-      message = `${ttsModel} selected for new narration.`;
+      const option = openRouterTTSModels.find((candidate) => candidate.id === ttsModel);
+      message = `${option?.quality ?? 'Selected'} quality selected for new narration.`;
     } catch (error) {
       input.value = ttsModel;
       message =
@@ -1013,47 +1028,37 @@
           <div>
             <h3>Narration</h3>
             <p>
-              Connect OpenRouter for narration. Audio is cached locally and backed up
-              to your Drive folder.
+              Connect OpenRouter for streaming narration. Completed audio is cached
+              locally and backed up to your Drive folder.
             </p>
           </div>
         </div>
         <label class="voice-field">
-          <span>OpenRouter model</span>
-          <input
+          <span>Quality</span>
+          <select
             value={ttsModel}
-            aria-label="OpenRouter TTS model"
-            autocomplete="off"
-            spellcheck="false"
+            aria-label="Narration quality"
             onchange={changeTTSModel}
-          />
+          >
+            {#each openRouterTTSModels as option}
+              <option value={option.id}>
+                {option.quality} · {option.name} · ${option.pricePerMillionCharacters}/M chars
+              </option>
+            {/each}
+          </select>
+          <small>{currentTTSOption.description}</small>
         </label>
         <label class="voice-field">
           <span>Voice</span>
-          <input
+          <select
             value={voice}
             aria-label="OpenRouter voice"
-            list="openrouter-voice-suggestions"
-            autocomplete="off"
-            spellcheck="false"
             onchange={changeVoice}
-          />
-          <datalist id="openrouter-voice-suggestions">
-            <option value="af_heart">Kokoro · Heart</option>
-            <option value="af_alloy">Kokoro · Alloy</option>
-            <option value="tara">Orpheus · Tara</option>
-            <option value="leah">Orpheus · Leah</option>
-            <option value="jess">Orpheus · Jess</option>
-            <option value="leo">Orpheus / Grok · Leo</option>
-            <option value="dan">Orpheus · Dan</option>
-            <option value="mia">Orpheus · Mia</option>
-            <option value="zac">Orpheus · Zac</option>
-            <option value="zoe">Orpheus · Zoe</option>
-            <option value="eve">Grok · Eve</option>
-            <option value="ara">Grok · Ara</option>
-            <option value="rex">Grok · Rex</option>
-            <option value="sal">Grok · Sal</option>
-          </datalist>
+          >
+            {#each voicesForTTSModel(ttsModel) as option}
+              <option value={option}>{openRouterVoiceName(option)}</option>
+            {/each}
+          </select>
         </label>
         <div class="panel-actions">
           {#if connections?.openrouter.connected}

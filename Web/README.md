@@ -26,8 +26,9 @@ audio under `audio/` in a visible `Briefly` folder. It reuses existing
 ## OpenRouter
 
 OpenRouter OAuth is optional and account-scoped. Its key is encrypted in D1 and used
-only by the server-side speech route. Audio playback begins from a complete MP3
-response, then the result is cached in the browser and copied to Google Drive.
+only by the server-side speech route. Readers choose Low (Kokoro), Medium (Orpheus),
+or High (Grok Voice) quality. Supported browsers begin playback as MP3 bytes arrive;
+the complete result is still cached in the browser and copied to Google Drive.
 
 ## Development
 

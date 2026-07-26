@@ -23,6 +23,7 @@ import type {
   DesktopIngestionStatus,
   DesktopShortcutPreferences,
   LibraryVariant,
+  OpenRouterTTSModel,
   OpenRouterVoice,
   ProcessingPreferences,
   ProcessingPreferencesUpdate
@@ -33,6 +34,7 @@ import {
 } from '../shared/shortcuts.js';
 import {
   defaultOpenRouterTTSModel,
+  isVoiceForTTSModel,
   migrateVoiceForTTSModel,
   normalizeOpenRouterVoice,
   normalizeOpenRouterTTSModel,
@@ -84,7 +86,7 @@ let processing: ProcessingService;
 let narration: NarrationService;
 let sync: SyncCoordinator;
 let voice: OpenRouterVoice = 'af_heart';
-let ttsModel = defaultOpenRouterTTSModel;
+let ttsModel: OpenRouterTTSModel = defaultOpenRouterTTSModel;
 let captureShortcut = defaultCaptureShortcut;
 let activeIngestionCount = 0;
 
@@ -427,7 +429,9 @@ function registerIPC(): void {
   });
   ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
     const normalizedVoice = normalizeOpenRouterVoice(nextVoice);
-    if (!normalizedVoice) throw new Error('Enter a valid provider voice identifier.');
+    if (!normalizedVoice || !isVoiceForTTSModel(ttsModel, normalizedVoice)) {
+      throw new Error('Choose a voice supported by the selected narration quality.');
+    }
     voice = normalizedVoice;
     await settings.update({ voice });
     return connectionStatus();
@@ -435,7 +439,7 @@ function registerIPC(): void {
   ipcMain.handle('services:set-tts-model', async (_event, value: unknown) => {
     const nextModel = normalizeOpenRouterTTSModel(value);
     if (!nextModel) {
-      throw new Error('Enter an OpenRouter model slug such as hexgrad/kokoro-82m.');
+      throw new Error('Choose Low, Medium, or High narration quality.');
     }
     const changed = nextModel !== ttsModel;
     ttsModel = nextModel;
@@ -721,6 +725,8 @@ app.whenReady().then(async () => {
     (status) => mainWindow?.webContents.send('narration:status', status)
   );
   protocol.handle('shared-library-audio', (request) => {
+    const streamingResponse = narration.responseForURL(request.url);
+    if (streamingResponse) return Promise.resolve(streamingResponse);
     const path = narration.pathForURL(request.url);
     return path
       ? net.fetch(pathToFileURL(path).toString())

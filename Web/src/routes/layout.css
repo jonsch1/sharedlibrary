@@ -1614,7 +1614,12 @@
 
 .audio-voice-input {
 	width: 150px;
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	height: 36px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	padding: 0 30px 0 10px;
+	background: var(--background);
+	color: var(--foreground);
 	font-size: 11px;
 }
 
@@ -1632,9 +1637,15 @@
 	text-transform: uppercase;
 }
 
-.audio-model-field input {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-	font-size: 11px;
+.audio-model-field select {
+	width: 100%;
+	height: 36px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	padding: 0 30px 0 10px;
+	background: var(--background);
+	color: var(--foreground);
+	font-size: 12px;
 }
 
 .voice-description {

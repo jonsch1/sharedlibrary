@@ -8,24 +8,48 @@ export const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
 export const grokVoiceModel = 'x-ai/grok-voice-tts-1.0';
 export const orpheusVoiceModel = 'canopylabs/orpheus-3b-0.1-ft';
 
-export const openRouterVoices = [
-	{ id: 'af_heart', name: 'Heart', description: 'Kokoro · American English female' },
-	{ id: 'af_alloy', name: 'Alloy', description: 'Kokoro · American English female' },
-	{ id: 'tara', name: 'Tara', description: 'Orpheus · expressive female' },
-	{ id: 'leah', name: 'Leah', description: 'Orpheus · warm female' },
-	{ id: 'jess', name: 'Jess', description: 'Orpheus · energetic female' },
-	{ id: 'dan', name: 'Dan', description: 'Orpheus · friendly male' },
-	{ id: 'mia', name: 'Mia', description: 'Orpheus · articulate female' },
-	{ id: 'zac', name: 'Zac', description: 'Orpheus · enthusiastic male' },
-	{ id: 'zoe', name: 'Zoe', description: 'Orpheus · calm female' },
-	{ id: 'eve', name: 'Eve', description: 'Energetic and engaging' },
-	{ id: 'ara', name: 'Ara', description: 'Clear and composed' },
-	{ id: 'leo', name: 'Leo', description: 'Warm and friendly' },
-	{ id: 'rex', name: 'Rex', description: 'Confident and direct' },
-	{ id: 'sal', name: 'Sal', description: 'Natural and conversational' }
+const kokoroVoices = [
+	'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
+	'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam',
+	'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
+	'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
+	'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex',
+	'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi',
+	'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi',
+	'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei',
+	'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi',
+	'zm_yunxia', 'zm_yunyang'
+] as const;
+
+export const openRouterTTSOptions = [
+	{
+		model: defaultOpenRouterModel,
+		quality: 'Low',
+		name: 'Kokoro 82M',
+		pricePerMillionCharacters: 0.62,
+		description: 'Fast, clear narration at the lowest cost.',
+		voices: kokoroVoices
+	},
+	{
+		model: orpheusVoiceModel,
+		quality: 'Medium',
+		name: 'Orpheus 3B',
+		pricePerMillionCharacters: 7,
+		description: 'More expressive delivery at a mid-range price.',
+		voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']
+	},
+	{
+		model: grokVoiceModel,
+		quality: 'High',
+		name: 'Grok Voice',
+		pricePerMillionCharacters: 15,
+		description: 'The most natural, polished narration.',
+		voices: ['eve', 'ara', 'rex', 'sal', 'leo']
+	}
 ] as const;
 
 export type OpenRouterVoice = string;
+export type OpenRouterTTSModel = (typeof openRouterTTSOptions)[number]['model'];
 export type SpeechLoadingPhase = 'checking' | 'downloading' | 'generating';
 
 export interface OpenRouterCredential {
@@ -38,8 +62,6 @@ const audioCacheName = 'shared-library-openrouter-audio-v1';
 const voicePreferenceKey = 'shared-library-openrouter-voice';
 const modelPreferenceKey = 'shared-library-openrouter-model';
 const maximumSpeechSegmentLength = 360;
-const modelIdentifierPattern =
-	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const voiceIdentifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
 export interface OpenRouterSpeechSource {
@@ -125,17 +147,30 @@ export async function completeOpenRouterConnection(): Promise<OpenRouterCredenti
 	return credential;
 }
 
-export function normalizeOpenRouterModel(value: unknown): string | null {
+export function normalizeOpenRouterModel(value: unknown): OpenRouterTTSModel | null {
 	if (typeof value !== 'string') return null;
 	const model = value.trim();
-	return modelIdentifierPattern.test(model) ? model : null;
+	return openRouterTTSOptions.some((option) => option.model === model)
+		? (model as OpenRouterTTSModel)
+		: null;
 }
 
-export function recommendedVoiceForModel(model: string): OpenRouterVoice | null {
+export function recommendedVoiceForModel(model: OpenRouterTTSModel): OpenRouterVoice {
 	if (model === defaultOpenRouterModel) return 'af_heart';
 	if (model === orpheusVoiceModel) return 'tara';
-	if (model === grokVoiceModel) return 'eve';
-	return null;
+	return 'eve';
+}
+
+export function voicesForModel(model: OpenRouterTTSModel): readonly OpenRouterVoice[] {
+	return openRouterTTSOptions.find((option) => option.model === model)?.voices ?? [];
+}
+
+export function voiceName(voice: OpenRouterVoice): string {
+	return voice
+		.replace(/^[a-z]{2}_/, '')
+		.split('_')
+		.map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+		.join(' ');
 }
 
 export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null {
@@ -144,18 +179,16 @@ export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null
 	return voiceIdentifierPattern.test(voice) ? voice : null;
 }
 
-function migrateVoiceForModel(model: string, voice: OpenRouterVoice | null): OpenRouterVoice {
+function migrateVoiceForModel(
+	model: OpenRouterTTSModel,
+	voice: OpenRouterVoice | null
+): OpenRouterVoice {
 	const recommended = recommendedVoiceForModel(model);
-	if (!voice) return recommended ?? 'af_heart';
-	if (model === defaultOpenRouterModel && ['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(voice)) {
-		return recommended ?? voice;
-	}
-	if (model === orpheusVoiceModel && voice === 'alloy') return recommended ?? voice;
-	return voice;
+	return voice && voicesForModel(model).includes(voice) ? voice : recommended;
 }
 
 export function loadOpenRouterPreferences(): {
-	model: string;
+	model: OpenRouterTTSModel;
 	voice: OpenRouterVoice;
 } {
 	const storedModel = localStorage.getItem(modelPreferenceKey);
@@ -167,7 +200,7 @@ export function loadOpenRouterPreferences(): {
 	// Start the new Kokoro default with its broadly supported example voice.
 	return {
 		model,
-		voice: storedModel ? voice : (recommendedVoiceForModel(model) ?? voice)
+		voice: storedModel ? voice : recommendedVoiceForModel(model)
 	};
 }
 
@@ -175,7 +208,7 @@ export function saveVoicePreference(voice: OpenRouterVoice): void {
 	localStorage.setItem(voicePreferenceKey, voice);
 }
 
-export function saveModelPreference(model: string): void {
+export function saveModelPreference(model: OpenRouterTTSModel): void {
 	localStorage.setItem(modelPreferenceKey, model);
 }
 
@@ -227,7 +260,7 @@ export function openRouterSpeechChunks(text: string): string[] {
 export async function audioFingerprint(
 	text: string,
 	voice: OpenRouterVoice,
-	model: string
+	model: OpenRouterTTSModel
 ): Promise<string> {
 	const fingerprint = await crypto.subtle.digest(
 		'SHA-256',
@@ -245,7 +278,7 @@ function audioCacheRequest(hash: string): Request {
 export async function loadCachedSpeech(
 	text: string,
 	voice: OpenRouterVoice,
-	model: string,
+	model: OpenRouterTTSModel,
 	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<Blob | null> {
 	onLoadingPhase?.('checking');
@@ -349,11 +382,143 @@ function abortError(): DOMException {
 	return new DOMException('Speech generation was cancelled.', 'AbortError');
 }
 
+function canStreamMP3(): boolean {
+	return (
+		'MediaSource' in globalThis &&
+		typeof MediaSource.isTypeSupported === 'function' &&
+		MediaSource.isTypeSupported('audio/mpeg')
+	);
+}
+
+function waitForMediaSource(
+	mediaSource: MediaSource,
+	signal?: AbortSignal
+): Promise<void> {
+	if (mediaSource.readyState === 'open') return Promise.resolve();
+	return new Promise((resolve, reject) => {
+		const opened = (): void => {
+			cleanup();
+			resolve();
+		};
+		const aborted = (): void => {
+			cleanup();
+			reject(abortError());
+		};
+		const cleanup = (): void => {
+			mediaSource.removeEventListener('sourceopen', opened);
+			signal?.removeEventListener('abort', aborted);
+		};
+		mediaSource.addEventListener('sourceopen', opened, { once: true });
+		signal?.addEventListener('abort', aborted, { once: true });
+	});
+}
+
+function appendMP3Chunk(sourceBuffer: SourceBuffer, chunk: Uint8Array): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const completed = (): void => {
+			cleanup();
+			resolve();
+		};
+		const failed = (): void => {
+			cleanup();
+			reject(new Error('The streamed audio could not be decoded.'));
+		};
+		const cleanup = (): void => {
+			sourceBuffer.removeEventListener('updateend', completed);
+			sourceBuffer.removeEventListener('error', failed);
+		};
+		sourceBuffer.addEventListener('updateend', completed, { once: true });
+		sourceBuffer.addEventListener('error', failed, { once: true });
+		try {
+			const buffer = new ArrayBuffer(chunk.byteLength);
+			new Uint8Array(buffer).set(chunk);
+			sourceBuffer.appendBuffer(buffer);
+		} catch (error) {
+			cleanup();
+			reject(error);
+		}
+	});
+}
+
+async function persistGeneratedSpeech(hash: string, audio: Blob): Promise<void> {
+	try {
+		await cacheSpeech(hash, audio);
+	} catch {
+		// Playback should still succeed when browser storage is full or unavailable.
+	}
+	void storeGoogleDriveAudio(hash, audio).catch(() => {
+		// Google Drive is optional; playback should not wait for or fail with its upload.
+	});
+}
+
+function mediaSourceSpeechSource(
+	body: ReadableStream<Uint8Array>,
+	hash: string,
+	signal?: AbortSignal
+): OpenRouterSpeechSource {
+	const mediaSource = new MediaSource();
+	const url = URL.createObjectURL(mediaSource);
+	const [playbackBody, persistenceBody] = body.tee();
+	const reader = playbackBody.getReader();
+	let released = false;
+
+	void new Response(persistenceBody)
+		.blob()
+		.then((audio) => {
+			if (audio.size) return persistGeneratedSpeech(hash, new Blob([audio], { type: 'audio/mpeg' }));
+		})
+		.catch(() => {
+			// Streaming playback should continue when caching fails.
+		});
+
+	void (async () => {
+		try {
+			await waitForMediaSource(mediaSource, signal);
+			if (released || signal?.aborted) throw abortError();
+			const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value?.byteLength) continue;
+				const copy = value.slice();
+				await appendMP3Chunk(sourceBuffer, copy);
+			}
+			if (mediaSource.readyState === 'open' && !sourceBuffer.updating) {
+				mediaSource.endOfStream();
+			}
+		} catch (error) {
+			if (mediaSource.readyState === 'open') {
+				try {
+					mediaSource.endOfStream(
+						error instanceof DOMException && error.name === 'AbortError'
+							? undefined
+							: 'network'
+					);
+				} catch {
+					// The media element may already have closed the source.
+				}
+			}
+		} finally {
+			reader.releaseLock();
+		}
+	})();
+
+	return {
+		url,
+		release: () => {
+			if (released) return;
+			released = true;
+			void reader.cancel().catch(() => {});
+			URL.revokeObjectURL(url);
+		}
+	};
+}
+
 export async function createOpenRouterSpeechSource(
 	_credential: OpenRouterCredential,
 	text: string,
 	voice: OpenRouterVoice,
-	model: string,
+	model: OpenRouterTTSModel,
 	signal?: AbortSignal,
 	onLoadingPhase?: (phase: SpeechLoadingPhase) => void
 ): Promise<OpenRouterSpeechSource> {
@@ -379,16 +544,12 @@ export async function createOpenRouterSpeechSource(
 	}
 
 	onLoadingPhase?.('downloading');
+	const hash = await audioFingerprint(text, voice, model);
+	if (response.body && canStreamMP3()) {
+		return mediaSourceSpeechSource(response.body, hash, signal);
+	}
 	const audio = await response.blob();
 	if (!audio.size) throw new OpenRouterSpeechError('OpenRouter returned empty audio.', 502);
-	const hash = await audioFingerprint(text, voice, model);
-	try {
-		await cacheSpeech(hash, audio);
-	} catch {
-		// Playback should still succeed when browser storage is full or unavailable.
-	}
-	void storeGoogleDriveAudio(hash, audio).catch(() => {
-		// Google Drive is optional; playback should not wait for or fail with its upload.
-	});
+	await persistGeneratedSpeech(hash, audio);
 	return blobSpeechSource(audio);
 }

@@ -47,12 +47,15 @@
 		loadOpenRouterCredential,
 		normalizeOpenRouterModel,
 		normalizeOpenRouterVoice,
-		openRouterVoices,
+		openRouterTTSOptions,
 		recommendedVoiceForModel,
 		saveModelPreference,
 		saveVoicePreference,
 		synchronizeOpenRouterAudioCache,
+		voiceName,
+		voicesForModel,
 		type OpenRouterCredential,
+		type OpenRouterTTSModel,
 		type OpenRouterVoice
 	} from '$lib/openrouter.js';
 	import {
@@ -104,7 +107,7 @@
 	let playbackRate = $state(1);
 	let openRouterCredential = $state<OpenRouterCredential | null>(null);
 	let openRouterVoice = $state<OpenRouterVoice>('af_heart');
-	let openRouterModel = $state(defaultOpenRouterModel);
+	let openRouterModel = $state<OpenRouterTTSModel>(defaultOpenRouterModel);
 	let openRouterBusy = $state(false);
 	let audioMessage = $state('');
 	let connectionMessage = $state('');
@@ -165,7 +168,11 @@
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
 	);
 	let currentVoiceName = $derived(
-		openRouterVoices.find((voice) => voice.id === openRouterVoice)?.name ?? openRouterVoice
+		voiceName(openRouterVoice)
+	);
+	let currentTTSOption = $derived(
+		openRouterTTSOptions.find((option) => option.model === openRouterModel) ??
+			openRouterTTSOptions[0]
 	);
 	let selectedAudioActive = $derived(
 		player.currentEntry?.id === selectedEntry?.id &&
@@ -728,38 +735,39 @@
 	}
 
 	function updateVoice(event: Event): void {
-		const input = event.currentTarget as HTMLInputElement;
+		const input = event.currentTarget as HTMLSelectElement;
 		const selected = normalizeOpenRouterVoice(input.value);
-		if (!selected) {
+		if (!selected || !voicesForModel(openRouterModel).includes(selected)) {
 			input.value = openRouterVoice;
-			audioMessage = 'Enter a valid provider voice identifier.';
+			audioMessage = 'Choose a voice supported by the selected quality.';
 			return;
 		}
 		openRouterVoice = selected;
 		input.value = selected;
 		saveVoicePreference(selected);
 		player.configureOpenRouter(openRouterCredential, selected, openRouterModel);
-		audioMessage = `${openRouterVoices.find((voice) => voice.id === selected)?.name ?? selected} selected.`;
+		audioMessage = `${voiceName(selected)} selected.`;
 	}
 
 	function updateOpenRouterModel(event: Event): void {
-		const input = event.currentTarget as HTMLInputElement;
+		const input = event.currentTarget as HTMLSelectElement;
 		const nextModel = normalizeOpenRouterModel(input.value);
 		if (!nextModel) {
 			input.value = openRouterModel;
-			audioMessage = 'Enter an OpenRouter model slug such as hexgrad/kokoro-82m.';
+			audioMessage = 'Choose Low, Medium, or High narration quality.';
 			return;
 		}
 		const changed = nextModel !== openRouterModel;
 		openRouterModel = nextModel;
 		saveModelPreference(nextModel);
-		const recommendedVoice = changed ? recommendedVoiceForModel(nextModel) : null;
-		if (recommendedVoice) {
+		const recommendedVoice = changed ? recommendedVoiceForModel(nextModel) : openRouterVoice;
+		if (changed) {
 			openRouterVoice = recommendedVoice;
 			saveVoicePreference(recommendedVoice);
 		}
 		player.configureOpenRouter(openRouterCredential, openRouterVoice, nextModel);
-		audioMessage = `${nextModel} selected for new narration.`;
+		const option = openRouterTTSOptions.find((candidate) => candidate.model === nextModel);
+		audioMessage = `${option?.quality ?? 'Selected'} quality selected for new narration.`;
 	}
 
 	function dismissToast(): void {
@@ -1206,7 +1214,7 @@
 									{openRouterCredential ? 'Connected' : 'Optional'}
 								</Badge>
 							</div>
-							<p>Natural Grok narration, generated when you press Listen.</p>
+							<p>Streaming narration in three quality and cost levels.</p>
 						</div>
 					</div>
 
@@ -1239,39 +1247,35 @@
 							<h3>Narrator</h3>
 							<p>Used for newly generated audio.</p>
 						</div>
-						<Input
+						<select
 							class="audio-voice-input"
 							value={openRouterVoice}
 							disabled={!openRouterCredential}
 							aria-label="OpenRouter narrator"
-							list="openrouter-voice-suggestions"
-							autocapitalize="none"
-							autocomplete="off"
-							spellcheck="false"
 							onchange={updateVoice}
-						/>
-						<datalist id="openrouter-voice-suggestions">
-							{#each openRouterVoices as voice}
-								<option value={voice.id}>{voice.name}</option>
+						>
+							{#each voicesForModel(openRouterModel) as voice}
+								<option value={voice}>{voiceName(voice)}</option>
 							{/each}
-						</datalist>
+						</select>
 					</div>
 					<label class="audio-model-field">
-						<span>OpenRouter model</span>
-						<Input
+						<span>Quality</span>
+						<select
 							value={openRouterModel}
-							aria-label="OpenRouter TTS model"
-							autocapitalize="none"
-							autocomplete="off"
-							spellcheck="false"
+							aria-label="Narration quality"
 							onchange={updateOpenRouterModel}
-						/>
+						>
+							{#each openRouterTTSOptions as option}
+								<option value={option.model}>
+									{option.quality} · {option.name} · ${option.pricePerMillionCharacters}/M chars
+								</option>
+							{/each}
+						</select>
 					</label>
-					{#if openRouterCredential}
-						<p class="voice-description">
-							{openRouterVoices.find((voice) => voice.id === openRouterVoice)?.description}
-						</p>
-					{/if}
+					<p class="voice-description">
+						{currentTTSOption.description} Audio starts as bytes arrive.
+					</p>
 				</section>
 
 				<section class="audio-connection connected">

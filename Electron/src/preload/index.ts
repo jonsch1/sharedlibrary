@@ -7,6 +7,7 @@ import type {
   LibraryVariant,
   NarrationSegment,
   NarrationStatus,
+  OpenRouterTTSModel,
   OpenRouterVoice,
   ProcessingPreferencesUpdate,
   SharedLibraryDesktopAPI
@@ -33,7 +34,8 @@ const api: SharedLibraryDesktopAPI = {
   disconnect: (provider) => ipcRenderer.invoke('services:disconnect', provider),
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
   setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
-  setTTSModel: (model: string) => ipcRenderer.invoke('services:set-tts-model', model),
+  setTTSModel: (model: OpenRouterTTSModel) =>
+    ipcRenderer.invoke('services:set-tts-model', model),
   getShortcutPreferences: () => ipcRenderer.invoke('shortcuts:get-preferences'),
   setCaptureShortcut: (accelerator: string) =>
     ipcRenderer.invoke('shortcuts:set-capture', accelerator),

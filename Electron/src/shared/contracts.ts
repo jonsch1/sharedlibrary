@@ -73,22 +73,79 @@ export type OpenRouterVoice = string;
 export const defaultOpenRouterTTSModel = 'hexgrad/kokoro-82m';
 export const grokVoiceTTSModel = 'x-ai/grok-voice-tts-1.0';
 export const orpheusVoiceTTSModel = 'canopylabs/orpheus-3b-0.1-ft';
+export const openRouterTTSModels = [
+  {
+    id: defaultOpenRouterTTSModel,
+    quality: 'Low',
+    name: 'Kokoro 82M',
+    pricePerMillionCharacters: 0.62,
+    description: 'Fast, clear narration at the lowest cost.',
+    voices: [
+      'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
+      'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam',
+      'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
+      'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
+      'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex',
+      'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi',
+      'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi',
+      'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei',
+      'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi',
+      'zm_yunxia', 'zm_yunyang'
+    ]
+  },
+  {
+    id: orpheusVoiceTTSModel,
+    quality: 'Medium',
+    name: 'Orpheus 3B',
+    pricePerMillionCharacters: 7,
+    description: 'More expressive delivery at a mid-range price.',
+    voices: ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']
+  },
+  {
+    id: grokVoiceTTSModel,
+    quality: 'High',
+    name: 'Grok Voice',
+    pricePerMillionCharacters: 15,
+    description: 'The most natural, polished narration.',
+    voices: ['eve', 'ara', 'rex', 'sal', 'leo']
+  }
+] as const;
+export type OpenRouterTTSModel = (typeof openRouterTTSModels)[number]['id'];
 
-const openRouterModelPattern =
-  /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 
-export function normalizeOpenRouterTTSModel(value: unknown): string | null {
+export function normalizeOpenRouterTTSModel(value: unknown): OpenRouterTTSModel | null {
   if (typeof value !== 'string') return null;
   const model = value.trim();
-  return openRouterModelPattern.test(model) ? model : null;
+  return openRouterTTSModels.some((option) => option.id === model)
+    ? model as OpenRouterTTSModel
+    : null;
 }
 
-export function recommendedVoiceForTTSModel(model: string): OpenRouterVoice | null {
+export function recommendedVoiceForTTSModel(model: OpenRouterTTSModel): OpenRouterVoice {
   if (model === defaultOpenRouterTTSModel) return 'af_heart';
   if (model === orpheusVoiceTTSModel) return 'tara';
-  if (model === grokVoiceTTSModel) return 'eve';
-  return null;
+  return 'eve';
+}
+
+export function voicesForTTSModel(model: OpenRouterTTSModel): readonly string[] {
+  return openRouterTTSModels.find((option) => option.id === model)?.voices ?? [];
+}
+
+export function openRouterVoiceName(voice: OpenRouterVoice): string {
+  return voice
+    .replace(/^[a-z]{2}_/, '')
+    .split('_')
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+export function isVoiceForTTSModel(
+  model: OpenRouterTTSModel,
+  value: unknown
+): value is OpenRouterVoice {
+  const voice = normalizeOpenRouterVoice(value);
+  return voice !== null && voicesForTTSModel(model).includes(voice);
 }
 
 export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null {
@@ -98,22 +155,12 @@ export function normalizeOpenRouterVoice(value: unknown): OpenRouterVoice | null
 }
 
 export function migrateVoiceForTTSModel(
-  model: string,
+  model: OpenRouterTTSModel,
   value: unknown
 ): OpenRouterVoice {
   const voice = normalizeOpenRouterVoice(value);
   const recommended = recommendedVoiceForTTSModel(model);
-  if (!voice) return recommended ?? 'af_heart';
-  if (
-    model === defaultOpenRouterTTSModel &&
-    ['alloy', 'eve', 'ara', 'leo', 'rex', 'sal'].includes(voice)
-  ) {
-    return recommended ?? voice;
-  }
-  if (model === orpheusVoiceTTSModel && voice === 'alloy') {
-    return recommended ?? voice;
-  }
-  return voice;
+  return voice && isVoiceForTTSModel(model, voice) ? voice : recommended;
 }
 
 export interface DesktopConnectionStatus {
@@ -130,7 +177,7 @@ export interface DesktopConnectionStatus {
   };
   sync: DesktopSyncStatus;
   voice: OpenRouterVoice;
-  ttsModel: string;
+  ttsModel: OpenRouterTTSModel;
 }
 
 export interface DesktopSyncStatus {
@@ -188,7 +235,7 @@ export interface SharedLibraryDesktopAPI {
   disconnect(provider: ConnectionProvider): Promise<DesktopConnectionStatus>;
   syncNow(): Promise<DesktopConnectionStatus>;
   setVoice(voice: OpenRouterVoice): Promise<DesktopConnectionStatus>;
-  setTTSModel(model: string): Promise<DesktopConnectionStatus>;
+  setTTSModel(model: OpenRouterTTSModel): Promise<DesktopConnectionStatus>;
   getShortcutPreferences(): Promise<DesktopShortcutPreferences>;
   setCaptureShortcut(accelerator: string): Promise<DesktopShortcutPreferences>;
   getIngestionStatus(): Promise<DesktopIngestionStatus>;

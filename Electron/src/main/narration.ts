@@ -5,13 +5,22 @@ import type {
   NarrationSegment,
   NarrationSession,
   NarrationStatus,
+  OpenRouterTTSModel,
   OpenRouterVoice
 } from '../shared/contracts.js';
 import { BackendClient } from './backend.js';
 
 const maximumSegmentLength = 360;
 
+interface ActiveSpeechStream {
+  body: ReadableStream<Uint8Array>;
+  contentType: string;
+  timeout: NodeJS.Timeout;
+}
+
 export class NarrationService {
+  private readonly activeStreams = new Map<string, ActiveSpeechStream>();
+
   constructor(
     private readonly cacheRoot: string,
     private readonly backend: BackendClient,
@@ -22,33 +31,41 @@ export class NarrationService {
   async start(
     text: string,
     voice: OpenRouterVoice,
-    model: string
+    model: OpenRouterTTSModel
   ): Promise<NarrationSession> {
     const chunks = speechChunks(text);
     if (!chunks.length) throw new Error('This document does not contain narratable text.');
     const sessionID = randomUUID();
-    const first = await this.segment(sessionID, 0, chunks, voice, model);
+    const first = await this.segment(sessionID, 0, chunks, voice, model, true);
     void this.generateRemaining(sessionID, chunks, voice, model);
     return { sessionID, total: chunks.length, first };
   }
 
+  responseForURL(value: string): Response | null {
+    const hash = hashForAudioURL(value);
+    if (!hash) return null;
+    const active = this.activeStreams.get(hash);
+    if (!active) return null;
+    this.activeStreams.delete(hash);
+    clearTimeout(active.timeout);
+    return new Response(active.body, {
+      headers: {
+        'Content-Type': active.contentType,
+        'Cache-Control': 'private, no-store'
+      }
+    });
+  }
+
   pathForURL(value: string): string | null {
-    try {
-      const url = new URL(value);
-      if (url.protocol !== 'shared-library-audio:') return null;
-      const filename = url.pathname.split('/').at(-1) ?? '';
-      if (!/^[a-f0-9]{64}\.mp3$/.test(filename)) return null;
-      return join(this.cacheRoot, filename);
-    } catch {
-      return null;
-    }
+    const hash = hashForAudioURL(value);
+    return hash ? join(this.cacheRoot, `${hash}.mp3`) : null;
   }
 
   private async generateRemaining(
     sessionID: string,
     chunks: string[],
     voice: OpenRouterVoice,
-    model: string
+    model: OpenRouterTTSModel
   ): Promise<void> {
     for (let index = 1; index < chunks.length; index += 1) {
       try {
@@ -64,7 +81,8 @@ export class NarrationService {
     index: number,
     chunks: string[],
     voice: OpenRouterVoice,
-    model: string
+    model: OpenRouterTTSModel,
+    stream = false
   ): Promise<NarrationSegment> {
     const hash = fingerprint(chunks[index], voice, model);
     const path = join(this.cacheRoot, `${hash}.mp3`);
@@ -72,25 +90,100 @@ export class NarrationService {
     if (!(await isNonemptyFile(path))) {
       this.onStatus({ sessionID, index, phase: 'downloading' });
       const stored = await this.backend.loadAudio(hash);
-      if (!stored) this.onStatus({ sessionID, index, phase: 'generating' });
-      const bytes = stored ?? (await this.backend.createSpeech(chunks[index], voice, model));
-      await atomicWrite(path, bytes);
-      if (!stored) {
+      if (stored) {
+        await atomicWrite(path, stored);
+      } else {
+        this.onStatus({ sessionID, index, phase: 'generating' });
+        if (stream) {
+          const response = await this.backend.createSpeechResponse(
+            chunks[index],
+            voice,
+            model
+          );
+          if (response.body) {
+            this.registerSpeechStream(
+              hash,
+              path,
+              response.body,
+              response.headers.get('Content-Type') || 'audio/mpeg'
+            );
+            return narrationSegment(sessionID, index, chunks.length, hash);
+          }
+        }
+        const bytes = await this.backend.createSpeech(chunks[index], voice, model);
+        await atomicWrite(path, bytes);
         void this.backend.storeAudio(hash, bytes).catch(() => {
           // Playback is local-first; Drive backup can retry later.
         });
       }
     }
-    return {
-      sessionID,
-      index,
-      total: chunks.length,
-      url: `shared-library-audio://cache/${hash}.mp3`
-    };
+    return narrationSegment(sessionID, index, chunks.length, hash);
+  }
+
+  private registerSpeechStream(
+    hash: string,
+    path: string,
+    body: ReadableStream<Uint8Array>,
+    contentType: string
+  ): void {
+    const [playback, persistence] = body.tee();
+    const timeout = setTimeout(() => {
+      const active = this.activeStreams.get(hash);
+      if (active?.body !== playback) return;
+      this.activeStreams.delete(hash);
+      void playback.cancel();
+    }, 60_000);
+    timeout.unref();
+    this.activeStreams.set(hash, { body: playback, contentType, timeout });
+
+    void new Response(persistence)
+      .arrayBuffer()
+      .then(async (buffer) => {
+        const bytes = new Uint8Array(buffer);
+        if (!bytes.byteLength) throw new Error('OpenRouter returned empty narration.');
+        await atomicWrite(path, bytes);
+        void this.backend.storeAudio(hash, bytes).catch(() => {
+          // Playback is local-first; Drive backup can retry later.
+        });
+      })
+      .catch(() => {
+        // The renderer still reports stream playback failures to the user.
+      });
   }
 }
 
-function fingerprint(text: string, voice: OpenRouterVoice, model: string): string {
+function hashForAudioURL(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'shared-library-audio:') return null;
+    const filename = url.pathname.split('/').at(-1) ?? '';
+    return /^[a-f0-9]{64}\.mp3$/.test(filename)
+      ? filename.slice(0, -4)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function narrationSegment(
+  sessionID: string,
+  index: number,
+  total: number,
+  hash: string
+): NarrationSegment {
+  return {
+    sessionID,
+    index,
+    total,
+    url: `shared-library-audio://cache/${hash}.mp3`
+  };
+}
+
+function fingerprint(
+  text: string,
+  voice: OpenRouterVoice,
+  model: OpenRouterTTSModel
+): string {
   return createHash('sha256')
     .update(`${model}\n${voice}\n${text}`)
     .digest('hex');

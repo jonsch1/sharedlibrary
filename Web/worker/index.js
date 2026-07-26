@@ -1,25 +1,28 @@
 const defaultOpenRouterModel = 'hexgrad/kokoro-82m';
 const legacyGrokVoiceModel = 'x-ai/grok-voice-tts-1.0';
-const knownVoices = [
-	'af_heart',
-	'af_alloy',
-	'tara',
-	'leah',
-	'jess',
-	'leo',
-	'dan',
-	'mia',
-	'zac',
-	'zoe',
-	'eve',
-	'ara',
-	'rex',
-	'sal'
-];
+const orpheusVoiceModel = 'canopylabs/orpheus-3b-0.1-ft';
+const openRouterModelVoices = new Map([
+	[
+		defaultOpenRouterModel,
+		[
+			'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
+			'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam',
+			'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx',
+			'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
+			'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex',
+			'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi',
+			'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi',
+			'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei',
+			'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi',
+			'zm_yunxia', 'zm_yunyang'
+		]
+	],
+	[orpheusVoiceModel, ['tara', 'leah', 'jess', 'leo', 'dan', 'mia', 'zac']],
+	[legacyGrokVoiceModel, ['eve', 'ara', 'rex', 'sal', 'leo']]
+]);
+const knownVoices = [...new Set([...openRouterModelVoices.values()].flat())];
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const maximumSpeechInputLength = 14_000;
-const openRouterModelPattern =
-	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const stripeAPIBase = 'https://api.stripe.com/v1';
 const stripeAPIVersion = '2026-06-24.dahlia';
@@ -108,17 +111,29 @@ function publicTier(tier, claimed, current) {
 	};
 }
 
-function requestedOpenRouterModel(value) {
-	if (value === undefined) return defaultOpenRouterModel;
+function requestedOpenRouterModel(value, voice) {
+	if (value === undefined) {
+		if (openRouterModelVoices.get(legacyGrokVoiceModel)?.includes(voice)) {
+			return legacyGrokVoiceModel;
+		}
+		if (openRouterModelVoices.get(orpheusVoiceModel)?.includes(voice)) {
+			return orpheusVoiceModel;
+		}
+		return defaultOpenRouterModel;
+	}
 	if (typeof value !== 'string') return null;
 	const model = value.trim();
-	return openRouterModelPattern.test(model) ? model : null;
+	return openRouterModelVoices.has(model) ? model : null;
 }
 
 function requestedOpenRouterVoice(value) {
 	if (typeof value !== 'string') return null;
 	const voice = value.trim();
 	return openRouterVoicePattern.test(voice) ? voice : null;
+}
+
+function voiceSupportedByModel(model, voice) {
+	return openRouterModelVoices.get(model)?.includes(voice) ?? false;
 }
 
 function json(value, init = {}) {
@@ -612,14 +627,15 @@ async function createSpeech(request, env) {
 	} catch {
 		return json({ error: 'Invalid speech request.' }, { status: 400 });
 	}
-	const model = requestedOpenRouterModel(value.model);
 	const voice = requestedOpenRouterVoice(value.voice);
+	const model = requestedOpenRouterModel(value.model, voice);
 	if (
 		typeof value.input !== 'string' ||
 		!value.input.trim() ||
 		value.input.length > maximumSpeechInputLength ||
 		!voice ||
-		!model
+		!model ||
+		!voiceSupportedByModel(model, voice)
 	) {
 		return json({ error: 'Invalid speech text, voice, or model.' }, { status: 400 });
 	}
@@ -2636,10 +2652,13 @@ async function prepareShareLink(env, email, token, captureID, generation, voice,
 				const candidateModels = [model, legacyGrokVoiceModel].filter(
 					(candidate, index, values) => values.indexOf(candidate) === index
 				);
-				const candidateVoices = [voice, ...knownVoices].filter(
-					(candidate, index, values) => values.indexOf(candidate) === index
-				);
 				for (const candidateModel of candidateModels) {
+					const candidateVoices = [
+						voice,
+						...(openRouterModelVoices.get(candidateModel) ?? knownVoices)
+					].filter(
+						(candidate, index, values) => values.indexOf(candidate) === index
+					);
 					for (const candidateVoice of candidateVoices) {
 						const candidateHashes = await Promise.all(
 							chunks.map((chunk) =>
@@ -2756,12 +2775,12 @@ async function publishShareLink(request, env, context) {
 	}
 	const captureID = value?.captureID;
 	const voice = requestedOpenRouterVoice(value?.voice) ?? 'af_heart';
-	const model = requestedOpenRouterModel(value?.model);
+	const model = requestedOpenRouterModel(value?.model, voice);
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
 	}
-	if (!model) {
-		return json({ error: 'Choose a valid OpenRouter TTS model.' }, { status: 400 });
+	if (!model || !voiceSupportedByModel(model, voice)) {
+		return json({ error: 'Choose a supported OpenRouter model and voice.' }, { status: 400 });
 	}
 	const token = randomBase64URL(24);
 	const generation = crypto.randomUUID();

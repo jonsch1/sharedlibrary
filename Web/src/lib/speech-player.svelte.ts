@@ -6,6 +6,7 @@ import {
 	OpenRouterSpeechError,
 	type OpenRouterCredential,
 	type OpenRouterSpeechSource,
+	type OpenRouterTTSModel,
 	type OpenRouterVoice,
 	type SpeechLoadingPhase
 } from '$lib/openrouter.js';
@@ -68,7 +69,7 @@ export class SpeechPlayer {
 
 	private credential: OpenRouterCredential | null = null;
 	private voice: OpenRouterVoice = 'af_heart';
-	private model = 'hexgrad/kokoro-82m';
+	private model: OpenRouterTTSModel = 'hexgrad/kokoro-82m';
 	private chunks: string[] = [];
 	private chunkIndex = 0;
 	private audio: HTMLAudioElement | null = null;
@@ -82,7 +83,7 @@ export class SpeechPlayer {
 	configureOpenRouter(
 		credential: OpenRouterCredential | null,
 		voice: OpenRouterVoice,
-		model: string
+		model: OpenRouterTTSModel
 	): void {
 		this.credential = credential;
 		this.voice = voice;

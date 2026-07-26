@@ -25,8 +25,9 @@ This directory contains the cross-platform Briefly desktop application.
 - Versioned workspace input packages in `.briefly/inputs/` can override extraction
   for narrowly matched sites. They are hot-discovered and execute in restricted,
   secret-free child processes with optional built-in fallback.
-- OpenRouter OAuth narration uses incremental MP3 segments: the first segment plays
-  while later segments are generated, cached locally, and backed up to Drive.
+- OpenRouter OAuth narration offers Low (Kokoro), Medium (Orpheus), and High
+  (Grok Voice) quality. The first MP3 segment plays as provider bytes arrive while
+  later segments are generated, cached locally, and backed up to Drive.
 - Share links publish all text levels and already-generated narration through the
   same D1/R2 sharing service as the web reader.
 

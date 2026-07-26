@@ -378,6 +378,34 @@ function authenticatedRequest(path, init = {}) {
 	return new Request(`https://library.example${path}`, { ...init, headers });
 }
 
+function base64URL(bytes) {
+	return Buffer.from(bytes)
+		.toString('base64')
+		.replace(/\+/g, '-')
+		.replace(/\//g, '_')
+		.replace(/=+$/g, '');
+}
+
+async function encryptedOpenRouterCredential(apiKey) {
+	const initializationVector = new Uint8Array(12).fill(7);
+	const key = await crypto.subtle.importKey(
+		'raw',
+		new Uint8Array(32),
+		{ name: 'AES-GCM' },
+		false,
+		['encrypt']
+	);
+	const encrypted = await crypto.subtle.encrypt(
+		{ name: 'AES-GCM', iv: initializationVector },
+		key,
+		new TextEncoder().encode(apiKey)
+	);
+	return {
+		encrypted_api_key: base64URL(new Uint8Array(encrypted)),
+		initialization_vector: base64URL(initializationVector)
+	};
+}
+
 function signedStripeRequest(event, secret, timestamp = Math.floor(Date.now() / 1000)) {
 	const body = JSON.stringify(event);
 	const signature = createHmac('sha256', secret)
@@ -980,7 +1008,7 @@ test('speech requires an account-bound OpenRouter connection', async () => {
 		authenticatedRequest('/api/tts', {
 			method: 'POST',
 			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
-			body: JSON.stringify({ input: 'Hello', voice: 'eve' })
+			body: JSON.stringify({ input: 'Hello', voice: 'af_heart' })
 		}),
 		environment()
 	);
@@ -1022,4 +1050,99 @@ test('speech accepts provider-specific voice identifiers', async () => {
 	);
 	assert.equal(response.status, 401);
 	assert.deepEqual(await response.json(), { error: 'OpenRouter is not connected.' });
+});
+
+test('speech rejects models outside the three quality tiers', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/tts', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				input: 'Hello',
+				voice: 'coral',
+				model: 'openai/gpt-4o-mini-tts'
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 400);
+	assert.deepEqual(await response.json(), {
+		error: 'Invalid speech text, voice, or model.'
+	});
+});
+
+test('speech rejects a voice that does not belong to the selected quality', async () => {
+	const response = await worker.fetch(
+		authenticatedRequest('/api/tts', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				input: 'Hello',
+				voice: 'eve',
+				model: 'hexgrad/kokoro-82m'
+			})
+		}),
+		environment()
+	);
+	assert.equal(response.status, 400);
+	assert.deepEqual(await response.json(), {
+		error: 'Invalid speech text, voice, or model.'
+	});
+});
+
+test('speech forwards provider audio progressively', async (context) => {
+	const database = new MockDatabase();
+	database.credential = await encryptedOpenRouterCredential('sk-or-streaming');
+	let providerController;
+	context.mock.method(globalThis, 'fetch', async (input, init) => {
+		assert.equal(String(input), 'https://openrouter.ai/api/v1/audio/speech');
+		assert.equal(init.headers.Authorization, 'Bearer sk-or-streaming');
+		assert.deepEqual(JSON.parse(init.body), {
+			model: 'x-ai/grok-voice-tts-1.0',
+			input: 'A longer streaming example.',
+			voice: 'eve',
+			response_format: 'mp3'
+		});
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					providerController = controller;
+					controller.enqueue(new Uint8Array([1, 2, 3]));
+				}
+			}),
+			{
+				headers: {
+					'Content-Type': 'audio/mpeg',
+					'X-Generation-Id': 'generation-1'
+				}
+			}
+		);
+	});
+
+	const response = await worker.fetch(
+		authenticatedRequest('/api/tts', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				input: 'A longer streaming example.',
+				voice: 'eve',
+				model: 'x-ai/grok-voice-tts-1.0'
+			})
+		}),
+		environment(database)
+	);
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('X-Generation-Id'), 'generation-1');
+	const reader = response.body.getReader();
+	assert.deepEqual(await reader.read(), {
+		done: false,
+		value: new Uint8Array([1, 2, 3])
+	});
+	providerController.enqueue(new Uint8Array([4, 5]));
+	providerController.close();
+	assert.deepEqual(await reader.read(), {
+		done: false,
+		value: new Uint8Array([4, 5])
+	});
+	assert.deepEqual(await reader.read(), { done: true, value: undefined });
 });

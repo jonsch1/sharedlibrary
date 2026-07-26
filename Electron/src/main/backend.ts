@@ -1,6 +1,7 @@
 import { BrowserWindow, session } from 'electron';
 import type {
   ConnectionProvider,
+  OpenRouterTTSModel,
   OpenRouterVoice,
   ShareLinkStatus
 } from '../shared/contracts.js';
@@ -128,8 +129,19 @@ export class BackendClient {
   async createSpeech(
     text: string,
     voice: OpenRouterVoice,
-    model: string
+    model: OpenRouterTTSModel
   ): Promise<Uint8Array> {
+    const response = await this.createSpeechResponse(text, voice, model);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.byteLength) throw new Error('OpenRouter returned empty narration.');
+    return bytes;
+  }
+
+  async createSpeechResponse(
+    text: string,
+    voice: OpenRouterVoice,
+    model: OpenRouterTTSModel
+  ): Promise<Response> {
     const response = await this.fetch('/api/tts', {
       method: 'POST',
       headers: {
@@ -141,9 +153,8 @@ export class BackendClient {
     if (!response.ok) {
       throw new Error(await this.errorMessage(response, 'Narration could not be generated.'));
     }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.byteLength) throw new Error('OpenRouter returned empty narration.');
-    return bytes;
+    if (!response.body) throw new Error('OpenRouter returned empty narration.');
+    return response;
   }
 
   async shareStatus(captureID: string): Promise<ShareLinkStatus> {
@@ -156,7 +167,7 @@ export class BackendClient {
   async publishShare(
     captureID: string,
     voice: OpenRouterVoice,
-    model: string
+    model: OpenRouterTTSModel
   ): Promise<ShareLinkStatus> {
     const response = await this.fetch('/api/share-links', {
       method: 'POST',
