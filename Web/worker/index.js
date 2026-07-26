@@ -60,7 +60,7 @@ const pricingTiers = [
 function stripeCredentials(env) {
 	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
 	const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || '').trim();
-	if (!/^sk_(?:test|live)_/.test(secretKey) || !webhookSecret.startsWith('whsec_')) {
+	if (!/^(?:sk|rk)_(?:test|live)_/.test(secretKey) || !webhookSecret.startsWith('whsec_')) {
 		return null;
 	}
 	return { secretKey, webhookSecret };
@@ -86,9 +86,6 @@ function stripeConfig(env) {
 }
 
 function managedTTSKey(env) {
-	if (String(env.BRIEFLY_MANAGED_TTS_ENABLED || '').trim().toLowerCase() !== 'true') {
-		return null;
-	}
 	const apiKey = String(env.OPENROUTER_API_KEY || '').trim();
 	return apiKey || null;
 }
@@ -98,10 +95,6 @@ function ttsStripeConfig(env) {
 	const productID = String(env.STRIPE_PRODUCT_TTS || '').trim();
 	if (!credentials || !/^prod_/.test(productID)) return null;
 	return { ...credentials, productID };
-}
-
-function billingEnforcementEnabled(env) {
-	return String(env.BRIEFLY_BILLING_ENABLED || '').trim().toLowerCase() === 'true';
 }
 
 function tierByKey(key) {
@@ -1528,7 +1521,6 @@ function publicSubscription(record, config) {
 }
 
 async function billingStatus(request, env) {
-	const enforced = billingEnforcementEnabled(env);
 	const config = stripeConfig(env);
 	const email = await authenticatedEmail(request, env);
 	let record = null;
@@ -1539,9 +1531,8 @@ async function billingStatus(request, env) {
 	const subscription = publicSubscription(record, config);
 	return json({
 		configured: Boolean(config),
-		enforced,
 		authenticated: Boolean(email),
-		entitled: enforced ? subscriptionIsEntitled(record, config, env) : true,
+		entitled: subscriptionIsEntitled(record, config, env),
 		subscription,
 		tiers: await pricingAvailability(env)
 	});
@@ -1688,7 +1679,6 @@ async function createTTSCheckoutSession(request, env) {
 }
 
 async function paidAccessResponse(request, env) {
-	if (!billingEnforcementEnabled(env)) return null;
 	const config = stripeConfig(env);
 	if (!config) {
 		return json(
@@ -2469,7 +2459,7 @@ async function stripeWebhook(request, env) {
 }
 
 async function reconcileStripeSubscriptions(env) {
-	if (!billingEnforcementEnabled(env) || !stripeConfig(env)) return;
+	if (!stripeConfig(env)) return;
 	let startingAfter;
 	for (let page = 0; page < 20; page += 1) {
 		const subscriptions = await stripeRetrieve(env, '/subscriptions', {
