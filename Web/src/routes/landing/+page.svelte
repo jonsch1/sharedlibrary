@@ -868,17 +868,14 @@
 			</div>
 			<div class="privacy-grid">
 				<article class="reveal">
-					<div class="privacy-icon"><LockIcon /></div>
 					<h3>Private by default</h3>
 					<p>Your library stays in your own local workspace until you choose otherwise.</p>
 				</article>
 				<article class="reveal">
-					<div class="privacy-icon"><GlobeIcon /></div>
 					<h3>Offline when you need it</h3>
 					<p>Capture, search, and read your library locally—even when the connection does not.</p>
 				</article>
 				<article class="reveal">
-					<div class="privacy-icon"><ArrowUpRightIcon /></div>
 					<h3>Shared on purpose</h3>
 					<p>Your membership adds cross-device sync and deliberate share links when you need them.</p>
 				</article>
@@ -1107,6 +1104,12 @@
 		box-shadow: 0 8px 18px rgb(8 27 82 / 18%);
 	}
 
+	.landing-nav .landing-brand img {
+		width: 48px;
+		height: 48px;
+		border-radius: 14px;
+	}
+
 	.nav-cta {
 		display: inline-flex;
 		justify-self: end;
@@ -1280,7 +1283,7 @@
 		z-index: 20;
 		top: 0;
 		left: 0;
-		width: clamp(190px, 16vw, 256px);
+		width: clamp(156px, 13vw, 208px);
 		aspect-ratio: 1;
 		transform: translate3d(78vw, 58vh, 0) translate(-50%, -50%);
 		transform-origin: center;
@@ -2358,22 +2361,8 @@
 		border-bottom: 1px solid var(--line);
 	}
 
-	.privacy-icon {
-		display: grid;
-		width: 48px;
-		height: 48px;
-		place-items: center;
-		border-radius: 15px;
-		background: var(--ink);
-		color: white;
-	}
-
-	.privacy-icon :global(svg) {
-		width: 19px;
-	}
-
 	.privacy-grid h3 {
-		margin: 65px 0 12px;
+		margin: 113px 0 12px;
 		font-size: 21px;
 		letter-spacing: -0.045em;
 	}
@@ -3033,6 +3022,12 @@
 			border-radius: 9px;
 		}
 
+		.landing-nav .landing-brand img {
+			width: 42px;
+			height: 42px;
+			border-radius: 12px;
+		}
+
 		.nav-cta {
 			padding: 9px 13px;
 			font-size: 11px;
@@ -3083,7 +3078,7 @@
 		}
 
 		.gather-logo {
-			width: 160px;
+			width: 132px;
 		}
 
 		.source-card {
