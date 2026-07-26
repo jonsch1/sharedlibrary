@@ -4,6 +4,13 @@
 	"main": "./worker/index.js",
 	"compatibility_date": "2026-07-26",
 	"workers_dev": true,
+	"secrets": {
+		"required": [
+			"GOOGLE_DRIVE_WEB_CLIENT_ID",
+			"GOOGLE_DRIVE_WEB_CLIENT_SECRET",
+			"OPENROUTER_CREDENTIAL_KEY"
+		]
+	},
 	"routes": [
 		{
 			"pattern": "readbriefly.fyi",
