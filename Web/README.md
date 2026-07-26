@@ -48,8 +48,9 @@ The deployment needs:
 - an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
   64 hexadecimal characters;
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the four Stripe Price IDs
-  described below;
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
+  `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe Price IDs described
+  below;
 - public access to the Google sign-in and capability-link routes. Provider
   credentials and library operations remain account-scoped by the app's secure,
   HTTP-only Google session cookie.
@@ -74,22 +75,36 @@ at the price then available.
 
 Configure Stripe before enabling paid access:
 
-1. Add the four Price IDs and `STRIPE_SECRET_KEY` as deployment secrets.
-2. Enable and configure the Stripe customer portal in both sandbox and live
-   mode so customers can update payment methods and cancel.
+1. Create a single `Briefly Plus` Product and four flat-rate recurring monthly
+   Prices. Add their Product and Price IDs plus a least-privilege
+   `STRIPE_SECRET_KEY` as deployment secrets. Briefly validates each selected
+   Price against its expected Product, EUR amount, and monthly recurrence before
+   opening Checkout.
+2. Create a dedicated Stripe customer portal configuration in both sandbox and
+   live mode. Allow customers to update billing information and payment methods,
+   view invoices, and cancel at period end. Disable plan switching, quantity
+   changes, and promotion codes, then save its ID as
+   `STRIPE_PORTAL_CONFIGURATION_ID`.
 3. Add a Stripe webhook endpoint at
    `https://www.readbriefly.fyi/api/billing/webhook`.
-4. Subscribe it to `checkout.session.completed`, `checkout.session.expired`,
-   `customer.subscription.created`, `customer.subscription.updated`, and
-   `customer.subscription.deleted`, then save its signing secret as
-   `STRIPE_WEBHOOK_SECRET`.
+4. Pin the event destination to Stripe API version `2026-06-24.dahlia`.
+   Subscribe it to `checkout.session.completed`, `checkout.session.expired`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `invoice.paid`, and
+   `invoice.payment_failed`, then save its signing secret as
+   `STRIPE_WEBHOOK_SECRET`. Briefly currently restricts Checkout to card-based
+   payment methods; also subscribe to Checkout's async payment success/failure
+   events before enabling asynchronous methods.
 5. Complete Stripe Tax registration and set the Briefly Plus product's tax code
    to the appropriate software-as-a-service code. Checkout collects and validates
    billing location and tax IDs.
 
-Paid-route enforcement activates only when all Stripe values are present and
-valid. Until then the current library and sharing behavior remains available,
-while the pricing UI clearly reports that checkout setup is pending.
+Leave `BRIEFLY_BILLING_ENABLED=false` until the sandbox and live-mode setup is
+verified. When the flag is `true`, missing or invalid Stripe configuration fails
+closed: Plus routes return a temporary billing error instead of granting free
+access. `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement
+window and defaults to seven days. A daily Worker cron reconciles D1 subscription
+state with Stripe.
 
 ## Cloudflare deployment
 

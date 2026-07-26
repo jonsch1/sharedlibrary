@@ -43,6 +43,13 @@
       "when": 1785054008242,
       "tag": "0005_lovely_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785058604064,
+      "tag": "0006_clever_grim_reaper",
+      "breakpoints": true
     }
   ]
 }

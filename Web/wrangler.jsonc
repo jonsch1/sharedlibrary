@@ -11,6 +11,9 @@
 			"OPENROUTER_CREDENTIAL_KEY"
 		]
 	},
+	"triggers": {
+		"crons": ["17 3 * * *"]
+	},
 	"routes": [
 		{
 			"pattern": "readbriefly.fyi",

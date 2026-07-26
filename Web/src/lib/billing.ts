@@ -15,12 +15,14 @@ export interface BillingSubscription {
 	tierName: string;
 	amount: number;
 	currency: string;
+	recognized: boolean;
 	cancelAtPeriodEnd: boolean;
 	currentPeriodEnd: number | null;
 }
 
 export interface BillingStatus {
 	configured: boolean;
+	enforced: boolean;
 	authenticated: boolean;
 	entitled: boolean;
 	subscription: BillingSubscription | null;

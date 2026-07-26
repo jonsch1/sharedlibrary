@@ -62,6 +62,8 @@ export const billingSubscriptions = sqliteTable(
 		stripePriceID: text('stripe_price_id'),
 		tierKey: text('tier_key').notNull(),
 		status: text('status').notNull(),
+		statusChangedAt: integer('status_changed_at').notNull().default(0),
+		stripeCreatedAt: integer('stripe_created_at').notNull().default(0),
 		currentPeriodEnd: integer('current_period_end'),
 		cancelAtPeriodEnd: integer('cancel_at_period_end').notNull().default(0),
 		createdAt: integer('created_at').notNull(),
@@ -99,6 +101,8 @@ export const billingAllocations = sqliteTable('billing_allocations', {
 export const stripeWebhookEvents = sqliteTable('stripe_webhook_events', {
 	eventID: text('event_id').primaryKey(),
 	eventType: text('event_type').notNull(),
+	status: text('status').notNull().default('processed'),
+	attempts: integer('attempts').notNull().default(1),
 	processedAt: integer('processed_at').notNull()
 });
 

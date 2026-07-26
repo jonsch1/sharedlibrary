@@ -15,8 +15,35 @@ class MockStatement {
 		return this;
 	}
 
-	async first() {
-		if (this.sql.includes('FROM openrouter_oauth_states')) {
+		async first() {
+			if (this.sql.includes('AS claimed')) {
+				const tierKey = this.arguments[0];
+				const now = Number(this.arguments[2]);
+				const allocations = [...this.database.billingAllocations.values()].filter(
+					(record) => record.tier_key === tierKey
+				).length;
+				const reservations = [...this.database.checkoutReservations.values()].filter(
+					(record) => record.tier_key === tierKey && record.expires_at > now
+				).length;
+				return { claimed: allocations + reservations };
+			}
+			if (this.sql.includes('FROM billing_customers c')) {
+				const customer = this.database.billingCustomers.get(this.arguments[0]);
+				if (!customer) return null;
+				const subscription = this.database.billingSubscriptions.get(customer.account_id);
+				return { ...customer, ...(subscription ?? {}) };
+			}
+			if (this.sql.includes('FROM billing_checkout_reservations')) {
+				if (this.sql.includes('WHERE reservation_id = ?')) {
+					return (
+						[...this.database.checkoutReservations.values()].find(
+							(record) => record.reservation_id === this.arguments[0]
+						) ?? null
+					);
+				}
+				return this.database.checkoutReservations.get(this.arguments[0]) ?? null;
+			}
+			if (this.sql.includes('FROM openrouter_oauth_states')) {
 			return this.database.pendingOAuthState;
 		}
 		if (this.sql.includes('FROM openrouter_credentials')) {
@@ -34,11 +61,15 @@ class MockStatement {
 			}
 			return this.database.shareLinks.get(this.arguments[0]) ?? null;
 		}
-		if (this.sql.includes('FROM stripe_webhook_events')) {
-			return this.database.stripeWebhookEvents.has(this.arguments[0])
-				? { event_id: this.arguments[0] }
-				: null;
-		}
+			if (this.sql.includes('FROM stripe_webhook_events')) {
+				return this.database.stripeWebhookEvents.get(this.arguments[0]) ?? null;
+			}
+			if (this.sql.includes('FROM app_sessions')) {
+				return {
+					user_email: 'reader@example.com',
+					expires_at: Date.now() + 60_000
+				};
+			}
 		return null;
 	}
 
@@ -66,7 +97,7 @@ class MockStatement {
 
 	async run() {
 		let changes = 0;
-		if (this.sql.includes('INSERT INTO openrouter_oauth_states')) {
+			if (this.sql.includes('INSERT INTO openrouter_oauth_states')) {
 			this.database.oauthState = {
 				state: this.arguments[0],
 				userEmail: this.arguments[1],
@@ -120,17 +151,167 @@ class MockStatement {
 				changes = 1;
 			}
 		}
-		if (this.sql.includes('DELETE FROM share_links')) {
+			if (this.sql.includes('INSERT OR IGNORE INTO billing_customers')) {
+				const [userEmail, accountID, createdAt, updatedAt] = this.arguments;
+				if (!this.database.billingCustomers.has(userEmail)) {
+					this.database.billingCustomers.set(userEmail, {
+						user_email: userEmail,
+						account_id: accountID,
+						stripe_customer_id: null,
+						created_at: createdAt,
+						updated_at: updatedAt
+					});
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('DELETE FROM billing_checkout_reservations') &&
+				this.sql.includes('expires_at <= ?')
+			) {
+				for (const [accountID, reservation] of this.database.checkoutReservations) {
+					if (reservation.expires_at <= Number(this.arguments[0])) {
+						this.database.checkoutReservations.delete(accountID);
+						changes += 1;
+					}
+				}
+			}
+			if (this.sql.includes('INSERT OR IGNORE INTO billing_checkout_reservations')) {
+				const [reservationID, accountID, tierKey, expiresAt, createdAt] = this.arguments;
+				if (!this.database.checkoutReservations.has(accountID)) {
+					this.database.checkoutReservations.set(accountID, {
+						reservation_id: reservationID,
+						account_id: accountID,
+						tier_key: tierKey,
+						stripe_session_id: null,
+						expires_at: expiresAt,
+						created_at: createdAt
+					});
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE billing_checkout_reservations') &&
+				this.sql.includes('SET stripe_session_id')
+			) {
+				const reservation = [...this.database.checkoutReservations.values()].find(
+					(record) => record.reservation_id === this.arguments[1]
+				);
+				if (reservation) {
+					reservation.stripe_session_id = this.arguments[0];
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('DELETE FROM billing_checkout_reservations') &&
+				this.sql.includes('reservation_id = ?')
+			) {
+				const entry = [...this.database.checkoutReservations.entries()].find(
+					([, record]) => record.reservation_id === this.arguments[0]
+				);
+				if (entry) {
+					this.database.checkoutReservations.delete(entry[0]);
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE billing_customers') &&
+				this.sql.includes('SET stripe_customer_id')
+			) {
+				const customer = [...this.database.billingCustomers.values()].find(
+					(record) => record.account_id === this.arguments[2]
+				);
+				if (customer) {
+					customer.stripe_customer_id = this.arguments[0];
+					customer.updated_at = this.arguments[1];
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT INTO billing_subscriptions')) {
+				const [
+					accountID,
+					subscriptionID,
+					customerID,
+					priceID,
+					tierKey,
+					status,
+					statusChangedAt,
+					stripeCreatedAt,
+					currentPeriodEnd,
+					cancelAtPeriodEnd,
+					createdAt,
+					updatedAt
+				] = this.arguments;
+				const existing = this.database.billingSubscriptions.get(accountID);
+				if (!existing || stripeCreatedAt >= existing.stripe_created_at) {
+					this.database.billingSubscriptions.set(accountID, {
+						account_id: accountID,
+						stripe_subscription_id: subscriptionID,
+						stripe_customer_id: customerID,
+						stripe_price_id: priceID,
+						tier_key: tierKey,
+						status,
+						status_changed_at:
+							existing?.status === status ? existing.status_changed_at : statusChangedAt,
+						stripe_created_at: stripeCreatedAt,
+						current_period_end: currentPeriodEnd,
+						cancel_at_period_end: cancelAtPeriodEnd,
+						created_at: existing?.created_at ?? createdAt,
+						updated_at: updatedAt
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT OR IGNORE INTO billing_allocations')) {
+				if (!this.database.billingAllocations.has(this.arguments[0])) {
+					this.database.billingAllocations.set(this.arguments[0], {
+						reservation_id: this.arguments[0],
+						account_id: this.arguments[1],
+						tier_key: this.arguments[2],
+						allocated_at: this.arguments[3]
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('DELETE FROM share_links')) {
 			const record = this.database.shareLinks.get(this.arguments[0]);
 			if (record && record.owner_email === this.arguments[1]) {
 				this.database.shareLinks.delete(this.arguments[0]);
 				changes = 1;
 			}
 		}
-		if (this.sql.includes('INSERT OR IGNORE INTO stripe_webhook_events')) {
-			this.database.stripeWebhookEvents.add(this.arguments[0]);
-			changes = 1;
-		}
+			if (this.sql.includes('INSERT OR IGNORE INTO stripe_webhook_events')) {
+				if (!this.database.stripeWebhookEvents.has(this.arguments[0])) {
+					this.database.stripeWebhookEvents.set(this.arguments[0], {
+						event_id: this.arguments[0],
+						event_type: this.arguments[1],
+						status: 'processing',
+						attempts: 1,
+						processed_at: this.arguments[2]
+					});
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE stripe_webhook_events') &&
+				this.sql.includes("SET status = 'processed'")
+			) {
+				const record = this.database.stripeWebhookEvents.get(this.arguments[1]);
+				if (record?.status === 'processing') {
+					record.status = 'processed';
+					record.processed_at = this.arguments[0];
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('DELETE FROM stripe_webhook_events') &&
+				this.sql.includes("status = 'processing'")
+			) {
+				const record = this.database.stripeWebhookEvents.get(this.arguments[0]);
+				if (record?.status === 'processing') {
+					this.database.stripeWebhookEvents.delete(this.arguments[0]);
+					changes = 1;
+				}
+			}
 		return { success: true, meta: { changes } };
 	}
 }
@@ -143,7 +324,11 @@ class MockDatabase {
 	shareLinks = new Map();
 	shareTexts = [];
 	shareAudioSegments = [];
-	stripeWebhookEvents = new Set();
+	stripeWebhookEvents = new Map();
+	billingCustomers = new Map();
+	billingSubscriptions = new Map();
+	checkoutReservations = new Map();
+	billingAllocations = new Map();
 
 	prepare(sql) {
 		return new MockStatement(this, sql);
@@ -177,16 +362,19 @@ function stripeEnvironment(database = new MockDatabase()) {
 		...environment(database),
 		STRIPE_SECRET_KEY: 'sk_test_briefly',
 		STRIPE_WEBHOOK_SECRET: 'whsec_briefly_test',
+		STRIPE_PRODUCT_PLUS: 'prod_briefly_plus',
+		STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_briefly_plus',
 		STRIPE_PRICE_FOUNDING: 'price_founding',
 		STRIPE_PRICE_EARLY: 'price_early',
 		STRIPE_PRICE_GROWING: 'price_growing',
-		STRIPE_PRICE_STANDARD: 'price_standard'
+		STRIPE_PRICE_STANDARD: 'price_standard',
+		BRIEFLY_BILLING_ENABLED: 'true'
 	};
 }
 
 function authenticatedRequest(path, init = {}) {
 	const headers = new Headers(init.headers);
-	headers.set('oai-authenticated-user-email', 'reader@example.com');
+	headers.set('Cookie', 'shared_library_session=test-session');
 	return new Request(`https://library.example${path}`, { ...init, headers });
 }
 
@@ -280,6 +468,26 @@ test('billing publishes the launch ladder without enforcing an unconfigured chec
 	);
 });
 
+test('client-supplied identity headers cannot impersonate a Briefly account', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/api/auth/status', {
+			headers: { 'oai-authenticated-user-email': 'victim@example.com' }
+		}),
+		environment()
+	);
+	assert.equal(response.status, 200);
+	assert.deepEqual(await response.json(), { authenticated: false });
+});
+
+test('enabled billing fails closed when Stripe configuration is incomplete', async () => {
+	const response = await worker.fetch(authenticatedRequest('/api/library'), {
+		...environment(),
+		BRIEFLY_BILLING_ENABLED: 'true'
+	});
+	assert.equal(response.status, 503);
+	assert.equal((await response.json()).code, 'billing_unavailable');
+});
+
 test('configured Stripe checkout requires an authenticated Briefly account', async () => {
 	const response = await worker.fetch(
 		new Request('https://library.example/api/billing/checkout', {
@@ -293,6 +501,95 @@ test('configured Stripe checkout requires an authenticated Briefly account', asy
 		error: 'Sign in with Google to continue.',
 		code: 'authentication_required'
 	});
+});
+
+test('checkout validates its Price, pins the API version, and reuses one open Session', async () => {
+	const database = new MockDatabase();
+	const env = stripeEnvironment(database);
+	const originalFetch = globalThis.fetch;
+	const stripeRequests = [];
+	globalThis.fetch = async (input, init = {}) => {
+		const url = new URL(input);
+		stripeRequests.push({ url, init });
+		if (url.pathname === '/v1/prices/price_founding') {
+			return Response.json({
+				id: 'price_founding',
+				active: true,
+				product: 'prod_briefly_plus',
+				currency: 'eur',
+				unit_amount: 399,
+				type: 'recurring',
+				recurring: { interval: 'month', interval_count: 1 }
+			});
+		}
+		if (url.pathname === '/v1/checkout/sessions' && init.method === 'POST') {
+			return Response.json({
+				id: 'cs_test_briefly',
+				url: 'https://checkout.stripe.test/c/pay/cs_test_briefly'
+			});
+		}
+		if (url.pathname === '/v1/checkout/sessions/cs_test_briefly') {
+			return Response.json({
+				id: 'cs_test_briefly',
+				status: 'open',
+				url: 'https://checkout.stripe.test/c/pay/cs_test_briefly'
+			});
+		}
+		return Response.json({ error: { message: 'Unexpected Stripe request.' } }, { status: 500 });
+	};
+	try {
+		const request = () =>
+			authenticatedRequest('/api/billing/checkout', {
+				method: 'POST',
+				headers: { Origin: 'https://library.example' }
+			});
+		const first = await worker.fetch(request(), env);
+		const second = await worker.fetch(request(), env);
+		assert.equal(first.status, 200);
+		assert.equal(second.status, 200);
+		assert.equal((await first.json()).url, 'https://checkout.stripe.test/c/pay/cs_test_briefly');
+		assert.equal((await second.json()).reused, true);
+		const creations = stripeRequests.filter(
+			({ url, init }) => url.pathname === '/v1/checkout/sessions' && init.method === 'POST'
+		);
+		assert.equal(creations.length, 1);
+		assert.equal(creations[0].init.headers['Stripe-Version'], '2026-06-24.dahlia');
+		assert.match(creations[0].init.headers['Idempotency-Key'], /^briefly-checkout-/);
+		const form = creations[0].init.body;
+		assert.equal(form.get('payment_method_types[0]'), 'card');
+		assert.equal(form.get('automatic_tax[enabled]'), 'true');
+		assert.equal(form.get('line_items[0][price]'), 'price_founding');
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
+test('active subscriptions on unknown Prices never grant Plus entitlement', async () => {
+	const database = new MockDatabase();
+	database.billingCustomers.set('reader@example.com', {
+		user_email: 'reader@example.com',
+		account_id: 'account-reader',
+		stripe_customer_id: 'cus_reader'
+	});
+	database.billingSubscriptions.set('account-reader', {
+		account_id: 'account-reader',
+		stripe_subscription_id: 'sub_unknown',
+		stripe_customer_id: 'cus_reader',
+		stripe_price_id: 'price_not_briefly',
+		tier_key: 'unrecognized',
+		status: 'active',
+		status_changed_at: Date.now(),
+		stripe_created_at: Date.now(),
+		current_period_end: null,
+		cancel_at_period_end: 0
+	});
+	const response = await worker.fetch(
+		authenticatedRequest('/api/billing/status'),
+		stripeEnvironment(database)
+	);
+	const status = await response.json();
+	assert.equal(status.entitled, false);
+	assert.equal(status.subscription.recognized, false);
 });
 
 test('configured Plus routes reject free accounts without blocking public readers', async () => {
@@ -346,6 +643,63 @@ test('Stripe webhooks require a current raw-body signature and are idempotent', 
 	);
 	assert.equal(duplicateResponse.status, 200);
 	assert.deepEqual(await duplicateResponse.json(), { received: true, duplicate: true });
+});
+
+test('out-of-order subscription events refresh Stripe and cannot resurrect cancelled access', async () => {
+	const database = new MockDatabase();
+	database.billingCustomers.set('reader@example.com', {
+		user_email: 'reader@example.com',
+		account_id: 'account-reader',
+		stripe_customer_id: 'cus_reader'
+	});
+	const env = stripeEnvironment(database);
+	const originalFetch = globalThis.fetch;
+	let latestStatus = 'active';
+	globalThis.fetch = async (input) => {
+		const url = new URL(input);
+		assert.equal(url.pathname, '/v1/subscriptions/sub_reader');
+		return Response.json({
+			id: 'sub_reader',
+			customer: 'cus_reader',
+			status: latestStatus,
+			created: 1_785_000_000,
+			cancel_at_period_end: false,
+			metadata: { briefly_account_id: 'account-reader', briefly_tier_key: 'founding' },
+			items: {
+				data: [
+					{
+						price: { id: 'price_founding' },
+						current_period_end: 1_790_000_000
+					}
+				]
+			}
+		});
+	};
+	const deliver = async (id, type) =>
+		worker.fetch(
+			signedStripeRequest(
+				{
+					id,
+					type,
+					data: { object: { id: 'sub_reader' } }
+				},
+				env.STRIPE_WEBHOOK_SECRET
+			),
+			env
+		);
+	try {
+		assert.equal((await deliver('evt_active', 'customer.subscription.updated')).status, 200);
+		assert.equal(database.billingSubscriptions.get('account-reader').status, 'active');
+		latestStatus = 'canceled';
+		assert.equal((await deliver('evt_deleted', 'customer.subscription.deleted')).status, 200);
+		assert.equal(database.billingSubscriptions.get('account-reader').status, 'canceled');
+		assert.equal((await deliver('evt_old_created', 'customer.subscription.created')).status, 200);
+		assert.equal(database.billingSubscriptions.get('account-reader').status, 'canceled');
+		const billing = await worker.fetch(authenticatedRequest('/api/billing/status'), env);
+		assert.equal((await billing.json()).entitled, false);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test('desktop library uploads validate the index before touching Drive', async () => {

@@ -22,10 +22,19 @@ const openRouterModelPattern =
 	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const stripeAPIBase = 'https://api.stripe.com/v1';
+const stripeAPIVersion = '2026-06-24.dahlia';
 const stripeWebhookToleranceSeconds = 5 * 60;
 const checkoutLifetimeSeconds = 31 * 60;
 const checkoutReservationLifetimeMilliseconds = 35 * 60 * 1000;
-const paidSubscriptionStatuses = new Set(['active', 'trialing', 'past_due']);
+const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
+const entitledSubscriptionStatuses = new Set(['active', 'trialing']);
+const liveSubscriptionStatuses = new Set([
+	'active',
+	'trialing',
+	'past_due',
+	'incomplete',
+	'paused'
+]);
 const pricingTiers = [
 	{
 		key: 'founding',
@@ -60,6 +69,8 @@ const pricingTiers = [
 function stripeConfig(env) {
 	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
 	const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || '').trim();
+	const productID = String(env.STRIPE_PRODUCT_PLUS || '').trim();
+	const portalConfigurationID = String(env.STRIPE_PORTAL_CONFIGURATION_ID || '').trim();
 	const tiers = pricingTiers.map((tier) => ({
 		...tier,
 		priceID: String(env[tier.priceEnvironmentKey] || '').trim()
@@ -67,15 +78,21 @@ function stripeConfig(env) {
 	if (
 		!/^sk_(?:test|live)_/.test(secretKey) ||
 		!webhookSecret.startsWith('whsec_') ||
+		!/^prod_/.test(productID) ||
+		!/^bpc_/.test(portalConfigurationID) ||
 		tiers.some((tier) => !/^price_/.test(tier.priceID))
 	) {
 		return null;
 	}
-	return { secretKey, webhookSecret, tiers };
+	return { secretKey, webhookSecret, productID, portalConfigurationID, tiers };
+}
+
+function billingEnforcementEnabled(env) {
+	return String(env.BRIEFLY_BILLING_ENABLED || '').trim().toLowerCase() === 'true';
 }
 
 function tierByKey(key) {
-	return pricingTiers.find((tier) => tier.key === key) ?? pricingTiers.at(-1);
+	return pricingTiers.find((tier) => tier.key === key) ?? null;
 }
 
 function publicTier(tier, claimed, current) {
@@ -115,8 +132,6 @@ const sessionCookieName = 'shared_library_session';
 const sessionLifetimeMilliseconds = 90 * 24 * 60 * 60 * 1000;
 
 async function authenticatedEmail(request, env) {
-	const email = request.headers.get('oai-authenticated-user-email')?.trim();
-	if (email) return email;
 	const cookie = request.headers.get('Cookie') ?? '';
 	const rawToken = cookie
 		.split(';')
@@ -342,6 +357,8 @@ async function ensureSchema(database) {
 				stripe_price_id TEXT,
 				tier_key TEXT NOT NULL,
 				status TEXT NOT NULL,
+				status_changed_at INTEGER NOT NULL DEFAULT 0,
+				stripe_created_at INTEGER NOT NULL DEFAULT 0,
 				current_period_end INTEGER,
 				cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
 				created_at INTEGER NOT NULL,
@@ -382,6 +399,8 @@ async function ensureSchema(database) {
 			`CREATE TABLE IF NOT EXISTS stripe_webhook_events (
 				event_id TEXT PRIMARY KEY NOT NULL,
 				event_type TEXT NOT NULL,
+				status TEXT NOT NULL DEFAULT 'processed',
+				attempts INTEGER NOT NULL DEFAULT 1,
 				processed_at INTEGER NOT NULL
 			)`
 		),
@@ -1237,7 +1256,8 @@ async function billingCustomer(env, email) {
 	return env.DB.prepare(
 		`SELECT c.account_id, c.stripe_customer_id,
 		        s.stripe_subscription_id, s.stripe_price_id, s.tier_key,
-		        s.status, s.current_period_end, s.cancel_at_period_end
+		        s.status, s.status_changed_at, s.stripe_created_at,
+		        s.current_period_end, s.cancel_at_period_end
 		 FROM billing_customers c
 		 LEFT JOIN billing_subscriptions s ON s.account_id = c.account_id
 		 WHERE c.user_email = ?`
@@ -1294,21 +1314,48 @@ async function pricingAvailability(env) {
 	);
 }
 
-function publicSubscription(record) {
+function configuredTierForRecord(record, config) {
+	if (!record?.stripe_price_id || !config) return null;
+	return config.tiers.find((tier) => tier.priceID === record.stripe_price_id) ?? null;
+}
+
+function pastDueGraceMilliseconds(env) {
+	const requestedDays = Number(env.STRIPE_PAST_DUE_GRACE_DAYS ?? 7);
+	const days = Number.isFinite(requestedDays)
+		? Math.max(0, Math.min(30, requestedDays))
+		: 7;
+	return days * 24 * 60 * 60 * 1000;
+}
+
+function subscriptionIsEntitled(record, config, env, now = Date.now()) {
+	if (!configuredTierForRecord(record, config)) return false;
+	if (entitledSubscriptionStatuses.has(record?.status)) return true;
+	if (record?.status !== 'past_due') return false;
+	const changedAt = Number(record.status_changed_at);
+	return (
+		Number.isFinite(changedAt) &&
+		changedAt > 0 &&
+		now - changedAt <= pastDueGraceMilliseconds(env)
+	);
+}
+
+function publicSubscription(record, config) {
 	if (!record?.stripe_subscription_id) return null;
-	const tier = tierByKey(record.tier_key);
+	const tier = configuredTierForRecord(record, config);
 	return {
 		status: record.status,
-		tierKey: tier.key,
-		tierName: tier.name,
-		amount: tier.amount,
+		tierKey: tier?.key ?? 'unrecognized',
+		tierName: tier?.name ?? 'Unrecognized',
+		amount: tier?.amount ?? 0,
 		currency: 'eur',
+		recognized: Boolean(tier),
 		cancelAtPeriodEnd: Boolean(record.cancel_at_period_end),
 		currentPeriodEnd: record.current_period_end ?? null
 	};
 }
 
 async function billingStatus(request, env) {
+	const enforced = billingEnforcementEnabled(env);
 	const config = stripeConfig(env);
 	const email = await authenticatedEmail(request, env);
 	let record = null;
@@ -1316,18 +1363,29 @@ async function billingStatus(request, env) {
 		await ensureSchema(env.DB);
 		record = await billingCustomer(env, email);
 	}
-	const subscription = publicSubscription(record);
+	const subscription = publicSubscription(record, config);
 	return json({
 		configured: Boolean(config),
+		enforced,
 		authenticated: Boolean(email),
-		entitled: !config || paidSubscriptionStatuses.has(subscription?.status),
+		entitled: enforced ? subscriptionIsEntitled(record, config, env) : true,
 		subscription,
 		tiers: await pricingAvailability(env)
 	});
 }
 
 async function paidAccessResponse(request, env) {
-	if (!stripeConfig(env)) return null;
+	if (!billingEnforcementEnabled(env)) return null;
+	const config = stripeConfig(env);
+	if (!config) {
+		return json(
+			{
+				error: 'Briefly Plus billing is temporarily unavailable.',
+				code: 'billing_unavailable'
+			},
+			{ status: 503 }
+		);
+	}
 	const email = await authenticatedEmail(request, env);
 	if (!email) {
 		return json(
@@ -1337,7 +1395,7 @@ async function paidAccessResponse(request, env) {
 	}
 	await ensureSchema(env.DB);
 	const record = await billingCustomer(env, email);
-	if (paidSubscriptionStatuses.has(record?.status)) return null;
+	if (subscriptionIsEntitled(record, config, env)) return null;
 	return json(
 		{
 			error: 'Briefly Plus is required for synchronization and sharing.',
@@ -1347,11 +1405,27 @@ async function paidAccessResponse(request, env) {
 	);
 }
 
+class StripeRequestError extends Error {
+	constructor(message, status, code) {
+		super(message);
+		this.name = 'StripeRequestError';
+		this.status = status;
+		this.code = code;
+	}
+}
+
+function stripeHeaders(config) {
+	return {
+		Authorization: `Bearer ${config.secretKey}`,
+		'Stripe-Version': stripeAPIVersion
+	};
+}
+
 async function stripeRequest(env, path, form, idempotencyKey) {
 	const config = stripeConfig(env);
 	if (!config) throw new Error('Stripe billing is not configured.');
 	const headers = {
-		Authorization: `Bearer ${config.secretKey}`,
+		...stripeHeaders(config),
 		'Content-Type': 'application/x-www-form-urlencoded'
 	};
 	if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
@@ -1366,21 +1440,75 @@ async function stripeRequest(env, path, form, idempotencyKey) {
 			typeof value?.error?.message === 'string'
 				? value.error.message
 				: `Stripe could not complete the billing request (${response.status}).`;
-		throw new Error(message);
+		throw new StripeRequestError(message, response.status, value?.error?.code);
 	}
 	return value;
 }
 
+async function stripeRetrieve(env, path, query = {}) {
+	const config = stripeConfig(env);
+	if (!config) throw new Error('Stripe billing is not configured.');
+	const url = new URL(`${stripeAPIBase}${path}`);
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+	}
+	const response = await fetch(url, { headers: stripeHeaders(config) });
+	const value = await response.json().catch(() => ({}));
+	if (!response.ok) {
+		const message =
+			typeof value?.error?.message === 'string'
+				? value.error.message
+				: `Stripe could not complete the billing request (${response.status}).`;
+		throw new StripeRequestError(message, response.status, value?.error?.code);
+	}
+	return value;
+}
+
+async function validateStripeTier(env, tier) {
+	const config = stripeConfig(env);
+	if (!config) throw new Error('Stripe billing is not configured.');
+	const price = await stripeRetrieve(env, `/prices/${encodeURIComponent(tier.priceID)}`);
+	const productID = typeof price.product === 'string' ? price.product : price.product?.id;
+	if (
+		price.active === false ||
+		productID !== config.productID ||
+		price.currency !== 'eur' ||
+		Number(price.unit_amount) !== tier.amount ||
+		price.type !== 'recurring' ||
+		price.recurring?.interval !== 'month' ||
+		Number(price.recurring?.interval_count) !== 1
+	) {
+		throw new Error(`The configured ${tier.name} Stripe Price does not match Briefly's billing terms.`);
+	}
+}
+
 async function reservePricingTier(env, accountID) {
 	const now = Date.now();
-	const reservationID = crypto.randomUUID();
-	const expiresAt = now + checkoutReservationLifetimeMilliseconds;
-	await env.DB.batch([
-		env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?').bind(now),
-		env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE account_id = ?').bind(accountID)
-	]);
+	await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?')
+		.bind(now)
+		.run();
+	const existing = await env.DB.prepare(
+		`SELECT reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
+		 FROM billing_checkout_reservations
+		 WHERE account_id = ? AND expires_at > ?`
+	)
+		.bind(accountID, now)
+		.first();
+	if (existing) {
+		const existingTier = tierByKey(existing.tier_key);
+		if (existingTier) {
+			return {
+				reservationID: existing.reservation_id,
+				stripeSessionID: existing.stripe_session_id,
+				tier: existingTier,
+				expiresAt: Number(existing.expires_at)
+			};
+		}
+	}
 
 	for (const tier of pricingTiers) {
+		const reservationID = crypto.randomUUID();
+		const expiresAt = now + checkoutReservationLifetimeMilliseconds;
 		let statement;
 		if (tier.capacity === null) {
 			statement = env.DB.prepare(
@@ -1412,8 +1540,24 @@ async function reservePricingTier(env, accountID) {
 			);
 		}
 		if (databaseChanges(await statement.run()) > 0) {
-			return { reservationID, tier, expiresAt };
+			return { reservationID, stripeSessionID: null, tier, expiresAt };
 		}
+	}
+	const concurrent = await env.DB.prepare(
+		`SELECT reservation_id, tier_key, stripe_session_id, expires_at
+		 FROM billing_checkout_reservations
+		 WHERE account_id = ? AND expires_at > ?`
+	)
+		.bind(accountID, now)
+		.first();
+	const concurrentTier = tierByKey(concurrent?.tier_key);
+	if (concurrent && concurrentTier) {
+		return {
+			reservationID: concurrent.reservation_id,
+			stripeSessionID: concurrent.stripe_session_id,
+			tier: concurrentTier,
+			expiresAt: Number(concurrent.expires_at)
+		};
 	}
 	throw new Error('No Briefly Plus price is currently available.');
 }
@@ -1433,17 +1577,56 @@ async function createCheckoutSession(request, env) {
 	}
 	await ensureSchema(env.DB);
 	const customer = await ensureBillingCustomer(env, email);
-	if (paidSubscriptionStatuses.has(customer?.status)) {
+	if (liveSubscriptionStatuses.has(customer?.status)) {
+		const recognized = Boolean(configuredTierForRecord(customer, config));
 		return json(
-			{ error: 'This account already has Briefly Plus.', code: 'subscription_exists' },
+			{
+				error: recognized
+					? 'This account already has Briefly Plus.'
+					: 'This account has a Stripe subscription that needs support before checkout can continue.',
+				code: recognized ? 'subscription_exists' : 'billing_attention_required'
+			},
 			{ status: 409 }
 		);
 	}
-	const reservation = await reservePricingTier(env, customer.account_id);
+	let reservation = await reservePricingTier(env, customer.account_id);
+	if (reservation.stripeSessionID) {
+		try {
+			const existingSession = await stripeRetrieve(
+				env,
+				`/checkout/sessions/${encodeURIComponent(reservation.stripeSessionID)}`
+			);
+			if (existingSession.status === 'open' && typeof existingSession.url === 'string') {
+				return json({
+					url: existingSession.url,
+					tier: publicTier(reservation.tier, 0, true),
+					reused: true
+				});
+			}
+			if (existingSession.status === 'complete') {
+				return json(
+					{
+						error: 'Your completed checkout is still being activated.',
+						code: 'activation_pending'
+					},
+					{ status: 409 }
+				);
+			}
+		} catch (error) {
+			if (!(error instanceof StripeRequestError) || error.status !== 404) throw error;
+		}
+		await env.DB.prepare(
+			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
+		)
+			.bind(reservation.reservationID)
+			.run();
+		reservation = await reservePricingTier(env, customer.account_id);
+	}
 	const configuredTier = config.tiers.find((tier) => tier.key === reservation.tier.key);
 	const origin = new URL(request.url).origin;
 	const form = {
 		mode: 'subscription',
+		'payment_method_types[0]': 'card',
 		'line_items[0][price]': configuredTier.priceID,
 		'line_items[0][quantity]': '1',
 		client_reference_id: customer.account_id,
@@ -1466,6 +1649,7 @@ async function createCheckoutSession(request, env) {
 	}
 
 	try {
+		await validateStripeTier(env, configuredTier);
 		const session = await stripeRequest(
 			env,
 			'/checkout/sessions',
@@ -1485,12 +1669,9 @@ async function createCheckoutSession(request, env) {
 		return json({
 			url: session.url,
 			tier: publicTier(reservation.tier, 0, true)
-		});
-	} catch (error) {
-		await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE reservation_id = ?')
-			.bind(reservation.reservationID)
-			.run();
-		return json(
+			});
+		} catch (error) {
+			return json(
 			{
 				error:
 					error instanceof Error ? error.message : 'Briefly Plus checkout could not be opened.'
@@ -1502,7 +1683,8 @@ async function createCheckoutSession(request, env) {
 
 async function createBillingPortalSession(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	if (!stripeConfig(env)) {
+	const config = stripeConfig(env);
+	if (!config) {
 		return json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
 	}
 	const email = await authenticatedEmail(request, env);
@@ -1512,11 +1694,12 @@ async function createBillingPortalSession(request, env) {
 	if (!customer?.stripe_customer_id) {
 		return json({ error: 'This account does not have a Stripe customer yet.' }, { status: 404 });
 	}
-	try {
-		const portal = await stripeRequest(env, '/billing_portal/sessions', {
-			customer: customer.stripe_customer_id,
-			return_url: `${new URL(request.url).origin}/`
-		});
+		try {
+			const portal = await stripeRequest(env, '/billing_portal/sessions', {
+				customer: customer.stripe_customer_id,
+				configuration: config.portalConfigurationID,
+				return_url: `${new URL(request.url).origin}/`
+			});
 		if (typeof portal.url !== 'string') throw new Error('Stripe did not return a billing URL.');
 		return json({ url: portal.url });
 	} catch (error) {
@@ -1589,12 +1772,12 @@ async function upsertStripeSubscription(env, subscription) {
 	if (typeof customerID !== 'string' || typeof subscription.id !== 'string') return;
 	const priceID = subscription?.items?.data?.[0]?.price?.id ?? null;
 	const configuredTier = stripeConfig(env)?.tiers.find((tier) => tier.priceID === priceID);
-	const tierKey =
-		configuredTier?.key ||
-		(typeof subscription?.metadata?.briefly_tier_key === 'string'
-			? subscription.metadata.briefly_tier_key
-			: 'standard');
+	const tierKey = configuredTier?.key ?? 'unrecognized';
+	const status = String(subscription.status || 'incomplete');
 	const now = Date.now();
+	const created = Number(subscription.created);
+	const stripeCreatedAt =
+		Number.isFinite(created) && created > 0 ? Math.floor(created * 1000) : now;
 	await env.DB.batch([
 		env.DB.prepare(
 			`UPDATE billing_customers
@@ -1604,24 +1787,34 @@ async function upsertStripeSubscription(env, subscription) {
 		env.DB.prepare(
 			`INSERT INTO billing_subscriptions (
 				account_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
-				tier_key, status, current_period_end, cancel_at_period_end, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				tier_key, status, status_changed_at, stripe_created_at,
+				current_period_end, cancel_at_period_end, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(account_id) DO UPDATE SET
 				stripe_subscription_id = excluded.stripe_subscription_id,
 				stripe_customer_id = excluded.stripe_customer_id,
 				stripe_price_id = excluded.stripe_price_id,
 				tier_key = excluded.tier_key,
+				status_changed_at = CASE
+					WHEN billing_subscriptions.status = excluded.status
+					THEN billing_subscriptions.status_changed_at
+					ELSE excluded.status_changed_at
+				END,
 				status = excluded.status,
+				stripe_created_at = excluded.stripe_created_at,
 				current_period_end = excluded.current_period_end,
 				cancel_at_period_end = excluded.cancel_at_period_end,
-				updated_at = excluded.updated_at`
+				updated_at = excluded.updated_at
+			WHERE excluded.stripe_created_at >= billing_subscriptions.stripe_created_at`
 		).bind(
 			accountID,
 			subscription.id,
 			customerID,
 			priceID,
 			tierKey,
-			String(subscription.status || 'incomplete'),
+			status,
+			now,
+			stripeCreatedAt,
 			subscriptionPeriodEnd(subscription),
 			subscription.cancel_at_period_end ? 1 : 0,
 			now,
@@ -1630,13 +1823,28 @@ async function upsertStripeSubscription(env, subscription) {
 	]);
 }
 
+async function latestStripeSubscription(env, subscription) {
+	if (typeof subscription?.id !== 'string') return null;
+	try {
+		return await stripeRetrieve(
+			env,
+			`/subscriptions/${encodeURIComponent(subscription.id)}`
+		);
+	} catch (error) {
+		if (error instanceof StripeRequestError && error.status === 404) {
+			return { ...subscription, status: 'canceled' };
+		}
+		throw error;
+	}
+}
+
 async function completeStripeCheckout(env, session) {
 	const accountID = session?.client_reference_id;
 	const reservationID = session?.metadata?.briefly_reservation_id;
-	const tierKey =
+	const sessionTierKey =
 		typeof session?.metadata?.briefly_tier_key === 'string'
 			? session.metadata.briefly_tier_key
-			: 'standard';
+			: null;
 	const customerID =
 		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
 	const subscriptionID =
@@ -1646,60 +1854,106 @@ async function completeStripeCheckout(env, session) {
 	if (
 		typeof accountID !== 'string' ||
 		typeof customerID !== 'string' ||
-		typeof subscriptionID !== 'string'
+		typeof subscriptionID !== 'string' ||
+		session?.mode !== 'subscription'
 	) {
 		return;
 	}
-	const now = Date.now();
-	const statements = [
-		env.DB.prepare(
-			`UPDATE billing_customers
-			 SET stripe_customer_id = ?, updated_at = ?
-			 WHERE account_id = ?`
-		).bind(customerID, now, accountID),
-		env.DB.prepare(
-			`INSERT INTO billing_subscriptions (
-				account_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
-				tier_key, status, current_period_end, cancel_at_period_end, created_at, updated_at
-			) VALUES (?, ?, ?, NULL, ?, 'active', NULL, 0, ?, ?)
-			ON CONFLICT(account_id) DO UPDATE SET
-				stripe_subscription_id = excluded.stripe_subscription_id,
-				stripe_customer_id = excluded.stripe_customer_id,
-				tier_key = excluded.tier_key,
-				status = excluded.status,
-				updated_at = excluded.updated_at`
-		).bind(accountID, subscriptionID, customerID, tierKey, now, now)
-	];
-	if (typeof reservationID === 'string' && reservationID) {
-		statements.push(
-			env.DB.prepare(
-				`INSERT OR IGNORE INTO billing_allocations (
-					reservation_id, account_id, tier_key, allocated_at
-				) VALUES (?, ?, ?, ?)`
-			).bind(reservationID, accountID, tierKey, now),
-			env.DB.prepare(
-				'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
-			).bind(reservationID)
-		);
+	const subscription = await stripeRetrieve(
+		env,
+		`/subscriptions/${encodeURIComponent(subscriptionID)}`
+	);
+	const subscriptionCustomerID =
+		typeof subscription.customer === 'string'
+			? subscription.customer
+			: subscription.customer?.id;
+	if (
+		subscription?.metadata?.briefly_account_id !== accountID ||
+		subscriptionCustomerID !== customerID
+	) {
+		throw new Error('Stripe Checkout metadata did not match its Subscription.');
 	}
-	await env.DB.batch(statements);
+	await upsertStripeSubscription(env, subscription);
+	const priceID = subscription?.items?.data?.[0]?.price?.id;
+	const configuredTier = stripeConfig(env)?.tiers.find((tier) => tier.priceID === priceID);
+	if (!configuredTier || configuredTier.key !== sessionTierKey) return;
+
+	const now = Date.now();
+	if (
+		typeof reservationID !== 'string' ||
+		!reservationID ||
+		!['paid', 'no_payment_required'].includes(session?.payment_status) ||
+		!entitledSubscriptionStatuses.has(subscription.status)
+	) {
+		return;
+	}
+	const reservation = await env.DB.prepare(
+		`SELECT account_id, tier_key, stripe_session_id
+		 FROM billing_checkout_reservations
+		 WHERE reservation_id = ?`
+	)
+		.bind(reservationID)
+		.first();
+	if (
+		reservation &&
+		(reservation.account_id !== accountID ||
+			reservation.tier_key !== configuredTier.key ||
+			(reservation.stripe_session_id && reservation.stripe_session_id !== session.id))
+	) {
+		throw new Error('Stripe Checkout did not match its Briefly tier reservation.');
+	}
+	await env.DB.batch([
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO billing_allocations (
+				reservation_id, account_id, tier_key, allocated_at
+			) VALUES (?, ?, ?, ?)`
+		).bind(reservationID, accountID, configuredTier.key, now),
+		env.DB.prepare(
+			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
+		).bind(reservationID)
+	]);
+}
+
+function invoiceSubscriptionID(invoice) {
+	const legacy =
+		typeof invoice?.subscription === 'string'
+			? invoice.subscription
+			: invoice?.subscription?.id;
+	if (legacy) return legacy;
+	const modern = invoice?.parent?.subscription_details?.subscription;
+	return typeof modern === 'string' ? modern : modern?.id;
+}
+
+async function releaseCheckoutReservation(env, session) {
+	const reservationID = session?.metadata?.briefly_reservation_id;
+	if (typeof reservationID === 'string') {
+		await env.DB.prepare(
+			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
+		)
+			.bind(reservationID)
+			.run();
+	}
+}
+
+async function refreshStripeSubscription(env, subscription) {
+	const latest = await latestStripeSubscription(env, subscription);
+	if (latest) await upsertStripeSubscription(env, latest);
 }
 
 async function processStripeEvent(env, event) {
 	const object = event?.data?.object;
-	if (event.type === 'checkout.session.completed') {
+	if (
+		event.type === 'checkout.session.completed' ||
+		event.type === 'checkout.session.async_payment_succeeded'
+	) {
 		await completeStripeCheckout(env, object);
 		return;
 	}
-	if (event.type === 'checkout.session.expired') {
-		const reservationID = object?.metadata?.briefly_reservation_id;
-		if (typeof reservationID === 'string') {
-			await env.DB.prepare(
-				'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
-			)
-				.bind(reservationID)
-				.run();
-		}
+	if (
+		event.type === 'checkout.session.expired' ||
+		event.type === 'checkout.session.async_payment_failed'
+	) {
+		await releaseCheckoutReservation(env, object);
 		return;
 	}
 	if (
@@ -1707,8 +1961,48 @@ async function processStripeEvent(env, event) {
 		event.type === 'customer.subscription.updated' ||
 		event.type === 'customer.subscription.deleted'
 	) {
-		await upsertStripeSubscription(env, object);
+		await refreshStripeSubscription(env, object);
+		return;
 	}
+	if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
+		const subscriptionID = invoiceSubscriptionID(object);
+		if (typeof subscriptionID === 'string') {
+			await refreshStripeSubscription(env, { id: subscriptionID });
+		}
+	}
+}
+
+async function claimStripeWebhookEvent(env, event) {
+	const now = Date.now();
+	const inserted = await env.DB.prepare(
+		`INSERT OR IGNORE INTO stripe_webhook_events (
+			event_id, event_type, status, attempts, processed_at
+		) VALUES (?, ?, 'processing', 1, ?)`
+	)
+		.bind(event.id, event.type, now)
+		.run();
+	if (databaseChanges(inserted) > 0) return 'claimed';
+	const existing = await env.DB.prepare(
+		`SELECT status, processed_at
+		 FROM stripe_webhook_events
+		 WHERE event_id = ?`
+	)
+		.bind(event.id)
+		.first();
+	if (existing?.status === 'processed') return 'processed';
+	const reclaimed = await env.DB.prepare(
+		`UPDATE stripe_webhook_events
+		 SET event_type = ?, attempts = attempts + 1, processed_at = ?
+		 WHERE event_id = ? AND status = 'processing' AND processed_at <= ?`
+	)
+		.bind(
+			event.type,
+			now,
+			event.id,
+			now - stripeWebhookClaimLifetimeMilliseconds
+		)
+		.run();
+	return databaseChanges(reclaimed) > 0 ? 'claimed' : 'processing';
 }
 
 async function stripeWebhook(request, env) {
@@ -1734,20 +2028,50 @@ async function stripeWebhook(request, env) {
 		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
 	}
 	await ensureSchema(env.DB);
-	const handled = await env.DB.prepare(
-		'SELECT event_id FROM stripe_webhook_events WHERE event_id = ?'
-	)
-		.bind(event.id)
-		.first();
-	if (handled) return json({ received: true, duplicate: true });
-	await processStripeEvent(env, event);
-	await env.DB.prepare(
-		`INSERT OR IGNORE INTO stripe_webhook_events (event_id, event_type, processed_at)
-		 VALUES (?, ?, ?)`
-	)
-		.bind(event.id, event.type, Date.now())
-		.run();
-	return json({ received: true });
+	const claim = await claimStripeWebhookEvent(env, event);
+	if (claim === 'processed') return json({ received: true, duplicate: true });
+	if (claim === 'processing') {
+		return json({ error: 'Stripe event is already being processed.' }, { status: 409 });
+	}
+	try {
+		await processStripeEvent(env, event);
+		await env.DB.prepare(
+			`UPDATE stripe_webhook_events
+			 SET status = 'processed', processed_at = ?
+			 WHERE event_id = ? AND status = 'processing'`
+		)
+			.bind(Date.now(), event.id)
+			.run();
+		return json({ received: true });
+	} catch (error) {
+		await env.DB.prepare(
+			`DELETE FROM stripe_webhook_events
+			 WHERE event_id = ? AND status = 'processing'`
+		)
+			.bind(event.id)
+			.run();
+		throw error;
+	}
+}
+
+async function reconcileStripeSubscriptions(env) {
+	if (!billingEnforcementEnabled(env) || !stripeConfig(env)) return;
+	let startingAfter;
+	for (let page = 0; page < 20; page += 1) {
+		const subscriptions = await stripeRetrieve(env, '/subscriptions', {
+			status: 'all',
+			limit: 100,
+			starting_after: startingAfter
+		});
+		const records = Array.isArray(subscriptions?.data) ? subscriptions.data : [];
+		for (const subscription of records) {
+			await upsertStripeSubscription(env, subscription);
+		}
+		if (!subscriptions?.has_more || records.length === 0) return;
+		startingAfter = records.at(-1)?.id;
+		if (!startingAfter) return;
+	}
+	throw new Error('Stripe subscription reconciliation exceeded its safety page limit.');
 }
 
 async function googleDriveConnection(env, email) {
@@ -4285,6 +4609,9 @@ const worker = {
 		const acceptsHTML = request.headers.get('accept')?.includes('text/html') ?? false;
 		if (!acceptsHTML) return response;
 		return env.ASSETS.fetch(new Request(new URL('/', request.url), request));
+	},
+	async scheduled(_controller, env, context) {
+		context.waitUntil(reconcileStripeSubscriptions(env));
 	}
 };
 
