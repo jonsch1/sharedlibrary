@@ -746,7 +746,6 @@ button:disabled {
   border-radius: inherit;
   background: linear-gradient(90deg, rgb(42 110 82), rgb(11 86 63));
   content: "";
-  transition: width 160ms linear;
 }
 
 .connection-dot {

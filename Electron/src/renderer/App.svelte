@@ -89,6 +89,7 @@
   let narrationIndex = $state(0);
   let narrationTotal = $state(0);
   let narrationProgress = $state(0);
+  let narrationProgressFrame = 0;
   let narrationAudio: HTMLAudioElement | null = null;
   let share = $state<ShareLinkStatus>({ shared: false });
   let shareBusy = $state(false);
@@ -215,9 +216,12 @@
         window.sharedLibrary.onNarrationStatus(receiveNarrationStatus);
       narrationAudio = new Audio();
       narrationAudio.playbackRate = playbackRate;
-      narrationAudio.addEventListener('timeupdate', updateNarrationProgress);
       narrationAudio.addEventListener('ended', advanceNarration);
-      narrationAudio.addEventListener('play', () => (narrationState = 'playing'));
+      narrationAudio.addEventListener('play', () => {
+        narrationState = 'playing';
+        window.cancelAnimationFrame(narrationProgressFrame);
+        updateNarrationProgress();
+      });
       narrationAudio.addEventListener('pause', () => {
         if (narrationState === 'playing') narrationState = 'paused';
       });
@@ -518,6 +522,7 @@
       return;
     }
     if (narrationState === 'playing') {
+      narrationState = 'paused';
       narrationAudio.pause();
       return;
     }
@@ -587,29 +592,30 @@
   }
 
   function advanceNarration(): void {
-    narrationProgress = 0;
     const next = narrationIndex + 1;
     if (next >= narrationTotal) {
       narrationState = 'idle';
       narrationIndex = 0;
       return;
     }
+    narrationProgress = next / Math.max(narrationTotal, 1);
     narrationIndex = next;
     void playNarrationIndex(next);
   }
 
   function updateNarrationProgress(): void {
-    if (!narrationAudio || !Number.isFinite(narrationAudio.duration)) {
-      narrationProgress = 0;
-      return;
+    if (narrationState !== 'playing' || !narrationAudio) return;
+    if (Number.isFinite(narrationAudio.duration) && narrationAudio.duration > 0) {
+      narrationProgress =
+        (narrationIndex + narrationAudio.currentTime / narrationAudio.duration) /
+        Math.max(narrationTotal, 1);
     }
-    narrationProgress =
-      (narrationIndex + narrationAudio.currentTime / narrationAudio.duration) /
-      Math.max(narrationTotal, 1);
+    narrationProgressFrame = window.requestAnimationFrame(updateNarrationProgress);
   }
 
   function stopNarration(): void {
     narrationRequestID += 1;
+    window.cancelAnimationFrame(narrationProgressFrame);
     narrationAudio?.pause();
     if (narrationAudio) narrationAudio.removeAttribute('src');
     narrationSessionID = '';
@@ -854,7 +860,7 @@
           <footer class="native-document-footer">
             <div
               class="native-player-progress"
-              class:visible={narrationState !== 'idle'}
+              class:visible={narrationState === 'playing'}
               style={`--progress: ${narrationProgress * 100}%`}
             ></div>
             <div class="footer-stat">{wordCount.toLocaleString()} words</div>

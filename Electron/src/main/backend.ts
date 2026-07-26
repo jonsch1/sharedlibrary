@@ -1,4 +1,5 @@
 import { BrowserWindow, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import type {
   AccountProvider,
   ConnectionProvider,
@@ -229,7 +230,8 @@ export class BackendClient {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Accept: 'audio/mpeg'
+        Accept: 'audio/mpeg',
+        'X-Briefly-Request-Id': randomUUID()
       },
       body: JSON.stringify({ input: text, voice, model })
     });
