@@ -37,7 +37,7 @@ export class NarrationService {
     if (!chunks.length) throw new Error('This document does not contain narratable text.');
     const sessionID = randomUUID();
     const first = await this.segment(sessionID, 0, chunks, voice, model, true);
-    void this.generateRemaining(sessionID, chunks, voice, model);
+    setImmediate(() => void this.generateRemaining(sessionID, chunks, voice, model)).unref();
     return { sessionID, total: chunks.length, first };
   }
 
@@ -70,7 +70,13 @@ export class NarrationService {
     for (let index = 1; index < chunks.length; index += 1) {
       try {
         this.onSegment(await this.segment(sessionID, index, chunks, voice, model));
-      } catch {
+      } catch (error) {
+        this.onStatus({
+          sessionID,
+          index,
+          phase: 'checking',
+          error: error instanceof Error ? error.message : 'Narration could not continue.'
+        });
         return;
       }
     }

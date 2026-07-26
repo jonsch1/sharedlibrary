@@ -565,6 +565,12 @@
   }
 
   function receiveNarrationStatus(status: NarrationStatus): void {
+    if (status.error) {
+      if (status.sessionID !== narrationSessionID) return;
+      stopNarration();
+      message = status.error;
+      return;
+    }
     if (narrationState !== 'loading') return;
     if (narrationSessionID && status.sessionID !== narrationSessionID) return;
     narrationLoadingPhase = status.phase;
@@ -617,7 +623,10 @@
     narrationRequestID += 1;
     window.cancelAnimationFrame(narrationProgressFrame);
     narrationAudio?.pause();
-    if (narrationAudio) narrationAudio.removeAttribute('src');
+    if (narrationAudio) {
+      narrationAudio.removeAttribute('src');
+      narrationAudio.load();
+    }
     narrationSessionID = '';
     narrationSegments = [];
     narrationState = 'idle';

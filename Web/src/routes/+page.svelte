@@ -25,6 +25,7 @@
 	import { Input } from '$lib/components/ui/input/index.js';
 	import {
 		demoProjection,
+		hasSameLibraryContent,
 		libraryVariants,
 		loadLibraryProjection,
 		loadLibraryText,
@@ -434,6 +435,7 @@
 	}
 
 	function applySyncedProjection(nextProjection: LibraryProjection): void {
+		if (projection && hasSameLibraryContent(projection, nextProjection)) return;
 		const previousSelection = selectedEntryID;
 		projection = nextProjection;
 		selectedEntryID =

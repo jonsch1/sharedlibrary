@@ -55,6 +55,22 @@ export interface LibrarySyncProgress {
 	total: number;
 }
 
+export function hasSameLibraryContent(
+	left: LibraryProjection,
+	right: LibraryProjection
+): boolean {
+	return (
+		left.schemaVersion === right.schemaVersion &&
+		left.files.length === right.files.length &&
+		left.entries.length === right.entries.length &&
+		left.files.every((file, index) => {
+			const candidate = right.files[index];
+			return file.path === candidate?.path && file.contentHash === candidate.contentHash;
+		}) &&
+		left.entries.every((entry, index) => entry.id === right.entries[index]?.id)
+	);
+}
+
 const databaseName = 'shared-library-web';
 const snapshotStoreName = 'snapshots';
 const textStoreName = 'texts';

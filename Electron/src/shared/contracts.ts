@@ -209,6 +209,7 @@ export interface NarrationStatus {
   sessionID: string;
   index: number;
   phase: NarrationLoadingPhase;
+  error?: string;
 }
 
 export interface NarrationSession {

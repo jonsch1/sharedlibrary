@@ -2,7 +2,31 @@ import assert from 'node:assert/strict';
 import { createHmac, generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import test from 'node:test';
 import worker from './index.js';
+import { hasSameLibraryContent } from '../src/lib/library.ts';
 import { ttsModels } from '../tts-pricing.js';
+
+test('library projection comparison ignores sync timestamps but detects content changes', () => {
+	const projection = {
+		schemaVersion: 3,
+		generatedAt: '2026-07-26T12:00:00.000Z',
+		files: [{ path: 'library/example.md', contentHash: 'a'.repeat(64), byteCount: 7 }],
+		entries: [{ id: 'personal:example' }]
+	};
+	assert.equal(
+		hasSameLibraryContent(projection, {
+			...projection,
+			generatedAt: '2026-07-26T12:05:00.000Z'
+		}),
+		true
+	);
+	assert.equal(
+		hasSameLibraryContent(projection, {
+			...projection,
+			files: [{ ...projection.files[0], contentHash: 'b'.repeat(64) }]
+		}),
+		false
+	);
+});
 
 class MockStatement {
 	constructor(database, sql) {

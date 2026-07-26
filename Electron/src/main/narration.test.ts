@@ -77,3 +77,36 @@ test('the first generated segment is exposed as a progressive audio stream', asy
     await rm(cacheRoot, { recursive: true, force: true });
   }
 });
+
+test('remaining narration starts after the session is returned', async () => {
+  const cacheRoot = await mkdtemp(join(tmpdir(), 'briefly-narration-'));
+  let sessionReturned = false;
+  let resolveSegment: (() => void) | undefined;
+  const segmentReceived = new Promise<void>((resolve) => {
+    resolveSegment = resolve;
+  });
+  const backend = {
+    loadAudio: async () => new Uint8Array([1])
+  } as unknown as BackendClient;
+  const service = new NarrationService(
+    cacheRoot,
+    backend,
+    () => {
+      assert.equal(sessionReturned, true);
+      resolveSegment?.();
+    },
+    () => {}
+  );
+
+  try {
+    await service.start(
+      `${'First segment has several words. '.repeat(12)}Second segment follows.`,
+      'af_heart',
+      defaultOpenRouterTTSModel
+    );
+    sessionReturned = true;
+    await segmentReceived;
+  } finally {
+    await rm(cacheRoot, { recursive: true, force: true });
+  }
+});
