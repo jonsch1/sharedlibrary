@@ -174,6 +174,12 @@ function normalizeResult(result, input, requestedURL) {
   if (parsedURL.username || parsedURL.password) {
     throw new Error(`${input.id} returned a sourceURL containing credentials.`);
   }
+  const routedInput =
+    input === genericHTMLInput &&
+    typeof result.extractor === "string" &&
+    typeof result.sourceType === "string"
+      ? { id: result.extractor, sourceType: result.sourceType }
+      : input;
   return {
     ...result,
     url: parsedURL.toString(),
@@ -190,8 +196,8 @@ function normalizeResult(result, input, requestedURL) {
         ? result.siteName.trim()
         : null,
     content,
-    extractor: input.id,
-    sourceType: input.sourceType,
+    extractor: routedInput.id,
+    sourceType: routedInput.sourceType,
     totalCharacters: content.length,
     wordCount: content.split(/\s+/u).filter(Boolean).length
   };

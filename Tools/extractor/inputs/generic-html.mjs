@@ -23,6 +23,16 @@ export const genericHTMLInput = {
 
 export async function extractGenericHTML(rawUrl, context = {}) {
   const fetched = await fetchText(rawUrl, context);
+  if (
+    fetched.contentType.includes("application/pdf") ||
+    new TextDecoder("latin1").decode(fetched.bytes.slice(0, 5)) === "%PDF-"
+  ) {
+    const { extractPDF } = await import("./pdf.mjs");
+    return extractPDF(rawUrl, fetched);
+  }
+  const { extractPublishedPodcastTranscript } = await import("./podcast.mjs");
+  const podcast = await extractPublishedPodcastTranscript(rawUrl, fetched, context);
+  if (podcast) return podcast;
   assertTextDocument(fetched.contentType, fetched.text);
   const extracted = extractGenericHTMLFromSource(fetched.finalURL, fetched.text);
   return {

@@ -4,6 +4,7 @@
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
+	import ClipboardIcon from '@lucide/svelte/icons/clipboard';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
@@ -178,7 +179,7 @@
 		{ id: 'bluesky', label: 'Bluesky' },
 		{ id: 'pdf', label: 'PDFs' },
 		{ id: 'website', label: 'Any website' },
-		{ id: 'notes', label: 'Your notes' }
+		{ id: 'clipboard', label: 'Your clipboard' }
 	];
 
 	const depthOptions = [
@@ -701,8 +702,8 @@
 										<RssIcon />
 									{:else if source.id === 'website'}
 										<GlobeIcon />
-									{:else if source.id === 'notes'}
-										<MessageIcon />
+									{:else if source.id === 'clipboard'}
+										<ClipboardIcon />
 									{:else}
 										<FileTextIcon />
 									{/if}

@@ -40,8 +40,20 @@ export async function fetchText(rawUrl, {
       throw new Error("The response was too large to import.");
     }
 
-    const text = await response.text();
-    const downloadedBytes = Buffer.byteLength(text, "utf8");
+    const contentType =
+      response.headers?.get?.("content-type")?.toLowerCase() ?? "";
+    let bytes;
+    let text;
+    if (typeof response.arrayBuffer === "function") {
+      bytes = new Uint8Array(await response.arrayBuffer());
+      text = isBinaryContentType(contentType)
+        ? ""
+        : new TextDecoder().decode(bytes);
+    } else {
+      text = await response.text();
+      bytes = new TextEncoder().encode(text);
+    }
+    const downloadedBytes = bytes.byteLength;
     if (downloadedBytes > maximumBytes) {
       throw new Error("The response was too large to import.");
     }
@@ -56,7 +68,8 @@ export async function fetchText(rawUrl, {
       downloadedBytes
     });
     return {
-      contentType: response.headers?.get?.("content-type")?.toLowerCase() ?? "",
+      bytes,
+      contentType,
       finalURL,
       headers: response.headers?.entries
         ? Object.fromEntries(response.headers.entries())
@@ -83,4 +96,15 @@ export function isHTTPURL(rawUrl) {
   } catch {
     return false;
   }
+}
+
+function isBinaryContentType(contentType) {
+  return [
+    "application/octet-stream",
+    "application/pdf",
+    "application/zip",
+    "audio/",
+    "image/",
+    "video/"
+  ].some((candidate) => contentType.includes(candidate));
 }

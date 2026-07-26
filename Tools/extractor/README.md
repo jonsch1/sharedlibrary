@@ -11,6 +11,11 @@ matching without executing extension code. The selected module runs through
 
 Supported specialized inputs:
 
+- PDF responses are parsed by content type or PDF signature, including download
+  URLs without a `.pdf` suffix. Image-only scans report that OCR is unavailable.
+- Podcast RSS feeds and episode pages with RSS autodiscovery use published
+  Podcasting 2.0 transcripts in WebVTT, HTML, JSON, SRT, or plain text. Audio is
+  never downloaded or transcribed.
 - `youtube.mjs` reads video metadata and published caption tracks. It never
   downloads video or audio. Videos without an available transcript still
   produce a result containing the title, channel, description, and a clear
@@ -21,7 +26,7 @@ Supported specialized inputs:
 
 The generic HTML input fetches text documents directly, extracts metadata and
 JSON-LD, and uses Mozilla Readability with a sanitized DOM-text fallback.
-Binary documents and media are intentionally rejected.
+Unsupported binary formats and media are intentionally rejected.
 
 ## Adding an input
 
