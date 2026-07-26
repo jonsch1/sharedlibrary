@@ -30,10 +30,11 @@ never connect or see that credential. Readers choose Low (Kokoro), Medium (Orphe
 or High (Grok Voice) quality. Supported browsers begin playback as MP3 bytes arrive;
 the complete result is cached in the browser and copied to Google Drive.
 
-AI voice credit is prepaid in €5, €10, or €20 increments through Stripe. The server
-reserves the exact character-based retail charge before requesting speech, releases
-it on provider failure, and records successful usage in D1. Purchased credit is
-non-refundable except where required by law and has no short product expiry.
+AI voice credit is prepaid with €5, €10, or €15 VAT-inclusive payments through
+Stripe. The server credits the payment excluding Stripe-calculated tax, reserves the
+exact character-based retail charge before requesting speech, releases it on provider
+failure, and records successful usage in D1. Purchased credit is non-refundable
+except where required by law and has no short product expiry.
 The first successfully paid Briefly Plus Checkout also grants that account a
 one-time AI voice credit equal to the total EUR amount paid; renewals and later
 subscriptions do not grant it again.

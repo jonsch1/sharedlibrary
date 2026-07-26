@@ -36,12 +36,15 @@ export async function extractYouTube(rawUrl, context = {}) {
     metadata.description;
   const author = cleanText(video.author);
 
-  const tracks =
+  let tracks =
     player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   let transcript = null;
   let transcriptError = null;
   if (Array.isArray(tracks) && tracks.length > 0) {
     try {
+      if (tracks.some((track) => /[?&]exp=xp[ev](?:&|$)/u.test(track?.baseUrl))) {
+        tracks = await fetchCaptionTracksWithoutProofToken(videoID, context);
+      }
       transcript = await fetchPreferredTranscript(tracks, context);
     } catch (error) {
       transcriptError = error instanceof Error ? error.message : String(error);
@@ -65,6 +68,40 @@ export async function extractYouTube(rawUrl, context = {}) {
     transcriptLanguage: transcript?.languageCode ?? null,
     transcriptError
   };
+}
+
+async function fetchCaptionTracksWithoutProofToken(videoID, context) {
+  const response = await fetchText(
+    "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+    {
+      ...context,
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: "IOS",
+            clientVersion: "21.26.4",
+            deviceMake: "Apple",
+            deviceModel: "iPhone16,2",
+            hl: "en",
+            osName: "iPhone",
+            osVersion: "18.3.2.22D82"
+          }
+        },
+        videoId: videoID
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent":
+          "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+        "X-YouTube-Client-Name": "5",
+        "X-YouTube-Client-Version": "21.26.4"
+      },
+      maximumBytes: 10_000_000,
+      method: "POST"
+    }
+  );
+  const player = JSON.parse(response.text);
+  return player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
 }
 
 export function extractYouTubeVideoID(rawUrl) {

@@ -1253,7 +1253,7 @@
 										disabled={managedTTSBusy}
 										onclick={() => topUpManagedTTS(amount)}
 									>
-										{formatMonthlyPrice(amount)}
+										Pay {formatMonthlyPrice(amount)}
 									</Button>
 								{/each}
 							</div>
@@ -1265,7 +1265,8 @@
 							</p>
 						{/if}
 						<p class="connection-help">
-							AI voice credit is non-refundable except where required by law.
+							Payment includes applicable VAT; the added credit excludes VAT. AI voice
+							credit is non-refundable except where required by law.
 						</p>
 					{:else}
 						<p class="connection-help">Loading AI voice credit…</p>

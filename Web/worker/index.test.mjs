@@ -275,6 +275,11 @@ class MockStatement {
 				const account = this.database.ttsAccounts.get(accountID);
 				const usage = this.database.ttsUsage.get(referenceID);
 				const topUp = this.database.ttsTopUps.get(referenceID);
+				const monthly = this.sql.includes('FROM tts_monthly_credits')
+					? this.database.ttsMonthlyCredits.get(
+							`${this.arguments[3]}:${this.arguments[4]}`
+						)
+					: null;
 				const welcome = [...this.database.ttsWelcomeCredits.values()].find(
 					(record) =>
 						record.account_id === accountID &&
@@ -284,6 +289,7 @@ class MockStatement {
 					account &&
 					((usage && usage.status === 'reserved') ||
 						(topUp && topUp.account_id === accountID && topUp.credited_at === null) ||
+						(monthly && monthly.credited_at === null) ||
 						(welcome && welcome.credited_at === null))
 				) {
 					account.balance_micros += amountMicros;
@@ -374,6 +380,29 @@ class MockStatement {
 					record?.stripe_checkout_session_id === this.arguments[2] &&
 					record.credited_at === null
 				) {
+					record.credited_at = this.arguments[0];
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT OR IGNORE INTO tts_monthly_credits')) {
+				const [accountID, creditMonth, amountMicros, createdAt] = this.arguments;
+				const key = `${accountID}:${creditMonth}`;
+				if (!this.database.ttsMonthlyCredits.has(key)) {
+					this.database.ttsMonthlyCredits.set(key, {
+						account_id: accountID,
+						credit_month: creditMonth,
+						amount_micros: amountMicros,
+						created_at: createdAt,
+						credited_at: null
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('UPDATE tts_monthly_credits SET credited_at')) {
+				const record = this.database.ttsMonthlyCredits.get(
+					`${this.arguments[1]}:${this.arguments[2]}`
+				);
+				if (record?.credited_at === null) {
 					record.credited_at = this.arguments[0];
 					changes = 1;
 				}
@@ -597,6 +626,7 @@ class MockDatabase {
 	billingAllocations = new Map();
 	ttsAccounts = new Map();
 	ttsWelcomeCredits = new Map();
+	ttsMonthlyCredits = new Map();
 	ttsTopUps = new Map();
 	ttsUsage = new Map();
 	feedbackItems = new Map();
@@ -715,9 +745,28 @@ test('managed speech status exposes balance and prices, never the server key', a
 	assert.equal(status.configured, true);
 	assert.equal(status.authenticated, true);
 	assert.equal(status.balanceMicros, 500_000_000);
-	assert.deepEqual(status.topUpAmounts, [500, 1000, 2000]);
+	assert.deepEqual(status.topUpAmounts, [500, 1000, 1500]);
 	assert.equal(status.prices.length, 3);
 	assert.equal(JSON.stringify(status).includes('sk-or-managed'), false);
+});
+
+test('the owner receives exactly €10 of AI voice credit each UTC month', async (context) => {
+	const database = new MockDatabase();
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const env = environment(database);
+	let now = Date.UTC(2026, 6, 1);
+	context.mock.method(Date, 'now', () => now);
+
+	for (let request = 0; request < 2; request += 1) {
+		const response = await worker.fetch(authenticatedRequest('/api/tts/status'), env);
+		assert.equal((await response.json()).balanceMicros, 1_000_000_000);
+	}
+	assert.equal(database.ttsMonthlyCredits.size, 1);
+
+	now = Date.UTC(2026, 7, 1);
+	const nextMonth = await worker.fetch(authenticatedRequest('/api/tts/status'), env);
+	assert.equal((await nextMonth.json()).balanceMicros, 2_000_000_000);
+	assert.equal(database.ttsMonthlyCredits.size, 2);
 });
 
 test('managed speech pricing reports rounded audio hours per euro', () => {
@@ -998,8 +1047,10 @@ test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts',
 		assert.equal(checkoutForm.get('metadata[briefly_kind]'), 'tts_credit');
 		assert.match(checkoutHeaders['Idempotency-Key'], /^briefly-tts-checkout-v3-/);
 		assert.equal(checkoutForm.get('payment_method_types[0]'), null);
-		assert.equal(checkoutForm.get('automatic_tax[enabled]'), null);
-		assert.equal(checkoutForm.get('tax_id_collection[enabled]'), null);
+		assert.equal(checkoutForm.get('automatic_tax[enabled]'), 'true');
+		assert.equal(checkoutForm.get('tax_id_collection[enabled]'), 'true');
+		assert.equal(checkoutForm.get('billing_address_collection'), 'required');
+		assert.equal(checkoutForm.get('customer_creation'), 'always');
 		assert.equal(checkoutForm.get('custom_text[submit][message]'), null);
 	} finally {
 		globalThis.fetch = originalFetch;
@@ -1050,7 +1101,7 @@ test('configured Plus routes reject free accounts without blocking public reader
 	assert.equal(publicResponse.status, 404);
 });
 
-test('paid AI voice checkout credits the account exactly once', async () => {
+test('paid AI voice checkout credits the VAT-exclusive amount exactly once', async () => {
 	const database = new MockDatabase();
 	database.billingCustomers.set('reader@example.com', {
 		user_email: 'reader@example.com',
@@ -1058,40 +1109,55 @@ test('paid AI voice checkout credits the account exactly once', async () => {
 		stripe_customer_id: null
 	});
 	const env = stripeEnvironment(database);
+	const session = {
+		id: 'cs_tts_topup',
+		mode: 'payment',
+		payment_status: 'paid',
+		amount_total: 500,
+		currency: 'eur',
+		automatic_tax: { enabled: true, status: 'complete' },
+		total_details: { amount_tax: 87 },
+		client_reference_id: 'account-reader',
+		customer: 'cus_reader',
+		payment_intent: 'pi_tts_topup',
+		created: 1_785_000_000,
+		metadata: {
+			briefly_kind: 'tts_credit',
+			briefly_account_id: 'account-reader',
+			briefly_credit_cents: '500'
+		}
+	};
 	const event = {
 		id: 'evt_tts_topup',
 		type: 'checkout.session.completed',
-		data: {
-			object: {
-				id: 'cs_tts_topup',
-				mode: 'payment',
-				payment_status: 'paid',
-				amount_total: 500,
-				client_reference_id: 'account-reader',
-				customer: 'cus_reader',
-				payment_intent: 'pi_tts_topup',
-				created: 1_785_000_000,
-				metadata: {
-					briefly_kind: 'tts_credit',
-					briefly_account_id: 'account-reader',
-					briefly_credit_cents: '500'
-				}
-			}
-		}
+		data: { object: session }
 	};
-	const first = await worker.fetch(
-		signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
-		env
-	);
-	const duplicate = await worker.fetch(
-		signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
-		env
-	);
-	assert.equal(first.status, 200);
-	assert.deepEqual(await duplicate.json(), { received: true, duplicate: true });
-	assert.equal(database.ttsAccounts.get('account-reader').balance_micros, 500_000_000);
-	assert.equal(database.ttsTopUps.get('cs_tts_topup').credited_at > 0, true);
-	assert.equal(database.ttsTopUps.get('cs_tts_topup').refund_status, 'disabled');
+	const originalFetch = globalThis.fetch;
+	globalThis.fetch = async (input) => {
+		const url = new URL(input);
+		if (url.pathname === '/v1/checkout/sessions/cs_tts_topup') {
+			return Response.json(session);
+		}
+		return Response.json({ error: { message: 'Unexpected Stripe request.' } }, { status: 500 });
+	};
+	try {
+		const first = await worker.fetch(
+			signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
+			env
+		);
+		const duplicate = await worker.fetch(
+			signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
+			env
+		);
+		assert.equal(first.status, 200);
+		assert.deepEqual(await duplicate.json(), { received: true, duplicate: true });
+		assert.equal(database.ttsAccounts.get('account-reader').balance_micros, 413_000_000);
+		assert.equal(database.ttsTopUps.get('cs_tts_topup').amount_micros, 413_000_000);
+		assert.equal(database.ttsTopUps.get('cs_tts_topup').credited_at > 0, true);
+		assert.equal(database.ttsTopUps.get('cs_tts_topup').refund_status, 'disabled');
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
 });
 
 test('first paid Plus month grants matching AI voice credit only once', async (context) => {

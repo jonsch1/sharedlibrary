@@ -1,4 +1,4 @@
-export const ttsTopUpAmounts = [500, 1000, 2000];
+export const ttsTopUpAmounts = [500, 1000, 1500];
 
 export const ttsModels = [
 	{

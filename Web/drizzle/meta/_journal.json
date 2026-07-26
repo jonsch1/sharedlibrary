@@ -71,6 +71,13 @@
       "when": 1785076077205,
       "tag": "0009_sour_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1785078846827,
+      "tag": "0010_heavy_gressill",
+      "breakpoints": true
     }
   ]
 }

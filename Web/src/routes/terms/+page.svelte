@@ -121,7 +121,7 @@
 		<ul>
 			<li>Purchased AI voice credit is a limited, non-transferable right to use Briefly's managed narration service. It is not money, a bank account, or a general-purpose wallet and cannot be sent to another person or payment destination.</li>
 			<li>Your account's first successfully paid Briefly Plus Checkout receives a one-time AI voice credit equal to the total EUR amount paid. Renewals and later subscriptions do not grant another welcome credit.</li>
-			<li>The top-up amount, taxes, available balance, and character-based narration prices are shown in the product or Stripe Checkout. Pricing changes apply prospectively and do not reduce credit already purchased.</li>
+			<li>Top-up payments include applicable VAT. The credit added to your balance equals the payment excluding VAT, as calculated by Stripe. Pricing changes apply prospectively and do not reduce credit already purchased.</li>
 			<li>Briefly reserves the displayed charge before requesting narration, settles successful generations, and restores the reservation when the provider request fails. A completed provider generation is chargeable even if you dislike its style or choose not to listen.</li>
 			<li>Purchased and welcome credit have no short product expiry.</li>
 			<li>Top-ups are final and non-refundable except where withdrawal, defect, termination, or refund rights are required by law.</li>

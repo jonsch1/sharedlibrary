@@ -121,6 +121,18 @@ export const ttsWelcomeCredits = sqliteTable('tts_welcome_credits', {
 	creditedAt: integer('credited_at')
 });
 
+export const ttsMonthlyCredits = sqliteTable(
+	'tts_monthly_credits',
+	{
+		accountID: text('account_id').notNull(),
+		creditMonth: text('credit_month').notNull(),
+		amountMicros: integer('amount_micros').notNull(),
+		createdAt: integer('created_at').notNull(),
+		creditedAt: integer('credited_at')
+	},
+	(table) => [primaryKey({ columns: [table.accountID, table.creditMonth] })]
+);
+
 export const ttsTopUps = sqliteTable(
 	'tts_topups',
 	{

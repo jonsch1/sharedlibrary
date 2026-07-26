@@ -254,10 +254,11 @@
 							<div class="topups">
 								{#each tts.topUpAmounts as amount}
 									<button onclick={() => topUp(amount)} disabled={busy}>
-										Add {formatMonthlyPrice(amount)}
+										Pay {formatMonthlyPrice(amount)}
 									</button>
 								{/each}
 							</div>
+							<p>Payment includes applicable VAT; the added credit excludes VAT.</p>
 						{/if}
 					</div>
 				</section>

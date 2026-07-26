@@ -79,6 +79,62 @@ test("YouTube extraction fetches creator captions without media downloads", asyn
   );
 });
 
+test("YouTube extraction bypasses proof-token caption tracks", async () => {
+  const page = youtubePage({
+    captionTracks: [
+      {
+        baseUrl:
+          "https://www.youtube.com/api/timedtext?v=abc1234&exp=xpe&lang=en",
+        languageCode: "en"
+      }
+    ]
+  });
+  const requested = [];
+  const result = await extractYouTube(
+    "https://www.youtube.com/watch?v=abc1234",
+    {
+      fetchImpl: async (url) => {
+        requested.push(String(url));
+        if (requested.length === 1) {
+          return response(page, "text/html", String(url));
+        }
+        if (requested.length === 2) {
+          return response(
+            JSON.stringify({
+              captions: {
+                playerCaptionsTracklistRenderer: {
+                  captionTracks: [
+                    {
+                      baseUrl:
+                        "https://www.youtube.com/api/timedtext?v=abc1234&lang=en",
+                      languageCode: "en"
+                    }
+                  ]
+                }
+              }
+            }),
+            "application/json",
+            String(url)
+          );
+        }
+        return response(
+          JSON.stringify({
+            events: [{ tStartMs: 0, segs: [{ utf8: "Recovered captions." }] }]
+          }),
+          "application/json",
+          String(url)
+        );
+      }
+    }
+  );
+
+  assert.equal(requested.length, 3);
+  assert.match(requested[1], /youtubei\/v1\/player/);
+  assert.doesNotMatch(requested[2], /exp=xpe/);
+  assert.equal(result.content, "Transcript:\nRecovered captions.");
+  assert.equal(result.transcriptAvailable, true);
+});
+
 test("YouTube extraction returns metadata when captions are unavailable", async () => {
   const result = await extractYouTube(
     "https://www.youtube.com/watch?v=abc1234",

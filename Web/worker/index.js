@@ -21,6 +21,9 @@ const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
 const maximumActiveShareLinks = 200;
 const entitledSubscriptionStatuses = new Set(['active', 'trialing']);
 const complimentaryPlusEmails = new Set(['schauljonathan@gmail.com']);
+const complimentaryMonthlyTTSMicros = new Map([
+	['schauljonathan@gmail.com', 10 * 100_000_000]
+]);
 const liveSubscriptionStatuses = new Set([
 	'active',
 	'trialing',
@@ -442,6 +445,16 @@ async function ensureSchema(database) {
 			)`
 		),
 		database.prepare(
+			`CREATE TABLE IF NOT EXISTS tts_monthly_credits (
+				account_id TEXT NOT NULL,
+				credit_month TEXT NOT NULL,
+				amount_micros INTEGER NOT NULL,
+				created_at INTEGER NOT NULL,
+				credited_at INTEGER,
+				PRIMARY KEY (account_id, credit_month)
+			)`
+		),
+		database.prepare(
 			`CREATE TABLE IF NOT EXISTS tts_topups (
 				checkout_session_id TEXT PRIMARY KEY NOT NULL,
 				account_id TEXT NOT NULL,
@@ -819,6 +832,7 @@ async function createSpeech(request, env) {
 	const amountMicros = ttsChargeMicros(model, characterCount);
 	if (!amountMicros) return json({ error: 'Invalid speech price.' }, { status: 400 });
 	const customer = await ensureBillingCustomer(env, email);
+	await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
 	const reservation = await reserveTTSUsage(
 		env,
 		customer.account_id,
@@ -1622,6 +1636,48 @@ function hasComplimentaryPlusAccess(email) {
 	return complimentaryPlusEmails.has(String(email || '').trim().toLowerCase());
 }
 
+function complimentaryMonthlyTTSAmountMicros(email) {
+	return complimentaryMonthlyTTSMicros.get(String(email || '').trim().toLowerCase()) ?? 0;
+}
+
+async function grantComplimentaryMonthlyTTSCredit(env, email, accountID, now = Date.now()) {
+	const amountMicros = complimentaryMonthlyTTSAmountMicros(email);
+	if (!amountMicros) return;
+	const creditMonth = new Date(now).toISOString().slice(0, 7);
+	await env.DB.batch([
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO tts_accounts (
+				account_id, balance_micros, created_at, updated_at
+			) VALUES (?, 0, ?, ?)`
+		).bind(accountID, now, now),
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO tts_monthly_credits (
+				account_id, credit_month, amount_micros, created_at, credited_at
+			) VALUES (?, ?, ?, ?, NULL)`
+		).bind(accountID, creditMonth, amountMicros, now),
+		env.DB.prepare(
+			`UPDATE tts_accounts
+			 SET balance_micros = balance_micros + ?, updated_at = ?
+			 WHERE account_id = ? AND EXISTS (
+				SELECT 1 FROM tts_monthly_credits
+				WHERE account_id = ? AND credit_month = ? AND credited_at IS NULL
+			 )`
+		).bind(amountMicros, now, accountID, accountID, creditMonth),
+		env.DB.prepare(
+			`UPDATE tts_monthly_credits SET credited_at = ?
+			 WHERE account_id = ? AND credit_month = ? AND credited_at IS NULL`
+		).bind(now, accountID, creditMonth)
+	]);
+}
+
+async function grantAllComplimentaryMonthlyTTSCredits(env) {
+	await ensureSchema(env.DB);
+	for (const email of complimentaryMonthlyTTSMicros.keys()) {
+		const customer = await ensureBillingCustomer(env, email);
+		await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
+	}
+}
+
 function pastDueGraceMilliseconds(env) {
 	const requestedDays = Number(env.STRIPE_PAST_DUE_GRACE_DAYS ?? 7);
 	const days = Number.isFinite(requestedDays)
@@ -1700,7 +1756,11 @@ async function ttsStatus(request, env) {
 		});
 	}
 	await ensureSchema(env.DB);
-	const customer = await billingCustomer(env, email);
+	let customer = await billingCustomer(env, email);
+	if (complimentaryMonthlyTTSAmountMicros(email)) {
+		customer ??= await ensureBillingCustomer(env, email);
+		await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
+	}
 	if (!customer) {
 		return json({
 			configured,
@@ -1778,6 +1838,9 @@ async function createTTSCheckoutSession(request, env) {
 		'line_items[0][price_data][tax_behavior]': 'inclusive',
 		'line_items[0][price_data][product]': config.productID,
 		'line_items[0][quantity]': '1',
+		'automatic_tax[enabled]': 'true',
+		'tax_id_collection[enabled]': 'true',
+		billing_address_collection: 'required',
 		client_reference_id: customer.account_id,
 		success_url: `${origin}/account?tts=success`,
 		cancel_url: `${origin}/account?tts=cancelled`,
@@ -1789,8 +1852,11 @@ async function createTTSCheckoutSession(request, env) {
 	};
 	if (customer.stripe_customer_id) {
 		form.customer = customer.stripe_customer_id;
+		form['customer_update[address]'] = 'auto';
+		form['customer_update[name]'] = 'auto';
 	} else {
 		form.customer_email = email;
+		form.customer_creation = 'always';
 	}
 	try {
 		await validateTTSProduct(env, config.productID);
@@ -2278,7 +2344,17 @@ async function latestStripeSubscription(env, subscription) {
 	}
 }
 
-async function completeTTSCheckout(env, session) {
+async function completeTTSCheckout(env, eventSession) {
+	if (
+		eventSession?.metadata?.briefly_kind !== 'tts_credit' ||
+		typeof eventSession?.id !== 'string'
+	) {
+		return;
+	}
+	const session = await stripeRetrieve(
+		env,
+		`/checkout/sessions/${encodeURIComponent(eventSession.id)}`
+	);
 	const accountID = session?.metadata?.briefly_account_id;
 	const customerID =
 		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
@@ -2287,17 +2363,28 @@ async function completeTTSCheckout(env, session) {
 			? session.payment_intent
 			: session?.payment_intent?.id;
 	const amountCents = Number(session?.metadata?.briefly_credit_cents);
+	const automaticTax = session?.automatic_tax;
+	const taxCents =
+		automaticTax?.enabled === false
+			? 0
+			: automaticTax?.enabled === true && automaticTax?.status === 'complete'
+				? session?.total_details?.amount_tax
+				: Number.NaN;
 	if (
 		session?.mode !== 'payment' ||
 		session?.metadata?.briefly_kind !== 'tts_credit' ||
 		!['paid', 'no_payment_required'].includes(session?.payment_status) ||
+		session?.currency !== 'eur' ||
 		typeof session?.id !== 'string' ||
 		typeof accountID !== 'string' ||
 		session?.client_reference_id !== accountID ||
 		typeof customerID !== 'string' ||
 		typeof paymentIntentID !== 'string' ||
 		!ttsTopUpAmounts.includes(amountCents) ||
-		Number(session?.amount_total) !== amountCents
+		session?.amount_total !== amountCents ||
+		!Number.isSafeInteger(taxCents) ||
+		taxCents < 0 ||
+		taxCents >= amountCents
 	) {
 		return;
 	}
@@ -2310,7 +2397,7 @@ async function completeTTSCheckout(env, session) {
 	const now = Date.now();
 	const created = Number(session.created);
 	const createdAt = Number.isFinite(created) && created > 0 ? Math.floor(created * 1000) : now;
-	const amountMicros = amountCents * 1_000_000;
+	const amountMicros = (amountCents - taxCents) * 1_000_000;
 	await env.DB.batch([
 		env.DB.prepare(
 			`UPDATE billing_customers
@@ -5230,7 +5317,11 @@ const worker = {
 	},
 	async scheduled(_controller, env, context) {
 		context.waitUntil(
-			Promise.all([reconcileStripeSubscriptions(env), releaseStaleTTSReservations(env)])
+			Promise.all([
+				reconcileStripeSubscriptions(env),
+				releaseStaleTTSReservations(env),
+				grantAllComplimentaryMonthlyTTSCredits(env)
+			])
 		);
 	}
 };
