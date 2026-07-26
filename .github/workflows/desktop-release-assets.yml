@@ -10,12 +10,18 @@ on:
         description: Electron/package.json version to publish
         required: true
         default: 0.1.0
+      store_only:
+        description: Build only the Microsoft Store AppX artifact
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.store_only }}
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -140,7 +146,39 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  store-package:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.store_only }}
+    name: Microsoft Store x64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: Electron
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            Electron/package-lock.json
+            Tools/extractor/package-lock.json
+
+      - run: npm ci
+      - run: npm --prefix ../Tools/extractor ci
+      - run: npm test
+      - run: npm run dist -- --win appx --x64 -c.win.signExecutable=false --publish never
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: store-windows
+          path: Electron/release/*.appx
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.store_only }}
     name: Publish update
     needs: build
     runs-on: ubuntu-latest
