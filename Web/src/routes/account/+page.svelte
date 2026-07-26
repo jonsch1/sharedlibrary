@@ -1,13 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
-	import CheckIcon from '@lucide/svelte/icons/check';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import GlobeIcon from '@lucide/svelte/icons/globe-2';
-	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LaptopIcon from '@lucide/svelte/icons/laptop';
-	import LinkIcon from '@lucide/svelte/icons/link-2';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import {
@@ -180,17 +176,14 @@
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
-		<a class="back-link" href="/landing"><ArrowLeftIcon /> Back to overview</a>
 	</header>
 
 	{#if loading}
 		<section class="account-state" aria-live="polite">
-			<img src="/icons/icon-192.png" alt="" />
 			<h1>Loading your account…</h1>
 		</section>
 	{:else if !account?.authenticated}
 		<section class="account-state">
-			<img src="/icons/icon-192.png" alt="" />
 			<p class="eyebrow">Briefly account</p>
 			<h1>Sign in before you start.</h1>
 			<p>Your account holds your membership, app downloads, library sync, and AI voice credit.</p>
@@ -216,7 +209,6 @@
 
 			<div class="account-grid">
 				<section class="account-card membership-card">
-					<div class="card-icon"><CheckIcon /></div>
 					<div>
 						<p class="eyebrow">Membership</p>
 						<h2>{billing?.entitled ? 'Active' : 'Choose your plan'}</h2>
@@ -245,7 +237,6 @@
 				</section>
 
 				<section class="account-card">
-					<div class="card-icon"><HeadphonesIcon /></div>
 					<div>
 						<p class="eyebrow">AI voice</p>
 						<h2>{formatTTSMicros(tts?.balanceMicros ?? 0)}</h2>
@@ -264,7 +255,6 @@
 				</section>
 
 				<section class="account-card">
-					<div class="card-icon"><GlobeIcon /></div>
 					<div>
 						<p class="eyebrow">Library</p>
 						<h2>{account.google?.connected ? 'Google Drive connected' : 'Ready to connect'}</h2>
@@ -287,7 +277,6 @@
 					<div class="published-list">
 						{#each published.links as link (link.token)}
 							<article class="published-link">
-								<div class="published-link-icon"><LinkIcon /></div>
 								<div class="published-link-copy">
 									<div>
 										<h3>{link.metadata?.title ?? link.captureID ?? 'Published document'}</h3>
@@ -327,7 +316,6 @@
 					</div>
 				{:else}
 					<div class="published-empty">
-						<LinkIcon />
 						<p>You have no active public links.</p>
 					</div>
 				{/if}
@@ -367,7 +355,6 @@
 					</div>
 				{:else}
 					<div class="downloads-locked">
-						<CheckIcon />
 						<p>Activate your membership above to unlock app downloads.</p>
 					</div>
 				{/if}
@@ -419,7 +406,6 @@
 
 	header,
 	.brand,
-	.back-link,
 	.account-heading,
 	.secondary-action,
 	.primary-action,
@@ -448,7 +434,6 @@
 		height: 34px;
 	}
 
-	.back-link,
 	.secondary-action {
 		gap: 7px;
 		color: #4b4a44;
@@ -456,7 +441,6 @@
 		font-weight: 680;
 	}
 
-	.back-link :global(svg),
 	.secondary-action :global(svg),
 	.primary-action :global(svg) {
 		width: 15px;
@@ -470,12 +454,6 @@
 		place-content: center;
 		justify-items: center;
 		text-align: center;
-	}
-
-	.account-state > img {
-		width: 82px;
-		height: 82px;
-		margin-bottom: 20px;
 	}
 
 	.account-state h1,
@@ -590,7 +568,7 @@
 	}
 
 	.account-card {
-		min-height: 300px;
+		min-height: 240px;
 		padding: 26px;
 	}
 
@@ -604,24 +582,6 @@
 	.membership-card .eyebrow,
 	.membership-card p {
 		color: rgb(255 255 255 / 62%);
-	}
-
-	.card-icon {
-		display: grid;
-		width: 44px;
-		height: 44px;
-		margin-bottom: 50px;
-		place-items: center;
-		border-radius: 14px;
-		background: rgb(18 57 156 / 9%);
-	}
-
-	.membership-card .card-icon {
-		background: rgb(255 255 255 / 12%);
-	}
-
-	.card-icon :global(svg) {
-		width: 19px;
 	}
 
 	.account-card h2,
@@ -701,21 +661,6 @@
 		border: 1px solid rgb(21 21 18 / 12%);
 		border-radius: 14px;
 		background: rgb(255 255 255 / 38%);
-	}
-
-	.published-link-icon {
-		display: grid;
-		width: 38px;
-		height: 38px;
-		flex: 0 0 auto;
-		place-items: center;
-		border-radius: 12px;
-		background: rgb(18 57 156 / 9%);
-	}
-
-	.published-link-icon :global(svg),
-	.published-empty :global(svg) {
-		width: 17px;
 	}
 
 	.published-link-copy {
@@ -867,10 +812,6 @@
 		font-size: 12px;
 	}
 
-	.downloads-locked :global(svg) {
-		width: 17px;
-	}
-
 	.voice-rates {
 		justify-content: space-between;
 		gap: 30px;
@@ -934,10 +875,6 @@
 			padding: 16px;
 		}
 
-		.back-link {
-			font-size: 0;
-		}
-
 		.account-heading,
 		.downloads-heading,
 		.published-links-heading,
@@ -956,13 +893,12 @@
 		}
 
 		.published-link-copy {
-			width: calc(100% - 52px);
+			width: 100%;
 			flex: none;
 		}
 
 		.published-link-actions {
 			width: 100%;
-			padding-left: 52px;
 		}
 	}
 </style>

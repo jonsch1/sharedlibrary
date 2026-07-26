@@ -44,7 +44,7 @@
 			title: 'Intro to Large Language Models',
 			source: 'Andrej Karpathy',
 			meta: '1:00:18 · Video',
-			x: 84,
+			x: 86,
 			y: 18,
 			rotate: 5,
 			tone: 'red'
@@ -55,8 +55,8 @@
 			title: 'Attention Is All You Need',
 			source: 'Vaswani et al.',
 			meta: 'arXiv:1706.03762',
-			x: 58,
-			y: 16,
+			x: 65,
+			y: 12,
 			rotate: -5,
 			tone: 'orange'
 		},
@@ -67,7 +67,7 @@
 			source: '@karpathy',
 			meta: 'Post · Feb 2025',
 			x: 92,
-			y: 42,
+			y: 36,
 			rotate: -7,
 			tone: 'ink'
 		},
@@ -77,8 +77,8 @@
 			title: 'The Illustrated Transformer',
 			source: 'Jay Alammar',
 			meta: '12 min read',
-			x: 69,
-			y: 35,
+			x: 70,
+			y: 34,
 			rotate: 4,
 			tone: 'teal'
 		},
@@ -89,7 +89,7 @@
 			source: 'Dwarkesh Podcast',
 			meta: '2:02:07 · Audio',
 			x: 83,
-			y: 77,
+			y: 72,
 			rotate: -4,
 			tone: 'purple'
 		},
@@ -99,8 +99,8 @@
 			title: 'Constitutional AI: Harmlessness from AI Feedback',
 			source: 'Anthropic',
 			meta: '22 pages',
-			x: 53,
-			y: 64,
+			x: 59,
+			y: 58,
 			rotate: 6,
 			tone: 'blue'
 		},
@@ -110,8 +110,8 @@
 			title: 'Centaurs and Cyborgs on the Jagged Frontier',
 			source: 'One Useful Thing',
 			meta: '14 min read',
-			x: 28,
-			y: 80,
+			x: 68,
+			y: 79,
 			rotate: -6,
 			tone: 'teal'
 		},
@@ -121,8 +121,8 @@
 			title: 'What Is ChatGPT Doing … and Why Does It Work?',
 			source: 'Stephen Wolfram',
 			meta: '35 min read',
-			x: 18,
-			y: 63,
+			x: 57,
+			y: 86,
 			rotate: 5,
 			tone: 'blue'
 		},
@@ -132,8 +132,8 @@
 			title: 'Designing reliable scientific data pipelines',
 			source: 'Private Briefly note',
 			meta: '6 highlights',
-			x: 40,
-			y: 41,
+			x: 74,
+			y: 51,
 			rotate: -4,
 			tone: 'ink'
 		},
@@ -143,8 +143,8 @@
 			title: 'The 2025 AI Index Report',
 			source: 'Stanford HAI',
 			meta: '456 pages',
-			x: 94,
-			y: 86,
+			x: 92,
+			y: 88,
 			rotate: 5,
 			tone: 'orange'
 		},
@@ -154,8 +154,8 @@
 			title: 'The Annotated Transformer',
 			source: 'Harvard NLP',
 			meta: 'Notebook · PyTorch',
-			x: 12,
-			y: 88,
+			x: 70,
+			y: 31,
 			rotate: -3,
 			tone: 'ink'
 		},
@@ -165,8 +165,8 @@
 			title: 'Cell–cell communication workflows',
 			source: 'Private Briefly library',
 			meta: '4 related sources',
-			x: 43,
-			y: 12,
+			x: 81,
+			y: 92,
 			rotate: 4,
 			tone: 'purple'
 		}
@@ -580,15 +580,6 @@
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
-
-		<nav aria-label="Main navigation">
-			<a href="#how">How it works</a>
-			<a href="#depth">Four depths</a>
-			<a href="#agents">For agents</a>
-			<a href="#pricing">Pricing</a>
-			<a href="/feedback">Feedback</a>
-			<a href="/account">Account</a>
-		</nav>
 
 		<a class="nav-cta" href="/account">
 			{billing?.authenticated ? 'Your account' : 'Sign up'}
@@ -1091,10 +1082,10 @@
 		z-index: 100;
 		top: 0;
 		left: 0;
-		display: grid;
+		display: flex;
 		width: 100%;
-		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
+		justify-content: space-between;
 		padding: 24px clamp(22px, 4vw, 68px);
 	}
 
@@ -1113,39 +1104,6 @@
 		height: 35px;
 		border-radius: 10px;
 		box-shadow: 0 8px 18px rgb(8 27 82 / 18%);
-	}
-
-	.landing-nav nav {
-		display: flex;
-		align-items: center;
-		gap: clamp(22px, 3vw, 42px);
-		color: rgb(17 17 15 / 68%);
-		font-size: 13px;
-		font-weight: 590;
-	}
-
-	.landing-nav nav a {
-		position: relative;
-		padding: 7px 0;
-	}
-
-	.landing-nav nav a::after {
-		position: absolute;
-		right: 0;
-		bottom: 2px;
-		left: 0;
-		height: 1px;
-		background: currentColor;
-		content: '';
-		transform: scaleX(0);
-		transform-origin: right;
-		transition: transform 240ms ease;
-	}
-
-	.landing-nav nav a:hover::after,
-	.landing-nav nav a:focus-visible::after {
-		transform: scaleX(1);
-		transform-origin: left;
 	}
 
 	.nav-cta {
@@ -3046,14 +3004,6 @@
 	}
 
 	@media (max-width: 1050px) {
-		.landing-nav {
-			grid-template-columns: 1fr 1fr;
-		}
-
-		.landing-nav nav {
-			display: none;
-		}
-
 		.attention-grid,
 		.flow-heading,
 		.depth-section {
@@ -3207,6 +3157,7 @@
 		}
 
 		.source-card {
+			display: none;
 			width: 126px;
 			min-height: 102px;
 			padding: 9px;
@@ -3236,6 +3187,7 @@
 		}
 
 		.sweep-status {
+			display: none;
 			right: 14px;
 			bottom: 14px;
 			left: 14px;

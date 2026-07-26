@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
-	import LightbulbIcon from '@lucide/svelte/icons/lightbulb';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import SendIcon from '@lucide/svelte/icons/send';
 
@@ -115,12 +113,10 @@
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
-		<a class="back-link" href="/landing"><ArrowLeftIcon /> Back to Briefly</a>
 	</header>
 
 	<div class="feedback-shell">
 		<section class="intro">
-			<div class="intro-icon"><LightbulbIcon /></div>
 			<p class="eyebrow">Community feedback</p>
 			<h1>Help shape Briefly.</h1>
 			<p>Share what would make Briefly better, or upvote an idea you want us to prioritize.</p>
@@ -230,7 +226,6 @@
 	}
 
 	.brand,
-	.back-link,
 	.sign-in,
 	button {
 		display: inline-flex;
@@ -249,40 +244,12 @@
 		border-radius: 10px;
 	}
 
-	.back-link {
-		gap: 6px;
-		color: #5b5a53;
-		font-size: 13px;
-		font-weight: 650;
-		text-decoration: none;
-	}
-
-	.back-link :global(svg) {
-		width: 15px;
-	}
-
 	.feedback-shell {
 		padding: 72px 0 100px;
 	}
 
 	.intro {
 		max-width: 610px;
-	}
-
-	.intro-icon {
-		display: grid;
-		width: 48px;
-		height: 48px;
-		margin-bottom: 24px;
-		place-items: center;
-		border: 1px solid rgb(23 23 20 / 18%);
-		border-radius: 15px;
-		background: #f6c875;
-		box-shadow: 0 10px 24px rgb(74 53 20 / 12%);
-	}
-
-	.intro-icon :global(svg) {
-		width: 23px;
 	}
 
 	.eyebrow {

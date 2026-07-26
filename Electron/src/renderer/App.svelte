@@ -4,7 +4,6 @@
     ArrowUpRight,
     Check,
     ChevronLeft,
-    Cloud,
     Clipboard,
     Copy,
     FileText,
@@ -391,13 +390,6 @@
       connections = await window.sharedLibrary.connect(provider);
       syncStatus = connections.sync;
       message = 'Google account connected. Your Drive location is now configured for this account.';
-    });
-  }
-
-  async function disconnect(provider: 'google'): Promise<void> {
-    await run(async () => {
-      connections = await window.sharedLibrary.disconnect(provider);
-      message = 'Google Drive disconnected.';
     });
   }
 
@@ -1044,39 +1036,28 @@
 
       <section class="settings-card">
         <div class="settings-card-heading">
-          <div class="provider-mark"><Cloud /></div>
           <div>
-            <h3>Google account</h3>
-            <p>
-              {#if connections?.google.connected}
-                Connected. This account’s Drive folder is mirrored automatically.
-              {:else}
-                Sign in once to configure the personal Drive location for every client.
-              {/if}
-            </p>
+            <h3>Briefly account</h3>
+            <p>Manage your membership, Google Drive connection, and AI voice credit on the web.</p>
           </div>
         </div>
-        {#if connections?.google.connected}
-          <div class="connection-status">
+        <div class="connection-status">
+          {#if connections?.google.connected}
             <span class="status-dot"></span>
-            <span>{syncStatus.message}</span>
-            {#if syncStatus.phase === 'checking' || syncStatus.phase === 'downloading' || syncStatus.phase === 'uploading'}
-              <LoaderCircle class="spin" />
-            {/if}
-          </div>
-          <div class="panel-actions">
-            <button class="secondary-button danger-button" onclick={() => disconnect('google')} disabled={busy}>
-              Disconnect Drive
-            </button>
-          </div>
-        {:else}
-          <div class="panel-actions">
-            <button class="primary-button" onclick={() => connect('google')} disabled={busy}>
-              {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
-              Sign in with Google
-            </button>
-          </div>
-        {/if}
+          {/if}
+          <span>
+            {connections?.google.connected ? syncStatus.message : 'Google Drive is not connected.'}
+          </span>
+          {#if connections?.google.connected &&
+          (syncStatus.phase === 'checking' || syncStatus.phase === 'downloading' || syncStatus.phase === 'uploading')}
+            <LoaderCircle class="spin" />
+          {/if}
+        </div>
+        <div class="panel-actions">
+          <button class="secondary-button" onclick={openAccount}>
+            <ArrowUpRight /> Open account
+          </button>
+        </div>
       </section>
 
       <section class="settings-card">
@@ -1098,10 +1079,7 @@
             onchange={changeTTSModel}
           >
             {#each openRouterTTSModels as option}
-              <option value={option.id}>
-                {option.quality} · {option.name} · ≈{option.hoursPerEuro}
-                {option.hoursPerEuro === 1 ? 'hour' : 'hours'}/€
-              </option>
+              <option value={option.id}>{option.quality}</option>
             {/each}
           </select>
           <small>{currentTTSOption.description}</small>
@@ -1129,11 +1107,6 @@
             }).format((connections?.tts.balanceMicros ?? 0) / 100_000_000)}
             AI voice credit
           </span>
-        </div>
-        <div class="panel-actions">
-          <button class="secondary-button" onclick={openAccount}>
-            <ArrowUpRight /> Manage account and credit
-          </button>
         </div>
       </section>
 
