@@ -381,11 +381,6 @@ export function preferredVariant(entry: LibraryEntry): LibraryVariant {
 	return 'source';
 }
 
-export function readingMinutes(text: string, rate = 1): number {
-	const words = text.trim().split(/\s+/).filter(Boolean).length;
-	return Math.max(1, Math.ceil(words / (180 * rate)));
-}
-
 export const demoProjection: LibraryProjection = {
 	schemaVersion: librarySchemaVersion,
 	generatedAt: new Date().toISOString(),

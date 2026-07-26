@@ -206,7 +206,7 @@ export class SpeechPlayer {
 
 		this.state = 'loading';
 		let failureHandled = false;
-		const fail = (message: string, status?: number): void => {
+		const fail = (message: string): void => {
 			if (failureHandled || sessionID !== this.sessionID) return;
 			failureHandled = true;
 			this.fallbackToDevice(chunk, `${message} Using the device voice.`);
@@ -275,7 +275,7 @@ export class SpeechPlayer {
 			}
 			if (failureHandled) return;
 			if (error instanceof OpenRouterSpeechError) {
-				fail(error.message, error.status);
+				fail(error.message);
 				return;
 			}
 			const message = error instanceof Error ? error.message : 'OpenRouter speech is unavailable.';

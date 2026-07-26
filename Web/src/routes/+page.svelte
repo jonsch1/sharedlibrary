@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArchiveIcon from '@lucide/svelte/icons/archive';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import CheckIcon from '@lucide/svelte/icons/check';
@@ -31,10 +30,8 @@
 		loadLibraryProjection,
 		loadLibraryText,
 		preferredVariant,
-		readingMinutes,
 		textFor,
 		type LibraryEntry,
-		type LibraryOrigin,
 		type LibraryProjection,
 		type LibraryVariant
 	} from '$lib/library.js';
@@ -95,7 +92,6 @@
 	let originFilter = $state<OriginFilter>('all');
 	let loading = $state(true);
 	let importMessage = $state('');
-	let isDemo = $state(false);
 	let mobileReaderVisible = $state(false);
 	let connectionsVisible = $state(false);
 	let sharingVisible = $state(false);
@@ -167,9 +163,6 @@
 	);
 	let selectedWordCount = $derived(
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
-	);
-	let currentVoiceName = $derived(
-		voiceName(openRouterVoice)
 	);
 	let currentTTSOption = $derived(
 		openRouterTTSOptions.find((option) => option.model === openRouterModel) ??
@@ -263,7 +256,7 @@
 		loadLibraryProjection()
 			.then((saved) => {
 				if (!active || !saved) return;
-				setProjection(saved, false);
+				setProjection(saved);
 			})
 			.catch((error) => {
 				importMessage = error instanceof Error ? error.message : 'Could not open the offline library.';
@@ -385,9 +378,8 @@
 		}
 	}
 
-	function setProjection(nextProjection: LibraryProjection, demo: boolean): void {
+	function setProjection(nextProjection: LibraryProjection): void {
 		projection = nextProjection;
-		isDemo = demo;
 		const firstEntry = nextProjection.entries[0] ?? null;
 		selectedEntryID = firstEntry?.id ?? null;
 		selectedVariant = firstEntry ? preferredVariant(firstEntry) : 'concise';
@@ -408,7 +400,6 @@
 	function applySyncedProjection(nextProjection: LibraryProjection): void {
 		const previousSelection = selectedEntryID;
 		projection = nextProjection;
-		isDemo = false;
 		selectedEntryID =
 			nextProjection.entries.some((entry) => entry.id === previousSelection)
 				? previousSelection
@@ -500,7 +491,7 @@
 	}
 
 	function showDemo(): void {
-		setProjection(demoProjection, true);
+		setProjection(demoProjection);
 		importMessage = 'This is sample content. Connect Google Drive when you are ready.';
 	}
 

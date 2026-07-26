@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import {
   LibraryService,
@@ -228,5 +228,3 @@ function conciseError(value: string): string {
   const message = lines.at(-1)?.replace(/^ERROR:\s*/, '') || 'Codex could not process this capture.';
   return message.length > 320 ? `${message.slice(0, 319).trim()}…` : message;
 }
-
-export const processingSchemaFilename = basename('schema.json');

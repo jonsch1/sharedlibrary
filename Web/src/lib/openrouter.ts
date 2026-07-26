@@ -324,10 +324,6 @@ export async function synchronizeOpenRouterAudioCache(
 	);
 }
 
-export async function clearOpenRouterAudioCache(): Promise<void> {
-	if ('caches' in globalThis) await caches.delete(audioCacheName);
-}
-
 export class OpenRouterSpeechError extends Error {
 	constructor(
 		message: string,
