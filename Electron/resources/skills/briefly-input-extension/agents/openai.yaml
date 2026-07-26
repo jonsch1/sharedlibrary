@@ -1,0 +1,4 @@
+interface:
+  display_name: "Extend Briefly Inputs"
+  short_description: "Create and test workspace-local Briefly link inputs"
+  default_prompt: "Use $briefly-input-extension to create or repair a workspace-local Briefly input for this URL."

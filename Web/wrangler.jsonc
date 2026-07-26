@@ -1,0 +1,36 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "briefly",
+	"main": "./worker/index.js",
+	"compatibility_date": "2026-07-26",
+	"workers_dev": true,
+	"routes": [
+		{
+			"pattern": "readbriefly.fyi",
+			"custom_domain": true
+		},
+		{
+			"pattern": "www.readbriefly.fyi",
+			"custom_domain": true
+		}
+	],
+	"assets": {
+		"directory": "./build",
+		"binding": "ASSETS",
+		"run_worker_first": ["/api/*"]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "briefly-db",
+			"database_id": "a60f71e0-9231-41d6-b6c5-9ff2cc0e7be8",
+			"migrations_dir": "./drizzle"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "SHARE_MEDIA",
+			"bucket_name": "briefly-share-media"
+		}
+	]
+}

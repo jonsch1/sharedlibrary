@@ -16,6 +16,7 @@ The default workspace is `~/Documents/Briefly`.
   summaries.
 - `topics.md` stores the capture taxonomy.
 - `AGENTS.md` contains workspace instructions for agents.
+- `.briefly/inputs/` contains optional workspace-local link input extensions.
 - `.shared-library/index.json` is a lightweight, rebuildable catalog of the mirrored
   Drive files. It contains metadata and hashes, not document bodies.
 
@@ -40,7 +41,7 @@ cd Web
 npm install
 npm run check
 npm run test:worker
-npm run build:sites
+npm run build
 ```
 
 For desktop development, run `npm run dev` from `Electron/`.
@@ -69,6 +70,22 @@ to the agent. Failed or replacement sources require a new approval cycle.
 The API includes topic listing/creation, approved batch URL ingestion, asynchronous
 job polling, and topic-item reads at any summary depth. Requests use a per-launch
 bearer token from the connection file and are accepted only on `127.0.0.1`.
+
+## Workspace input extensions
+
+Briefly discovers versioned input packages under `.briefly/inputs/` on every
+capture. A package declares its host and path matching in `input.json` and
+implements extraction in `input.mjs`. Matching workspace inputs run before
+built-ins and can fall back to the built-in pipeline while being developed.
+
+Extension code runs in a separate restricted process with a scrubbed environment,
+no filesystem writes, no child processes, and read access limited to its package
+and the bundled input runtime. The app installs the `briefly-input-extension`
+agent skill into `.agents/skills/`; users can ask an agent to add support for a
+site and receive a fixture-tested local input without restarting Briefly.
+
+Workspace inputs are local configuration and are not included in the Google Drive
+library mirror.
 
 ## Share links
 

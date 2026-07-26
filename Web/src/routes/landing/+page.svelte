@@ -21,6 +21,14 @@
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TerminalIcon from '@lucide/svelte/icons/terminal';
 	import VolumeIcon from '@lucide/svelte/icons/volume-2';
+	import {
+		beginBrieflyPlusCheckout,
+		formatMonthlyPrice,
+		loadBillingStatus,
+		openBillingPortal,
+		type BillingStatus,
+		type PricingTier
+	} from '$lib/billing.js';
 
 	type SourceCard = {
 		id: string;
@@ -219,15 +227,121 @@
 		}
 	} satisfies Record<Platform, { label: string; href: string }>;
 
+	const defaultPricingTiers: PricingTier[] = [
+		{
+			key: 'founding',
+			name: 'Founding',
+			amount: 399,
+			currency: 'eur',
+			capacity: 50,
+			claimed: 0,
+			remaining: 50,
+			current: true
+		},
+		{
+			key: 'early',
+			name: 'Early',
+			amount: 599,
+			currency: 'eur',
+			capacity: 100,
+			claimed: 0,
+			remaining: 100,
+			current: false
+		},
+		{
+			key: 'growing',
+			name: 'Growing',
+			amount: 799,
+			currency: 'eur',
+			capacity: 250,
+			claimed: 0,
+			remaining: 250,
+			current: false
+		},
+		{
+			key: 'standard',
+			name: 'Standard',
+			amount: 999,
+			currency: 'eur',
+			capacity: null,
+			claimed: 0,
+			remaining: null,
+			current: false
+		}
+	];
+
 	let selectedDepth = $state(1);
 	let collectedCount = $state(0);
 	let fieldComplete = $state(false);
 	let detectedPlatform = $state<Platform>('pwa');
 	let resetSweep = (): void => {};
+	let billing = $state<BillingStatus | null>(null);
+	let billingBusy = $state(false);
+	let billingMessage = $state('');
 	let preferredDownload = $derived(desktopDownloads[detectedPlatform]);
+	let displayedPricingTiers = $derived(billing?.tiers ?? defaultPricingTiers);
+	let currentPricingTier = $derived(
+		displayedPricingTiers.find((tier) => tier.current) ?? displayedPricingTiers.at(-1)!
+	);
+
+	async function initializePricing(): Promise<void> {
+		try {
+			billing = await loadBillingStatus();
+			const url = new URL(window.location.href);
+			if (url.searchParams.get('billing') === 'cancelled') {
+				billingMessage = 'Checkout was cancelled. Your place was not charged.';
+				url.searchParams.delete('billing');
+			}
+			const continueCheckout = url.searchParams.get('checkout') === 'plus';
+			if (continueCheckout) url.searchParams.delete('checkout');
+			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+			if (continueCheckout && billing.authenticated) await startCheckout();
+		} catch (error) {
+			billingMessage =
+				error instanceof Error ? error.message : 'Briefly Plus pricing could not be loaded.';
+		}
+	}
+
+	async function startCheckout(): Promise<void> {
+		if (billingBusy) return;
+		billingBusy = true;
+		billingMessage = '';
+		try {
+			await beginBrieflyPlusCheckout();
+		} catch (error) {
+			const checkoutError = error as Error & { code?: string };
+			if (checkoutError.code === 'authentication_required') {
+				const returnTo = encodeURIComponent('/landing?checkout=plus#pricing');
+				window.location.assign(`/api/auth/google/start?return_to=${returnTo}`);
+				return;
+			}
+			if (checkoutError.code === 'subscription_exists') {
+				await openBillingPortal();
+				return;
+			}
+			billingMessage = checkoutError.message;
+		} finally {
+			billingBusy = false;
+		}
+	}
+
+	async function manageBilling(): Promise<void> {
+		if (billingBusy) return;
+		billingBusy = true;
+		billingMessage = '';
+		try {
+			await openBillingPortal();
+		} catch (error) {
+			billingMessage =
+				error instanceof Error ? error.message : 'The billing portal could not be opened.';
+		} finally {
+			billingBusy = false;
+		}
+	}
 
 	onMount(() => {
 		document.body.classList.add('landing-body');
+		void initializePricing();
 		const userAgent = navigator.userAgent.toLowerCase();
 		detectedPlatform = /iphone|ipad|android/.test(userAgent)
 			? 'pwa'
@@ -512,6 +626,7 @@
 			<a href="#how">How it works</a>
 			<a href="#depth">Four depths</a>
 			<a href="#agents">For agents</a>
+			<a href="#pricing">Pricing</a>
 			<a href="#get-briefly">Downloads</a>
 		</nav>
 
@@ -829,7 +944,7 @@
 					</p>
 				</div>
 
-				<div class="plan-strip reveal" id="plans">
+				<div class="plan-strip reveal" id="pricing">
 					<article class="plan-card plan-free">
 						<div class="plan-card-top">
 							<span>Briefly Free</span>
@@ -845,14 +960,70 @@
 					<article class="plan-card plan-plus">
 						<div class="plan-card-top">
 							<span>Briefly Plus</span>
-							<strong>Paid plan</strong>
+							<strong>{formatMonthlyPrice(currentPricingTier.amount)}/month</strong>
 						</div>
-						<h3>Your library, wherever the work happens.</h3>
+						<h3>Join earlier. Keep the lower price.</h3>
+						<p class="plan-plus-intro">
+							Your monthly price stays fixed while your subscription remains active.
+						</p>
+						<div class="pricing-ladder" aria-label="Briefly Plus launch pricing">
+							{#each displayedPricingTiers as tier}
+								<div class:current={tier.current} class:past={!tier.current && tier.remaining === 0}>
+									<span>
+										<b>{tier.name}</b>
+										<small>
+											{tier.capacity === null
+												? 'Stable price'
+												: `${tier.capacity} subscriber${tier.capacity === 1 ? '' : 's'}`}
+										</small>
+									</span>
+									<strong>{formatMonthlyPrice(tier.amount)}</strong>
+									{#if tier.current}
+										<em>
+											{tier.remaining === null
+												? 'Current'
+												: `${tier.remaining} left`}
+										</em>
+									{:else if tier.remaining === 0}
+										<em>Filled</em>
+									{/if}
+								</div>
+							{/each}
+						</div>
 						<ul>
 							<li><CheckCircleIcon /> Sync your library across devices</li>
 							<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
 							<li><CheckCircleIcon /> Everything included in Briefly Free</li>
 						</ul>
+						{#if billing?.entitled && billing.subscription}
+							<button
+								class="pricing-cta"
+								type="button"
+								disabled={billingBusy}
+								onclick={manageBilling}
+							>
+								{billingBusy ? 'Opening billing…' : 'Manage billing'}
+								<ArrowUpRightIcon aria-hidden="true" />
+							</button>
+						{:else}
+							<button
+								class="pricing-cta"
+								type="button"
+								disabled={billingBusy || billing?.configured === false}
+								onclick={startCheckout}
+							>
+								{billingBusy
+									? 'Opening secure checkout…'
+									: billing?.configured === false
+										? 'Checkout setup pending'
+										: `Lock in ${formatMonthlyPrice(currentPricingTier.amount)}/month`}
+								<ArrowRightIcon aria-hidden="true" />
+							</button>
+						{/if}
+						<p class="pricing-note">Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe</p>
+						{#if billingMessage}
+							<p class="pricing-message" role="status">{billingMessage}</p>
+						{/if}
 					</article>
 				</div>
 
@@ -2461,7 +2632,7 @@
 
 	.plan-strip {
 		display: grid;
-		grid-template-columns: repeat(2, 1fr);
+		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
 		margin-top: clamp(64px, 7vw, 100px);
 		overflow: hidden;
 		border: 1px solid rgb(17 17 15 / 13%);
@@ -2518,6 +2689,88 @@
 		line-height: 1;
 	}
 
+	.plan-plus h3 {
+		margin-top: 38px;
+	}
+
+	.plan-plus-intro {
+		max-width: 540px;
+		margin: 13px 0 0;
+		color: rgb(255 255 255 / 58%);
+		font-size: 12px;
+		line-height: 1.55;
+	}
+
+	.pricing-ladder {
+		display: grid;
+		margin-top: 28px;
+		overflow: hidden;
+		border: 1px solid rgb(255 255 255 / 12%);
+		border-radius: 16px;
+		background: rgb(255 255 255 / 4%);
+	}
+
+	.pricing-ladder > div {
+		display: grid;
+		min-height: 58px;
+		grid-template-columns: minmax(0, 1fr) auto minmax(58px, auto);
+		align-items: center;
+		gap: 16px;
+		padding: 10px 13px;
+		border-bottom: 1px solid rgb(255 255 255 / 9%);
+		color: rgb(255 255 255 / 48%);
+	}
+
+	.pricing-ladder > div:last-child {
+		border-bottom: 0;
+	}
+
+	.pricing-ladder > div.current {
+		background: rgb(95 139 255 / 16%);
+		color: white;
+		box-shadow: inset 3px 0 #7da0ff;
+	}
+
+	.pricing-ladder > div.past {
+		opacity: 0.5;
+	}
+
+	.pricing-ladder span,
+	.pricing-ladder b,
+	.pricing-ladder small {
+		display: block;
+	}
+
+	.pricing-ladder b {
+		font-size: 11px;
+	}
+
+	.pricing-ladder small {
+		margin-top: 3px;
+		color: rgb(255 255 255 / 42%);
+		font-size: 9px;
+		font-weight: 500;
+	}
+
+	.pricing-ladder > div > strong {
+		color: inherit;
+		font-size: 14px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.pricing-ladder em {
+		min-width: 58px;
+		padding: 5px 7px;
+		border-radius: 999px;
+		background: rgb(255 255 255 / 10%);
+		color: #c8d5ff;
+		font-size: 8px;
+		font-style: normal;
+		font-weight: 760;
+		text-align: center;
+		text-transform: uppercase;
+	}
+
 	.plan-card ul {
 		display: grid;
 		gap: 11px;
@@ -2546,6 +2799,53 @@
 
 	.plan-plus li :global(svg) {
 		color: #8aa9ff;
+	}
+
+	.pricing-cta {
+		display: inline-flex;
+		min-height: 48px;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		margin-top: 27px;
+		padding: 0 18px;
+		border: 0;
+		border-radius: 999px;
+		background: white;
+		color: #09236d;
+		font: inherit;
+		font-size: 12px;
+		font-weight: 760;
+		cursor: pointer;
+		transition:
+			transform 180ms ease,
+			box-shadow 180ms ease;
+	}
+
+	.pricing-cta:hover:not(:disabled) {
+		box-shadow: 0 16px 34px rgb(0 0 0 / 22%);
+		transform: translateY(-2px);
+	}
+
+	.pricing-cta:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.pricing-cta :global(svg) {
+		width: 15px;
+	}
+
+	.pricing-note,
+	.pricing-message {
+		margin: 11px 0 0;
+		color: rgb(255 255 255 / 42%);
+		font-size: 9px;
+		line-height: 1.5;
+	}
+
+	.pricing-message {
+		color: #f8cfa7;
 	}
 
 	.download-grid {
@@ -3339,6 +3639,23 @@
 		.plan-card h3 {
 			margin-top: 48px;
 			font-size: 31px;
+		}
+
+		.plan-plus h3 {
+			margin-top: 32px;
+		}
+
+		.pricing-ladder > div {
+			grid-template-columns: minmax(0, 1fr) auto;
+			gap: 10px;
+		}
+
+		.pricing-ladder em {
+			display: none;
+		}
+
+		.pricing-cta {
+			width: 100%;
 		}
 
 		.step-card {

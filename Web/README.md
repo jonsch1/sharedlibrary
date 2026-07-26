@@ -1,7 +1,7 @@
 # Briefly Web
 
-The mobile Briefly client is a private SvelteKit reader hosted with OpenAI
-Sites. Google Drive supplies a lightweight file index, mirrored Markdown documents,
+The mobile Briefly client is a private SvelteKit reader hosted on Cloudflare
+Workers. Google Drive supplies a lightweight file index, mirrored Markdown documents,
 and generated audio. IndexedDB keeps a complete path-preserving Markdown mirror
 available offline, and existing narration is mirrored into the local audio cache.
 The previous complete mirror opens immediately while synchronization continues in
@@ -36,7 +36,7 @@ npm install
 npm run check
 npm run test:worker
 npm run db:generate
-npm run build:sites
+npm run build
 ```
 
 Database definitions live in `db/schema.ts`; generated migrations live in
@@ -48,6 +48,56 @@ The deployment needs:
 - an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
   64 hexadecimal characters;
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and the four Stripe Price IDs
+  described below;
 - public access to the Google sign-in and capability-link routes. Provider
   credentials and library operations remain account-scoped by the app's secure,
   HTTP-only Google session cookie.
+
+## Briefly Plus and Stripe
+
+Briefly keeps the local desktop experience free. Plus pays for cross-device
+Google Drive synchronization and deliberate public share links. Launch pricing
+is a grandfathered monthly ladder:
+
+| Subscribers | Price | Stripe environment variable |
+| --- | ---: | --- |
+| First 50 | €3.99/month | `STRIPE_PRICE_FOUNDING` |
+| Next 100 | €5.99/month | `STRIPE_PRICE_EARLY` |
+| Next 250 | €7.99/month | `STRIPE_PRICE_GROWING` |
+| Thereafter | €9.99/month | `STRIPE_PRICE_STANDARD` |
+
+Create one recurring Stripe Product named **Briefly Plus** and four EUR monthly
+Prices matching that table. Existing subscribers remain on their Price while
+their subscription stays active. A customer who cancels and later returns joins
+at the price then available.
+
+Configure Stripe before enabling paid access:
+
+1. Add the four Price IDs and `STRIPE_SECRET_KEY` as deployment secrets.
+2. Enable and configure the Stripe customer portal in both sandbox and live
+   mode so customers can update payment methods and cancel.
+3. Add a Stripe webhook endpoint at
+   `https://www.readbriefly.fyi/api/billing/webhook`.
+4. Subscribe it to `checkout.session.completed`, `checkout.session.expired`,
+   `customer.subscription.created`, `customer.subscription.updated`, and
+   `customer.subscription.deleted`, then save its signing secret as
+   `STRIPE_WEBHOOK_SECRET`.
+5. Complete Stripe Tax registration and set the Briefly Plus product's tax code
+   to the appropriate software-as-a-service code. Checkout collects and validates
+   billing location and tax IDs.
+
+Paid-route enforcement activates only when all Stripe values are present and
+valid. Until then the current library and sharing behavior remains available,
+while the pricing UI clearly reports that checkout setup is pending.
+
+## Cloudflare deployment
+
+`wrangler.jsonc` is the source of truth for the Worker, static assets, D1
+database, R2 bucket, and custom domains. Configure deployment secrets with
+`wrangler secret put`, then deploy the current build and outstanding D1
+migrations with:
+
+```bash
+npm run deploy
+```

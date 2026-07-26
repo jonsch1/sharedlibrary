@@ -54,7 +54,10 @@
         "to": "Tools/extractor",
         "filter": [
           "extract.mjs",
-          "x-article.mjs",
+          "extension-contract.mjs",
+          "extension-runner.mjs",
+          "inputs/*.mjs",
+          "!inputs/*.test.mjs",
           "package.json",
           "package-lock.json"
         ]
@@ -71,8 +74,8 @@
         "to": "icon.png"
       },
       {
-        "from": "resources/skills/briefly-deep-research",
-        "to": "skills/briefly-deep-research",
+        "from": "resources/skills",
+        "to": "skills",
         "filter": [
           "**/*"
         ]

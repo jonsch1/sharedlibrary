@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import worker from './index.js';
 
@@ -32,6 +33,11 @@ class MockStatement {
 				);
 			}
 			return this.database.shareLinks.get(this.arguments[0]) ?? null;
+		}
+		if (this.sql.includes('FROM stripe_webhook_events')) {
+			return this.database.stripeWebhookEvents.has(this.arguments[0])
+				? { event_id: this.arguments[0] }
+				: null;
 		}
 		return null;
 	}
@@ -121,6 +127,10 @@ class MockStatement {
 				changes = 1;
 			}
 		}
+		if (this.sql.includes('INSERT OR IGNORE INTO stripe_webhook_events')) {
+			this.database.stripeWebhookEvents.add(this.arguments[0]);
+			changes = 1;
+		}
 		return { success: true, meta: { changes } };
 	}
 }
@@ -133,6 +143,7 @@ class MockDatabase {
 	shareLinks = new Map();
 	shareTexts = [];
 	shareAudioSegments = [];
+	stripeWebhookEvents = new Set();
 
 	prepare(sql) {
 		return new MockStatement(this, sql);
@@ -161,10 +172,37 @@ function environment(database = new MockDatabase()) {
 	};
 }
 
+function stripeEnvironment(database = new MockDatabase()) {
+	return {
+		...environment(database),
+		STRIPE_SECRET_KEY: 'sk_test_briefly',
+		STRIPE_WEBHOOK_SECRET: 'whsec_briefly_test',
+		STRIPE_PRICE_FOUNDING: 'price_founding',
+		STRIPE_PRICE_EARLY: 'price_early',
+		STRIPE_PRICE_GROWING: 'price_growing',
+		STRIPE_PRICE_STANDARD: 'price_standard'
+	};
+}
+
 function authenticatedRequest(path, init = {}) {
 	const headers = new Headers(init.headers);
 	headers.set('oai-authenticated-user-email', 'reader@example.com');
 	return new Request(`https://library.example${path}`, { ...init, headers });
+}
+
+function signedStripeRequest(event, secret, timestamp = Math.floor(Date.now() / 1000)) {
+	const body = JSON.stringify(event);
+	const signature = createHmac('sha256', secret)
+		.update(`${timestamp}.${body}`)
+		.digest('hex');
+	return new Request('https://library.example/api/billing/webhook', {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'Stripe-Signature': `t=${timestamp},v1=${signature}`
+		},
+		body
+	});
 }
 
 test('connection status never exposes the stored credential', async () => {
@@ -220,6 +258,94 @@ test('Google sign-in is available without an existing Sites account session', as
 	);
 	assert.equal(startResponse.status, 302);
 	assert.equal(new URL(startResponse.headers.get('location')).hostname, 'accounts.google.com');
+});
+
+test('billing publishes the launch ladder without enforcing an unconfigured checkout', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/api/billing/status'),
+		environment()
+	);
+	assert.equal(response.status, 200);
+	const status = await response.json();
+	assert.equal(status.configured, false);
+	assert.equal(status.entitled, true);
+	assert.deepEqual(
+		status.tiers.map((tier) => [tier.key, tier.amount, tier.capacity, tier.current]),
+		[
+			['founding', 399, 50, true],
+			['early', 599, 100, false],
+			['growing', 799, 250, false],
+			['standard', 999, null, false]
+		]
+	);
+});
+
+test('configured Stripe checkout requires an authenticated Briefly account', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/api/billing/checkout', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example' }
+		}),
+		stripeEnvironment()
+	);
+	assert.equal(response.status, 401);
+	assert.deepEqual(await response.json(), {
+		error: 'Sign in with Google to continue.',
+		code: 'authentication_required'
+	});
+});
+
+test('configured Plus routes reject free accounts without blocking public readers', async () => {
+	const env = stripeEnvironment();
+	const privateResponse = await worker.fetch(
+		authenticatedRequest('/api/library'),
+		env
+	);
+	assert.equal(privateResponse.status, 402);
+	assert.equal((await privateResponse.json()).code, 'subscription_required');
+
+	const publicResponse = await worker.fetch(
+		new Request(`https://library.example/api/public/shares/${'A'.repeat(32)}`),
+		env
+	);
+	assert.equal(publicResponse.status, 404);
+});
+
+test('Stripe webhooks require a current raw-body signature and are idempotent', async () => {
+	const database = new MockDatabase();
+	const env = stripeEnvironment(database);
+	const event = {
+		id: 'evt_checkout_expired',
+		type: 'checkout.session.expired',
+		data: {
+			object: {
+				metadata: { briefly_reservation_id: 'reservation-1' }
+			}
+		}
+	};
+	const invalidResponse = await worker.fetch(
+		new Request('https://library.example/api/billing/webhook', {
+			method: 'POST',
+			headers: { 'Stripe-Signature': 't=1,v1=invalid' },
+			body: JSON.stringify(event)
+		}),
+		env
+	);
+	assert.equal(invalidResponse.status, 400);
+
+	const acceptedResponse = await worker.fetch(
+		signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
+		env
+	);
+	assert.equal(acceptedResponse.status, 200);
+	assert.deepEqual(await acceptedResponse.json(), { received: true });
+
+	const duplicateResponse = await worker.fetch(
+		signedStripeRequest(event, env.STRIPE_WEBHOOK_SECRET),
+		env
+	);
+	assert.equal(duplicateResponse.status, 200);
+	assert.deepEqual(await duplicateResponse.json(), { received: true, duplicate: true });
 });
 
 test('desktop library uploads validate the index before touching Drive', async () => {

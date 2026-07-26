@@ -1459,6 +1459,23 @@
 	line-height: 1.55;
 }
 
+.billing-summary {
+	display: grid;
+	gap: 3px;
+	margin: -2px 0 13px;
+}
+
+.billing-summary strong {
+	font-size: 15px;
+	font-variant-numeric: tabular-nums;
+}
+
+.billing-summary span {
+	color: var(--muted-foreground);
+	font-size: 10px;
+	line-height: 1.4;
+}
+
 .connection-help a,
 .device-code-card a {
 	display: inline-flex;

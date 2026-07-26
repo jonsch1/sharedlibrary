@@ -21,6 +21,75 @@ const maximumSpeechInputLength = 14_000;
 const openRouterModelPattern =
 	/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+const stripeAPIBase = 'https://api.stripe.com/v1';
+const stripeWebhookToleranceSeconds = 5 * 60;
+const checkoutLifetimeSeconds = 31 * 60;
+const checkoutReservationLifetimeMilliseconds = 35 * 60 * 1000;
+const paidSubscriptionStatuses = new Set(['active', 'trialing', 'past_due']);
+const pricingTiers = [
+	{
+		key: 'founding',
+		name: 'Founding',
+		amount: 399,
+		capacity: 50,
+		priceEnvironmentKey: 'STRIPE_PRICE_FOUNDING'
+	},
+	{
+		key: 'early',
+		name: 'Early',
+		amount: 599,
+		capacity: 100,
+		priceEnvironmentKey: 'STRIPE_PRICE_EARLY'
+	},
+	{
+		key: 'growing',
+		name: 'Growing',
+		amount: 799,
+		capacity: 250,
+		priceEnvironmentKey: 'STRIPE_PRICE_GROWING'
+	},
+	{
+		key: 'standard',
+		name: 'Standard',
+		amount: 999,
+		capacity: null,
+		priceEnvironmentKey: 'STRIPE_PRICE_STANDARD'
+	}
+];
+
+function stripeConfig(env) {
+	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
+	const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || '').trim();
+	const tiers = pricingTiers.map((tier) => ({
+		...tier,
+		priceID: String(env[tier.priceEnvironmentKey] || '').trim()
+	}));
+	if (
+		!/^sk_(?:test|live)_/.test(secretKey) ||
+		!webhookSecret.startsWith('whsec_') ||
+		tiers.some((tier) => !/^price_/.test(tier.priceID))
+	) {
+		return null;
+	}
+	return { secretKey, webhookSecret, tiers };
+}
+
+function tierByKey(key) {
+	return pricingTiers.find((tier) => tier.key === key) ?? pricingTiers.at(-1);
+}
+
+function publicTier(tier, claimed, current) {
+	return {
+		key: tier.key,
+		name: tier.name,
+		amount: tier.amount,
+		currency: 'eur',
+		capacity: tier.capacity,
+		claimed,
+		remaining: tier.capacity === null ? null : Math.max(0, tier.capacity - claimed),
+		current
+	};
+}
 
 function requestedOpenRouterModel(value) {
 	if (value === undefined) return defaultOpenRouterModel;
@@ -247,6 +316,74 @@ async function ensureSchema(database) {
 		database.prepare(
 			`CREATE INDEX IF NOT EXISTS app_sessions_user_email_idx
 			 ON app_sessions (user_email)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS billing_customers (
+				user_email TEXT PRIMARY KEY NOT NULL,
+				account_id TEXT NOT NULL,
+				stripe_customer_id TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS billing_customers_account_id_unique
+			 ON billing_customers (account_id)`
+		),
+		database.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS billing_customers_stripe_customer_id_unique
+			 ON billing_customers (stripe_customer_id)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS billing_subscriptions (
+				account_id TEXT PRIMARY KEY NOT NULL,
+				stripe_subscription_id TEXT NOT NULL,
+				stripe_customer_id TEXT NOT NULL,
+				stripe_price_id TEXT,
+				tier_key TEXT NOT NULL,
+				status TEXT NOT NULL,
+				current_period_end INTEGER,
+				cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS billing_subscriptions_stripe_subscription_id_unique
+			 ON billing_subscriptions (stripe_subscription_id)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS billing_checkout_reservations (
+				reservation_id TEXT PRIMARY KEY NOT NULL,
+				account_id TEXT NOT NULL,
+				tier_key TEXT NOT NULL,
+				stripe_session_id TEXT,
+				expires_at INTEGER NOT NULL,
+				created_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS billing_checkout_reservations_account_id_unique
+			 ON billing_checkout_reservations (account_id)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS billing_allocations (
+				reservation_id TEXT PRIMARY KEY NOT NULL,
+				account_id TEXT NOT NULL,
+				tier_key TEXT NOT NULL,
+				allocated_at INTEGER NOT NULL
+			)`
+		),
+		database.prepare(
+			`CREATE INDEX IF NOT EXISTS billing_allocations_tier_key_idx
+			 ON billing_allocations (tier_key)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+				event_id TEXT PRIMARY KEY NOT NULL,
+				event_type TEXT NOT NULL,
+				processed_at INTEGER NOT NULL
+			)`
 		),
 		database.prepare(
 			`CREATE TABLE IF NOT EXISTS share_links (
@@ -1090,6 +1227,527 @@ async function signOut(request, env) {
 			'Set-Cookie': sessionCookie('', 0)
 		}
 	});
+}
+
+function databaseChanges(result) {
+	return Number(result?.meta?.changes ?? result?.changes ?? 0);
+}
+
+async function billingCustomer(env, email) {
+	return env.DB.prepare(
+		`SELECT c.account_id, c.stripe_customer_id,
+		        s.stripe_subscription_id, s.stripe_price_id, s.tier_key,
+		        s.status, s.current_period_end, s.cancel_at_period_end
+		 FROM billing_customers c
+		 LEFT JOIN billing_subscriptions s ON s.account_id = c.account_id
+		 WHERE c.user_email = ?`
+	)
+		.bind(email)
+		.first();
+}
+
+async function ensureBillingCustomer(env, email) {
+	const existing = await billingCustomer(env, email);
+	if (existing) return existing;
+	const now = Date.now();
+	await env.DB.prepare(
+		`INSERT OR IGNORE INTO billing_customers (
+			user_email, account_id, stripe_customer_id, created_at, updated_at
+		) VALUES (?, ?, NULL, ?, ?)`
+	)
+		.bind(email, crypto.randomUUID(), now, now)
+		.run();
+	return billingCustomer(env, email);
+}
+
+async function tierClaimCount(database, tierKey, now = Date.now()) {
+	const row = await database
+		.prepare(
+			`SELECT
+				(SELECT COUNT(*) FROM billing_allocations WHERE tier_key = ?) +
+				(SELECT COUNT(*) FROM billing_checkout_reservations
+				 WHERE tier_key = ? AND expires_at > ?) AS claimed`
+		)
+		.bind(tierKey, tierKey, now)
+		.first();
+	return Number(row?.claimed ?? 0);
+}
+
+async function pricingAvailability(env) {
+	const now = Date.now();
+	if (!env.DB) {
+		return pricingTiers.map((tier, index) => publicTier(tier, 0, index === 0));
+	}
+	await ensureSchema(env.DB);
+	await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?')
+		.bind(now)
+		.run();
+	const claims = [];
+	for (const tier of pricingTiers) {
+		claims.push(await tierClaimCount(env.DB, tier.key, now));
+	}
+	const currentIndex = pricingTiers.findIndex(
+		(tier, index) => tier.capacity === null || claims[index] < tier.capacity
+	);
+	return pricingTiers.map((tier, index) =>
+		publicTier(tier, claims[index], index === currentIndex)
+	);
+}
+
+function publicSubscription(record) {
+	if (!record?.stripe_subscription_id) return null;
+	const tier = tierByKey(record.tier_key);
+	return {
+		status: record.status,
+		tierKey: tier.key,
+		tierName: tier.name,
+		amount: tier.amount,
+		currency: 'eur',
+		cancelAtPeriodEnd: Boolean(record.cancel_at_period_end),
+		currentPeriodEnd: record.current_period_end ?? null
+	};
+}
+
+async function billingStatus(request, env) {
+	const config = stripeConfig(env);
+	const email = await authenticatedEmail(request, env);
+	let record = null;
+	if (email && env.DB) {
+		await ensureSchema(env.DB);
+		record = await billingCustomer(env, email);
+	}
+	const subscription = publicSubscription(record);
+	return json({
+		configured: Boolean(config),
+		authenticated: Boolean(email),
+		entitled: !config || paidSubscriptionStatuses.has(subscription?.status),
+		subscription,
+		tiers: await pricingAvailability(env)
+	});
+}
+
+async function paidAccessResponse(request, env) {
+	if (!stripeConfig(env)) return null;
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json(
+			{ error: 'Sign in before using Briefly Plus.', code: 'authentication_required' },
+			{ status: 401 }
+		);
+	}
+	await ensureSchema(env.DB);
+	const record = await billingCustomer(env, email);
+	if (paidSubscriptionStatuses.has(record?.status)) return null;
+	return json(
+		{
+			error: 'Briefly Plus is required for synchronization and sharing.',
+			code: 'subscription_required'
+		},
+		{ status: 402 }
+	);
+}
+
+async function stripeRequest(env, path, form, idempotencyKey) {
+	const config = stripeConfig(env);
+	if (!config) throw new Error('Stripe billing is not configured.');
+	const headers = {
+		Authorization: `Bearer ${config.secretKey}`,
+		'Content-Type': 'application/x-www-form-urlencoded'
+	};
+	if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+	const response = await fetch(`${stripeAPIBase}${path}`, {
+		method: 'POST',
+		headers,
+		body: new URLSearchParams(form)
+	});
+	const value = await response.json().catch(() => ({}));
+	if (!response.ok) {
+		const message =
+			typeof value?.error?.message === 'string'
+				? value.error.message
+				: `Stripe could not complete the billing request (${response.status}).`;
+		throw new Error(message);
+	}
+	return value;
+}
+
+async function reservePricingTier(env, accountID) {
+	const now = Date.now();
+	const reservationID = crypto.randomUUID();
+	const expiresAt = now + checkoutReservationLifetimeMilliseconds;
+	await env.DB.batch([
+		env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?').bind(now),
+		env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE account_id = ?').bind(accountID)
+	]);
+
+	for (const tier of pricingTiers) {
+		let statement;
+		if (tier.capacity === null) {
+			statement = env.DB.prepare(
+				`INSERT OR IGNORE INTO billing_checkout_reservations (
+					reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
+				) VALUES (?, ?, ?, NULL, ?, ?)`
+			).bind(reservationID, accountID, tier.key, expiresAt, now);
+		} else {
+			statement = env.DB.prepare(
+				`INSERT OR IGNORE INTO billing_checkout_reservations (
+					reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
+				)
+				SELECT ?, ?, ?, NULL, ?, ?
+				WHERE (
+					(SELECT COUNT(*) FROM billing_allocations WHERE tier_key = ?) +
+					(SELECT COUNT(*) FROM billing_checkout_reservations
+					 WHERE tier_key = ? AND expires_at > ?)
+				) < ?`
+			).bind(
+				reservationID,
+				accountID,
+				tier.key,
+				expiresAt,
+				now,
+				tier.key,
+				tier.key,
+				now,
+				tier.capacity
+			);
+		}
+		if (databaseChanges(await statement.run()) > 0) {
+			return { reservationID, tier, expiresAt };
+		}
+	}
+	throw new Error('No Briefly Plus price is currently available.');
+}
+
+async function createCheckoutSession(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const config = stripeConfig(env);
+	if (!config) {
+		return json({ error: 'Briefly Plus checkout is not configured yet.' }, { status: 503 });
+	}
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json(
+			{ error: 'Sign in with Google to continue.', code: 'authentication_required' },
+			{ status: 401 }
+		);
+	}
+	await ensureSchema(env.DB);
+	const customer = await ensureBillingCustomer(env, email);
+	if (paidSubscriptionStatuses.has(customer?.status)) {
+		return json(
+			{ error: 'This account already has Briefly Plus.', code: 'subscription_exists' },
+			{ status: 409 }
+		);
+	}
+	const reservation = await reservePricingTier(env, customer.account_id);
+	const configuredTier = config.tiers.find((tier) => tier.key === reservation.tier.key);
+	const origin = new URL(request.url).origin;
+	const form = {
+		mode: 'subscription',
+		'line_items[0][price]': configuredTier.priceID,
+		'line_items[0][quantity]': '1',
+		client_reference_id: customer.account_id,
+		success_url: `${origin}/?billing=success`,
+		cancel_url: `${origin}/landing?billing=cancelled#pricing`,
+		expires_at: String(Math.floor(Date.now() / 1000) + checkoutLifetimeSeconds),
+		'metadata[briefly_reservation_id]': reservation.reservationID,
+		'metadata[briefly_tier_key]': reservation.tier.key,
+		'subscription_data[metadata][briefly_account_id]': customer.account_id,
+		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key,
+		'automatic_tax[enabled]': 'true',
+		'tax_id_collection[enabled]': 'true'
+	};
+	if (customer.stripe_customer_id) {
+		form.customer = customer.stripe_customer_id;
+		form['customer_update[address]'] = 'auto';
+		form['customer_update[name]'] = 'auto';
+	} else {
+		form.customer_email = email;
+	}
+
+	try {
+		const session = await stripeRequest(
+			env,
+			'/checkout/sessions',
+			form,
+			`briefly-checkout-${reservation.reservationID}`
+		);
+		if (typeof session.id !== 'string' || typeof session.url !== 'string') {
+			throw new Error('Stripe did not return a Checkout URL.');
+		}
+		await env.DB.prepare(
+			`UPDATE billing_checkout_reservations
+			 SET stripe_session_id = ?
+			 WHERE reservation_id = ?`
+		)
+			.bind(session.id, reservation.reservationID)
+			.run();
+		return json({
+			url: session.url,
+			tier: publicTier(reservation.tier, 0, true)
+		});
+	} catch (error) {
+		await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE reservation_id = ?')
+			.bind(reservation.reservationID)
+			.run();
+		return json(
+			{
+				error:
+					error instanceof Error ? error.message : 'Briefly Plus checkout could not be opened.'
+			},
+			{ status: 502 }
+		);
+	}
+}
+
+async function createBillingPortalSession(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	if (!stripeConfig(env)) {
+		return json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
+	}
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	await ensureSchema(env.DB);
+	const customer = await billingCustomer(env, email);
+	if (!customer?.stripe_customer_id) {
+		return json({ error: 'This account does not have a Stripe customer yet.' }, { status: 404 });
+	}
+	try {
+		const portal = await stripeRequest(env, '/billing_portal/sessions', {
+			customer: customer.stripe_customer_id,
+			return_url: `${new URL(request.url).origin}/`
+		});
+		if (typeof portal.url !== 'string') throw new Error('Stripe did not return a billing URL.');
+		return json({ url: portal.url });
+	} catch (error) {
+		return json(
+			{
+				error:
+					error instanceof Error ? error.message : 'The billing portal could not be opened.'
+			},
+			{ status: 502 }
+		);
+	}
+}
+
+function secureHexEqual(left, right) {
+	if (left.length !== right.length) return false;
+	let difference = 0;
+	for (let index = 0; index < left.length; index += 1) {
+		difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+	}
+	return difference === 0;
+}
+
+async function hmacSHA256Hex(secret, value) {
+	const key = await crypto.subtle.importKey(
+		'raw',
+		new TextEncoder().encode(secret),
+		{ name: 'HMAC', hash: 'SHA-256' },
+		false,
+		['sign']
+	);
+	const signature = new Uint8Array(
+		await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
+	);
+	return [...signature].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyStripeWebhook(rawBody, signatureHeader, secret) {
+	const components = String(signatureHeader || '')
+		.split(',')
+		.map((part) => part.trim());
+	const timestamp = components.find((part) => part.startsWith('t='))?.slice(2);
+	const signatures = components
+		.filter((part) => part.startsWith('v1='))
+		.map((part) => part.slice(3));
+	if (!/^\d+$/.test(timestamp || '') || signatures.length === 0) return false;
+	const age = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
+	if (age > stripeWebhookToleranceSeconds) return false;
+	const expected = await hmacSHA256Hex(secret, `${timestamp}.${rawBody}`);
+	return signatures.some((signature) => secureHexEqual(signature, expected));
+}
+
+function subscriptionPeriodEnd(subscription) {
+	const periods = Array.isArray(subscription?.items?.data)
+		? subscription.items.data
+				.map((item) => Number(item?.current_period_end))
+				.filter((value) => Number.isFinite(value) && value > 0)
+		: [];
+	const rootPeriod = Number(subscription?.current_period_end);
+	if (Number.isFinite(rootPeriod) && rootPeriod > 0) periods.push(rootPeriod);
+	return periods.length > 0 ? Math.max(...periods) : null;
+}
+
+async function upsertStripeSubscription(env, subscription) {
+	const accountID = subscription?.metadata?.briefly_account_id;
+	if (typeof accountID !== 'string' || !accountID) return;
+	const customerID =
+		typeof subscription.customer === 'string'
+			? subscription.customer
+			: subscription.customer?.id;
+	if (typeof customerID !== 'string' || typeof subscription.id !== 'string') return;
+	const priceID = subscription?.items?.data?.[0]?.price?.id ?? null;
+	const configuredTier = stripeConfig(env)?.tiers.find((tier) => tier.priceID === priceID);
+	const tierKey =
+		configuredTier?.key ||
+		(typeof subscription?.metadata?.briefly_tier_key === 'string'
+			? subscription.metadata.briefly_tier_key
+			: 'standard');
+	const now = Date.now();
+	await env.DB.batch([
+		env.DB.prepare(
+			`UPDATE billing_customers
+			 SET stripe_customer_id = ?, updated_at = ?
+			 WHERE account_id = ?`
+		).bind(customerID, now, accountID),
+		env.DB.prepare(
+			`INSERT INTO billing_subscriptions (
+				account_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+				tier_key, status, current_period_end, cancel_at_period_end, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(account_id) DO UPDATE SET
+				stripe_subscription_id = excluded.stripe_subscription_id,
+				stripe_customer_id = excluded.stripe_customer_id,
+				stripe_price_id = excluded.stripe_price_id,
+				tier_key = excluded.tier_key,
+				status = excluded.status,
+				current_period_end = excluded.current_period_end,
+				cancel_at_period_end = excluded.cancel_at_period_end,
+				updated_at = excluded.updated_at`
+		).bind(
+			accountID,
+			subscription.id,
+			customerID,
+			priceID,
+			tierKey,
+			String(subscription.status || 'incomplete'),
+			subscriptionPeriodEnd(subscription),
+			subscription.cancel_at_period_end ? 1 : 0,
+			now,
+			now
+		)
+	]);
+}
+
+async function completeStripeCheckout(env, session) {
+	const accountID = session?.client_reference_id;
+	const reservationID = session?.metadata?.briefly_reservation_id;
+	const tierKey =
+		typeof session?.metadata?.briefly_tier_key === 'string'
+			? session.metadata.briefly_tier_key
+			: 'standard';
+	const customerID =
+		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
+	const subscriptionID =
+		typeof session?.subscription === 'string'
+			? session.subscription
+			: session?.subscription?.id;
+	if (
+		typeof accountID !== 'string' ||
+		typeof customerID !== 'string' ||
+		typeof subscriptionID !== 'string'
+	) {
+		return;
+	}
+	const now = Date.now();
+	const statements = [
+		env.DB.prepare(
+			`UPDATE billing_customers
+			 SET stripe_customer_id = ?, updated_at = ?
+			 WHERE account_id = ?`
+		).bind(customerID, now, accountID),
+		env.DB.prepare(
+			`INSERT INTO billing_subscriptions (
+				account_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
+				tier_key, status, current_period_end, cancel_at_period_end, created_at, updated_at
+			) VALUES (?, ?, ?, NULL, ?, 'active', NULL, 0, ?, ?)
+			ON CONFLICT(account_id) DO UPDATE SET
+				stripe_subscription_id = excluded.stripe_subscription_id,
+				stripe_customer_id = excluded.stripe_customer_id,
+				tier_key = excluded.tier_key,
+				status = excluded.status,
+				updated_at = excluded.updated_at`
+		).bind(accountID, subscriptionID, customerID, tierKey, now, now)
+	];
+	if (typeof reservationID === 'string' && reservationID) {
+		statements.push(
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO billing_allocations (
+					reservation_id, account_id, tier_key, allocated_at
+				) VALUES (?, ?, ?, ?)`
+			).bind(reservationID, accountID, tierKey, now),
+			env.DB.prepare(
+				'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
+			).bind(reservationID)
+		);
+	}
+	await env.DB.batch(statements);
+}
+
+async function processStripeEvent(env, event) {
+	const object = event?.data?.object;
+	if (event.type === 'checkout.session.completed') {
+		await completeStripeCheckout(env, object);
+		return;
+	}
+	if (event.type === 'checkout.session.expired') {
+		const reservationID = object?.metadata?.briefly_reservation_id;
+		if (typeof reservationID === 'string') {
+			await env.DB.prepare(
+				'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
+			)
+				.bind(reservationID)
+				.run();
+		}
+		return;
+	}
+	if (
+		event.type === 'customer.subscription.created' ||
+		event.type === 'customer.subscription.updated' ||
+		event.type === 'customer.subscription.deleted'
+	) {
+		await upsertStripeSubscription(env, object);
+	}
+}
+
+async function stripeWebhook(request, env) {
+	const config = stripeConfig(env);
+	if (!config) return json({ error: 'Stripe billing is not configured.' }, { status: 503 });
+	const rawBody = await request.text();
+	if (
+		!(await verifyStripeWebhook(
+			rawBody,
+			request.headers.get('Stripe-Signature'),
+			config.webhookSecret
+		))
+	) {
+		return json({ error: 'Invalid Stripe signature.' }, { status: 400 });
+	}
+	let event;
+	try {
+		event = JSON.parse(rawBody);
+	} catch {
+		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
+	}
+	if (typeof event?.id !== 'string' || typeof event?.type !== 'string') {
+		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
+	}
+	await ensureSchema(env.DB);
+	const handled = await env.DB.prepare(
+		'SELECT event_id FROM stripe_webhook_events WHERE event_id = ?'
+	)
+		.bind(event.id)
+		.first();
+	if (handled) return json({ received: true, duplicate: true });
+	await processStripeEvent(env, event);
+	await env.DB.prepare(
+		`INSERT OR IGNORE INTO stripe_webhook_events (event_id, event_type, processed_at)
+		 VALUES (?, ?, ?)`
+	)
+		.bind(event.id, event.type, Date.now())
+		.run();
+	return json({ received: true });
 }
 
 async function googleDriveConnection(env, email) {
@@ -3522,6 +4180,8 @@ const worker = {
 			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/import$/
 		);
 		if (publicShareImport && request.method === 'POST') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return importPublicShare(request, env, publicShareImport[1], context);
 		}
 
@@ -3537,6 +4197,18 @@ const worker = {
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
 		}
+		if (url.pathname === '/api/billing/status' && request.method === 'GET') {
+			return billingStatus(request, env);
+		}
+		if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
+			return createCheckoutSession(request, env);
+		}
+		if (url.pathname === '/api/billing/portal' && request.method === 'POST') {
+			return createBillingPortalSession(request, env);
+		}
+		if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
+			return stripeWebhook(request, env);
+		}
 		if (url.pathname === '/api/openrouter/connect/start' && request.method === 'GET') {
 			return startConnection(request, env);
 		}
@@ -3550,18 +4222,26 @@ const worker = {
 			return createSpeech(request, env);
 		}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return fetchLibrarySnapshot(request, env);
 		}
 		if (url.pathname === '/api/library/file' && request.method === 'GET') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return fetchLibraryFile(request, env);
 		}
 		if (url.pathname === '/api/library/sync' && request.method === 'POST') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return syncLibraryMirror(request, env);
 		}
 		if (url.pathname === '/api/share-links' && request.method === 'GET') {
 			return ownerShareLinkStatus(request, env);
 		}
 		if (url.pathname === '/api/share-links' && request.method === 'POST') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return publishShareLink(request, env, context);
 		}
 		const ownerShare = url.pathname.match(/^\/api\/share-links\/([A-Za-z0-9_-]{32})$/);
@@ -3581,13 +4261,19 @@ const worker = {
 			return disconnectGoogleDrive(request, env);
 		}
 		if (url.pathname === '/api/media/audio' && request.method === 'GET') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return listDriveAudio(request, env);
 		}
 		const media = mediaPath(url);
 		if (media && request.method === 'GET') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return downloadDriveMedia(request, env, media);
 		}
 		if (media && request.method === 'PUT') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return uploadDriveMedia(request, env, media);
 		}
 		if (url.pathname.startsWith('/api/')) {

@@ -19,6 +19,8 @@ interface ExtractorOutput {
 const extractionTimeoutMilliseconds = 150_000;
 
 export class ExtractionService {
+  constructor(private readonly workspacePath: () => string) {}
+
   async extractClipboard(value: string): Promise<ExtractedContent | undefined> {
     const sourceURL = webURL(value);
     if (!sourceURL) return undefined;
@@ -30,7 +32,11 @@ export class ExtractionService {
       );
     }
 
-    const extracted = await runHelper(helper, sourceURL.toString());
+    const extracted = await runHelper(
+      helper,
+      sourceURL.toString(),
+      join(this.workspacePath(), '.briefly', 'inputs')
+    );
     const content = extracted.content?.trim();
     if (!content) throw new Error('The page did not contain extractable text.');
 
@@ -62,13 +68,21 @@ function webURL(value: string): URL | null {
   }
 }
 
-async function runHelper(helper: string, url: string): Promise<ExtractorOutput> {
+async function runHelper(
+  helper: string,
+  url: string,
+  extensionsDirectory: string
+): Promise<ExtractorOutput> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [helper, url], {
-      cwd: dirname(helper),
-      env: extractorEnvironment(helper),
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    const child = spawn(
+      process.execPath,
+      [helper, '--extensions', extensionsDirectory, url],
+      {
+        cwd: dirname(helper),
+        env: extractorEnvironment(helper),
+        stdio: ['ignore', 'pipe', 'pipe']
+      }
+    );
     let output = '';
     let error = '';
     let outputTooLarge = false;

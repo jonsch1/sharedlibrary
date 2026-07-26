@@ -6,6 +6,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import CloudIcon from '@lucide/svelte/icons/cloud';
+	import CreditCardIcon from '@lucide/svelte/icons/credit-card';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
@@ -69,6 +70,14 @@
 		type ShareLinkStatus
 	} from '$lib/share-links.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
+	import {
+		beginBrieflyPlusCheckout,
+		consumeBillingResult,
+		formatMonthlyPrice,
+		loadBillingStatus,
+		openBillingPortal,
+		type BillingStatus
+	} from '$lib/billing.js';
 
 	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 	type OriginFilter = 'all' | 'personal';
@@ -105,6 +114,8 @@
 	});
 	let googleBusy = $state(false);
 	let googleSyncing = $state(false);
+	let billing = $state<BillingStatus | null>(null);
+	let billingBusy = $state(false);
 	let googleSyncPhase = $state<GoogleSyncPhase>('checking');
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
@@ -168,6 +179,9 @@
 				: 'Checking audio'
 	);
 	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
+	let currentBillingTier = $derived(
+		billing?.tiers.find((tier) => tier.current) ?? billing?.tiers.at(-1) ?? null
+	);
 
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
@@ -262,18 +276,50 @@
 	async function initializeConnections(isActive: () => boolean): Promise<void> {
 		try {
 			const googleResult = consumeGoogleDriveConnectionResult();
-			const google = await loadGoogleDriveConnection();
+			const billingResult = consumeBillingResult();
+			const checkoutURL = new URL(window.location.href);
+			const continueCheckout = checkoutURL.searchParams.get('checkout') === 'plus';
+			if (continueCheckout) {
+				checkoutURL.searchParams.delete('checkout');
+				window.history.replaceState(
+					{},
+					'',
+					`${checkoutURL.pathname}${checkoutURL.search}${checkoutURL.hash}`
+				);
+			}
+			const [google, initialBilling] = await Promise.all([
+				loadGoogleDriveConnection(),
+				loadBillingStatus()
+			]);
 			if (!isActive()) return;
 			googleConnection = google;
+			billing = initialBilling;
+			if (continueCheckout && billing.authenticated) {
+				await startBrieflyPlus();
+				return;
+			}
+			if (billingResult === 'success') {
+				for (let attempt = 0; attempt < 5 && billing.configured && !billing.entitled; attempt += 1) {
+					await new Promise((resolve) => window.setTimeout(resolve, 800));
+					if (!isActive()) return;
+					billing = await loadBillingStatus();
+				}
+				connectionMessage = billing.entitled
+					? 'Briefly Plus is active. Your joined price is locked while you stay subscribed.'
+					: 'Payment completed. Briefly Plus is still being activated.';
+				connectionsVisible = true;
+			}
 			if (googleResult === 'connected') {
 				connectionMessage =
-					'Google Drive connected. The complete library and existing narration are being saved on this device.';
+					billing.entitled
+						? 'Google Drive connected. The complete library and existing narration are being saved on this device.'
+						: 'Google Drive connected. Add Briefly Plus to synchronize this library.';
 				connectionsVisible = true;
 			} else if (googleResult) {
 				connectionMessage = 'Google Drive sign-in could not be completed. Check the callback URL.';
 				connectionsVisible = true;
 			}
-			if (google.connected) {
+			if (google.connected && billing.entitled) {
 				void requestPersistentOfflineStorage();
 				await syncFromGoogleDrive(false);
 			}
@@ -352,6 +398,11 @@
 
 	async function syncFromGoogleDrive(showError = true): Promise<void> {
 		if (!googleConnection.connected || googleSyncing) return;
+		if (billing?.configured && !billing.entitled) {
+			connectionMessage = 'Briefly Plus is required to synchronize your library.';
+			connectionsVisible = true;
+			return;
+		}
 		googleSyncing = true;
 		googleSyncPhase = 'checking';
 		googleSyncCompleted = 0;
@@ -423,6 +474,39 @@
 		beginGoogleDriveConnection();
 	}
 
+	async function startBrieflyPlus(): Promise<void> {
+		if (billingBusy) return;
+		billingBusy = true;
+		connectionMessage = '';
+		try {
+			await beginBrieflyPlusCheckout();
+		} catch (error) {
+			const checkoutError = error as Error & { code?: string };
+			if (checkoutError.code === 'authentication_required') {
+				const returnTo = encodeURIComponent('/?checkout=plus');
+				window.location.assign(`/api/auth/google/start?return_to=${returnTo}`);
+				return;
+			}
+			connectionMessage = checkoutError.message;
+		} finally {
+			billingBusy = false;
+		}
+	}
+
+	async function manageBilling(): Promise<void> {
+		if (billingBusy) return;
+		billingBusy = true;
+		connectionMessage = '';
+		try {
+			await openBillingPortal();
+		} catch (error) {
+			connectionMessage =
+				error instanceof Error ? error.message : 'The billing portal could not be opened.';
+		} finally {
+			billingBusy = false;
+		}
+	}
+
 	async function removeGoogleDriveConnection(): Promise<void> {
 		googleBusy = true;
 		try {
@@ -444,6 +528,12 @@
 
 	async function openSharing(entry: LibraryEntry | null = selectedEntry): Promise<void> {
 		if (!entry || entry.origin !== 'personal') return;
+		if (billing?.configured && !billing.entitled) {
+			connectionMessage = 'Briefly Plus is required to create share links.';
+			connectionsVisible = true;
+			sharingVisible = false;
+			return;
+		}
 		shareTarget = entry;
 		shareLink = { shared: false };
 		shareError = '';
@@ -733,6 +823,26 @@
 				{#if googleConnection.connected && googleSyncing}
 					<h1>Making your library available</h1>
 					<p class="empty-copy">{googleSyncDescription()}</p>
+				{:else if googleConnection.connected && billing?.configured && !billing.entitled}
+					<h1>Take your library everywhere</h1>
+					<p class="empty-copy">
+						Briefly Plus adds secure Google Drive synchronization and deliberate share links.
+						Your local desktop library stays free.
+					</p>
+					<div class="empty-actions">
+						<Button size="lg" disabled={billingBusy} onclick={startBrieflyPlus}>
+							<CreditCardIcon data-icon="inline-start" />
+							{billingBusy
+								? 'Opening checkout…'
+								: currentBillingTier
+									? `Get Plus · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
+									: 'Get Briefly Plus'}
+						</Button>
+						<Button size="lg" variant="ghost" onclick={showDemo}>
+							<BookOpenIcon data-icon="inline-start" />
+							Explore a sample
+						</Button>
+					</div>
 				{:else}
 					<h1>Sign in with Google</h1>
 					<p class="empty-copy">
@@ -974,6 +1084,59 @@
 			</div>
 
 			<div class="audio-content">
+				<section class="audio-connection billing-connection" class:connected={billing?.entitled}>
+					<div class="audio-connection-heading">
+						<div class="provider-mark"><CreditCardIcon /></div>
+						<div>
+							<div class="provider-title">
+								<h3>Briefly Plus</h3>
+								<Badge variant={billing?.entitled ? 'secondary' : 'outline'}>
+									{billing?.entitled && billing.subscription
+										? billing.subscription.cancelAtPeriodEnd
+											? 'Cancels soon'
+											: 'Active'
+										: billing?.subscription
+											? 'Inactive'
+											: 'Optional'}
+								</Badge>
+							</div>
+							<p>Cross-device Google Drive sync and deliberate share links.</p>
+						</div>
+					</div>
+
+					{#if billing?.entitled && billing.subscription}
+						<div class="billing-summary">
+							<strong>
+								{formatMonthlyPrice(
+									billing.subscription.amount,
+									billing.subscription.currency
+								)}/month
+							</strong>
+							<span>{billing.subscription.tierName} price · kept while subscribed</span>
+						</div>
+						<Button variant="outline" disabled={billingBusy} onclick={manageBilling}>
+							<ArrowUpRightIcon data-icon="inline-start" />
+							{billingBusy ? 'Opening billing…' : 'Manage billing'}
+						</Button>
+					{:else if billing?.configured}
+						<Button disabled={billingBusy} onclick={startBrieflyPlus}>
+							<CreditCardIcon data-icon="inline-start" />
+							{billingBusy
+								? 'Opening checkout…'
+								: currentBillingTier
+									? `Get Plus · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
+									: 'Get Briefly Plus'}
+						</Button>
+						<p class="connection-help">
+							The current launch price is locked while you remain subscribed. Cancel anytime.
+						</p>
+					{:else}
+						<p class="connection-help">
+							Stripe checkout is ready in the app but has not been configured for this deployment.
+						</p>
+					{/if}
+				</section>
+
 				<section class="audio-connection" class:connected={googleConnection.connected}>
 					<div class="audio-connection-heading">
 						<div class="provider-mark"><CloudIcon /></div>

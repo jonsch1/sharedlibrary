@@ -6,7 +6,7 @@ import {
   parseXStatusUrl,
   xArticleToExtractedContent,
   xPostToExtractedContent
-} from "./x-article.mjs";
+} from "./x.mjs";
 
 test("parseXStatusUrl recognizes X and Twitter status links", () => {
   assert.deepEqual(

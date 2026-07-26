@@ -21,9 +21,18 @@ const fakeSuggestion: ProcessingSuggestion = {
 test('agent API requires approval, imports URLs, and returns topic summaries', async () => {
   const root = await mkdtemp(join(tmpdir(), 'shared-library-agent-api-'));
   const workspace = join(root, 'workspace');
-  const skillSource = join(root, 'skill-source');
-  await mkdir(skillSource, { recursive: true });
-  await writeFile(join(skillSource, 'SKILL.md'), '---\nname: test\n---\n');
+  const researchSkillSource = join(root, 'research-skill-source');
+  const inputSkillSource = join(root, 'input-skill-source');
+  await mkdir(researchSkillSource, { recursive: true });
+  await mkdir(inputSkillSource, { recursive: true });
+  await writeFile(
+    join(researchSkillSource, 'SKILL.md'),
+    '---\nname: test\n---\n'
+  );
+  await writeFile(
+    join(inputSkillSource, 'SKILL.md'),
+    '---\nname: input-test\n---\n'
+  );
   const legacySkillPath = join(
     workspace,
     '.agents',
@@ -62,7 +71,16 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
         };
       }
     },
-    skillSource
+    [
+      {
+        name: 'briefly-deep-research',
+        sourcePath: researchSkillSource
+      },
+      {
+        name: 'briefly-input-extension',
+        sourcePath: inputSkillSource
+      }
+    ]
   );
 
   try {
@@ -87,6 +105,19 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
         'utf8'
       ),
       /name: test/
+    );
+    assert.match(
+      await readFile(
+        join(
+          workspace,
+          '.agents',
+          'skills',
+          'briefly-input-extension',
+          'SKILL.md'
+        ),
+        'utf8'
+      ),
+      /name: input-test/
     );
     await assert.rejects(stat(legacySkillPath));
 

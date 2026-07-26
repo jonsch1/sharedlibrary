@@ -33,16 +33,16 @@ const maximumURLsPerJob = 24;
 // group. Keep imports serialized so two identical generated filenames cannot race.
 const jobConcurrency = 1;
 const connectionRelativePath = join('.shared-library', 'agent-api.json');
-const installedSkillRelativePath = join(
-  '.agents',
-  'skills',
-  'briefly-deep-research'
-);
 const legacyInstalledSkillRelativePath = join(
   '.agents',
   'skills',
   'shared-library-deep-research'
 );
+
+export interface BundledAgentSkill {
+  name: string;
+  sourcePath: string;
+}
 
 type AgentSourceStatus =
   | 'queued'
@@ -109,7 +109,7 @@ export class AgentApiServer {
 
   constructor(
     private readonly dependencies: AgentApiDependencies,
-    private readonly skillSourcePath?: string
+    private readonly skillSources: BundledAgentSkill[] | string = []
   ) {}
 
   async start(): Promise<AgentApiConnection> {
@@ -176,19 +176,36 @@ export class AgentApiServer {
   private async publishWorkspace(): Promise<void> {
     const workspacePath = this.dependencies.library.getWorkspacePath();
     await this.dependencies.library.ensureWorkspace();
-    if (this.skillSourcePath) {
+    const skillSources =
+      typeof this.skillSources === 'string'
+        ? [
+            {
+              name: 'briefly-deep-research',
+              sourcePath: this.skillSources
+            }
+          ]
+        : this.skillSources;
+    if (skillSources.length > 0) {
       await rm(join(workspacePath, legacyInstalledSkillRelativePath), {
         recursive: true,
         force: true
       });
-      await mkdir(dirname(join(workspacePath, installedSkillRelativePath)), {
-        recursive: true
-      });
-      await cp(
-        this.skillSourcePath,
-        join(workspacePath, installedSkillRelativePath),
-        { recursive: true, force: true }
-      );
+      for (const skill of skillSources) {
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill.name)) {
+          throw new Error(`Invalid bundled agent skill name: ${skill.name}`);
+        }
+        const installedPath = join(
+          workspacePath,
+          '.agents',
+          'skills',
+          skill.name
+        );
+        await mkdir(dirname(installedPath), { recursive: true });
+        await cp(skill.sourcePath, installedPath, {
+          recursive: true,
+          force: true
+        });
+      }
     }
     const path = join(workspacePath, connectionRelativePath);
     await mkdir(dirname(path), { recursive: true });

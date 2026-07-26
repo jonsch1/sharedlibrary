@@ -56,6 +56,18 @@ export async function fetchXContent(rawUrl, { fetchImpl = fetch } = {}) {
     : xPostToExtractedContent(rawUrl, payload);
 }
 
+export const xInput = {
+  id: "x",
+  sourceType: "social-post",
+  fallbackToGeneric: true,
+  matches(rawUrl) {
+    return parseXStatusUrl(rawUrl) !== null;
+  },
+  extract(rawUrl, context = {}) {
+    return fetchXContent(rawUrl, context);
+  }
+};
+
 export function xArticleToExtractedContent(rawUrl, payload) {
   const tweet = payload?.tweet;
   const article = tweet?.article;

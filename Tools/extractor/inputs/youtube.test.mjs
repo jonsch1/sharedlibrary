@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  extractYouTube,
+  extractYouTubePlayerResponse,
+  extractYouTubeVideoID,
+  parseCaptionResponse
+} from "./youtube.mjs";
+
+test("extractYouTubeVideoID recognizes video URLs but not channel pages", () => {
+  assert.equal(
+    extractYouTubeVideoID("https://www.youtube.com/watch?v=abc1234"),
+    "abc1234"
+  );
+  assert.equal(
+    extractYouTubeVideoID("https://youtu.be/abc1234?t=20"),
+    "abc1234"
+  );
+  assert.equal(
+    extractYouTubeVideoID("https://youtube.com/shorts/abc1234"),
+    "abc1234"
+  );
+  assert.equal(extractYouTubeVideoID("https://youtube.com/@briefly"), null);
+  assert.equal(
+    extractYouTubeVideoID("https://youtube.com.evil.example/watch?v=abc1234"),
+    null
+  );
+});
+
+test("extractYouTubePlayerResponse reads balanced player JSON", () => {
+  const player = extractYouTubePlayerResponse(
+    `<script>var ytInitialPlayerResponse = ${JSON.stringify({
+      videoDetails: { title: "A title with a } brace" }
+    })};</script>`
+  );
+  assert.equal(player?.videoDetails?.title, "A title with a } brace");
+});
+
+test("YouTube extraction fetches creator captions without media downloads", async () => {
+  const page = youtubePage({
+    captionTracks: [
+      {
+        baseUrl: "https://www.youtube.com/api/timedtext?v=abc1234&lang=en",
+        languageCode: "en"
+      }
+    ]
+  });
+  const requested = [];
+  const result = await extractYouTube(
+    "https://www.youtube.com/watch?v=abc1234",
+    {
+      includeTranscriptTimestamps: true,
+      fetchImpl: async (url) => {
+        requested.push(String(url));
+        return requested.length === 1
+          ? response(page, "text/html", String(url))
+          : response(
+              JSON.stringify({
+                events: [
+                  { tStartMs: 1200, segs: [{ utf8: "First line." }] },
+                  { tStartMs: 62500, segs: [{ utf8: "Second line." }] }
+                ]
+              }),
+              "application/json",
+              String(url)
+            );
+      }
+    }
+  );
+
+  assert.equal(requested.length, 2);
+  assert.match(requested[1], /fmt=json3/);
+  assert.equal(result.title, "An owned pipeline");
+  assert.equal(result.transcriptAvailable, true);
+  assert.equal(
+    result.content,
+    "Transcript:\n[0:01] First line.\n[1:02] Second line."
+  );
+});
+
+test("YouTube extraction returns metadata when captions are unavailable", async () => {
+  const result = await extractYouTube(
+    "https://www.youtube.com/watch?v=abc1234",
+    {
+      fetchImpl: async (url) =>
+        response(youtubePage({ captionTracks: [] }), "text/html", String(url))
+    }
+  );
+
+  assert.equal(result.transcriptAvailable, false);
+  assert.equal(result.title, "An owned pipeline");
+  assert.match(result.content, /^Transcript unavailable for this video\./);
+  assert.match(result.content, /Channel: Briefly/);
+  assert.match(result.content, /Description:\nHow the pipeline works\./);
+});
+
+test("parseCaptionResponse also accepts XML caption responses", () => {
+  assert.deepEqual(
+    parseCaptionResponse(
+      '<transcript><text start="1.5">Hello &amp; goodbye.</text></transcript>'
+    ),
+    [{ startMilliseconds: 1500, text: "Hello & goodbye." }]
+  );
+});
+
+function youtubePage({ captionTracks }) {
+  return `<!doctype html>
+    <html>
+      <head><meta property="og:title" content="Fallback video title"></head>
+      <body>
+        <script>var ytInitialPlayerResponse = ${JSON.stringify({
+          videoDetails: {
+            title: "An owned pipeline",
+            author: "Briefly",
+            shortDescription: "How the pipeline works."
+          },
+          captions: {
+            playerCaptionsTracklistRenderer: { captionTracks }
+          }
+        })};</script>
+      </body>
+    </html>`;
+}
+
+function response(body, contentType, url) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    url,
+    headers: new Headers({ "content-type": contentType }),
+    text: async () => body
+  };
+}

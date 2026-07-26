@@ -20,7 +20,11 @@ This directory contains the cross-platform Briefly desktop application.
   shows the number of active ingests as a dock badge.
 - A bearer-authenticated agent API on `127.0.0.1` supports explicit topic creation,
   approved batch URL ingestion, job polling, and summary retrieval. Its bundled
-  deep-research skill is installed into the selected workspace automatically.
+  deep-research and input-extension skills are installed into the selected workspace
+  automatically.
+- Versioned workspace input packages in `.briefly/inputs/` can override extraction
+  for narrowly matched sites. They are hot-discovered and execute in restricted,
+  secret-free child processes with optional built-in fallback.
 - OpenRouter OAuth narration uses incremental MP3 segments: the first segment plays
   while later segments are generated, cached locally, and backed up to Drive.
 - Share links publish all text levels and already-generated narration through the

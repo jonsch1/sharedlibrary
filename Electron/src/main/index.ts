@@ -38,7 +38,10 @@ import {
   normalizeOpenRouterTTSModel,
   recommendedVoiceForTTSModel
 } from '../shared/contracts.js';
-import { AgentApiServer } from './agent-api.js';
+import {
+  AgentApiServer,
+  type BundledAgentSkill
+} from './agent-api.js';
 import { BackendClient } from './backend.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
@@ -102,15 +105,14 @@ function applicationIconPath(): string {
     : join(app.getAppPath(), 'build', 'icon.png');
 }
 
-function bundledAgentSkillPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'skills', 'briefly-deep-research')
-    : join(
-        app.getAppPath(),
-        'resources',
-        'skills',
-        'briefly-deep-research'
-      );
+function bundledAgentSkills(): BundledAgentSkill[] {
+  const root = app.isPackaged
+    ? join(process.resourcesPath, 'skills')
+    : join(app.getAppPath(), 'resources', 'skills');
+  return ['briefly-deep-research', 'briefly-input-extension'].map((name) => ({
+    name,
+    sourcePath: join(root, name)
+  }));
 }
 
 async function snapshotAndNotify() {
@@ -707,7 +709,7 @@ app.whenReady().then(async () => {
     (path) => shell.trashItem(path)
   );
   backend = new BackendClient();
-  extraction = new ExtractionService();
+  extraction = new ExtractionService(() => library.getWorkspacePath());
   processing = new ProcessingService(async () => {
     const current = await settings.load();
     return current.processingPrompt ?? defaultProcessingPrompt;
@@ -745,7 +747,7 @@ app.whenReady().then(async () => {
       onOperationMessage: sendOperationMessage,
       onIngestionStarted: beginIngestion
     },
-    bundledAgentSkillPath()
+    bundledAgentSkills()
   );
   await agentApi.start();
   registerIPC();

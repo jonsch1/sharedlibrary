@@ -38,6 +38,70 @@ export const googleOAuthStates = sqliteTable('google_oauth_states', {
 	createdAt: integer('created_at').notNull()
 });
 
+export const billingCustomers = sqliteTable(
+	'billing_customers',
+	{
+		userEmail: text('user_email').primaryKey(),
+		accountID: text('account_id').notNull(),
+		stripeCustomerID: text('stripe_customer_id'),
+		createdAt: integer('created_at').notNull(),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [
+		uniqueIndex('billing_customers_account_id_unique').on(table.accountID),
+		uniqueIndex('billing_customers_stripe_customer_id_unique').on(table.stripeCustomerID)
+	]
+);
+
+export const billingSubscriptions = sqliteTable(
+	'billing_subscriptions',
+	{
+		accountID: text('account_id').primaryKey(),
+		stripeSubscriptionID: text('stripe_subscription_id').notNull(),
+		stripeCustomerID: text('stripe_customer_id').notNull(),
+		stripePriceID: text('stripe_price_id'),
+		tierKey: text('tier_key').notNull(),
+		status: text('status').notNull(),
+		currentPeriodEnd: integer('current_period_end'),
+		cancelAtPeriodEnd: integer('cancel_at_period_end').notNull().default(0),
+		createdAt: integer('created_at').notNull(),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [
+		uniqueIndex('billing_subscriptions_stripe_subscription_id_unique').on(
+			table.stripeSubscriptionID
+		)
+	]
+);
+
+export const billingCheckoutReservations = sqliteTable(
+	'billing_checkout_reservations',
+	{
+		reservationID: text('reservation_id').primaryKey(),
+		accountID: text('account_id').notNull(),
+		tierKey: text('tier_key').notNull(),
+		stripeSessionID: text('stripe_session_id'),
+		expiresAt: integer('expires_at').notNull(),
+		createdAt: integer('created_at').notNull()
+	},
+	(table) => [
+		uniqueIndex('billing_checkout_reservations_account_id_unique').on(table.accountID)
+	]
+);
+
+export const billingAllocations = sqliteTable('billing_allocations', {
+	reservationID: text('reservation_id').primaryKey(),
+	accountID: text('account_id').notNull(),
+	tierKey: text('tier_key').notNull(),
+	allocatedAt: integer('allocated_at').notNull()
+});
+
+export const stripeWebhookEvents = sqliteTable('stripe_webhook_events', {
+	eventID: text('event_id').primaryKey(),
+	eventType: text('event_type').notNull(),
+	processedAt: integer('processed_at').notNull()
+});
+
 export const shareLinks = sqliteTable(
 	'share_links',
 	{
