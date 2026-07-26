@@ -1020,7 +1020,11 @@
 								<ArrowRightIcon aria-hidden="true" />
 							</button>
 						{/if}
-						<p class="pricing-note">Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe</p>
+						<p class="pricing-note">
+							Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe<br />
+							By subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
+							<a href="/privacy">Privacy Notice</a>.
+						</p>
 						{#if billingMessage}
 							<p class="pricing-message" role="status">{billingMessage}</p>
 						{/if}
@@ -1142,7 +1146,10 @@
 		<div>
 			<a href="/">Open app</a>
 			<a href="#get-briefly">Downloads</a>
-			<a href="#how">How it works</a>
+			<a class="footer-legal" href="/privacy">Privacy</a>
+			<a class="footer-legal" href="/terms">Terms</a>
+			<a class="footer-legal" href="/cookies">Cookies</a>
+			<a class="footer-legal" href="/imprint">Imprint</a>
 			<span>© 2026 Briefly</span>
 		</div>
 	</footer>
@@ -2844,6 +2851,11 @@
 		line-height: 1.5;
 	}
 
+	.pricing-note a {
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
 	.pricing-message {
 		color: #f8cfa7;
 	}
@@ -3804,6 +3816,10 @@
 
 		.landing-footer > div a {
 			display: none;
+		}
+
+		.landing-footer > div a.footer-legal {
+			display: inline;
 		}
 	}
 

@@ -860,6 +860,11 @@
 						</Button>
 					</div>
 				{/if}
+				<p class="empty-legal">
+					By signing in or subscribing, you agree to the <a href="/terms">Terms</a>. See how
+					Briefly handles data in the <a href="/privacy">Privacy Notice</a>. Provider details
+					are in the <a href="/imprint">Imprint</a>.
+				</p>
 			</section>
 		</main>
 	{:else}
@@ -1297,6 +1302,12 @@
 						</p>
 					</div>
 				</div>
+				<nav class="connections-legal" aria-label="Legal">
+					<a href="/privacy">Privacy</a>
+					<a href="/terms">Terms</a>
+					<a href="/cookies">Cookies & storage</a>
+					<a href="/imprint">Imprint</a>
+				</nav>
 			</div>
 		</aside>
 	{/if}

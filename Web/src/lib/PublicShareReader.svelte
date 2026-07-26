@@ -208,6 +208,11 @@
 <audio bind:this={audio} class="narration-engine" preload="none"></audio>
 
 <div class="public-share-shell">
+	<nav class="public-share-legal" aria-label="Legal">
+		<a href="/privacy">Privacy</a>
+		<a href="/terms">Terms</a>
+		<a href="/imprint">Imprint</a>
+	</nav>
 	{#if loading || preparing}
 		<main class="public-share-state" aria-live="polite">
 			<LoaderCircleIcon class="spin" />
