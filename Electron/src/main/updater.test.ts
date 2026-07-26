@@ -31,7 +31,7 @@ test('packaged releases include the differential update feed', async () => {
     identityName: 'gutercomputer.BrieflyDesktop',
     publisher: 'CN=C904E9B2-14E0-4A8B-AFD2-BE4354B83009',
     publisherDisplayName: 'gutercomputer',
-    displayName: 'Briefly',
+    displayName: 'Briefly Desktop',
     artifactName: 'Briefly-windows-store-${arch}.${ext}'
   });
   assert.match(releaseWorkflow, /xcrun notarytool submit/);
