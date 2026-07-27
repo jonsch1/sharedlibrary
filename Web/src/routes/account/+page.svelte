@@ -33,7 +33,7 @@
 		consumeGoogleDriveConnectionResult,
 		disconnectGoogleDrive
 	} from '$lib/google-drive.js';
-	import { disconnectICloud } from '$lib/icloud.js';
+	import { disconnectICloud, emptyICloudLibraryMessage } from '$lib/icloud.js';
 
 	type AccountStatus = {
 		authenticated: boolean;
@@ -104,6 +104,8 @@
 				message = 'Google Drive is connected and selected for library sync.';
 			} else if (iCloudResult === 'connected') {
 				message = 'iCloud is selected. This device is authorized for your private library.';
+			} else if (iCloudResult === 'empty') {
+				message = emptyICloudLibraryMessage;
 			} else if (googleResult) {
 				message = 'Google Drive could not be connected.';
 			} else if (billingResult === 'cancelled' || ttsResult === 'cancelled') {

@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict';
 import { createHmac, generateKeyPairSync, sign as signBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import worker from './index.js';
 import { hasSameLibraryContent } from '../src/lib/library.ts';
 import { ttsModels } from '../tts-pricing.js';
+
+test('iCloud setup verifies the remote library before reporting success', async () => {
+	const [setup, reader] = await Promise.all([
+		readFile(new URL('../src/routes/icloud/+page.svelte', import.meta.url), 'utf8'),
+		readFile(new URL('../src/routes/+page.svelte', import.meta.url), 'utf8')
+	]);
+	assert.match(
+		setup,
+		/const projection = await fetchICloudLibraryIndex\(\);[\s\S]+await selectICloudSync\(\)/
+	);
+	assert.match(setup, /projection \? 'connected' : 'empty'/);
+	assert.match(reader, /if \(!syncedProjection\) \{[\s\S]+emptyICloudLibraryMessage/);
+	assert.match(reader, /Authorize iCloud on this browser/);
+});
 
 test('library projection comparison ignores sync timestamps but detects content changes', () => {
 	const projection = {

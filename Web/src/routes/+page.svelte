@@ -64,6 +64,7 @@
 		type GoogleDriveConnection
 	} from '$lib/google-drive.js';
 	import {
+		emptyICloudLibraryMessage,
 		iCloudIdentity,
 		syncICloudLibrary,
 		type SyncProvider
@@ -304,8 +305,10 @@
 			const googleResult = consumeGoogleDriveConnectionResult();
 			const resultURL = new URL(window.location.href);
 			const appleResult = resultURL.searchParams.get('apple');
-			if (appleResult) {
+			const iCloudResult = resultURL.searchParams.get('icloud');
+			if (appleResult || iCloudResult) {
 				resultURL.searchParams.delete('apple');
+				resultURL.searchParams.delete('icloud');
 				window.history.replaceState(
 					{},
 					'',
@@ -367,6 +370,12 @@
 				connectionsVisible = true;
 			} else if (appleResult) {
 				connectionMessage = 'Apple sign-in could not be completed.';
+				connectionsVisible = true;
+			}
+			if (iCloudResult === 'connected') {
+				connectionMessage = 'iCloud is authorized for this browser.';
+			} else if (iCloudResult === 'empty') {
+				connectionMessage = emptyICloudLibraryMessage;
 				connectionsVisible = true;
 			}
 			if (syncProvider && billing.entitled) {
@@ -482,7 +491,7 @@
 		try {
 			const syncLibrary =
 				syncProvider === 'icloud' ? syncICloudLibrary : syncGoogleDriveLibrary;
-			await syncLibrary(
+			const syncedProjection = await syncLibrary(
 				(personalProjection) => {
 					applySyncedProjection(personalProjection);
 					googleSyncPhase = 'library';
@@ -492,6 +501,11 @@
 					googleSyncTotal = total;
 				}
 			);
+			if (!syncedProjection) {
+				connectionMessage = emptyICloudLibraryMessage;
+				connectionsVisible = true;
+				return;
+			}
 			if (syncProvider === 'google') {
 				googleSyncPhase = 'audio';
 				googleSyncCompleted = 0;
@@ -896,6 +910,21 @@
 								: currentBillingTier
 									? `Get Plus · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
 									: 'Get Briefly Plus'}
+						</Button>
+						<Button size="lg" variant="ghost" onclick={showDemo}>
+							<BookOpenIcon data-icon="inline-start" />
+							Explore a sample
+						</Button>
+					</div>
+				{:else if syncProvider === 'icloud' && !iCloudConnection.connected}
+					<h1>Authorize iCloud on this browser</h1>
+					<p class="empty-copy">
+						Each browser needs its own permission to read your private iCloud library.
+					</p>
+					<div class="empty-actions">
+						<Button size="lg" href="/icloud?return_to=%2F">
+							<CloudIcon data-icon="inline-start" />
+							Authorize iCloud
 						</Button>
 						<Button size="lg" variant="ghost" onclick={showDemo}>
 							<BookOpenIcon data-icon="inline-start" />

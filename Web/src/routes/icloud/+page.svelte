@@ -3,6 +3,7 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import {
 		exposeICloudBridge,
+		fetchICloudLibraryIndex,
 		iCloudIdentity,
 		selectICloudSync,
 		waitForICloudSignIn
@@ -43,7 +44,8 @@
 	}
 
 	async function connected(): Promise<void> {
-		message = 'Connecting your private iCloud library…';
+		message = 'Checking your private iCloud library…';
+		const projection = await fetchICloudLibraryIndex();
 		await selectICloudSync();
 		const parameters = new URLSearchParams(window.location.search);
 		const requestedReturnTo = parameters.get('return_to');
@@ -53,7 +55,7 @@
 				: '/account',
 			window.location.origin
 		);
-		destination.searchParams.set('icloud', 'connected');
+		destination.searchParams.set('icloud', projection ? 'connected' : 'empty');
 		window.location.replace(destination);
 	}
 </script>

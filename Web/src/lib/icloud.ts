@@ -7,6 +7,9 @@ import {
 
 export type SyncProvider = 'google' | 'icloud';
 
+export const emptyICloudLibraryMessage =
+	'iCloud is connected, but no library has been uploaded yet. Open Briefly on the device with your library and sync there.';
+
 export interface CloudLibraryMirror {
 	index: LibraryProjection;
 	files: Array<LibraryFile & { content: string }>;
