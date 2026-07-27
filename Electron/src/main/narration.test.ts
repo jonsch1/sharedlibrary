@@ -110,3 +110,29 @@ test('remaining narration starts after the session is returned', async () => {
     await rm(cacheRoot, { recursive: true, force: true });
   }
 });
+
+test('existing narration can be copied without generating new speech', async () => {
+  const cacheRoot = await mkdtemp(join(tmpdir(), 'briefly-share-narration-'));
+  let generated = false;
+  const backend = {
+    loadAudio: async () => new Uint8Array([7, 8, 9]),
+    createSpeech: async () => {
+      generated = true;
+      return new Uint8Array([1]);
+    }
+  } as unknown as BackendClient;
+  const service = new NarrationService(cacheRoot, backend, () => {}, () => {});
+
+  try {
+    const segments = await service.storedSegments(
+      'Existing narration.',
+      'af_heart',
+      defaultOpenRouterTTSModel
+    );
+    assert.equal(segments?.length, 1);
+    assert.deepEqual(segments?.[0].bytes, new Uint8Array([7, 8, 9]));
+    assert.equal(generated, false);
+  } finally {
+    await rm(cacheRoot, { recursive: true, force: true });
+  }
+});

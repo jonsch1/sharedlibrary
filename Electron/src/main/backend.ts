@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   AccountProvider,
   ConnectionProvider,
+  LibraryVariant,
   OpenRouterTTSModel,
   OpenRouterVoice,
   ShareLinkStatus
@@ -35,6 +36,19 @@ interface AccountStatus {
   };
 }
 
+export interface ShareLinkSource {
+  filename: string;
+  title: string;
+  excerpt: string;
+  topicIDs: string[];
+  topicNames: string[];
+  tags: string[];
+  sourceURL?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  texts: Array<{ variant: LibraryVariant; markdown: string }>;
+}
+
 export class BackendClient {
   private bridgeWindow: BrowserWindow | null = null;
   private activeSyncProvider: ConnectionProvider | null = null;
@@ -45,6 +59,10 @@ export class BackendClient {
     const value = (await response.json()) as AccountStatus;
     this.activeSyncProvider = value.syncProvider ?? null;
     return value;
+  }
+
+  currentSyncProvider(): ConnectionProvider | null {
+    return this.activeSyncProvider;
   }
 
   async providerStatus(provider: ConnectionProvider): Promise<Record<string, unknown>> {
@@ -252,19 +270,41 @@ export class BackendClient {
   async publishShare(
     captureID: string,
     voice: OpenRouterVoice,
-    model: OpenRouterTTSModel
+    model: OpenRouterTTSModel,
+    source?: ShareLinkSource
   ): Promise<ShareLinkStatus> {
-    if (this.activeSyncProvider === 'icloud') {
-      throw new Error(
-        'Creating new public links from iCloud libraries is not available yet.'
-      );
-    }
     const response = await this.fetch('/api/share-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ captureID, voice, model })
+      body: JSON.stringify({ captureID, voice, model, source })
     });
     return this.json(response, 'Could not create the share link.');
+  }
+
+  async uploadShareAudio(
+    share: Pick<ShareLinkStatus, 'token' | 'generation'>,
+    variant: LibraryVariant,
+    index: number,
+    hash: string,
+    voice: OpenRouterVoice,
+    bytes: Uint8Array
+  ): Promise<void> {
+    if (!share.token || !share.generation) return;
+    const response = await this.fetch(
+      `/api/share-links/${encodeURIComponent(share.token)}/audio/${encodeURIComponent(share.generation)}/${variant}/${index}/${hash}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'audio/mpeg',
+          'X-Briefly-Voice': voice
+        },
+        body: bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength
+        ) as ArrayBuffer
+      }
+    );
+    await this.json(response, 'Could not publish existing narration.');
   }
 
   async revokeShare(token: string): Promise<void> {

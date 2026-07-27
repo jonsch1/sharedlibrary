@@ -391,6 +391,22 @@ export async function loadLibraryText(reference: LibraryText): Promise<string> {
 	}));
 }
 
+export async function loadRawLibraryText(
+	reference: LibraryText,
+	download: (reference: { path: string; contentHash: string }) => Promise<string> =
+		downloadLibraryFile
+): Promise<string> {
+	const cached = await cachedLibraryFile(reference);
+	if (cached !== null) return cached;
+	if (!reference.path || !reference.contentHash) return reference.text ?? '';
+	const text = await download({
+		path: reference.path,
+		contentHash: reference.contentHash
+	});
+	await cacheLibraryFile(reference, text);
+	return text;
+}
+
 export function preferredVariant(entry: LibraryEntry): LibraryVariant {
 	for (const variant of ['concise', 'brief', 'detailed', 'comprehensive', 'source'] as const) {
 		if (textFor(entry, variant)) return variant;

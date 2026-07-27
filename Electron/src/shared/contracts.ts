@@ -221,6 +221,7 @@ export interface NarrationSession {
 export interface ShareLinkStatus {
   shared: boolean;
   token?: string;
+  generation?: string;
   url?: string;
   status?: 'preparing' | 'ready' | 'failed';
   revision?: number;

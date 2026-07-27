@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type {
   NarrationSegment,
@@ -54,6 +54,26 @@ export class NarrationService {
         'Cache-Control': 'private, no-store'
       }
     });
+  }
+
+  async storedSegments(
+    text: string,
+    voice: OpenRouterVoice,
+    model: OpenRouterTTSModel
+  ): Promise<Array<{ hash: string; bytes: Uint8Array }> | null> {
+    const segments = [];
+    for (const chunk of speechChunks(text)) {
+      const hash = fingerprint(chunk, voice, model);
+      const path = join(this.cacheRoot, `${hash}.mp3`);
+      const cached = await isNonemptyFile(path);
+      const bytes = cached
+        ? new Uint8Array(await readFile(path))
+        : await this.backend.loadAudio(hash);
+      if (!bytes?.byteLength) return null;
+      if (!cached) await atomicWrite(path, bytes);
+      segments.push({ hash, bytes });
+    }
+    return segments.length ? segments : null;
   }
 
   pathForURL(value: string): string | null {

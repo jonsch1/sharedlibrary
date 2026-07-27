@@ -546,6 +546,70 @@ class MockStatement {
 			this.database.shareLinks.set(record.token, record);
 			changes = 1;
 		}
+		if (this.sql.includes('INSERT OR REPLACE INTO share_texts')) {
+			const [shareToken, generation, variant, markdown, wordCount] = this.arguments;
+			this.database.shareTexts = this.database.shareTexts.filter(
+				(row) =>
+					!(
+						row.share_token === shareToken &&
+						row.generation === generation &&
+						row.variant === variant
+					)
+			);
+			this.database.shareTexts.push({
+				share_token: shareToken,
+				generation,
+				variant,
+				markdown,
+				word_count: wordCount
+			});
+			changes = 1;
+		}
+		if (this.sql.includes('INSERT OR REPLACE INTO share_audio_segments')) {
+			const [
+				shareToken,
+				generation,
+				variant,
+				segmentIndex,
+				audioHash,
+				r2Key,
+				contentType,
+				byteCount,
+				voice
+			] = this.arguments;
+			this.database.shareAudioSegments = this.database.shareAudioSegments.filter(
+				(row) =>
+					!(
+						row.share_token === shareToken &&
+						row.generation === generation &&
+						row.variant === variant &&
+						row.segment_index === segmentIndex
+					)
+			);
+			this.database.shareAudioSegments.push({
+				share_token: shareToken,
+				generation,
+				variant,
+				segment_index: segmentIndex,
+				audio_hash: audioHash,
+				r2_key: r2Key,
+				content_type: contentType,
+				byte_count: byteCount,
+				voice
+			});
+			changes = 1;
+		}
+		if (this.sql.includes("SET status = 'ready'")) {
+			const record = this.database.shareLinks.get(this.arguments[3]);
+			if (record && record.generation === this.arguments[4]) {
+				record.status = 'ready';
+				record.metadata_json = this.arguments[0];
+				record.source_filename = this.arguments[1];
+				record.error_message = null;
+				record.updated_at = this.arguments[2];
+				changes = 1;
+			}
+		}
 		if (this.sql.includes("SET status = 'failed'")) {
 			const record = this.database.shareLinks.get(this.arguments[2]);
 			if (record && record.generation === this.arguments[3]) {
@@ -1614,6 +1678,135 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 	const status = await statusResponse.json();
 	assert.equal(status.shared, true);
 	assert.equal(status.token, published.token);
+});
+
+test('iCloud clients publish the selected document without routing private files through Drive', async () => {
+	const database = new MockDatabase();
+	database.syncPreferences.set('reader@example.com', 'icloud');
+	const storedAudio = new Map();
+	const env = entitledEnvironment(database);
+	env.SHARE_MEDIA = {
+		async put(key, bytes) {
+			storedAudio.set(key, new Uint8Array(bytes));
+		}
+	};
+	let backgroundTask;
+	const response = await worker.fetch(
+		authenticatedRequest('/api/share-links', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				captureID: 'capture-icloud',
+				voice: 'eve',
+				source: {
+					filename: 'icloud-note.md',
+					title: 'iCloud note',
+					excerpt: 'A private note selected for sharing.',
+					topicIDs: ['notes'],
+					topicNames: ['Notes'],
+					tags: [],
+					texts: [
+						{
+							variant: 'source',
+							markdown:
+								'---\nid: \"capture-icloud\"\ntitle: \"iCloud note\"\n---\n\nPrivate source.'
+						},
+						{ variant: 'concise', markdown: 'Concise summary.' }
+					]
+				}
+			})
+		}),
+		env,
+		{
+			waitUntil(task) {
+				backgroundTask = task;
+			}
+		}
+	);
+	assert.equal(response.status, 202);
+	const published = await response.json();
+	assert.equal(published.status, 'preparing');
+	assert.match(published.generation, /^[a-f0-9-]{36}$/);
+	await backgroundTask;
+	const audioHash = 'a'.repeat(64);
+	const audioResponse = await worker.fetch(
+		authenticatedRequest(
+			`/api/share-links/${published.token}/audio/${published.generation}/source/0/${audioHash}`,
+			{
+				method: 'PUT',
+				headers: {
+					Origin: 'https://library.example',
+					'Content-Type': 'audio/mpeg',
+					'X-Briefly-Voice': 'eve'
+				},
+				body: new Uint8Array([1, 2, 3])
+			}
+		),
+		env
+	);
+	assert.equal(audioResponse.status, 200);
+	assert.equal(database.shareAudioSegments.length, 1);
+	assert.equal(storedAudio.size, 1);
+
+	const ready = await worker.fetch(
+		new Request(`https://library.example/api/public/shares/${published.token}`),
+		env
+	);
+	assert.equal(ready.status, 200);
+	const document = await ready.json();
+	assert.equal(document.title, 'iCloud note');
+	assert.deepEqual(
+		document.texts.map((text) => text.variant),
+		['concise', 'source']
+	);
+	assert.equal(JSON.stringify(document).includes('Private source.'), true);
+});
+
+test('iCloud recipients receive an authenticated import package instead of a Drive write', async () => {
+	const database = new MockDatabase();
+	database.syncPreferences.set('reader@example.com', 'icloud');
+	const token = 'I'.repeat(32);
+	database.shareLinks.set(token, {
+		token,
+		owner_email: 'owner@example.com',
+		capture_id: 'capture-shared',
+		generation: 'generation-icloud',
+		revision: 3,
+		status: 'ready',
+		metadata_json: JSON.stringify({
+			title: 'Shared through iCloud',
+			excerpt: 'A shared document.'
+		}),
+		source_filename: 'shared-through-icloud.md',
+		voice: 'eve',
+		error_message: null,
+		created_at: '2026-07-27T10:00:00Z',
+		updated_at: '2026-07-27T10:00:00Z'
+	});
+	database.shareTexts.push({
+		share_token: token,
+		generation: 'generation-icloud',
+		variant: 'source',
+		markdown: '---\nid: \"capture-shared\"\n---\n\nShared source.',
+		word_count: 2
+	});
+
+	const response = await worker.fetch(
+		authenticatedRequest(`/api/public/shares/${token}/import`, {
+			method: 'POST',
+			headers: { Origin: 'https://library.example' }
+		}),
+		entitledEnvironment(database)
+	);
+	assert.equal(response.status, 200);
+	const imported = await response.json();
+	assert.equal(imported.provider, 'icloud');
+	assert.equal(imported.source.filename, 'shared-through-icloud.md');
+	assert.equal(imported.source.revision, 3);
+	assert.equal(imported.source.texts[0].markdown.includes('Shared source.'), true);
 });
 
 test('owners can list and revoke their published links from the account', async () => {

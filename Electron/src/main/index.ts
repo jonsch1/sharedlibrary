@@ -507,7 +507,58 @@ function registerIPC(): void {
       const entry = await entryForID(entryID);
       const syncStatus = await sync.synchronize('the document');
       if (syncStatus.phase === 'error') throw new Error(syncStatus.message);
-      let result = await backend.publishShare(entry.captureID, selectedVoice, ttsModel);
+      const source =
+        backend.currentSyncProvider() === 'icloud'
+          ? await (async () => {
+              const mirror = await library.buildDriveMirror();
+              const indexed = mirror.index.entries.find(
+                (candidate) => candidate.captureID === entry.captureID
+              );
+              if (!indexed) throw new Error('The selected document is unavailable.');
+              const files = new Map(mirror.files.map((file) => [file.path, file.content]));
+              return {
+                filename: entry.filename,
+                title: entry.title,
+                excerpt: entry.excerpt,
+                topicIDs: entry.topicIDs,
+                topicNames: entry.topicNames,
+                tags: entry.tags,
+                sourceURL: entry.sourceURL,
+                createdAt: entry.createdAt,
+                updatedAt: entry.updatedAt,
+                texts: indexed.texts.flatMap((text) => {
+                  const markdown = files.get(text.path);
+                  return markdown === undefined ? [] : [{ variant: text.variant, markdown }];
+                })
+              };
+            })()
+          : undefined;
+      let result = await backend.publishShare(
+        entry.captureID,
+        selectedVoice,
+        ttsModel,
+        source
+      );
+      if (source) {
+        for (const variant of entry.availableVariants) {
+          const segments = await narration.storedSegments(
+            await library.readText(entry.id, variant),
+            selectedVoice,
+            ttsModel
+          );
+          if (!segments) continue;
+          for (let index = 0; index < segments.length; index += 1) {
+            await backend.uploadShareAudio(
+              result,
+              variant,
+              index,
+              segments[index].hash,
+              selectedVoice,
+              segments[index].bytes
+            );
+          }
+        }
+      }
       for (let attempt = 0; result.status === 'preparing' && attempt < 30; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         result = await backend.shareStatus(entry.captureID);

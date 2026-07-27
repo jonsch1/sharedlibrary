@@ -186,7 +186,7 @@
 			url.searchParams.delete('import');
 			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 		} catch (error) {
-			if (error instanceof Error && error.message === 'Opening sign in…') return;
+			if (error instanceof Error && error.message.startsWith('Opening ')) return;
 			errorMessage =
 				error instanceof Error ? error.message : 'The document could not be added.';
 		} finally {

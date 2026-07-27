@@ -3445,6 +3445,8 @@ async function uploadDriveMedia(request, env, media) {
 
 const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive', 'source'];
 const maximumShareSpeechSegmentLength = 360;
+const maximumShareDocumentBytes = 8_000_000;
+const maximumSharePayloadBytes = 32_000_000;
 
 function validShareToken(value) {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
@@ -3454,6 +3456,88 @@ function shareLinkURL(request, token) {
 	const url = new URL('/', request.url);
 	url.searchParams.set('shared', token);
 	return url.toString();
+}
+
+function shareSourceString(value, maximumLength, required = false) {
+	if (value === undefined && !required) return undefined;
+	if (typeof value !== 'string' || value.length > maximumLength || (required && !value.trim())) {
+		throw new Error('The selected document contains invalid metadata.');
+	}
+	return value;
+}
+
+function shareSourceStrings(value) {
+	if (
+		!Array.isArray(value) ||
+		value.length > 100 ||
+		value.some((item) => typeof item !== 'string' || item.length > 256)
+	) {
+		throw new Error('The selected document contains invalid metadata.');
+	}
+	return value;
+}
+
+function directShareSource(value, captureID) {
+	if (value === undefined) return null;
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		throw new Error('The selected document is invalid.');
+	}
+	if (
+		typeof value.filename !== 'string' ||
+		!/^[^/\\]{1,255}\.md$/i.test(value.filename) ||
+		!Array.isArray(value.texts) ||
+		value.texts.length < 1 ||
+		value.texts.length > shareVariants.length
+	) {
+		throw new Error('The selected document is invalid.');
+	}
+	const title = shareSourceString(value.title, 500, true);
+	const excerpt = shareSourceString(value.excerpt, 2_000) ?? '';
+	const documents = [];
+	const variants = new Set();
+	let totalBytes = 0;
+	for (const document of value.texts) {
+		if (
+			typeof document !== 'object' ||
+			document === null ||
+			!shareVariants.includes(document.variant) ||
+			variants.has(document.variant) ||
+			typeof document.markdown !== 'string'
+		) {
+			throw new Error('The selected document is invalid.');
+		}
+		const byteCount = new TextEncoder().encode(document.markdown).byteLength;
+		totalBytes += byteCount;
+		if (byteCount > maximumShareDocumentBytes || totalBytes > maximumSharePayloadBytes) {
+			throw new Error('The selected document is too large to share.');
+		}
+		variants.add(document.variant);
+		documents.push({
+			variant: document.variant,
+			markdown: document.markdown,
+			wordCount: wordCount(
+				document.variant === 'source'
+					? parsedMarkdownDocument(document.markdown, title).body
+					: document.markdown
+			)
+		});
+	}
+	if (!variants.has('source')) throw new Error('The selected document has no source text.');
+	return {
+		entry: {
+			captureID,
+			title,
+			excerpt,
+			topicIDs: shareSourceStrings(value.topicIDs),
+			topicNames: shareSourceStrings(value.topicNames),
+			tags: shareSourceStrings(value.tags),
+			sourceURL: shareSourceString(value.sourceURL, 2_048),
+			createdAt: shareSourceString(value.createdAt, 64),
+			updatedAt: shareSourceString(value.updatedAt, 64)
+		},
+		sourcePath: `library/${value.filename}`,
+		documents
+	};
 }
 
 async function shareLinkForOwner(env, email, captureID) {
@@ -3502,6 +3586,7 @@ function shareLinkResponse(request, record) {
 	return {
 		shared: true,
 		token: record.token,
+		generation: record.generation,
 		url: shareLinkURL(request, record.token),
 		status: record.status,
 		revision: Number(record.revision ?? 1),
@@ -3662,30 +3747,43 @@ async function removeOldShareGenerations(env, token, currentGeneration) {
 	]);
 }
 
-async function prepareShareLink(env, email, token, captureID, generation, voice, model) {
+async function prepareShareLink(
+	env,
+	email,
+	token,
+	captureID,
+	generation,
+	voice,
+	model,
+	directSource = null
+) {
 	try {
-		const personal = await loadPersonalShareAfterDriveSync(env, email, captureID);
-		const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
-		const documents = [];
-		for (const reference of personal.entry.texts ?? []) {
-			if (!shareVariants.includes(reference?.variant) || typeof reference?.path !== 'string') {
-				continue;
+		const personal =
+			directSource ?? (await loadPersonalShareAfterDriveSync(env, email, captureID));
+		let documents = directSource?.documents ?? [];
+		if (!directSource) {
+			const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
+			documents = [];
+			for (const reference of personal.entry.texts ?? []) {
+				if (!shareVariants.includes(reference?.variant) || typeof reference?.path !== 'string') {
+					continue;
+				}
+				const file = personalFiles.get(reference.path);
+				if (!file) continue;
+				const markdown = new TextDecoder().decode(await downloadDriveFile(env, email, file.id));
+				documents.push({
+					variant: reference.variant,
+					markdown,
+					wordCount: wordCount(
+						reference.variant === 'source'
+							? parsedMarkdownDocument(markdown, personal.entry.title).body
+							: markdown
+					)
+				});
 			}
-			const file = personalFiles.get(reference.path);
-			if (!file) continue;
-			const markdown = new TextDecoder().decode(await downloadDriveFile(env, email, file.id));
-			documents.push({
-				variant: reference.variant,
-				markdown,
-				wordCount: wordCount(
-					reference.variant === 'source'
-						? parsedMarkdownDocument(markdown, personal.entry.title).body
-						: markdown
-				)
-			});
 		}
 		if (!documents.some((document) => document.variant === 'source')) {
-			throw new Error('The source document has not synchronized to Google Drive yet.');
+			throw new Error('The source document is unavailable.');
 		}
 
 		for (const document of documents) {
@@ -3704,7 +3802,7 @@ async function prepareShareLink(env, email, token, captureID, generation, voice,
 				.run();
 		}
 
-		if (env.SHARE_MEDIA) {
+		if (!directSource && env.SHARE_MEDIA) {
 			const remoteAudio = await driveAudioFilesByHash(env, email);
 			for (const document of documents) {
 				const displayText =
@@ -3816,6 +3914,64 @@ async function prepareShareLink(env, email, token, captureID, generation, voice,
 	}
 }
 
+async function uploadShareAudio(request, env, token, generation, variant, index, hash) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	if (
+		!/^[a-f0-9-]{36}$/.test(generation) ||
+		!shareVariants.includes(variant) ||
+		!Number.isSafeInteger(index) ||
+		index < 0 ||
+		index > 10_000 ||
+		!/^[a-f0-9]{64}$/.test(hash)
+	) {
+		return json({ error: 'Invalid narration segment.' }, { status: 400 });
+	}
+	await ensureSchema(env.DB);
+	const record = await shareLinkByToken(env, token);
+	if (!record || record.owner_email !== email) {
+		return json({ error: 'Share link not found.' }, { status: 404 });
+	}
+	if (record.generation !== generation) {
+		return json({ error: 'This share link has been updated.' }, { status: 409 });
+	}
+	if (!env.SHARE_MEDIA) {
+		return json({ error: 'Shared narration storage is unavailable.' }, { status: 503 });
+	}
+	const contentType = request.headers.get('Content-Type') || 'audio/mpeg';
+	if (!contentType.startsWith('audio/')) {
+		return json({ error: 'Only audio narration can be shared.' }, { status: 400 });
+	}
+	const bytes = await request.arrayBuffer();
+	if (!bytes.byteLength || bytes.byteLength > 25_000_000) {
+		return json({ error: 'Narration segments must be between 1 byte and 25 MB.' }, { status: 413 });
+	}
+	const voice = requestedOpenRouterVoice(request.headers.get('X-Briefly-Voice'));
+	if (!voice) return json({ error: 'Choose a supported narration voice.' }, { status: 400 });
+	const r2Key = `shares/${token}/${generation}/${variant}/${index}-${hash}.mp3`;
+	await env.SHARE_MEDIA.put(r2Key, bytes, { httpMetadata: { contentType } });
+	await env.DB.prepare(
+		`INSERT OR REPLACE INTO share_audio_segments (
+			share_token, generation, variant, segment_index, audio_hash,
+			r2_key, content_type, byte_count, voice
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	)
+		.bind(
+			token,
+			generation,
+			variant,
+			index,
+			hash,
+			r2Key,
+			contentType,
+			bytes.byteLength,
+			voice
+		)
+		.run();
+	return json({ saved: true });
+}
+
 async function ownerShareLinkStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
@@ -3856,6 +4012,15 @@ async function publishShareLink(request, env, context) {
 	}
 	if (!model || !voiceSupportedByModel(model, voice)) {
 		return json({ error: 'Choose a supported OpenRouter model and voice.' }, { status: 400 });
+	}
+	let source;
+	try {
+		source = directShareSource(value?.source, captureID);
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'The selected document is invalid.' },
+			{ status: 400 }
+		);
 	}
 	const token = randomBase64URL(24);
 	const generation = crypto.randomUUID();
@@ -3905,7 +4070,7 @@ async function publishShareLink(request, env, context) {
 	const record = await shareLinkForOwner(env, email, captureID);
 	scheduleSharingOperation(
 		context,
-		prepareShareLink(env, email, record.token, captureID, generation, voice, model)
+		prepareShareLink(env, email, record.token, captureID, generation, voice, model, source)
 	);
 	return json(shareLinkResponse(request, record), { status: 202 });
 }
@@ -5429,6 +5594,41 @@ async function importPublicShare(request, env, token, context) {
 		);
 		const sourceText = documents.get('source');
 		if (!sourceText) throw new Error('The shared source document is unavailable.');
+		const preference = await env.DB.prepare(
+			`SELECT provider FROM sync_preferences WHERE user_email = ?`
+		)
+			.bind(email)
+			.first();
+		if (preference?.provider === 'icloud') {
+			let metadata = {};
+			try {
+				metadata = JSON.parse(record.metadata_json ?? '{}');
+			} catch {
+				metadata = {};
+			}
+			const audio = await env.DB.prepare(
+				`SELECT variant, segment_index, audio_hash, content_type, byte_count, voice
+				 FROM share_audio_segments
+				 WHERE share_token = ? AND generation = ?
+				 ORDER BY variant, segment_index`
+			)
+				.bind(token, record.generation)
+				.all();
+			return json({
+				provider: 'icloud',
+				source: {
+					token,
+					revision: Number(record.revision ?? 1),
+					filename: record.source_filename,
+					metadata,
+					texts: [...documents].map(([variant, markdown]) => ({ variant, markdown })),
+					audio: (audio.results ?? []).map((segment) => ({
+						...segment,
+						url: `/api/public/shares/${token}/audio/${segment.variant}/${segment.segment_index}`
+					}))
+				}
+			});
+		}
 		const personalRootID = await ensureDriveRootFolder(env, email);
 		const personalTree = await driveFolderTree(
 			env,
@@ -5628,6 +5828,22 @@ const worker = {
 			const denied = await paidAccessResponse(request, env);
 			if (denied) return denied;
 			return importPublicShare(request, env, publicShareImport[1], context);
+		}
+		const ownerShareAudio = url.pathname.match(
+			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(brief|concise|detailed|comprehensive|source)\/(\d+)\/([a-f0-9]{64})$/
+		);
+		if (ownerShareAudio && request.method === 'PUT') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
+			return uploadShareAudio(
+				request,
+				env,
+				ownerShareAudio[1],
+				ownerShareAudio[2],
+				ownerShareAudio[3],
+				Number(ownerShareAudio[4]),
+				ownerShareAudio[5]
+			);
 		}
 
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {

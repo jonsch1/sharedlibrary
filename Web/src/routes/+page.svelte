@@ -29,6 +29,7 @@
 		libraryVariants,
 		loadLibraryProjection,
 		loadLibraryText,
+		loadRawLibraryText,
 		preferredVariant,
 		textFor,
 		type LibraryEntry,
@@ -40,10 +41,13 @@
 		consumeManagedTTSResult,
 		defaultOpenRouterModel,
 		formatTTSMicros,
+		audioFingerprint,
+		loadCachedSpeech,
 		loadManagedTTSStatus,
 		loadOpenRouterPreferences,
 		normalizeOpenRouterModel,
 		normalizeOpenRouterVoice,
+		openRouterSpeechChunks,
 		openRouterTTSOptions,
 		recommendedVoiceForModel,
 		saveModelPreference,
@@ -65,14 +69,17 @@
 	} from '$lib/google-drive.js';
 	import {
 		emptyICloudLibraryMessage,
+		fetchICloudLibraryFile,
 		iCloudIdentity,
 		syncICloudLibrary,
 		type SyncProvider
 	} from '$lib/icloud.js';
 	import {
 		loadShareLinkStatus,
+		publishShareAudio,
 		publishShareLink,
 		revokeShareLink,
+		type ShareLinkSource,
 		type ShareLinkStatus
 	} from '$lib/share-links.js';
 	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
@@ -636,21 +643,27 @@
 	async function saveSharing(): Promise<void> {
 		const target = shareTarget;
 		if (!target) return;
-		if (syncProvider === 'icloud') {
-			shareError =
-				'Creating new public links from iCloud libraries is not available yet. Existing links can still be managed here.';
-			return;
-		}
 		shareBusy = true;
 		shareError = '';
 		try {
 			const captureID = target.captureID ?? target.id;
-			const result = await publishShareLink(captureID, openRouterVoice, openRouterModel);
+			const source =
+				syncProvider === 'icloud' ? await shareSourceFromICloud(target) : undefined;
+			const result = await publishShareLink(
+				captureID,
+				openRouterVoice,
+				openRouterModel,
+				source
+			);
 			shareLink = result;
 			if (result.url) {
 				await navigator.clipboard.writeText(result.url);
-				connectionMessage =
-					'Share link copied. The document and existing narration are being prepared.';
+				connectionMessage = 'Share link copied. The document is being prepared.';
+			}
+			if (source) {
+				void publishExistingICloudNarration(result, source).catch(() => {
+					// Existing narration is optional; the public reader can use device speech.
+				});
 			}
 			void watchShareLink(captureID);
 		} catch (error) {
@@ -658,6 +671,72 @@
 				error instanceof Error ? error.message : 'The share link could not be created.';
 		} finally {
 			shareBusy = false;
+		}
+	}
+
+	async function shareSourceFromICloud(target: LibraryEntry): Promise<ShareLinkSource> {
+		const texts = await Promise.all(
+			target.texts
+				.filter(
+					(reference): reference is typeof reference & { variant: LibraryVariant } =>
+						libraryVariants.includes(reference.variant)
+				)
+				.map(async (reference) => ({
+					variant: reference.variant,
+					markdown: await loadRawLibraryText(reference, fetchICloudLibraryFile)
+				}))
+		);
+		const filename =
+			target.texts
+				.find((reference) => reference.variant === 'source')
+				?.path?.split('/')
+				.at(-1) ?? `${target.captureID ?? target.id}.md`;
+		return {
+			filename,
+			title: target.title,
+			excerpt: target.excerpt,
+			topicIDs: target.topicIDs,
+			topicNames: target.topicNames,
+			tags: target.tags,
+			sourceURL: target.sourceURL,
+			createdAt: target.createdAt,
+			updatedAt: target.updatedAt,
+			texts
+		};
+	}
+
+	async function publishExistingICloudNarration(
+		share: ShareLinkStatus,
+		source: ShareLinkSource
+	): Promise<void> {
+		for (const document of source.texts) {
+			const displayText =
+				document.variant === 'source'
+					? document.markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
+					: document.markdown;
+			const chunks = openRouterSpeechChunks(displayText);
+			const segments = [];
+			for (const chunk of chunks) {
+				const audio = await loadCachedSpeech(chunk, openRouterVoice, openRouterModel);
+				if (!audio) {
+					segments.length = 0;
+					break;
+				}
+				segments.push({
+					audio,
+					hash: await audioFingerprint(chunk, openRouterVoice, openRouterModel)
+				});
+			}
+			for (let index = 0; index < segments.length; index += 1) {
+				await publishShareAudio(
+					share,
+					document.variant,
+					index,
+					segments[index].hash,
+					openRouterVoice,
+					segments[index].audio
+				);
+			}
 		}
 	}
 
