@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BookmarkIcon from '@lucide/svelte/icons/bookmark';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
 	import DepthControl from '../../../Shared/DepthControl.svelte';
 	import MarkdownText from '../../../Shared/MarkdownView.svelte';
 	import {
@@ -33,6 +35,13 @@
 	);
 	let selectedText = $derived(
 		document?.texts.find((text) => text.variant === selectedVariant)?.markdown ?? ''
+	);
+	let selectedWordCount = $derived(
+		document?.texts.find((text) => text.variant === selectedVariant)?.wordCount ?? 0
+	);
+	let audioURL = $derived(
+		document?.audio.find((segment) => segment.variant === 'source' && segment.index === 0)?.url ??
+			''
 	);
 	onMount(() => {
 		let active = true;
@@ -115,11 +124,7 @@
 </svelte:head>
 
 <div class="public-share-shell bg-background! bg-none! text-foreground! font-sans!">
-	<nav class="public-share-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
-		<a href="/privacy">Privacy</a>
-		<a href="/terms">Terms</a>
-		<a href="/imprint">Imprint</a>
-	</nav>
+	<a class="public-share-cta bg-primary! text-primary-foreground!" href="/landing">Try Briefly</a>
 	{#if loading || preparing}
 		<main class="public-share-state text-muted-foreground!" aria-live="polite">
 			<LoaderCircleIcon class="spin" />
@@ -134,6 +139,11 @@
 	{:else if document}
 		<main class="public-share-reader">
 			<article class="public-share-body text-foreground! font-serif!">
+				{#if audioURL}
+					<div class="podcast-reader-player">
+						<AudioPlayer src={audioURL} title={document.title} />
+					</div>
+				{/if}
 				<MarkdownText
 					text={selectedText}
 					plain={shouldRenderSourceAsPlainText(selectedVariant, document.sourceURL)}
@@ -141,32 +151,48 @@
 			</article>
 		</main>
 
-		<footer class="public-share-player border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm!" aria-label="Document controls">
+		<footer class="native-document-footer public-share-action-bar" aria-label="Document actions">
+			<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
+
 			<DepthControl
 				variants={availableVariants}
 				selected={selectedVariant}
 				onselect={selectVariant}
-				presentation="showcase"
 			/>
 
-			<button
-				class="public-share-add border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.saved]:bg-accent! [&.saved]:text-accent-foreground!"
-				class:saved
-				disabled={importBusy || saved}
-				aria-label={importBusy
-					? 'Adding to Library'
-					: saved
-						? 'Added to Library'
-						: 'Add to Library'}
-				title={saved ? 'Added to Library' : 'Add to Library'}
-				onclick={addToLibrary}
-			>
-				{#if importBusy}
-					<LoaderCircleIcon class="spin" />
-				{:else}
-					<BookmarkIcon />
+			<div class="native-footer-actions">
+				{#if document.sourceURL}
+					<a
+						class="native-icon-button"
+						href={document.sourceURL}
+						target="_blank"
+						rel="noreferrer"
+						aria-label="Open original source"
+						title="Open original source"
+					>
+						<ArrowUpRightIcon />
+					</a>
 				{/if}
-			</button>
+
+				<button
+					class="native-icon-button"
+					class:active={saved}
+					disabled={importBusy || saved}
+					aria-label={importBusy
+						? 'Adding to Library'
+						: saved
+							? 'Added to Library'
+							: 'Add to Library'}
+					title={saved ? 'Added to Library' : 'Add to Library'}
+					onclick={addToLibrary}
+				>
+					{#if importBusy}
+						<LoaderCircleIcon class="spin" />
+					{:else}
+						<BookmarkIcon />
+					{/if}
+				</button>
+			</div>
 		</footer>
 
 		{#if errorMessage}

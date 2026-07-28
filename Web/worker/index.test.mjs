@@ -146,6 +146,17 @@ class MockStatement {
 			if (this.sql.includes('FROM tts_accounts')) {
 				return this.database.ttsAccounts.get(this.arguments[0]) ?? null;
 			}
+			if (this.sql.includes('FROM share_audio_segments')) {
+				return (
+					this.database.shareAudioSegments.find(
+						(row) =>
+							row.share_token === this.arguments[0] &&
+							row.generation === this.arguments[1] &&
+							row.variant === this.arguments[2] &&
+							row.segment_index === this.arguments[3]
+					) ?? null
+				);
+			}
 		if (this.sql.includes('FROM share_links')) {
 			if (this.sql.includes('owner_email = ? AND capture_id = ?')) {
 				return (
@@ -1906,9 +1917,27 @@ test('a ready share document is readable anonymously at all stored conciseness l
 			word_count: 2
 		}
 	];
+	database.shareAudioSegments = [
+		{
+			share_token: token,
+			generation: 'generation-1',
+			variant: 'source',
+			segment_index: 0,
+			r2_key: 'shares/audio.mp3',
+			content_type: 'audio/mpeg',
+			byte_count: 3
+		}
+	];
+	const env = environment(database);
+	env.SHARE_MEDIA = {
+		async get(key) {
+			assert.equal(key, 'shares/audio.mp3');
+			return { body: new Uint8Array([1, 2, 3]), size: 3 };
+		}
+	};
 	const response = await worker.fetch(
 		new Request(`https://library.example/api/public/shares/${token}`),
-		environment(database)
+		env
 	);
 	assert.equal(response.status, 200);
 	const document = await response.json();
@@ -1921,6 +1950,23 @@ test('a ready share document is readable anonymously at all stored conciseness l
 			['source', 'Original text']
 		]
 	);
+	assert.deepEqual(document.audio, [
+		{
+			variant: 'source',
+			index: 0,
+			contentType: 'audio/mpeg',
+			byteCount: 3,
+			url: `/api/public/shares/${token}/audio/source/0`
+		}
+	]);
+
+	const audio = await worker.fetch(
+		new Request(`https://library.example/api/public/shares/${token}/audio/source/0`),
+		env
+	);
+	assert.equal(audio.status, 200);
+	assert.equal(audio.headers.get('Content-Type'), 'audio/mpeg');
+	assert.deepEqual([...new Uint8Array(await audio.arrayBuffer())], [1, 2, 3]);
 });
 
 test('Google authorization uses the central web client with each user account', async () => {

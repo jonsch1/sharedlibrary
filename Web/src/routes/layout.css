@@ -2666,43 +2666,50 @@ html {
 }
 
 .native-document-footer {
+	--document-action-foreground: var(--popover-foreground);
+	--document-action-hover: var(--accent);
+	--document-action-hover-foreground: var(--accent-foreground);
+	--document-action-pressed: var(--secondary);
+	--document-action-pressed-foreground: var(--secondary-foreground);
+	--document-action-active: var(--primary);
+	--document-action-active-foreground: var(--primary-foreground);
+	--document-action-active-shadow: none;
+	--document-action-focus: var(--ring);
 	position: absolute;
 	z-index: 12;
 	right: 18px;
 	bottom: 18px;
 	left: 18px;
 	display: grid;
-	width: min(calc(100% - 36px), 850px);
-	height: 76px;
-	grid-template-columns: 108px minmax(218px, 1fr) auto;
+	width: min(500px, calc(100% - 36px));
+	height: 50px;
+	grid-template-columns: 88px minmax(198px, 1fr) auto;
 	align-items: center;
-	gap: 18px;
+	gap: 8px;
 	margin: 0 auto;
-	padding: 9px 16px 9px 22px;
-	border: 1px solid rgb(175 176 168 / 56%);
-	border-radius: 24px;
-	background:
-		radial-gradient(circle at 50% -70%, rgb(255 255 255 / 88%), transparent 54%),
-		linear-gradient(180deg, rgb(242 241 236 / 96%), rgb(236 235 229 / 97%));
-	box-shadow:
-		0 18px 34px rgb(31 43 38 / 9%),
-		0 4px 10px rgb(31 43 38 / 5%),
-		0 1px 1px rgb(72 77 73 / 13%),
-		inset 0 2px 1px rgb(255 255 255 / 96%),
-		inset 0 -2px 2px rgb(166 166 158 / 15%);
+	padding: 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--popover);
+	box-shadow: var(--theme-shadow-sm);
+	color: var(--popover-foreground);
 	backdrop-filter: blur(22px) saturate(112%);
+}
+
+.native-document-footer > .segmented-depth {
+	justify-self: center;
 }
 
 .footer-stat {
 	display: inline-flex;
 	align-items: center;
-	color: rgb(66 83 76 / 88%);
+	padding-left: 10px;
+	color: var(--muted-foreground);
 	font-size: 13px;
 	font-weight: 540;
 	font-variant-numeric: tabular-nums;
 	letter-spacing: 0.01em;
 	white-space: nowrap;
-	text-shadow: 0 1px 0 rgb(255 255 255 / 68%);
 }
 
 .native-footer-actions {
@@ -2710,11 +2717,9 @@ html {
 	display: flex;
 	align-items: center;
 	justify-content: flex-end;
-	gap: 8px;
-	padding-left: 18px;
+	gap: 2px;
 }
 
-.native-icon-button,
 .native-play-button,
 .native-rate-button {
 	position: relative;
@@ -2735,25 +2740,44 @@ html {
 }
 
 .native-icon-button {
-	width: 42px;
-	height: 42px;
-	border-radius: 50%;
+	position: relative;
+	display: grid;
+	width: 38px;
+	height: 38px;
+	place-items: center;
+	border: 0;
+	border-radius: 10px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--document-action-foreground);
+	transition:
+		background 160ms ease,
+		color 160ms ease;
 }
 
-.native-icon-button:hover,
-.native-icon-button.active,
 .native-rate-button:hover {
-	transform: translateY(-1px);
-	box-shadow:
-		0 10px 16px rgb(34 47 41 / 11%),
-		0 3px 5px rgb(34 47 41 / 6%),
-		inset 0 2px 2px rgb(255 255 255 / 98%),
-		inset 0 -2px 3px rgb(165 163 156 / 14%);
-	color: rgb(11 86 63);
+	transform: none;
+}
+
+.native-icon-button:hover {
+	background: var(--document-action-hover);
+	color: var(--document-action-hover-foreground);
+}
+
+.native-icon-button:active {
+	background: var(--document-action-pressed);
+	color: var(--document-action-pressed-foreground);
 }
 
 .native-icon-button.active {
-	background: linear-gradient(145deg, rgb(235 243 238), rgb(219 232 224));
+	background: var(--document-action-active);
+	box-shadow: var(--document-action-active-shadow);
+	color: var(--document-action-active-foreground);
+}
+
+.native-icon-button:focus-visible {
+	outline: 2px solid var(--document-action-focus);
+	outline-offset: 1px;
 }
 
 .native-icon-button svg {
@@ -2994,11 +3018,11 @@ html {
 		right: 14px;
 		bottom: 14px;
 		left: 14px;
-		width: calc(100% - 28px);
-		grid-template-columns: minmax(210px, 1fr) auto;
-		gap: 14px;
-		padding-right: 14px;
-		padding-left: 16px;
+		width: min(390px, calc(100% - 28px));
+		grid-template-columns: minmax(198px, 1fr) auto;
+		gap: 4px;
+		padding-right: 8px;
+		padding-left: 8px;
 	}
 
 	.footer-stat {
@@ -3006,12 +3030,12 @@ html {
 	}
 
 	.native-footer-actions {
-		gap: 6px;
+		gap: 2px;
 	}
 
 	.native-icon-button {
-		width: 40px;
-		height: 40px;
+		width: 38px;
+		height: 38px;
 	}
 
 	.native-play-button {
@@ -3169,16 +3193,16 @@ html {
 		right: 10px;
 		bottom: 10px;
 		left: 10px;
-		width: calc(100% - 20px);
-		height: 118px;
-		grid-template-areas:
-			'actions'
-			'variant';
-		grid-template-columns: minmax(0, 1fr);
-		grid-template-rows: 64px 40px;
-		gap: 2px;
-		padding: 7px 12px 9px;
-		border-radius: 24px;
+		display: grid;
+		width: fit-content;
+		max-width: calc(100% - 20px);
+		height: 50px;
+		grid-template-areas: 'variant actions';
+		grid-template-columns: minmax(174px, 1fr) auto;
+		grid-template-rows: 40px;
+		gap: 4px;
+		padding: 5px 7px;
+		border-radius: 16px;
 	}
 
 	.footer-stat {
@@ -3188,15 +3212,19 @@ html {
 	.native-footer-actions {
 		grid-area: actions;
 		width: 100%;
+		max-width: max-content;
 		align-self: center;
 		justify-content: center;
-		gap: 7px;
+		gap: 2px;
+		overflow: visible;
 		padding: 0;
+		opacity: 1;
+		pointer-events: auto;
 	}
 
 	.native-icon-button {
-		width: 40px;
-		height: 40px;
+		width: 38px;
+		height: 38px;
 	}
 
 	.native-play-button {
@@ -3263,29 +3291,26 @@ html {
 	color: rgb(42 39 35);
 }
 
-.public-share-legal {
+.public-share-cta {
 	position: fixed;
-	z-index: 12;
+	z-index: 16;
 	top: 14px;
 	right: 16px;
-	display: flex;
-	gap: 12px;
-	padding: 7px 10px;
-	border: 1px solid rgb(42 39 35 / 10%);
+	display: inline-flex;
+	height: 38px;
+	align-items: center;
+	padding: 0 16px;
+	border: 0;
 	border-radius: 999px;
-	background: rgb(239 237 229 / 80%);
-	font-size: 9px;
+	box-shadow: var(--theme-shadow-sm);
+	font-size: 13px;
 	font-weight: 650;
+	text-decoration: none;
 	backdrop-filter: blur(12px);
 }
 
-.public-share-legal a {
-	color: rgb(42 39 35 / 56%);
-	text-decoration: none;
-}
-
-.public-share-legal a:hover {
-	color: rgb(11 86 63);
+.public-share-cta:hover {
+	filter: brightness(1.05);
 }
 
 .public-share-state {
@@ -3382,155 +3407,18 @@ html {
 	text-underline-offset: 4px;
 }
 
-.public-share-player {
+.public-share-action-bar {
 	position: fixed;
-	z-index: 15;
-	right: 20px;
 	bottom: max(18px, env(safe-area-inset-bottom));
-	left: 20px;
-	display: grid;
-	width: min(calc(100% - 40px), 580px);
-	min-height: 102px;
-	grid-template-columns: minmax(0, 1fr) 1px 68px 50px;
-	align-items: center;
-	gap: 15px;
-	margin: 0 auto;
-	padding: 12px 18px;
-	border: 1px solid rgb(184 184 177 / 50%);
-	border-radius: 30px;
-	background: linear-gradient(180deg, rgb(238 237 232 / 94%), rgb(240 239 233 / 96%));
-	box-shadow:
-		0 18px 28px rgb(31 43 38 / 8%),
-		0 4px 8px rgb(31 43 38 / 5%),
-		0 1px 1px rgb(69 74 70 / 16%),
-		inset 0 2px 1px rgb(255 255 255 / 96%),
-		inset 0 -2px 2px rgb(183 181 173 / 17%);
-	backdrop-filter: blur(22px) saturate(112%);
 }
 
-.public-share-divider {
-	display: block;
-	width: 1px;
-	height: 58px;
-	border-radius: 999px;
-	background: linear-gradient(
-		180deg,
-		transparent,
-		rgb(181 181 174 / 56%) 12%,
-		rgb(181 181 174 / 56%) 88%,
-		transparent
-	);
-	box-shadow: 1px 0 0 rgb(255 255 255 / 42%);
+.public-share-action-bar .native-icon-button:disabled {
+	opacity: 0.55;
+	cursor: default;
 }
 
-.public-share-play {
-	display: grid;
-	width: 68px;
-	height: 68px;
-	place-items: center;
-	border: 1px solid rgb(3 68 48 / 72%);
-	border-radius: 50%;
-	background:
-		radial-gradient(circle at 76% 82%, rgb(0 27 17 / 10%), transparent 52%),
-		linear-gradient(145deg, #235f4a 0%, #1e5945 48%, #14513d 100%);
-	box-shadow:
-		0 9px 14px rgb(28 56 45 / 13%),
-		0 3px 5px rgb(28 56 45 / 8%),
-		inset 0 1px 1px rgb(255 255 255 / 24%),
-		inset 0 -1px 2px rgb(0 30 19 / 18%);
-	color: #fbfcf9;
-	transition:
-		transform 150ms ease,
-		box-shadow 150ms ease;
-}
-
-.public-share-play:hover {
-	transform: translateY(-2px);
-	box-shadow:
-		0 12px 18px rgb(28 56 45 / 20%),
-		0 4px 6px rgb(28 56 45 / 11%),
-		inset 0 1px 1px rgb(255 255 255 / 24%),
-		inset 0 -1px 2px rgb(0 30 19 / 18%);
-}
-
-.public-share-play:active {
-	transform: scale(0.94);
-}
-
-.public-share-play svg {
-	width: 29px;
-	height: 29px;
-	stroke-width: 2.15;
-}
-
-.public-share-play:not(.loading) svg[data-lucide='play'] {
-	transform: translateX(1px);
-}
-
-.public-share-loading-wave {
-	display: flex;
-	height: 18px;
-	align-items: center;
-	gap: 3px;
-}
-
-.public-share-loading-wave span {
-	width: 2px;
-	height: 6px;
-	border-radius: 99px;
-	background: currentColor;
-	animation: narration-bar 760ms ease-in-out infinite;
-}
-
-.public-share-loading-wave span:nth-child(2) {
-	animation-delay: 120ms;
-}
-
-.public-share-loading-wave span:nth-child(3) {
-	animation-delay: 240ms;
-}
-
-.public-share-add {
-	display: grid;
-	width: 50px;
-	height: 50px;
-	place-items: center;
-	border: 1px solid rgb(190 190 183 / 56%);
-	border-radius: 50%;
-	background: linear-gradient(145deg, #f1f0eb 0%, #eae9e3 80%, #e6e5df 100%);
-	box-shadow:
-		0 6px 10px rgb(34 47 41 / 9%),
-		0 2px 3px rgb(34 47 41 / 5%),
-		inset 0 1px 1px rgb(255 255 255 / 96%),
-		inset 0 -1px 2px rgb(165 163 156 / 16%);
-	color: #084d38;
-	transition:
-		transform 150ms ease,
-		background 150ms ease,
-		color 150ms ease;
-}
-
-.public-share-add:hover:not(:disabled) {
-	transform: translateY(-1px);
-	background: rgb(250 250 246 / 94%);
-}
-
-.public-share-add:active:not(:disabled) {
-	transform: scale(0.94);
-}
-
-.public-share-add.saved {
-	background: rgb(227 239 231 / 90%);
-	color: rgb(26 102 75);
-}
-
-.public-share-add.saved svg {
+.public-share-action-bar .native-icon-button.active svg {
 	fill: currentColor;
-}
-
-.public-share-add svg {
-	width: 22px;
-	height: 22px;
 }
 
 .public-share-toast {
@@ -3556,7 +3444,7 @@ html {
 	}
 
 	.public-share-body {
-		padding-top: 46px;
+		padding-top: 64px;
 	}
 
 	.public-share-body .library-prose {
@@ -3568,44 +3456,12 @@ html {
 		font-size: clamp(34px, 11vw, 48px);
 	}
 
-	.public-share-player {
-		right: 8px;
+	.public-share-action-bar {
 		bottom: max(8px, env(safe-area-inset-bottom));
-		left: 8px;
-		width: calc(100% - 16px);
-		min-height: 70px;
-		grid-template-columns: minmax(0, 1fr) 1px 50px 40px;
-		gap: 6px;
-		padding: 8px 9px;
-		border-radius: 21px;
-	}
-
-	.public-share-divider {
-		height: 38px;
-	}
-
-	.public-share-play {
-		width: 50px;
-		height: 50px;
-	}
-
-	.public-share-play svg {
-		width: 22px;
-		height: 22px;
-	}
-
-	.public-share-add {
-		width: 40px;
-		height: 40px;
-	}
-
-	.public-share-add svg {
-		width: 19px;
-		height: 19px;
 	}
 
 	.public-share-toast {
-		bottom: 86px;
+		bottom: 70px;
 	}
 }
 

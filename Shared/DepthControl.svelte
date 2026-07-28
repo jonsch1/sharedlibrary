@@ -31,54 +31,56 @@
   };
 </script>
 
-<div
-  class="segmented-depth segmented-depth--{presentation}"
-  role="radiogroup"
-  aria-label="Reading version"
->
-  {#each summaryVariants as variant}
-    {@const depth = variantOrder.indexOf(variant) + 1}
-    <span class="depth-slot">
-      <button
-        type="button"
-        class="depth-step depth-step-{depth}"
-        class:is-active={selected === variant}
-        role="radio"
-        aria-checked={selected === variant}
-        aria-label={variantNames[variant]}
-        title={variantNames[variant]}
-        onclick={() => onselect(variant)}
-      >
-        <span class="depth-step-core">
-          <svg class="depth-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d={depthIconPaths[depth - 1]} />
-          </svg>
-        </span>
-      </button>
-    </span>
-  {/each}
-  {#if hasSource}
-    <span class="depth-slot original-slot">
-      <button
-        type="button"
-        class="depth-step original-step"
-        class:is-active={selected === 'source'}
-        role="radio"
-        aria-checked={selected === 'source'}
-        aria-label={variantNames.source}
-        title={variantNames.source}
-        onclick={() => onselect('source')}
-      >
-        <span class="depth-step-core original-step-core">
-          <svg class="original-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" />
-            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" fill="none" />
-          </svg>
-        </span>
-      </button>
-    </span>
-  {/if}
-</div>
+{#if summaryVariants.length > 0}
+  <div
+    class="segmented-depth segmented-depth--{presentation}"
+    role="radiogroup"
+    aria-label="Reading version"
+  >
+    {#each summaryVariants as variant}
+      {@const depth = variantOrder.indexOf(variant) + 1}
+      <span class="depth-slot">
+        <button
+          type="button"
+          class="depth-step depth-step-{depth}"
+          class:is-active={selected === variant}
+          role="radio"
+          aria-checked={selected === variant}
+          aria-label={variantNames[variant]}
+          title={variantNames[variant]}
+          onclick={() => onselect(variant)}
+        >
+          <span class="depth-step-core">
+            <svg class="depth-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d={depthIconPaths[depth - 1]} />
+            </svg>
+          </span>
+        </button>
+      </span>
+    {/each}
+    {#if hasSource}
+      <span class="depth-slot original-slot">
+        <button
+          type="button"
+          class="depth-step original-step"
+          class:is-active={selected === 'source'}
+          role="radio"
+          aria-checked={selected === 'source'}
+          aria-label={variantNames.source}
+          title={variantNames.source}
+          onclick={() => onselect('source')}
+        >
+          <span class="depth-step-core original-step-core">
+            <svg class="original-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" />
+              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" fill="none" />
+            </svg>
+          </span>
+        </button>
+      </span>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .segmented-depth {

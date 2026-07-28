@@ -51,12 +51,14 @@
 	import {
 		emptyICloudLibraryMessage,
 		fetchICloudLibraryFile,
+		fetchICloudLibraryMediaURL,
 		iCloudIdentity,
 		syncICloudLibrary,
 		type SyncProvider
 	} from '$lib/icloud.js';
 	import {
 		loadShareLinkStatus,
+		publishShareAudio,
 		publishShareLink,
 		revokeShareLink,
 		type ShareLinkSource,
@@ -584,9 +586,14 @@
 				syncProvider === 'icloud' ? await shareSourceFromICloud(target) : undefined;
 			const result = await publishShareLink(captureID, source);
 			shareLink = result;
+			try {
+				await publishSharedAudio(target, result);
+			} catch (error) {
+				shareError =
+					error instanceof Error ? error.message : 'Could not include the document audio.';
+			}
 			if (result.url) {
-				await navigator.clipboard.writeText(result.url);
-				connectionMessage = 'Share link copied. The document is being prepared.';
+				connectionMessage = 'Share link created. The document is being prepared.';
 			}
 			void watchShareLink(captureID);
 		} catch (error) {
@@ -626,6 +633,33 @@
 			updatedAt: target.updatedAt,
 			texts
 		};
+	}
+
+	async function publishSharedAudio(
+		target: LibraryEntry,
+		share: ShareLinkStatus
+	): Promise<void> {
+		const audioURL = target.audio
+			? syncProvider === 'icloud'
+				? await fetchICloudLibraryMediaURL(target.audio)
+				: null
+			: target.mediaURL;
+		if (!audioURL) return;
+		const response = await fetch(audioURL);
+		if (!response.ok) throw new Error('Could not read the document audio.');
+		const bytes = await response.arrayBuffer();
+		const hash =
+			target.audio?.contentHash ??
+			Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
+				byte.toString(16).padStart(2, '0')
+			).join('');
+		await publishShareAudio(
+			share,
+			hash,
+			new Blob([bytes], {
+				type: response.headers.get('Content-Type') ?? target.audio?.contentType ?? 'audio/mpeg'
+			})
+		);
 	}
 
 	async function watchShareLink(captureID: string): Promise<void> {
@@ -1125,8 +1159,8 @@
 						</article>
 					</div>
 
-					<footer class="native-document-footer border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm!">
-						<div class="footer-stat text-muted-foreground!">{selectedWordCount.toLocaleString()} words</div>
+					<footer class="native-document-footer" aria-label="Document actions">
+						<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
 
 						<DepthControl
 							variants={availableVariants}
@@ -1137,7 +1171,7 @@
 						<div class="native-footer-actions">
 							{#if selectedEntry.sourceURL}
 								<a
-									class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+									class="native-icon-button"
 									href={selectedEntry.sourceURL}
 									target="_blank"
 									rel="noreferrer"
@@ -1150,7 +1184,7 @@
 
 							{#if selectedEntry.origin === 'personal'}
 								<button
-									class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:bg-accent! [&.active]:text-accent-foreground!"
+									class="native-icon-button"
 									class:active={sharingVisible && shareTarget?.id === selectedEntry.id}
 									aria-label="Share document"
 									title="Create share link"

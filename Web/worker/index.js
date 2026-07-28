@@ -3902,6 +3902,39 @@ async function prepareShareLink(
 				.run();
 		}
 
+		if (!directSource && personal.entry.audio?.kind === 'audio' && env.SHARE_MEDIA) {
+			const hash = personal.entry.audio.contentHash;
+			const found = await findDriveMedia(env, email, { kind: 'audio', hash });
+			if (found.response) throw new Error('The document audio could not be read.');
+			if (found.file) {
+				const bytes = await downloadDriveFile(env, email, found.file.id);
+				if ((await sha256Hex(bytes)) !== hash) {
+					throw new Error('The document audio did not match the library index.');
+				}
+				const contentType = found.file.mimeType || personal.entry.audio.contentType;
+				const r2Key = `shares/${token}/${generation}/source/0-${hash}.mp3`;
+				await env.SHARE_MEDIA.put(r2Key, bytes, { httpMetadata: { contentType } });
+				await env.DB.prepare(
+					`INSERT OR REPLACE INTO share_audio_segments (
+						share_token, generation, variant, segment_index, audio_hash,
+						r2_key, content_type, byte_count, voice
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				)
+					.bind(
+						token,
+						generation,
+						'source',
+						0,
+						hash,
+						r2Key,
+						contentType,
+						bytes.byteLength,
+						'source'
+					)
+					.run();
+			}
+		}
+
 		const metadata = {
 			captureID: personal.entry.captureID ?? captureID,
 			title: personal.entry.title,
@@ -3975,11 +4008,12 @@ async function uploadShareAudio(request, env, token, generation, variant, index,
 		return json({ error: 'Only audio narration can be shared.' }, { status: 400 });
 	}
 	const bytes = await request.arrayBuffer();
-	if (!bytes.byteLength || bytes.byteLength > 25_000_000) {
-		return json({ error: 'Narration segments must be between 1 byte and 25 MB.' }, { status: 413 });
+	if (!bytes.byteLength || bytes.byteLength > 100_000_000) {
+		return json({ error: 'Shared audio must be between 1 byte and 100 MB.' }, { status: 413 });
 	}
-	const voice = requestedOpenRouterVoice(request.headers.get('X-Briefly-Voice'));
-	if (!voice) return json({ error: 'Choose a supported narration voice.' }, { status: 400 });
+	if ((await sha256Hex(bytes)) !== hash) {
+		return json({ error: 'The shared audio hash does not match its content.' }, { status: 400 });
+	}
 	const r2Key = `shares/${token}/${generation}/${variant}/${index}-${hash}.mp3`;
 	await env.SHARE_MEDIA.put(r2Key, bytes, { httpMetadata: { contentType } });
 	await env.DB.prepare(
@@ -3997,7 +4031,7 @@ async function uploadShareAudio(request, env, token, generation, variant, index,
 			r2Key,
 			contentType,
 			bytes.byteLength,
-			voice
+			'source'
 		)
 		.run();
 	return json({ saved: true });
@@ -4143,12 +4177,22 @@ async function publicShareDocument(request, env, token) {
 			{ status: record.status === 'preparing' ? 202 : 409 }
 		);
 	}
-	const textResult = await env.DB.prepare(
-		`SELECT variant, markdown, word_count FROM share_texts
-		 WHERE share_token = ? AND generation = ?`
-	)
-		.bind(token, record.generation)
-		.all();
+	const [textResult, audioResult] = await Promise.all([
+		env.DB.prepare(
+			`SELECT variant, markdown, word_count FROM share_texts
+			 WHERE share_token = ? AND generation = ?`
+		)
+			.bind(token, record.generation)
+			.all(),
+		env.DB.prepare(
+			`SELECT variant, segment_index, content_type, byte_count
+			 FROM share_audio_segments
+			 WHERE share_token = ? AND generation = ?
+			 ORDER BY variant, segment_index`
+		)
+			.bind(token, record.generation)
+			.all()
+	]);
 	let metadata = {};
 	try {
 		metadata = JSON.parse(record.metadata_json ?? '{}');
@@ -4167,12 +4211,20 @@ async function publicShareDocument(request, env, token) {
 		.sort(
 			(a, b) => shareVariants.indexOf(a.variant) - shareVariants.indexOf(b.variant)
 		);
+	const audio = (audioResult.results ?? []).map((segment) => ({
+		variant: segment.variant,
+		index: Number(segment.segment_index),
+		contentType: segment.content_type,
+		byteCount: Number(segment.byte_count),
+		url: `/api/public/shares/${token}/audio/${segment.variant}/${segment.segment_index}`
+	}));
 	return json({
 		status: 'ready',
 		token,
 		revision: Number(record.revision ?? 1),
 		...metadata,
 		texts,
+		audio,
 		updatedAt: record.updated_at
 	});
 }
@@ -5816,6 +5868,18 @@ const worker = {
 		if (publicShare && request.method === 'GET') {
 			return publicShareDocument(request, env, publicShare[1]);
 		}
+		const publicShareAudioMatch = url.pathname.match(
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(brief|concise|detailed|comprehensive|source)\/(\d+)$/
+		);
+		if (publicShareAudioMatch && request.method === 'GET') {
+			return publicShareAudio(
+				request,
+				env,
+				publicShareAudioMatch[1],
+				publicShareAudioMatch[2],
+				Number(publicShareAudioMatch[3])
+			);
+		}
 		const publicShareImport = url.pathname.match(
 			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/import$/
 		);
@@ -5823,6 +5887,22 @@ const worker = {
 			const denied = await paidAccessResponse(request, env);
 			if (denied) return denied;
 			return importPublicShare(request, env, publicShareImport[1], context);
+		}
+		const ownerShareAudio = url.pathname.match(
+			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(brief|concise|detailed|comprehensive|source)\/(\d+)\/([a-f0-9]{64})$/
+		);
+		if (ownerShareAudio && request.method === 'PUT') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
+			return uploadShareAudio(
+				request,
+				env,
+				ownerShareAudio[1],
+				ownerShareAudio[2],
+				ownerShareAudio[3],
+				Number(ownerShareAudio[4]),
+				ownerShareAudio[5]
+			);
 		}
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
 			return accountStatus(request, env);

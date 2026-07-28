@@ -45,6 +45,14 @@ export interface PublicShareText {
 	wordCount: number;
 }
 
+export interface PublicShareAudio {
+	variant: LibraryVariant;
+	index: number;
+	contentType: string;
+	byteCount: number;
+	url: string;
+}
+
 export interface PublicShareDocument {
 	status: 'ready';
 	token: string;
@@ -59,6 +67,7 @@ export interface PublicShareDocument {
 	createdAt?: string;
 	updatedAt?: string;
 	texts: PublicShareText[];
+	audio: PublicShareAudio[];
 }
 
 export interface PendingPublicShare {
@@ -115,6 +124,25 @@ export async function publishShareLink(
 		throw new Error(await responseError(response, 'Could not create the share link.'));
 	}
 	return (await response.json()) as ShareLinkStatus;
+}
+
+export async function publishShareAudio(
+	share: Pick<ShareLinkStatus, 'token' | 'generation'>,
+	hash: string,
+	audio: Blob
+): Promise<void> {
+	if (!share.token || !share.generation) return;
+	const response = await fetch(
+		`/api/share-links/${encodeURIComponent(share.token)}/audio/${encodeURIComponent(share.generation)}/source/0/${hash}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': audio.type || 'audio/mpeg' },
+			body: audio
+		}
+	);
+	if (!response.ok) {
+		throw new Error(await responseError(response, 'Could not include the document audio.'));
+	}
 }
 
 export async function revokeShareLink(token: string): Promise<void> {
