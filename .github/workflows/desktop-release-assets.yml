@@ -194,8 +194,9 @@ jobs:
           version="$(node -p "require('./Electron/package.json').version")"
           tag="v$version"
           gh release view "$tag" --repo jonsch1/briefly-downloads >/dev/null 2>&1 ||
-            gh release create "$tag" --repo jonsch1/briefly-downloads --draft \
+            gh release create "$tag" --repo jonsch1/briefly-downloads \
               --title "Briefly $version" --notes "Briefly desktop $version"
           gh release upload "$tag" release-assets/* \
             --repo jonsch1/briefly-downloads --clobber
-          echo "Draft release $tag is ready for manual acceptance and publication."
+          gh release edit "$tag" --repo jonsch1/briefly-downloads --draft=false
+          echo "Published release $tag."

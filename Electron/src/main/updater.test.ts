@@ -40,7 +40,7 @@ test('packaged releases include the differential update feed', async () => {
   assert.match(releaseWorkflow, /Get-AuthenticodeSignature/);
   assert.match(releaseWorkflow, /--win appx --x64 -c\.win\.signExecutable=false/);
   assert.match(releaseWorkflow, /artifact_name: store-windows/);
-  assert.match(releaseWorkflow, /pattern: briefly-\*/);
+  assert.match(releaseWorkflow, /pattern: '\*'/);
   for (const file of ['latest-mac.yml', 'latest.yml', 'latest-linux.yml', '.blockmap']) {
     assert.match(releaseWorkflow, new RegExp(file.replace('.', '\\.')));
   }
