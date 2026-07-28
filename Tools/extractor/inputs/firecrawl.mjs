@@ -1,24 +1,20 @@
-const endpoint = "https://api.firecrawl.dev/v2/scrape";
-
 export async function scrapeWithFirecrawl(rawUrl, {
-  apiKey,
+  endpoint,
+  token,
   fetchImpl = fetch
 } = {}) {
-  if (!apiKey?.trim()) throw new Error("Firecrawl API key is missing.");
+  if (!endpoint?.trim() || !token?.trim()) {
+    throw new Error("Briefly web extraction is unavailable.");
+  }
 
   const response = await fetchImpl(endpoint, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${apiKey.trim()}`,
+      "Cookie": `shared_library_session=${token.trim()}`,
+      "Origin": new URL(endpoint).origin,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      url: rawUrl,
-      formats: ["markdown"],
-      onlyMainContent: true,
-      removeBase64Images: true,
-      timeout: 120_000
-    })
+    body: JSON.stringify({ url: rawUrl })
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.success) {

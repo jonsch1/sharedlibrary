@@ -935,6 +935,41 @@ test('document narration and credit endpoints are no longer exposed', async () =
 	}
 });
 
+test('Firecrawl credentials stay in the Worker', async (context) => {
+	const env = {
+		...entitledEnvironment(),
+		FIRECRAWL_API_KEY: 'fc-server-secret'
+	};
+	context.mock.method(globalThis, 'fetch', async (input, init) => {
+		assert.equal(String(input), 'https://api.firecrawl.dev/v2/scrape');
+		assert.equal(init.headers.Authorization, 'Bearer fc-server-secret');
+		assert.deepEqual(JSON.parse(init.body), {
+			url: 'https://example.com/article',
+			formats: ['markdown'],
+			onlyMainContent: true,
+			removeBase64Images: true,
+			timeout: 120_000
+		});
+		return Response.json({
+			success: true,
+			data: { markdown: '# Extracted', metadata: { title: 'Article' } }
+		});
+	});
+	const response = await worker.fetch(
+		authenticatedRequest('/api/extraction/firecrawl', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Origin: 'https://library.example'
+			},
+			body: JSON.stringify({ url: 'https://example.com/article' })
+		}),
+		env
+	);
+	assert.equal(response.status, 200);
+	assert.equal((await response.json()).data.metadata.title, 'Article');
+});
+
 test('Google Drive setup is centrally configured without exposing OAuth credentials', async () => {
 	const env = environment();
 	const googleResponse = await worker.fetch(authenticatedRequest('/api/google/status'), env);

@@ -53,6 +53,9 @@ export class ExtractionService {
     private readonly workspacePath: () => string,
     private readonly transcriptCredentials: () => Promise<
       { endpoint: string; token: string } | undefined
+    > = async () => undefined,
+    private readonly firecrawlCredentials: () => Promise<
+      { endpoint: string; token: string } | undefined
     > = async () => undefined
   ) {}
 
@@ -77,7 +80,10 @@ export class ExtractionService {
       );
     }
 
-    const credentials = await this.transcriptCredentials();
+    const [credentials, firecrawl] = await Promise.all([
+      this.transcriptCredentials(),
+      this.firecrawlCredentials()
+    ]);
     const mediaDirectory = credentials || saveYouTubeAudio
       ? await mkdtemp(join(tmpdir(), 'briefly-media-'))
       : undefined;
@@ -86,18 +92,26 @@ export class ExtractionService {
         helper,
         ['--extensions', join(this.workspacePath(), '.briefly', 'inputs'), sourceURL.toString()],
         'Web extraction failed.',
-        mediaDirectory
-          ? {
-              BRIEFLY_MEDIA_OUTPUT_DIRECTORY: mediaDirectory,
-              BRIEFLY_SAVE_CAPTURED_AUDIO: saveYouTubeAudio ? '1' : '0',
-              ...(credentials
-                ? {
-                    BRIEFLY_TRANSCRIPT_ENDPOINT: credentials.endpoint,
-                    BRIEFLY_TRANSCRIPT_TOKEN: credentials.token
-                  }
-                : {})
-            }
-          : undefined
+        {
+          ...(mediaDirectory
+            ? {
+                BRIEFLY_MEDIA_OUTPUT_DIRECTORY: mediaDirectory,
+                BRIEFLY_SAVE_CAPTURED_AUDIO: saveYouTubeAudio ? '1' : '0'
+              }
+            : {}),
+          ...(credentials
+            ? {
+                BRIEFLY_TRANSCRIPT_ENDPOINT: credentials.endpoint,
+                BRIEFLY_TRANSCRIPT_TOKEN: credentials.token
+              }
+            : {}),
+          ...(firecrawl
+            ? {
+                BRIEFLY_FIRECRAWL_ENDPOINT: firecrawl.endpoint,
+                BRIEFLY_FIRECRAWL_TOKEN: firecrawl.token
+              }
+            : {})
+        }
       );
       const content = extracted.content?.trim();
       if (extracted.transcriptError) {
@@ -330,6 +344,7 @@ function extractorEnvironment(helper: string): NodeJS.ProcessEnv {
   for (const candidate of [...new Set(candidates)]) {
     mergeEnvironmentFile(candidate, environment);
   }
+  delete environment.FIRECRAWL_API_KEY;
   environment.ELECTRON_RUN_AS_NODE = '1';
   environment.PATH = mergedExecutablePath(environment.PATH ?? environment.Path);
   return environment;

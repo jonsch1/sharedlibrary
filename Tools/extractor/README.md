@@ -27,10 +27,12 @@ The generic HTML input fetches text documents directly, extracts metadata and
 JSON-LD, and uses Mozilla Readability with a sanitized DOM-text fallback.
 Unsupported binary formats and media are intentionally rejected.
 
-When `FIRECRAWL_API_KEY` is configured, failed built-in extraction and obvious
-verification/login shells fall back to Firecrawl's v2 single-page Markdown
-scraper. Built-in and workspace inputs remain first so ordinary captures do not
-consume Firecrawl credits.
+When Briefly account credentials are available, failed built-in extraction and
+obvious verification/login shells fall back through Briefly's authenticated
+Worker endpoint to Firecrawl's v2 single-page Markdown scraper. The Firecrawl
+key stays in the Worker; it is never sent to the desktop extractor. Built-in and
+workspace inputs remain first so ordinary captures do not consume Firecrawl
+credits.
 
 ## Adding an input
 

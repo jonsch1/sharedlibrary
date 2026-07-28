@@ -80,6 +80,11 @@ test(
         modifiers: ['Meta']
       });
       await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
+      await page.getByRole('button', { name: 'Electron smoke fixture' }).click({
+        button: 'right'
+      });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
       await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
       await expect(page.locator('.native-entry-row.selected')).toHaveCount(1);
 
@@ -158,6 +163,20 @@ test(
           audio.evaluate((element: HTMLAudioElement) => element.currentTime)
         )
         .toBeGreaterThan(0);
+      await audio.evaluate((element: HTMLAudioElement) => {
+        element.pause();
+        element.currentTime = 0.5;
+        element.dispatchEvent(new Event('timeupdate'));
+      });
+      await page.getByRole('button', { name: 'Second smoke fixture' }).click();
+      await expect(page.locator('audio')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
+      await page.getByRole('radio', { name: 'Original' }).click();
+      await expect
+        .poll(() =>
+          page!.locator('audio').evaluate((element: HTMLAudioElement) => element.currentTime)
+        )
+        .toBeGreaterThanOrEqual(0.49);
 
       await viewTabs.getByRole('tab', { name: 'Pod' }).click();
       await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toHaveAttribute(

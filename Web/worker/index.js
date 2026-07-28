@@ -12,6 +12,7 @@ const maximumSpeechInputLength = 14_000;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const ttsRequestIDPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const firecrawlEndpoint = 'https://api.firecrawl.dev/v2/scrape';
 const stripeAPIBase = 'https://api.stripe.com/v1';
 const stripeAPIVersion = '2026-06-24.dahlia';
 const stripeWebhookToleranceSeconds = 5 * 60;
@@ -142,6 +143,51 @@ function requestedOpenRouterVoice(value) {
 
 function voiceSupportedByModel(model, voice) {
 	return openRouterModelVoices.get(model)?.includes(voice) ?? false;
+}
+
+async function scrapeWithFirecrawl(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const denied = await paidAccessResponse(request, env);
+	if (denied) return denied;
+	const apiKey = String(env.FIRECRAWL_API_KEY || '').trim();
+	if (!apiKey) return json({ error: 'Web extraction is unavailable.' }, { status: 503 });
+	let rawURL;
+	try {
+		rawURL = (await request.json()).url;
+		const url = new URL(rawURL);
+		if (
+			(url.protocol !== 'http:' && url.protocol !== 'https:') ||
+			url.username ||
+			url.password ||
+			rawURL.length > 8_192
+		) {
+			throw new Error();
+		}
+		rawURL = url.toString();
+	} catch {
+		return json({ error: 'Invalid extraction URL.' }, { status: 400 });
+	}
+	const response = await fetch(firecrawlEndpoint, {
+		method: 'POST',
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({
+			url: rawURL,
+			formats: ['markdown'],
+			onlyMainContent: true,
+			removeBase64Images: true,
+			timeout: 120_000
+		})
+	});
+	return new Response(response.body, {
+		status: response.status,
+		headers: {
+			'Cache-Control': 'no-store',
+			'Content-Type': response.headers.get('Content-Type') || 'application/json'
+		}
+	});
 }
 
 function json(value, init = {}) {
@@ -5731,6 +5777,9 @@ const worker = {
 		}
 		if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
 			return stripeWebhook(request, env);
+		}
+		if (url.pathname === '/api/extraction/firecrawl' && request.method === 'POST') {
+			return scrapeWithFirecrawl(request, env);
 		}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
 			const denied = await paidAccessResponse(request, env);

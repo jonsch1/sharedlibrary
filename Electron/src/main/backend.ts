@@ -14,6 +14,7 @@ import type {
 const backendOrigin = 'https://www.readbriefly.fyi';
 const podcastSpeechEndpoint = 'https://jonsch1--briefly-kokoro-speech.modal.run';
 const transcriptEndpoint = 'https://jonsch1--briefly-whisper-transcribe.modal.run';
+const firecrawlEndpoint = `${backendOrigin}/api/extraction/firecrawl`;
 
 interface AccountStatus {
   authenticated: boolean;
@@ -124,6 +125,18 @@ export class BackendClient {
     });
     return cookie?.value
       ? { endpoint: transcriptEndpoint, token: cookie.value }
+      : undefined;
+  }
+
+  async firecrawlCredentials(): Promise<
+    { endpoint: string; token: string } | undefined
+  > {
+    const [cookie] = await session.defaultSession.cookies.get({
+      url: backendOrigin,
+      name: 'shared_library_session'
+    });
+    return cookie?.value
+      ? { endpoint: firecrawlEndpoint, token: cookie.value }
       : undefined;
   }
 

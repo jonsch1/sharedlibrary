@@ -101,6 +101,7 @@ The deployment needs:
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
 - the four Sign in with Apple values and three CloudKit values described above
   when those providers should be offered;
+- a `FIRECRAWL_API_KEY` Worker secret for authenticated extraction fallback;
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
   `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
   Price IDs described below;

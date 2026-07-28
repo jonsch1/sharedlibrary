@@ -341,7 +341,7 @@
   }
 
   function selectSidebarEntry(event: MouseEvent | PointerEvent, entry: DesktopLibraryEntry): void {
-    if (event.metaKey || event.ctrlKey) {
+    if (event.metaKey || (snapshot?.platform !== 'darwin' && event.ctrlKey)) {
       if (selectedIDs.includes(entry.id)) {
         selectedIDs = selectedIDs.filter((id) => id !== entry.id);
         if (selectedID === entry.id) {
@@ -498,8 +498,11 @@
     variant: LibraryVariant = 'source'
   ): void {
     event.preventDefault();
-    if (!selectedIDs.includes(entry.id)) selectEntry(entry);
-    void window.sharedLibrary.showEntryContextMenu(selectedIDs, variant);
+    const entryIDs = selectedIDs.includes(entry.id) ? selectedIDs : [entry.id];
+    if (entryIDs.length === 1) selectEntry(entry);
+    void window.sharedLibrary.showEntryContextMenu([...entryIDs], variant).catch((error) => {
+      message = error instanceof Error ? error.message : 'The menu could not be opened.';
+    });
   }
 
   async function signIn(provider: AccountProvider): Promise<void> {

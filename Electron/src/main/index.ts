@@ -484,7 +484,10 @@ function registerIPC(): void {
         },
         { type: 'separator' },
         {
-          label: 'Move to Trash…',
+          label:
+            selectedIDs.length === 1
+              ? 'Move to Trash…'
+              : `Move ${selectedIDs.length} Items to Trash…`,
           click: () =>
             void trashEntriesFromContextMenu(
               selectedIDs,
@@ -928,7 +931,8 @@ app.whenReady().then(async () => {
   backend = new BackendClient();
   extraction = new ExtractionService(
     () => library.getWorkspacePath(),
-    () => backend.transcriptCredentials()
+    () => backend.transcriptCredentials(),
+    () => backend.firecrawlCredentials()
   );
   processing = new ProcessingService(async () => {
     const current = await settings.load();

@@ -16,9 +16,27 @@
   let error = $state('');
   let played = $derived(duration ? (currentTime / duration) * 100 : 0);
 
+  function positionKey(): string {
+    return `briefly:audio-position:${src}`;
+  }
+
+  function rememberPosition(): void {
+    if (audio.currentTime > 0 && audio.currentTime < audio.duration) {
+      localStorage.setItem(positionKey(), String(audio.currentTime));
+    }
+  }
+
   function syncTime(): void {
     currentTime = audio.currentTime;
     duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    rememberPosition();
+  }
+
+  function restorePosition(): void {
+    duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+    const saved = Number(localStorage.getItem(positionKey()));
+    if (saved > 0 && saved < duration) audio.currentTime = saved;
+    syncTime();
   }
 
   async function toggle(): Promise<void> {
@@ -70,9 +88,15 @@
 
   function onPause(): void {
     playing = false;
+    rememberPosition();
     if ('mediaSession' in navigator && activeAudio === audio) {
       navigator.mediaSession.playbackState = 'paused';
     }
+  }
+
+  function onEnded(): void {
+    localStorage.removeItem(positionKey());
+    onPause();
   }
 
   function formatTime(seconds: number): string {
@@ -83,6 +107,7 @@
 
   onDestroy(() => {
     if (activeAudio === audio) activeAudio = null;
+    rememberPosition();
     audio?.pause();
   });
 </script>
@@ -96,12 +121,12 @@
     bind:this={audio}
     {src}
     preload="metadata"
-    onloadedmetadata={syncTime}
+    onloadedmetadata={restorePosition}
     ondurationchange={syncTime}
     ontimeupdate={syncTime}
     onplay={onPlay}
     onpause={onPause}
-    onended={onPause}
+    onended={onEnded}
     onerror={() => (error = 'Audio could not be loaded.')}
   ></audio>
 

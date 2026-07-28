@@ -31,10 +31,13 @@ try {
     ? await extractPDFFile(file)
     : await extractLink(url, {
         extensionsDirectory,
-        firecrawlFallback: process.env.FIRECRAWL_API_KEY
+        firecrawlFallback:
+          process.env.BRIEFLY_FIRECRAWL_ENDPOINT &&
+          process.env.BRIEFLY_FIRECRAWL_TOKEN
           ? (sourceURL) =>
               scrapeWithFirecrawl(sourceURL, {
-                apiKey: process.env.FIRECRAWL_API_KEY
+                endpoint: process.env.BRIEFLY_FIRECRAWL_ENDPOINT,
+                token: process.env.BRIEFLY_FIRECRAWL_TOKEN
               })
           : null,
         includeTranscriptTimestamps,
