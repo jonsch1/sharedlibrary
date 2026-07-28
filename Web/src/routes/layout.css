@@ -2238,7 +2238,8 @@ html {
 	pointer-events: none;
 }
 
-.native-search-field input {
+.native-search-field input,
+.native-search-field input:focus-visible {
 	width: 100%;
 	height: 40px;
 	padding: 0 44px;

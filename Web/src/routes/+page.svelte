@@ -11,6 +11,7 @@
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
@@ -123,6 +124,7 @@
 	let googleSyncing = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
+	let signingOut = $state(false);
 	let themePreference = $state(readThemePreference());
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
@@ -506,6 +508,19 @@
 
 	function signIn(provider: 'google' | 'apple'): void {
 		window.location.assign(`/api/auth/${provider}/start`);
+	}
+
+	async function signOut(): Promise<void> {
+		if (signingOut) return;
+		signingOut = true;
+		try {
+			const response = await fetch('/api/auth/logout', { method: 'POST' });
+			if (!response.ok) throw new Error('Sign out failed.');
+			window.location.reload();
+		} catch (error) {
+			connectionMessage = error instanceof Error ? error.message : 'Sign out failed.';
+			signingOut = false;
+		}
 	}
 
 	async function startBrieflyPlus(): Promise<void> {
@@ -1300,6 +1315,12 @@
 						<ArrowUpRightIcon data-icon="inline-start" />
 						Account and app downloads
 					</Button>
+					{#if account.authenticated}
+						<Button variant="outline" disabled={signingOut} onclick={signOut}>
+							<LogOutIcon data-icon="inline-start" />
+							{signingOut ? 'Signing out…' : 'Sign out'}
+						</Button>
+					{/if}
 					<nav class="connections-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
 						<a href="/feedback">Feedback</a>
 						<a href="/privacy">Privacy</a>
