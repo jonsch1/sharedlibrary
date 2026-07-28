@@ -212,8 +212,50 @@ export function hasSameLibraryContent(
   left: LibraryProjection,
   right: LibraryProjection
 ): boolean {
-  return JSON.stringify({ ...left, generatedAt: '' }) ===
-    JSON.stringify({ ...right, generatedAt: '' });
+  const comparable = (projection: LibraryProjection): LibraryProjection => ({
+    ...projection,
+    generatedAt: '',
+    entries: projection.entries.map((entry) => ({
+      ...entry,
+      texts: entry.texts?.map((reference) => {
+        if (!reference.path || !reference.contentHash) return reference;
+        const { text: _cachedText, ...storedReference } = reference;
+        return storedReference;
+      })
+    }))
+  });
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
+export function retainLoadedLibraryText(
+  current: LibraryProjection,
+  next: LibraryProjection
+): LibraryProjection {
+  const currentEntries = new Map(current.entries.map((entry) => [entry.id, entry]));
+  return {
+    ...next,
+    entries: next.entries.map((entry) => {
+      const currentEntry = currentEntries.get(entry.id);
+      if (!currentEntry) return entry;
+      const currentTexts = new Map(
+        currentEntry.texts.map((reference) => [reference.variant, reference])
+      );
+      const texts = entry.texts.map((reference) => {
+        if (typeof reference.text === 'string' || !reference.path || !reference.contentHash) {
+          return reference;
+        }
+        const currentReference = currentTexts.get(reference.variant);
+        return typeof currentReference?.text === 'string' &&
+          currentReference.path === reference.path &&
+          currentReference.contentHash === reference.contentHash
+          ? { ...reference, text: currentReference.text }
+          : reference;
+      });
+      return texts.some((reference, index) => reference !== entry.texts[index])
+        ? { ...entry, texts }
+        : entry;
+    })
+  };
 }
 
 export function textFor(

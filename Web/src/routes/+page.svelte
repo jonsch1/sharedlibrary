@@ -35,6 +35,7 @@
 		loadRawLibraryText,
 		matchesLibraryEntry,
 		preferredVariant,
+		retainLoadedLibraryText,
 		shouldRenderSourceAsPlainText,
 		textFor,
 		type LibraryEntry,
@@ -125,6 +126,7 @@
 	let googleSyncTotal = $state(0);
 	let textRevision = $state(0);
 	let loadingText = $state(false);
+	let syncInFlight = false;
 	const textLoads = new Map<string, Promise<string>>();
 	let settingsTitle = $derived(
 		settingsCategory === 'general'
@@ -393,6 +395,7 @@
 
 	function applySyncedProjection(nextProjection: LibraryProjection): void {
 		if (projection && hasSameLibraryContent(projection, nextProjection)) return;
+		if (projection) nextProjection = retainLoadedLibraryText(projection, nextProjection);
 		const previousSelection = selectedEntryID;
 		projection = nextProjection;
 		selectedEntryID =
@@ -421,7 +424,7 @@
 	async function syncFromProvider(showError = true): Promise<void> {
 		if (
 			!syncProvider ||
-			googleSyncing ||
+			syncInFlight ||
 			(syncProvider === 'google' && !googleConnection.connected) ||
 			(syncProvider === 'icloud' && !iCloudConnection.connected)
 		) {
@@ -433,9 +436,13 @@
 			connectionsVisible = true;
 			return;
 		}
-		googleSyncing = true;
-		googleSyncCompleted = 0;
-		googleSyncTotal = 0;
+		const showProgress = showError || !projection;
+		syncInFlight = true;
+		if (showProgress) {
+			googleSyncing = true;
+			googleSyncCompleted = 0;
+			googleSyncTotal = 0;
+		}
 		try {
 			const syncLibrary =
 				syncProvider === 'icloud' ? syncICloudLibrary : syncGoogleDriveLibrary;
@@ -444,6 +451,7 @@
 					applySyncedProjection(personalProjection);
 				},
 				(completed, total) => {
+					if (!showProgress) return;
 					googleSyncCompleted = completed;
 					googleSyncTotal = total;
 				}
@@ -453,12 +461,12 @@
 				connectionsVisible = true;
 				return;
 			}
-			connectionMessage = showError
-				? `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
+			if (showError) {
+				connectionMessage = `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
 						hour: 'numeric',
 						minute: '2-digit'
-					}).format(new Date())}.`
-				: '';
+					}).format(new Date())}.`;
+			}
 		} catch (error) {
 			if (showError || !projection) {
 				connectionMessage =
@@ -467,7 +475,8 @@
 						: 'The library could not be synchronized.';
 			}
 		} finally {
-			googleSyncing = false;
+			syncInFlight = false;
+			if (showProgress) googleSyncing = false;
 			loading = false;
 		}
 	}

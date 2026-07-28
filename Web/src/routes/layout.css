@@ -2349,7 +2349,6 @@ html {
 
 .native-sidebar-footer {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
 	flex: 0 0 auto;
 	background: var(--sidebar);
 }
@@ -2388,7 +2387,6 @@ html {
 }
 
 .sidebar-settings-button {
-	grid-column: 2;
 	padding: 0;
 }
 

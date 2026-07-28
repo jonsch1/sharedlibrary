@@ -6,6 +6,7 @@ import {
   matchesLibraryEntry,
   parseLibraryProjection,
   preferredVariant,
+  retainLoadedLibraryText,
   shouldRenderSourceAsPlainText
 } from './library.ts';
 
@@ -103,13 +104,24 @@ test('desktop projections produce the same main library behavior for both client
   assert.equal(parsed.podcasts?.[0].title, 'Weekly');
 });
 
-test('projection comparison ignores sync timestamps but notices media changes', () => {
+test('background sync ignores local text caches and retains them across unrelated changes', () => {
   const left = parseLibraryProjection(projection);
   const right = structuredClone(left);
+  left.entries[0].texts[0].text = 'Cached source';
   right.generatedAt = '2026-07-28T13:00:00.000Z';
   assert.equal(hasSameLibraryContent(left, right), true);
-  right.entries[2].audio!.byteCount += 1;
-  assert.equal(hasSameLibraryContent(left, right), false);
+  right.entries[0].title = 'Updated title';
+  const retained = retainLoadedLibraryText(left, right);
+  assert.equal(retained.entries[0].texts[0].text, 'Cached source');
+  assert.equal(right.entries[0].texts[0].text, undefined);
+  assert.equal(hasSameLibraryContent(left, retained), false);
+  retained.entries[0].title = left.entries[0].title;
+  retained.entries[2].audio!.byteCount += 1;
+  assert.equal(hasSameLibraryContent(left, retained), false);
+  const changedText = structuredClone(right);
+  changedText.entries[0].texts[0].contentHash = 'd'.repeat(64);
+  delete changedText.entries[0].texts[0].text;
+  assert.equal(retainLoadedLibraryText(left, changedText).entries[0].texts[0].text, undefined);
 });
 
 test('only YouTube originals use transcript presentation', () => {
