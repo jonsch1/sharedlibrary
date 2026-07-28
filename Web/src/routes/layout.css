@@ -485,7 +485,7 @@
 	justify-content: space-between;
 	gap: 10px;
 	margin-top: 11px;
-	color: oklch(0.5 0.028 65);
+	color: var(--muted-foreground);
 	font-size: 10px;
 }
 
@@ -547,7 +547,7 @@
 .document-excerpt {
 	max-width: 690px;
 	margin: 20px 0 0;
-	color: rgb(69 69 64);
+	color: var(--muted-foreground);
 	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-size: 17px;
 	line-height: 1.55;
@@ -628,14 +628,14 @@
 }
 
 .library-prose {
-	color: rgb(29 29 27 / 94%);
+	color: var(--card-foreground);
 	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-size: 19px;
 	line-height: 32px;
 }
 
 .library-prose :is(h1, h2, h3, h4) {
-	color: rgb(25 25 24 / 96%);
+	color: var(--card-foreground);
 	font-family: 'New York', 'Iowan Old Style', Charter, Georgia, serif;
 	font-weight: 650;
 	letter-spacing: -0.02em;
@@ -652,14 +652,14 @@
 }
 
 .library-prose a {
-	color: rgb(56 56 52);
-	text-decoration-color: rgb(56 56 52 / 42%);
+	color: var(--card-foreground);
+	text-decoration-color: color-mix(in srgb, var(--card-foreground) 42%, transparent);
 	text-underline-offset: 3px;
 }
 
 .library-prose code {
 	border-radius: 5px;
-	background: rgb(65 65 61 / 8%);
+	background: var(--muted);
 	padding: 0.12em 0.3em;
 	font-family: ui-monospace, 'SFMono-Regular', monospace;
 	font-size: 0.84em;
@@ -2326,7 +2326,7 @@ html {
 	height: 16px;
 	flex: 0 0 16px;
 	margin-top: 1px;
-	color: rgb(61 61 57 / 74%);
+	color: var(--muted-foreground);
 	stroke-width: 1.6;
 }
 
@@ -2366,7 +2366,7 @@ html {
 	min-height: 160px;
 	place-items: center;
 	align-content: center;
-	color: rgb(82 82 77);
+	color: var(--muted-foreground);
 	text-align: center;
 }
 
@@ -2385,7 +2385,7 @@ html {
 .native-no-results button {
 	margin-top: 5px;
 	border: 0;
-	color: rgb(65 65 61);
+	color: var(--sidebar-foreground);
 	font-size: 12px;
 	text-decoration: underline;
 	text-underline-offset: 2px;
@@ -2413,19 +2413,19 @@ html {
 		to bottom,
 		transparent 0,
 		transparent 31px,
-		rgb(86 82 72 / 8%) 31px,
-		rgb(86 82 72 / 8%) 32px
+		color-mix(in srgb, var(--border) 50%, transparent) 31px,
+		color-mix(in srgb, var(--border) 50%, transparent) 32px
 	);
 	background-repeat: repeat;
 	background-size: 100% 32px;
 	background-position: 0 43px;
-	color: rgb(47 44 39);
+	color: var(--card-foreground);
 }
 
 .native-document-body .library-prose {
 	max-width: 780px;
 	margin: 0 auto;
-	color: rgb(47 44 39);
+	color: var(--card-foreground);
 	font-family: 'New York', 'Iowan Old Style', 'Palatino Linotype', Charter, Georgia, serif;
 	font-size: 19px;
 	font-weight: 400;
@@ -2478,7 +2478,7 @@ html {
 	position: relative;
 	top: -2px;
 	margin: 32px 0;
-	color: rgb(42 39 35);
+	color: var(--card-foreground);
 	font-family: inherit;
 	font-weight: 700;
 	line-height: 32px;
@@ -2504,14 +2504,14 @@ html {
 
 .native-document-body .library-prose a {
 	color: inherit;
-	text-decoration-color: rgb(47 44 39 / 42%);
+	text-decoration-color: color-mix(in srgb, var(--card-foreground) 42%, transparent);
 	text-underline-offset: 3px;
 }
 
 .native-document-body .library-prose blockquote {
 	padding: 0 0 0 1em;
-	border-left-color: rgb(58 56 51 / 34%);
-	color: rgb(66 62 56);
+	border-left-color: var(--border);
+	color: var(--muted-foreground);
 	font-style: italic;
 }
 
@@ -2523,9 +2523,9 @@ html {
 
 .native-document-body .library-prose code {
 	padding: 0.12em 0.36em;
-	border: 1px solid rgb(36 36 34 / 13%);
+	border: 1px solid var(--border);
 	border-radius: 4px;
-	background: rgb(68 64 56 / 8%);
+	background: var(--muted);
 	color: inherit;
 	white-space: break-spaces;
 }
@@ -2533,9 +2533,9 @@ html {
 .native-document-body .library-prose pre {
 	overflow-x: auto;
 	padding: 15px 14px;
-	border: 1px solid rgb(36 36 34 / 13%);
+	border: 1px solid var(--border);
 	border-radius: 8px;
-	background: rgb(68 64 56 / 8%);
+	background: var(--muted);
 	line-height: 32px;
 }
 
@@ -2550,7 +2550,7 @@ html {
 .native-document-body .library-prose hr {
 	margin: 32px 0;
 	border: 0;
-	border-top: 1px solid rgb(36 36 34 / 28%);
+	border-top: 1px solid var(--border);
 }
 
 .native-document-body .library-prose table {
@@ -2562,12 +2562,12 @@ html {
 .native-document-body .library-prose th,
 .native-document-body .library-prose td {
 	padding: 7px 9px;
-	border: 1px solid rgb(36 36 34 / 18%);
+	border: 1px solid var(--border);
 	vertical-align: top;
 }
 
 .native-document-body .library-prose th {
-	background: rgb(65 65 61 / 8%);
+	background: var(--muted);
 	font-weight: 650;
 }
 
