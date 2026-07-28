@@ -68,6 +68,11 @@ test(
       await expect(page.locator('.native-document-body')).toContainText(
         'Brief smoke summary.'
       );
+      const audio = page.locator('audio');
+      await expect(audio).toHaveCount(1);
+      await expect(page.locator('.native-reader-audio')).toBeVisible();
+      await page.getByRole('slider', { name: 'Volume' }).fill('0.4');
+      expect(await audio.evaluate((element: HTMLAudioElement) => element.volume)).toBe(0.4);
 
       const snapshot = await page.evaluate(() =>
         (window as ElectronWindow).sharedLibrary.getSnapshot()
@@ -157,10 +162,11 @@ test(
           (window as ElectronWindow).sharedLibrary.writeText(id, 'source', text),
         { id: entryID, text: editedText }
       );
+      await audio.evaluate((element) => element.setAttribute('data-smoke-player', 'persistent'));
       await page.getByRole('radio', { name: 'Original' }).click();
       await expect(page.locator('.native-document-body')).toContainText(editedText);
-      const audio = page.locator('audio');
       await expect(audio).toHaveCount(1);
+      await expect(audio).toHaveAttribute('data-smoke-player', 'persistent');
       await audio.evaluate((element: HTMLAudioElement) => element.play());
       await expect
         .poll(() =>

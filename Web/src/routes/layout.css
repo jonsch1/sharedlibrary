@@ -2395,6 +2395,36 @@ html {
 	display: none;
 }
 
+.native-reader-audio {
+	position: absolute;
+	z-index: 13;
+	top: -1px;
+	left: 50%;
+	width: min(640px, calc(100% - 96px));
+	transform: translateX(-50%);
+}
+
+.native-reader-audio .audio-player {
+	grid-template-columns: auto minmax(150px, 1fr) auto;
+	gap: 10px;
+	padding: 7px 12px;
+	border-top: 0 !important;
+	border-radius: 0 0 16px 16px !important;
+}
+
+.native-reader-audio .transport {
+	gap: 0;
+}
+
+.native-reader-audio .transport button:not(.play),
+.native-reader-audio .rate {
+	display: none;
+}
+
+.native-reader-audio .volume {
+	gap: 0;
+}
+
 .native-document-scroll {
 	min-height: 0;
 	flex: 1;
@@ -2432,6 +2462,11 @@ html {
 	line-height: 32px;
 	overflow-wrap: anywhere;
 	-webkit-font-smoothing: antialiased;
+}
+
+.native-reader-pane.has-reader-audio .native-document-body {
+	padding-top: 92px;
+	background-position: 0 89px;
 }
 
 .podcast-reader-player {
@@ -3045,10 +3080,20 @@ html {
 		height: 18px;
 	}
 
+	.native-reader-audio {
+		top: 47px;
+		width: calc(100% - 28px);
+	}
+
 	.native-document-body {
 		width: calc(100% - 38px);
 		padding: 30px 0 158px;
 		background-position: 0 27px;
+	}
+
+	.native-reader-pane.has-reader-audio .native-document-body {
+		padding-top: 86px;
+		background-position: 0 83px;
 	}
 
 	.native-document-footer {

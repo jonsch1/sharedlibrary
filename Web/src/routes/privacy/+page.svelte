@@ -270,7 +270,7 @@
 				</tr>
 				<tr>
 					<td>Local browser data</td>
-					<td>Until you clear Briefly's site data or uninstall/remove it. See the <a href="/cookies">Cookies & Local Storage Notice</a>.</td>
+					<td>Until you clear Briefly's site data or uninstall/remove it. See the <a href="/account/cookies">Cookies & Local Storage Notice</a>.</td>
 				</tr>
 			</tbody>
 		</table>

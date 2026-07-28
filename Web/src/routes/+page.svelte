@@ -1071,7 +1071,10 @@
 				</div>
 			</aside>
 
-			<main class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+			<main
+				class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
+				class:has-reader-audio={Boolean(selectedEntry?.audio || selectedEntry?.mediaURL)}
+			>
 				{#if selectedEntry}
 					<div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
 						<button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
@@ -1079,6 +1082,17 @@
 							<span>Library</span>
 						</button>
 					</div>
+
+					{#if selectedEntry.audio || selectedEntry.mediaURL}
+						<div class="native-reader-audio">
+							<LibraryAudio
+								title={selectedEntry.title}
+								audio={selectedEntry.audio}
+								mediaURL={selectedEntry.mediaURL}
+								provider={syncProvider}
+							/>
+						</div>
+					{/if}
 
 					<div class="native-document-scroll">
 						<article class="native-document-body text-card-foreground! font-serif!" aria-busy={loadingText}>
@@ -1094,25 +1108,6 @@
 									<span class="skeleton-line short"></span>
 								</div>
 							{:else if selectedText}
-								{#if selectedEntry.audio &&
-									(selectedEntry.entryType === 'podcast_episode' ||
-										selectedVariant === 'source')}
-									<div class="podcast-reader-player">
-										<LibraryAudio
-											title={selectedEntry.title}
-											audio={selectedEntry.audio}
-											provider={syncProvider}
-										/>
-									</div>
-								{:else if selectedVariant === 'source' && selectedEntry.mediaURL}
-									<div class="podcast-reader-player">
-										<LibraryAudio
-											title={selectedEntry.title}
-											mediaURL={selectedEntry.mediaURL}
-											provider={syncProvider}
-										/>
-									</div>
-								{/if}
 								<MarkdownText
 									text={selectedText}
 									plain={shouldRenderSourceAsPlainText(

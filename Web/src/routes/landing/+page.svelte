@@ -1033,7 +1033,7 @@
 			<a href="/feedback">Feedback</a>
 			<a class="footer-legal" href="/privacy">Privacy</a>
 			<a class="footer-legal" href="/terms">Terms</a>
-			<a class="footer-legal" href="/cookies">Cookies</a>
+			<a class="footer-legal" href="/account/cookies">Cookies</a>
 			<a class="footer-legal" href="/imprint">Imprint</a>
 			<span>© 2026 Briefly</span>
 		</div>

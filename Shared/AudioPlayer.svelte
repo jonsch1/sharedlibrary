@@ -167,7 +167,6 @@
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M11 5 6 9H2v6h4l5 4ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
     </svg>
-    <span class="sr-only">Volume</span>
     <input
       aria-label="Volume"
       type="range"

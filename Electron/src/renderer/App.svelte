@@ -163,8 +163,10 @@
   let renderSelectedTextAsPlain = $derived(
     shouldRenderSourceAsPlainText(selectedVariant, selectedEntry?.sourceURL)
   );
-  let selectedSourceMediaURL = $derived(
-    selectedVariant === 'source' ? selectedEntry?.mediaURL : undefined
+  let selectedAudioURL = $derived(
+    selectedEntry?.hasAudio
+      ? `briefly-podcast-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`
+      : selectedEntry?.mediaURL
   );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
@@ -1034,7 +1036,10 @@
         </div>
       </aside>
 
-      <main class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+      <main
+        class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
+        class:has-reader-audio={Boolean(selectedAudioURL)}
+      >
         {#if selectedEntry}
           <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
             <button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
@@ -1042,6 +1047,12 @@
               <span>Library</span>
             </button>
           </div>
+
+          {#if selectedAudioURL}
+            <div class="native-reader-audio">
+              <AudioPlayer src={selectedAudioURL} title={selectedEntry.title} />
+            </div>
+          {/if}
 
           <div class="native-document-scroll">
             <article
@@ -1062,21 +1073,6 @@
                   <span class="skeleton-line short"></span>
                 </div>
               {:else if selectedText}
-                {#if selectedEntry.hasAudio && (selectedEntry.entryType === 'podcast_episode' || selectedVariant === 'source')}
-                  <div class="podcast-reader-player">
-                    <AudioPlayer
-                      src={`briefly-podcast-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`}
-                      title={selectedEntry.title}
-                    />
-                  </div>
-                {:else if selectedSourceMediaURL}
-                  <div class="podcast-reader-player">
-                    <AudioPlayer
-                      src={selectedSourceMediaURL}
-                      title={selectedEntry.title}
-                    />
-                  </div>
-                {/if}
                 <MarkdownView text={selectedText} plain={renderSelectedTextAsPlain} />
               {:else}
                 <p class="missing-text">This version is not available.</p>
