@@ -31,11 +31,6 @@ export interface ICloudShareImport {
 		createdAt?: string;
 	};
 	texts: Array<{ variant: string; markdown: string }>;
-	audio?: Array<{
-		audio_hash: string;
-		content_type?: string;
-		url: string;
-	}>;
 }
 
 interface CloudKitConfiguration {
@@ -98,8 +93,6 @@ declare global {
 			fetchLibraryIndex(): Promise<LibraryProjection | null>;
 			fetchLibraryFile(file: LibraryFile): Promise<string>;
 			uploadLibrary(mirror: CloudLibraryMirror): Promise<{ changed: number; syncedAt: string }>;
-			loadAudio(hash: string): Promise<string | null>;
-			storeAudio(hash: string, base64: string): Promise<void>;
 		};
 	}
 }
@@ -273,7 +266,7 @@ async function fileRecordName(path: string): Promise<string> {
 
 async function saveRecord(
 	name: string,
-	type: 'BrieflyLibraryIndex' | 'BrieflyLibraryFile' | 'BrieflyAudio',
+	type: 'BrieflyLibraryIndex' | 'BrieflyLibraryFile',
 	fields: CloudKitRecord['fields'],
 	expectedChangeTag?: string | null
 ): Promise<void> {
@@ -401,25 +394,6 @@ export async function syncICloudLibrary(
 		fetchICloudLibraryFile
 	);
 	return projection;
-}
-
-export async function loadICloudAudio(hash: string): Promise<Blob | null> {
-	if (!/^[a-f0-9]{64}$/.test(hash)) return null;
-	const record = await fetchRecord(`audio-${hash}`);
-	if (!record || recordField<string>(record, 'hash') !== hash) return null;
-	return downloadAsset(record, 'content', `${hash}.mp3`);
-}
-
-export async function storeICloudAudio(hash: string, audio: Blob): Promise<void> {
-	if (!/^[a-f0-9]{64}$/.test(hash) || !audio.size) return;
-	const existing = await fetchRecord(`audio-${hash}`);
-	if (existing && recordField<string>(existing, 'hash') === hash) return;
-	await saveRecord(`audio-${hash}`, 'BrieflyAudio', {
-		hash: { value: hash },
-		byteCount: { value: audio.size },
-		contentType: { value: audio.type || 'audio/mpeg' },
-		content: { value: audio }
-	});
 }
 
 function importedSourceText(
@@ -550,33 +524,7 @@ export async function importICloudShare(source: ICloudShareImport): Promise<{
 			value: new Blob([JSON.stringify(nextProjection)], { type: 'application/json' })
 		}
 	}, state.changeTag);
-	for (const audio of source.audio ?? []) {
-		if (!/^[a-f0-9]{64}$/.test(audio.audio_hash) || typeof audio.url !== 'string') continue;
-		try {
-			const response = await fetch(audio.url);
-			if (!response.ok) continue;
-			await storeICloudAudio(
-				audio.audio_hash,
-				new Blob([await response.arrayBuffer()], {
-					type: audio.content_type || 'audio/mpeg'
-				})
-			);
-		} catch {
-			// Narration is optional; the imported Markdown is already durable.
-		}
-	}
 	return { saved: true, path: `library/${filename}`, captureID };
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-	let binary = '';
-	for (const byte of bytes) binary += String.fromCharCode(byte);
-	return btoa(binary);
-}
-
-function base64ToBytes(value: string): Uint8Array {
-	const binary = atob(value);
-	return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 export function exposeICloudBridge(): void {
@@ -584,16 +532,6 @@ export function exposeICloudBridge(): void {
 		status: async () => Boolean((await iCloudIdentity())?.userRecordName),
 		fetchLibraryIndex: fetchICloudLibraryIndex,
 		fetchLibraryFile: fetchICloudLibraryFile,
-		uploadLibrary: uploadICloudLibrary,
-		loadAudio: async (hash) => {
-			const audio = await loadICloudAudio(hash);
-			return audio ? bytesToBase64(new Uint8Array(await audio.arrayBuffer())) : null;
-		},
-		storeAudio: async (hash, base64) => {
-			const bytes = base64ToBytes(base64);
-			const buffer = new ArrayBuffer(bytes.byteLength);
-			new Uint8Array(buffer).set(bytes);
-			await storeICloudAudio(hash, new Blob([buffer], { type: 'audio/mpeg' }));
-		}
+		uploadLibrary: uploadICloudLibrary
 	};
 }

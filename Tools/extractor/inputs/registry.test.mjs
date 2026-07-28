@@ -4,6 +4,7 @@ import test from "node:test";
 import { selectInput } from "./registry.mjs";
 
 test("selectInput routes supported links to explicit modules", () => {
+  assert.equal(selectInput("https://arxiv.org/abs/1706.03762")?.id, "arxiv");
   assert.equal(
     selectInput("https://www.youtube.com/watch?v=abc1234")?.id,
     "youtube"

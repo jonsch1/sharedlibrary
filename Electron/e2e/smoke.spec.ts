@@ -76,6 +76,35 @@ test(
       expect(snapshot.entries).toHaveLength(1);
       expect(snapshot.entries[0].title).toBe('Electron smoke fixture');
 
+      const actionBar = page.getByLabel('Document actions');
+      await expect(actionBar.getByRole('radio')).toHaveCount(
+        snapshot.entries[0].availableVariants.length
+      );
+      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('opacity', '1');
+      const actionBarWidth = await actionBar.evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+      await actionBar.hover();
+      expect(
+        await actionBar.evaluate((element) => element.getBoundingClientRect().width)
+      ).toBe(actionBarWidth);
+      expect(actionBarWidth).toBe(500);
+      await expect(actionBar).toHaveCSS('column-gap', '16px');
+      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '8px');
+      await expect(actionBar.getByRole('button', { name: 'Settings' })).toHaveCount(0);
+      const sidebarActions = page.locator('.native-sidebar-footer');
+      await expect(sidebarActions.getByRole('button', { name: 'Pod' })).toBeVisible();
+      await expect(sidebarActions.getByRole('button', { name: 'AI' })).toBeVisible();
+      await expect(sidebarActions.getByRole('button', { name: 'Settings' })).toBeVisible();
+      const sidebarButtonGaps = await sidebarActions.locator('button').evaluateAll(
+        (buttons) =>
+          buttons.slice(1).map((button, index) => {
+            const previous = buttons[index].getBoundingClientRect();
+            return button.getBoundingClientRect().left - previous.right;
+          })
+      );
+      expect(Math.min(...sidebarButtonGaps)).toBeGreaterThanOrEqual(7);
+
       const entryID = snapshot.entries[0].id;
       const originalText = await page.evaluate(
         ({ id }) =>
@@ -92,6 +121,28 @@ test(
       );
       await page.getByRole('radio', { name: 'Original' }).click();
       await expect(page.locator('.native-document-body')).toContainText(editedText);
+
+      await page.getByRole('button', { name: 'Pod', exact: true }).click();
+      await expect(page.getByText('No podcast episodes')).toBeVisible();
+      await page.getByRole('button', { name: 'Manage podcasts' }).click();
+      await expect(page.locator('.settings-screen')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Topics' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Prompts' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Summarization' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Podcast', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Research', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Input extensions' })).toHaveCount(0);
+      await page.getByRole('button', { name: 'General' }).click();
+      await expect(page.getByRole('heading', { name: 'Current document' })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Podcasts', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Create with an agent' })).toBeVisible();
+      await page.getByRole('button', { name: 'Examples' }).click();
+      await expect(page.getByRole('heading', { name: 'AI Research Weekly' })).toBeVisible();
+      await page.getByRole('button', { name: 'Next' }).click();
+      await expect(page.getByRole('heading', { name: 'Startup Signals' })).toBeVisible();
+      await page.getByRole('button', { name: 'Use' }).click();
+      await expect(page.getByRole('heading', { name: 'Name' })).toBeVisible();
+      await expect(page.locator('.podcast-form-card input')).toHaveCount(1);
       expect(rendererErrors).toEqual([]);
     } catch (error) {
       if (page) {

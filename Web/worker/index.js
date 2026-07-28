@@ -974,7 +974,7 @@ function validLibraryPath(path) {
 		typeof path === 'string' &&
 		path.length > 0 &&
 		path.length <= 1024 &&
-		(path === 'topics.md' || path.startsWith('library/')) &&
+		(path === 'topics.md' || path.startsWith('library/') || path.startsWith('podcasts/')) &&
 		!path.split('/').some((component) => !component || component === '.' || component === '..')
 	);
 }
@@ -2927,37 +2927,6 @@ async function completeStripeCheckout(env, session) {
 			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
 		).bind(reservationID)
 	];
-	const paidCents =
-		session?.currency === 'eur' && Number.isSafeInteger(session?.amount_total)
-			? Math.max(0, session.amount_total)
-			: 0;
-	if (paidCents > 0 && typeof session.id === 'string') {
-		const amountMicros = paidCents * 1_000_000;
-		statements.push(
-			env.DB.prepare(
-				`INSERT OR IGNORE INTO tts_accounts (
-					account_id, balance_micros, created_at, updated_at
-				) VALUES (?, 0, ?, ?)`
-			).bind(accountID, now, now),
-			env.DB.prepare(
-				`INSERT OR IGNORE INTO tts_welcome_credits (
-					account_id, stripe_checkout_session_id, amount_micros, created_at, credited_at
-				) VALUES (?, ?, ?, ?, NULL)`
-			).bind(accountID, session.id, amountMicros, now),
-			env.DB.prepare(
-				`UPDATE tts_accounts
-				 SET balance_micros = balance_micros + ?, updated_at = ?
-				 WHERE account_id = ? AND EXISTS (
-					SELECT 1 FROM tts_welcome_credits
-					WHERE account_id = ? AND stripe_checkout_session_id = ? AND credited_at IS NULL
-				 )`
-			).bind(amountMicros, now, accountID, accountID, session.id),
-			env.DB.prepare(
-				`UPDATE tts_welcome_credits SET credited_at = ?
-				 WHERE account_id = ? AND stripe_checkout_session_id = ? AND credited_at IS NULL`
-			).bind(now, accountID, session.id)
-		);
-	}
 	await env.DB.batch(statements);
 }
 
@@ -3753,8 +3722,6 @@ async function prepareShareLink(
 	token,
 	captureID,
 	generation,
-	voice,
-	model,
 	directSource = null
 ) {
 	try {
@@ -3800,75 +3767,6 @@ async function prepareShareLink(
 					document.wordCount
 				)
 				.run();
-		}
-
-		if (!directSource && env.SHARE_MEDIA) {
-			const remoteAudio = await driveAudioFilesByHash(env, email);
-			for (const document of documents) {
-				const displayText =
-					document.variant === 'source'
-						? parsedMarkdownDocument(document.markdown, personal.entry.title).body
-						: document.markdown;
-				const chunks = shareSpeechChunks(shareSpokenText(displayText));
-				let matchingVoice;
-				let hashes = [];
-				const candidateModels = [model, legacyGrokVoiceModel].filter(
-					(candidate, index, values) => values.indexOf(candidate) === index
-				);
-				for (const candidateModel of candidateModels) {
-					const candidateVoices = [
-						voice,
-						...(openRouterModelVoices.get(candidateModel) ?? knownVoices)
-					].filter(
-						(candidate, index, values) => values.indexOf(candidate) === index
-					);
-					for (const candidateVoice of candidateVoices) {
-						const candidateHashes = await Promise.all(
-							chunks.map((chunk) =>
-								shareAudioFingerprint(chunk, candidateVoice, candidateModel)
-							)
-						);
-						if (
-							candidateHashes.length > 0 &&
-							candidateHashes.every((hash) => remoteAudio.has(hash))
-						) {
-							matchingVoice = candidateVoice;
-							hashes = candidateHashes;
-							break;
-						}
-					}
-					if (matchingVoice) break;
-				}
-				if (!matchingVoice) continue;
-				for (let index = 0; index < hashes.length; index += 1) {
-					const hash = hashes[index];
-					const remote = remoteAudio.get(hash);
-					const bytes = await downloadDriveFile(env, email, remote.id);
-					const contentType = remote.mimeType || 'audio/mpeg';
-					const r2Key = `shares/${token}/${generation}/${document.variant}/${index}-${hash}.mp3`;
-					await env.SHARE_MEDIA.put(r2Key, bytes, {
-						httpMetadata: { contentType }
-					});
-					await env.DB.prepare(
-						`INSERT OR REPLACE INTO share_audio_segments (
-							share_token, generation, variant, segment_index, audio_hash,
-							r2_key, content_type, byte_count, voice
-						) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-					)
-						.bind(
-							token,
-							generation,
-							document.variant,
-							index,
-							hash,
-							r2Key,
-							contentType,
-							bytes.byteLength,
-							matchingVoice
-						)
-						.run();
-				}
-			}
 		}
 
 		const metadata = {
@@ -4005,13 +3903,8 @@ async function publishShareLink(request, env, context) {
 		return json({ error: 'Invalid share-link request.' }, { status: 400 });
 	}
 	const captureID = value?.captureID;
-	const voice = requestedOpenRouterVoice(value?.voice) ?? 'af_heart';
-	const model = requestedOpenRouterModel(value?.model, voice);
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
-	}
-	if (!model || !voiceSupportedByModel(model, voice)) {
-		return json({ error: 'Choose a supported OpenRouter model and voice.' }, { status: 400 });
 	}
 	let source;
 	try {
@@ -4040,7 +3933,6 @@ async function publishShareLink(request, env, context) {
 			generation = excluded.generation,
 			revision = share_links.revision + 1,
 			status = 'preparing',
-			voice = excluded.voice,
 			error_message = NULL,
 			updated_at = excluded.updated_at`
 	)
@@ -4049,7 +3941,7 @@ async function publishShareLink(request, env, context) {
 			email,
 			captureID,
 			generation,
-			voice,
+			'af_heart',
 			now,
 			now,
 			email,
@@ -4070,7 +3962,7 @@ async function publishShareLink(request, env, context) {
 	const record = await shareLinkForOwner(env, email, captureID);
 	scheduleSharingOperation(
 		context,
-		prepareShareLink(env, email, record.token, captureID, generation, voice, model, source)
+		prepareShareLink(env, email, record.token, captureID, generation, source)
 	);
 	return json(shareLinkResponse(request, record), { status: 202 });
 }
@@ -4118,22 +4010,12 @@ async function publicShareDocument(request, env, token) {
 			{ status: record.status === 'preparing' ? 202 : 409 }
 		);
 	}
-	const [textResult, audioResult] = await Promise.all([
-		env.DB.prepare(
-			`SELECT variant, markdown, word_count FROM share_texts
-			 WHERE share_token = ? AND generation = ?`
-		)
-			.bind(token, record.generation)
-			.all(),
-		env.DB.prepare(
-			`SELECT variant, segment_index, content_type, byte_count, voice
-			 FROM share_audio_segments
-			 WHERE share_token = ? AND generation = ?
-			 ORDER BY variant, segment_index`
-		)
-			.bind(token, record.generation)
-			.all()
-	]);
+	const textResult = await env.DB.prepare(
+		`SELECT variant, markdown, word_count FROM share_texts
+		 WHERE share_token = ? AND generation = ?`
+	)
+		.bind(token, record.generation)
+		.all();
 	let metadata = {};
 	try {
 		metadata = JSON.parse(record.metadata_json ?? '{}');
@@ -4152,21 +4034,12 @@ async function publicShareDocument(request, env, token) {
 		.sort(
 			(a, b) => shareVariants.indexOf(a.variant) - shareVariants.indexOf(b.variant)
 		);
-	const audio = (audioResult.results ?? []).map((segment) => ({
-		variant: segment.variant,
-		index: Number(segment.segment_index),
-		contentType: segment.content_type,
-		byteCount: Number(segment.byte_count),
-		voice: segment.voice,
-		url: `/api/public/shares/${token}/audio/${segment.variant}/${segment.segment_index}`
-	}));
 	return json({
 		status: 'ready',
 		token,
 		revision: Number(record.revision ?? 1),
 		...metadata,
 		texts,
-		audio,
 		updatedAt: record.updated_at
 	});
 }
@@ -5809,18 +5682,6 @@ const worker = {
 		if (publicShare && request.method === 'GET') {
 			return publicShareDocument(request, env, publicShare[1]);
 		}
-		const publicShareAudioMatch = url.pathname.match(
-			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(brief|concise|detailed|comprehensive|source)\/(\d+)$/
-		);
-		if (publicShareAudioMatch && request.method === 'GET') {
-			return publicShareAudio(
-				request,
-				env,
-				publicShareAudioMatch[1],
-				publicShareAudioMatch[2],
-				Number(publicShareAudioMatch[3])
-			);
-		}
 		const publicShareImport = url.pathname.match(
 			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/import$/
 		);
@@ -5829,23 +5690,6 @@ const worker = {
 			if (denied) return denied;
 			return importPublicShare(request, env, publicShareImport[1], context);
 		}
-		const ownerShareAudio = url.pathname.match(
-			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(brief|concise|detailed|comprehensive|source)\/(\d+)\/([a-f0-9]{64})$/
-		);
-		if (ownerShareAudio && request.method === 'PUT') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return uploadShareAudio(
-				request,
-				env,
-				ownerShareAudio[1],
-				ownerShareAudio[2],
-				ownerShareAudio[3],
-				Number(ownerShareAudio[4]),
-				ownerShareAudio[5]
-			);
-		}
-
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
 			return accountStatus(request, env);
 		}
@@ -5887,15 +5731,6 @@ const worker = {
 		}
 		if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
 			return stripeWebhook(request, env);
-		}
-		if (url.pathname === '/api/tts/status' && request.method === 'GET') {
-			return ttsStatus(request, env);
-		}
-		if (url.pathname === '/api/tts/checkout' && request.method === 'POST') {
-			return createTTSCheckoutSession(request, env);
-		}
-		if (url.pathname === '/api/tts' && request.method === 'POST') {
-			return createSpeech(request, env);
 		}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
 			const denied = await paidAccessResponse(request, env);
@@ -5945,22 +5780,6 @@ const worker = {
 		if (url.pathname === '/api/sync/provider' && request.method === 'POST') {
 			return setSyncProvider(request, env);
 		}
-		if (url.pathname === '/api/media/audio' && request.method === 'GET') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return listDriveAudio(request, env);
-		}
-		const media = mediaPath(url);
-		if (media && request.method === 'GET') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return downloadDriveMedia(request, env, media);
-		}
-		if (media && request.method === 'PUT') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return uploadDriveMedia(request, env, media);
-		}
 		if (url.pathname.startsWith('/api/')) {
 			return json({ error: 'Not found.' }, { status: 404 });
 		}
@@ -5975,8 +5794,7 @@ const worker = {
 		context.waitUntil(
 			Promise.all([
 				reconcileStripeSubscriptions(env),
-				releaseStaleTTSReservations(env),
-				grantAllComplimentaryMonthlyTTSCredits(env)
+				releaseStaleTTSReservations(env)
 			])
 		);
 	}

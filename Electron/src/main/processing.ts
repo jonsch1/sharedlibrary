@@ -28,6 +28,7 @@ const schema = {
   },
   required: ['short_filename', 'summaries', 'topic_name']
 };
+const processingTimeoutMilliseconds = 5 * 60 * 1000;
 
 export const defaultProcessingPrompt = `You are preparing one captured source for a local knowledge library.
 
@@ -65,7 +66,7 @@ export class ProcessingService {
   ): Promise<string> {
     const input = await library.processingInput(entryID);
     const prompt = renderProcessingPrompt(await this.promptTemplate(), input);
-    const value = await runCodex(prompt);
+    const value = await runCodexJSON(prompt);
     const suggestion = normalizeSuggestion(value);
     return library.applyProcessingSuggestion(entryID, suggestion, topicIDOverride);
   }
@@ -98,12 +99,25 @@ export function renderProcessingPrompt(
     .replaceAll('{{source}}', source);
 }
 
-async function runCodex(prompt: string): Promise<unknown> {
+export async function runCodexText(prompt: string): Promise<string> {
+  return (await runCodex(prompt)).trim();
+}
+
+async function runCodexJSON(prompt: string): Promise<unknown> {
+  return JSON.parse(await runCodex(prompt, schema)) as unknown;
+}
+
+async function runCodex(
+  prompt: string,
+  outputSchema?: Record<string, unknown>
+): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'shared-library-process-'));
   try {
     const schemaPath = join(directory, 'schema.json');
     const outputPath = join(directory, 'output.json');
-    await writeFile(schemaPath, JSON.stringify(schema), 'utf8');
+    if (outputSchema) {
+      await writeFile(schemaPath, JSON.stringify(outputSchema), 'utf8');
+    }
     const executable = await codexExecutable();
     await new Promise<void>((resolve, reject) => {
       const child = spawn(
@@ -121,8 +135,7 @@ async function runCodex(prompt: string): Promise<unknown> {
           '--skip-git-repo-check',
           '--color',
           'never',
-          '--output-schema',
-          schemaPath,
+          ...(outputSchema ? ['--output-schema', schemaPath] : []),
           '--output-last-message',
           outputPath,
           '-C',
@@ -136,18 +149,26 @@ async function runCodex(prompt: string): Promise<unknown> {
         }
       );
       let error = '';
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error('Codex processing timed out after 5 minutes.'));
+      }, processingTimeoutMilliseconds);
       child.stderr.on('data', (chunk) => {
         error += String(chunk);
         if (error.length > 100_000) error = error.slice(-100_000);
       });
-      child.on('error', reject);
+      child.on('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
       child.on('close', (code) => {
+        clearTimeout(timeout);
         if (code === 0) resolve();
         else reject(new Error(conciseError(error)));
       });
       child.stdin.end(prompt);
     });
-    return JSON.parse(await readFile(outputPath, 'utf8')) as unknown;
+    return readFile(outputPath, 'utf8');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

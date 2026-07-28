@@ -1,11 +1,8 @@
 import { BrowserWindow, session } from 'electron';
-import { randomUUID } from 'node:crypto';
 import type {
   AccountProvider,
   ConnectionProvider,
   LibraryVariant,
-  OpenRouterTTSModel,
-  OpenRouterVoice,
   ShareLinkStatus
 } from '../shared/contracts.js';
 import type {
@@ -15,6 +12,7 @@ import type {
 } from './library.js';
 
 const backendOrigin = 'https://www.readbriefly.fyi';
+const podcastSpeechEndpoint = 'https://jonsch1--briefly-kokoro-speech.modal.run';
 
 interface AccountStatus {
   authenticated: boolean;
@@ -85,9 +83,35 @@ export class BackendClient {
     return this.json(response, 'Could not read the Briefly account.');
   }
 
-  async ttsStatus(): Promise<Record<string, unknown>> {
-    const response = await this.fetch('/api/tts/status');
-    return this.json(response, 'Could not read the AI voice balance.');
+  async generatePodcastAudio(text: string): Promise<Uint8Array> {
+    const [cookie] = await session.defaultSession.cookies.get({
+      url: backendOrigin,
+      name: 'shared_library_session'
+    });
+    if (!cookie?.value) throw new Error('Sign in to Briefly to generate podcast audio.');
+    const response = await session.defaultSession.fetch(podcastSpeechEndpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'audio/wav',
+        Authorization: `Bearer ${cookie.value}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ text })
+    });
+    if (!response.ok) {
+      throw new Error(
+        await this.errorMessage(response, 'Podcast audio could not be generated.')
+      );
+    }
+    const audio = new Uint8Array(await response.arrayBuffer());
+    if (
+      audio.length < 44 ||
+      new TextDecoder().decode(audio.subarray(0, 4)) !== 'RIFF' ||
+      new TextDecoder().decode(audio.subarray(8, 12)) !== 'WAVE'
+    ) {
+      throw new Error('Podcast audio service returned an invalid WAV file.');
+    }
+    return audio;
   }
 
   async signIn(provider: AccountProvider, parent: BrowserWindow | null): Promise<void> {
@@ -200,66 +224,6 @@ export class BackendClient {
     return this.json(response, 'Could not synchronize the library with Google Drive.');
   }
 
-  async loadAudio(hash: string): Promise<Uint8Array | null> {
-    if (this.activeSyncProvider === 'icloud') {
-      const base64 = await this.callICloud<string | null>('loadAudio', [hash]).catch(() => null);
-      return base64 ? new Uint8Array(Buffer.from(base64, 'base64')) : null;
-    }
-    const response = await this.fetch(`/api/media/audio/${hash}`);
-    if (response.status === 401 || response.status === 404) return null;
-    if (!response.ok) return null;
-    return new Uint8Array(await response.arrayBuffer());
-  }
-
-  async storeAudio(hash: string, bytes: Uint8Array): Promise<void> {
-    if (this.activeSyncProvider === 'icloud') {
-      await this.callICloud<void>('storeAudio', [hash, Buffer.from(bytes).toString('base64')]);
-      return;
-    }
-    const response = await this.fetch(`/api/media/audio/${hash}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'audio/mpeg' },
-      body: bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength
-      ) as ArrayBuffer
-    });
-    if (response.status === 401 || response.status === 404) return;
-    await this.json(response, 'Could not back up narration to Google Drive.');
-  }
-
-  async createSpeech(
-    text: string,
-    voice: OpenRouterVoice,
-    model: OpenRouterTTSModel
-  ): Promise<Uint8Array> {
-    const response = await this.createSpeechResponse(text, voice, model);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.byteLength) throw new Error('Briefly AI voice returned empty narration.');
-    return bytes;
-  }
-
-  async createSpeechResponse(
-    text: string,
-    voice: OpenRouterVoice,
-    model: OpenRouterTTSModel
-  ): Promise<Response> {
-    const response = await this.fetch('/api/tts', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'audio/mpeg',
-        'X-Briefly-Request-Id': randomUUID()
-      },
-      body: JSON.stringify({ input: text, voice, model })
-    });
-    if (!response.ok) {
-      throw new Error(await this.errorMessage(response, 'Narration could not be generated.'));
-    }
-    if (!response.body) throw new Error('Briefly AI voice returned empty narration.');
-    return response;
-  }
-
   async shareStatus(captureID: string): Promise<ShareLinkStatus> {
     const response = await this.fetch(
       `/api/share-links?captureID=${encodeURIComponent(captureID)}`
@@ -269,42 +233,14 @@ export class BackendClient {
 
   async publishShare(
     captureID: string,
-    voice: OpenRouterVoice,
-    model: OpenRouterTTSModel,
     source?: ShareLinkSource
   ): Promise<ShareLinkStatus> {
     const response = await this.fetch('/api/share-links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ captureID, voice, model, source })
+      body: JSON.stringify({ captureID, source })
     });
     return this.json(response, 'Could not create the share link.');
-  }
-
-  async uploadShareAudio(
-    share: Pick<ShareLinkStatus, 'token' | 'generation'>,
-    variant: LibraryVariant,
-    index: number,
-    hash: string,
-    voice: OpenRouterVoice,
-    bytes: Uint8Array
-  ): Promise<void> {
-    if (!share.token || !share.generation) return;
-    const response = await this.fetch(
-      `/api/share-links/${encodeURIComponent(share.token)}/audio/${encodeURIComponent(share.generation)}/${variant}/${index}/${hash}`,
-      {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'audio/mpeg',
-          'X-Briefly-Voice': voice
-        },
-        body: bytes.buffer.slice(
-          bytes.byteOffset,
-          bytes.byteOffset + bytes.byteLength
-        ) as ArrayBuffer
-      }
-    );
-    await this.json(response, 'Could not publish existing narration.');
   }
 
   async revokeShare(token: string): Promise<void> {

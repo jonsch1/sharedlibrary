@@ -28,6 +28,8 @@ export interface LibraryFile {
 export interface LibraryEntry {
 	id: string;
 	captureID?: string;
+	entryType?: string;
+	podcastID?: string;
 	title: string;
 	excerpt: string;
 	topicIDs: string[];

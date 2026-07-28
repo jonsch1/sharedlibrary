@@ -30,8 +30,8 @@
 	<section>
 		<h2>Service and content</h2>
 		<p>
-			Briefly provides software for capturing, organizing, reading, synchronizing, narrating, and
-			sharing documents. Users remain responsible for content they add or deliberately publish
+			Briefly provides software for capturing, organizing, reading, synchronizing, creating scheduled
+			podcast episodes, and sharing documents. Users remain responsible for content they add or deliberately publish
 			through a share link. Reports concerning the service or a public share can be sent to
 			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>.
 		</p>

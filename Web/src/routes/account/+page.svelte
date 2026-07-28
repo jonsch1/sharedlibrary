@@ -15,14 +15,6 @@
 		type BillingStatus
 	} from '$lib/billing.js';
 	import {
-		beginManagedTTSTopUp,
-		consumeManagedTTSResult,
-		formatTTSMicros,
-		loadManagedTTSStatus,
-		openRouterTTSOptions,
-		type ManagedTTSStatus
-	} from '$lib/openrouter.js';
-	import {
 		loadPublishedShareLinks,
 		revokeShareLink,
 		type PublishedShareLinks,
@@ -55,7 +47,6 @@
 
 	let account = $state<AccountStatus | null>(null);
 	let billing = $state<BillingStatus | null>(null);
-	let tts = $state<ManagedTTSStatus | null>(null);
 	let published = $state<PublishedShareLinks>({ limit: 200, links: [] });
 	let loading = $state(true);
 	let busy = $state(false);
@@ -71,7 +62,6 @@
 
 	async function initialize(): Promise<void> {
 		const billingResult = consumeBillingResult();
-		const ttsResult = consumeManagedTTSResult();
 		const googleResult = consumeGoogleDriveConnectionResult();
 		const resultURL = new URL(window.location.href);
 		const iCloudResult = resultURL.searchParams.get('icloud');
@@ -84,22 +74,18 @@
 			);
 		}
 		try {
-			const [accountResponse, nextBilling, nextTTS, nextPublished] = await Promise.all([
+			const [accountResponse, nextBilling, nextPublished] = await Promise.all([
 				fetch('/api/auth/status', { cache: 'no-store' }),
 				loadBillingStatus(),
-				loadManagedTTSStatus(),
 				loadPublishedShareLinks().catch(() => null)
 			]);
 			account = (await accountResponse.json()) as AccountStatus;
 			billing = nextBilling;
-			tts = nextTTS;
 			if (nextPublished) published = nextPublished;
 			if (billingResult === 'success') {
 				message = nextBilling.entitled
 					? 'Your Briefly membership is active.'
 					: 'Payment completed. Membership activation may take a moment.';
-			} else if (ttsResult === 'success') {
-				message = 'Your AI voice credit is ready.';
 			} else if (googleResult === 'connected') {
 				message = 'Google Drive is connected and selected for library sync.';
 			} else if (iCloudResult === 'connected') {
@@ -108,7 +94,7 @@
 				message = emptyICloudLibraryMessage;
 			} else if (googleResult) {
 				message = 'Google Drive could not be connected.';
-			} else if (billingResult === 'cancelled' || ttsResult === 'cancelled') {
+			} else if (billingResult === 'cancelled') {
 				message = 'Checkout was cancelled.';
 			} else if (account.authenticated && !nextPublished) {
 				message = 'Your published links could not be loaded.';
@@ -202,17 +188,6 @@
 		}
 	}
 
-	async function topUp(amount: number): Promise<void> {
-		if (busy) return;
-		busy = true;
-		try {
-			await beginManagedTTSTopUp(amount);
-		} catch (error) {
-			message = error instanceof Error ? error.message : 'AI voice checkout could not be opened.';
-			busy = false;
-		}
-	}
-
 	async function signOut(): Promise<void> {
 		if (busy) return;
 		busy = true;
@@ -255,7 +230,7 @@
 
 <svelte:head>
 	<title>Your account — Briefly</title>
-	<meta name="description" content="Manage your Briefly membership, AI voice credit, and app downloads." />
+	<meta name="description" content="Manage your Briefly membership, sync, and app downloads." />
 </svelte:head>
 
 <main class="account-page">
@@ -274,7 +249,7 @@
 		<section class="account-state">
 			<p class="eyebrow">Briefly account</p>
 			<h1>Sign in before you start.</h1>
-			<p>Your account holds membership, app downloads, sync settings, and AI voice credit.</p>
+			<p>Your account holds membership, app downloads, and sync settings.</p>
 			<div class="sign-in-actions">
 				{#if account?.providers?.apple !== false}
 					<a class="primary-action" href="/api/auth/apple/start?return_to=%2Faccount">
@@ -329,24 +304,6 @@
 									: 'Choose Briefly'}
 								<ArrowUpRightIcon />
 							</button>
-						{/if}
-					</div>
-				</section>
-
-				<section class="account-card">
-					<div>
-						<p class="eyebrow">AI voice</p>
-						<h2>{formatTTSMicros(tts?.balanceMicros ?? 0)}</h2>
-						<p>Prepaid credit · charged only for successful generations.</p>
-						{#if tts?.checkoutConfigured}
-							<div class="topups">
-								{#each tts.topUpAmounts as amount}
-									<button onclick={() => topUp(amount)} disabled={busy}>
-										Pay {formatMonthlyPrice(amount)}
-									</button>
-								{/each}
-							</div>
-							<p>Payment includes applicable VAT; the added credit excludes VAT.</p>
 						{/if}
 					</div>
 				</section>
@@ -521,21 +478,6 @@
 				{/if}
 			</section>
 
-			<section class="voice-rates">
-				<div>
-					<p class="eyebrow">AI voice rates</p>
-					<h2>Estimated listening time per euro</h2>
-				</div>
-				<div>
-					{#each openRouterTTSOptions as option}
-						<span>
-							<b>{option.quality}</b>
-							<strong>≈{option.hoursPerEuro} {option.hoursPerEuro === 1 ? 'hour' : 'hours'}/€</strong>
-						</span>
-					{/each}
-				</div>
-			</section>
-
 			<footer>
 				<span>Need help or account deletion? <a href="mailto:hello@readbriefly.fyi">Contact support</a>.</span>
 				<nav><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/imprint">Imprint</a></nav>
@@ -571,8 +513,6 @@
 	.secondary-action,
 	.primary-action,
 	.download-grid a,
-	.voice-rates,
-	.voice-rates span,
 	footer,
 	footer nav {
 		display: flex;
@@ -725,15 +665,14 @@
 
 	.account-grid {
 		display: grid;
-		grid-template-columns: 1.35fr 1fr 1fr;
+		grid-template-columns: 1.35fr 1fr;
 		gap: 12px;
 		margin-top: 48px;
 	}
 
 	.account-card,
 	.published-links,
-	.downloads,
-	.voice-rates {
+	.downloads {
 		border: 1px solid rgb(21 21 18 / 14%);
 		border-radius: 22px;
 		background: rgb(250 248 241 / 72%);
@@ -758,8 +697,7 @@
 	}
 
 	.account-card h2,
-	.downloads h2,
-	.voice-rates h2 {
+	.downloads h2 {
 		margin: 6px 0 10px;
 		font-size: 25px;
 		letter-spacing: -0.04em;
@@ -818,24 +756,6 @@
 		font-size: 10px;
 		text-decoration: underline;
 		cursor: pointer;
-	}
-
-	.topups {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		margin-top: 20px;
-	}
-
-	.topups button {
-		min-height: 34px;
-		padding: 0 11px;
-		border: 1px solid rgb(21 21 18 / 14%);
-		border-radius: 999px;
-		background: transparent;
-		font: inherit;
-		font-size: 10px;
-		font-weight: 700;
 	}
 
 	.published-links {
@@ -1033,36 +953,6 @@
 		font-size: 12px;
 	}
 
-	.voice-rates {
-		justify-content: space-between;
-		gap: 30px;
-		margin-top: 12px;
-		padding: 28px;
-	}
-
-	.voice-rates > div:last-child {
-		display: flex;
-		gap: 8px;
-	}
-
-	.voice-rates span {
-		min-width: 140px;
-		justify-content: space-between;
-		gap: 14px;
-		padding: 13px;
-		border: 1px solid rgb(21 21 18 / 12%);
-		border-radius: 12px;
-	}
-
-	.voice-rates span b {
-		color: #69675e;
-		font-size: 10px;
-	}
-
-	.voice-rates span strong {
-		font-size: 12px;
-	}
-
 	footer {
 		justify-content: space-between;
 		gap: 20px;
@@ -1084,11 +974,6 @@
 			min-height: 240px;
 		}
 
-		.voice-rates,
-		.voice-rates > div:last-child {
-			align-items: stretch;
-			flex-direction: column;
-		}
 	}
 
 	@media (max-width: 600px) {

@@ -4,7 +4,6 @@ import { build, files, version } from '$service-worker';
 
 const worker = self as unknown as ServiceWorkerGlobalScope;
 const cacheName = `shared-library-${version}`;
-const audioCacheName = 'shared-library-openrouter-audio-v1';
 const applicationFiles = [...build, ...files];
 
 worker.addEventListener('install', (event) => {
@@ -23,7 +22,7 @@ worker.addEventListener('activate', (event) => {
 			.then((keys) =>
 				Promise.all(
 					keys
-						.filter((key) => key !== cacheName && key !== audioCacheName)
+						.filter((key) => key !== cacheName)
 						.map((key) => caches.delete(key))
 				)
 			)

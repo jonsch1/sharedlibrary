@@ -4,7 +4,6 @@ import {
 	importICloudShare,
 	type ICloudShareImport
 } from '$lib/icloud.js';
-import type { OpenRouterVoice } from '$lib/openrouter.js';
 
 export interface ShareLinkStatus {
 	shared: boolean;
@@ -19,7 +18,6 @@ export interface ShareLinkStatus {
 		title?: string;
 		excerpt?: string;
 	};
-	voice?: OpenRouterVoice;
 	updatedAt?: string;
 }
 
@@ -47,15 +45,6 @@ export interface PublicShareText {
 	wordCount: number;
 }
 
-export interface PublicShareAudioSegment {
-	variant: LibraryVariant;
-	index: number;
-	contentType: string;
-	byteCount: number;
-	voice: OpenRouterVoice;
-	url: string;
-}
-
 export interface PublicShareDocument {
 	status: 'ready';
 	token: string;
@@ -70,7 +59,6 @@ export interface PublicShareDocument {
 	createdAt?: string;
 	updatedAt?: string;
 	texts: PublicShareText[];
-	audio: PublicShareAudioSegment[];
 }
 
 export interface PendingPublicShare {
@@ -115,45 +103,18 @@ export async function loadPublishedShareLinks(): Promise<PublishedShareLinks> {
 
 export async function publishShareLink(
 	captureID: string,
-	voice: OpenRouterVoice,
-	model: string,
 	source?: ShareLinkSource
 ): Promise<ShareLinkStatus> {
 	const response = await fetch('/api/share-links', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-		body: JSON.stringify({ captureID, voice, model, source })
+		body: JSON.stringify({ captureID, source })
 	});
 	if (response.status === 401) throw new Error('Sign in to create a share link.');
 	if (!response.ok) {
 		throw new Error(await responseError(response, 'Could not create the share link.'));
 	}
 	return (await response.json()) as ShareLinkStatus;
-}
-
-export async function publishShareAudio(
-	share: Pick<ShareLinkStatus, 'token' | 'generation'>,
-	variant: LibraryVariant,
-	index: number,
-	hash: string,
-	voice: OpenRouterVoice,
-	audio: Blob
-): Promise<void> {
-	if (!share.token || !share.generation) return;
-	const response = await fetch(
-		`/api/share-links/${encodeURIComponent(share.token)}/audio/${encodeURIComponent(share.generation)}/${variant}/${index}/${hash}`,
-		{
-			method: 'PUT',
-			headers: {
-				'Content-Type': audio.type || 'audio/mpeg',
-				'X-Briefly-Voice': voice
-			},
-			body: audio
-		}
-	);
-	if (!response.ok) {
-		throw new Error(await responseError(response, 'Could not publish existing narration.'));
-	}
 }
 
 export async function revokeShareLink(token: string): Promise<void> {

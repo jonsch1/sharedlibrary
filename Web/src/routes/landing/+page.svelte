@@ -13,7 +13,6 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import RssIcon from '@lucide/svelte/icons/rss';
-	import VolumeIcon from '@lucide/svelte/icons/volume-2';
 	import {
 		beginBrieflyPlusCheckout,
 		formatMonthlyPrice,
@@ -772,11 +771,11 @@
 					<h3>Clarify</h3>
 					<p>Briefly extracts the signal and writes every useful level of detail.</p>
 				</article>
-				<article class="step-card reveal">
-					<span>03</span>
-					<h3>Connect</h3>
-					<p>Find it, read it, hear it, share it, or give it to an agent.</p>
-				</article>
+					<article class="step-card reveal">
+						<span>03</span>
+						<h3>Connect</h3>
+						<p>Find it, share it, give it to an agent, or turn updates into a scheduled podcast.</p>
+					</article>
 			</div>
 		</section>
 
@@ -788,7 +787,7 @@
 					Not every source deserves an hour. Not every question can be answered in a sentence.
 					Choose exactly how deep you want to go.
 				</p>
-				<div class="listen-chip"><VolumeIcon /> Every level can be read aloud</div>
+				<div class="listen-chip"><RssIcon /> Watch sources and schedule podcast episodes</div>
 			</div>
 
 			<div class="product-demo reveal">
@@ -928,14 +927,14 @@
 								</div>
 							{/each}
 						</div>
-						<ul>
-							<li><CheckCircleIcon /> Capture links, files, and notes</li>
-							<li><CheckCircleIcon /> Four reading depths + read aloud</li>
-							<li><CheckCircleIcon /> Local, searchable Markdown library</li>
-							<li><CheckCircleIcon /> Sync your library across devices</li>
-							<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
-							<li><CheckCircleIcon /> First month's payment matched in AI voice credit</li>
-						</ul>
+							<ul>
+								<li><CheckCircleIcon /> Capture links, files, and notes</li>
+								<li><CheckCircleIcon /> Four useful reading depths</li>
+								<li><CheckCircleIcon /> Local, searchable Markdown library</li>
+								<li><CheckCircleIcon /> Scheduled podcasts from watched sources</li>
+								<li><CheckCircleIcon /> Sync your library across devices</li>
+								<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
+							</ul>
 						{#if billing?.entitled && billing.subscription}
 							<button
 								class="pricing-cta"

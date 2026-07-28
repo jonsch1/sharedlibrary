@@ -12,8 +12,7 @@
 		<p>
 			Briefly does <strong>not</strong> use advertising cookies, cross-site trackers, analytics
 			cookies, tracking pixels, or device fingerprinting. It uses one first-party session cookie
-			after sign-in and local browser storage for the offline library, narration cache, and
-			preferences you choose.
+			after sign-in and local browser storage for the offline library and preferences you choose.
 		</p>
 		<div class="legal-callout">
 			<p>
@@ -47,7 +46,7 @@
 		</table>
 		<p>
 			Apple, Google, Stripe, or GitHub may set their own cookies when you choose to visit
-			their domains for sign-in, iCloud or Drive connection, AI voice top-up, billing management, or
+			their domains for sign-in, iCloud or Drive connection, billing management, or
 			downloads. Their notices govern those cookies; Briefly cannot read them.
 		</p>
 	</section>
@@ -72,20 +71,20 @@
 				</tr>
 				<tr>
 					<td>Cache API</td>
-					<td>Application files and generated narration audio.</td>
-					<td>Makes the web app work offline and avoids regenerating or redownloading narration.</td>
-					<td>App files rotate with releases; audio remains until cleared or the browser evicts it.</td>
+					<td>Application files.</td>
+					<td>Makes the web app work offline.</td>
+					<td>Files rotate with releases or remain until cleared or evicted by the browser.</td>
 				</tr>
 				<tr>
 					<td>Local storage</td>
-					<td>Selected topic and your preferred AI voice quality and narrator.</td>
+					<td>Selected topic and interface preferences.</td>
 					<td>Restores the interface choices you made.</td>
 					<td>Until you change them or clear the site's data.</td>
 				</tr>
 			</tbody>
 		</table>
 		<p>
-			This local data normally stays on your device. Sync and narration features request the
+			This local data normally stays on your device. Sync features request the
 			necessary data through Briefly's service as described in the <a href="/privacy">Privacy Notice</a>.
 		</p>
 	</section>

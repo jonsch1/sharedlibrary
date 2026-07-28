@@ -6,41 +6,36 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
-  net,
   nativeImage,
+  powerMonitor,
   protocol,
   shell
 } from 'electron';
 import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
 import type { MessageBoxOptions } from 'electron';
 import { spawn } from 'node:child_process';
+import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import electronUpdater from 'electron-updater';
-import type {
-  AccountProvider,
-  DesktopConnectionStatus,
-  DesktopIngestionStatus,
-  DesktopShortcutPreferences,
-  LibraryVariant,
-  OpenRouterTTSModel,
-  OpenRouterVoice,
-  ProcessingPreferences,
-  ProcessingPreferencesUpdate
+import {
+  promptIDs,
+  type PromptID,
+  type PromptPreferences,
+  type PromptPreferenceUpdate,
+  type AccountProvider,
+  type DesktopConnectionStatus,
+  type DesktopIngestionStatus,
+  type DesktopShortcutPreferences,
+  type LibraryVariant,
+  type ProcessingPreferences,
+  type ProcessingPreferencesUpdate
 } from '../shared/contracts.js';
 import {
   defaultCaptureShortcut,
   normalizeCaptureShortcut
 } from '../shared/shortcuts.js';
-import {
-  defaultOpenRouterTTSModel,
-  isVoiceForTTSModel,
-  migrateVoiceForTTSModel,
-  normalizeOpenRouterVoice,
-  normalizeOpenRouterTTSModel,
-  recommendedVoiceForTTSModel
-} from '../shared/contracts.js';
 import {
   AgentApiServer,
   type BundledAgentSkill
@@ -48,34 +43,38 @@ import {
 import { BackendClient } from './backend.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService } from './library.js';
-import { NarrationService } from './narration.js';
 import {
   defaultProcessingPrompt,
   ProcessingService
 } from './processing.js';
+import {
+  defaultPodcastPrompt,
+  podcastAudioRange,
+  PodcastService
+} from './podcasts.js';
 import { SettingsStore } from './settings.js';
 import { SyncCoordinator } from './sync.js';
 
+app.setName('Briefly');
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'shared-library-audio',
+    scheme: 'briefly-podcast-audio',
     privileges: {
       secure: true,
       standard: true,
       stream: true,
-      supportFetchAPI: true
+      supportFetchAPI: true,
+      corsEnabled: true
     }
   }
 ]);
-app.setName('Briefly');
-// Preserve the existing profile so the rebrand keeps settings, sessions, and audio.
+// Preserve the existing profile so the rebrand keeps settings and sessions.
 if (
   !process.env.BRIEFLY_E2E_USER_DATA &&
   !process.env.SHARED_LIBRARY_E2E_USER_DATA
 ) {
   app.setPath('userData', join(app.getPath('appData'), 'shared-library-electron'));
 }
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let mainWindow: BrowserWindow | null = null;
 let agentApi: AgentApiServer;
@@ -84,10 +83,8 @@ let settings: SettingsStore;
 let backend: BackendClient;
 let extraction: ExtractionService;
 let processing: ProcessingService;
-let narration: NarrationService;
+let podcasts: PodcastService;
 let sync: SyncCoordinator;
-let voice: OpenRouterVoice = 'af_heart';
-let ttsModel: OpenRouterTTSModel = defaultOpenRouterTTSModel;
 let captureShortcut = defaultCaptureShortcut;
 let activeIngestionCount = 0;
 
@@ -112,10 +109,16 @@ function bundledAgentSkills(): BundledAgentSkill[] {
   const root = app.isPackaged
     ? join(process.resourcesPath, 'skills')
     : join(app.getAppPath(), 'resources', 'skills');
-  return ['briefly-deep-research', 'briefly-input-extension'].map((name) => ({
-    name,
-    sourcePath: join(root, name)
-  }));
+  return [
+    {
+      name: 'briefly-deep-research',
+      sourcePath: join(root, 'briefly-deep-research')
+    },
+    {
+      name: 'briefly-input-extension',
+      sourcePath: join(root, 'briefly-input-extension')
+    }
+  ];
 }
 
 async function snapshotAndNotify() {
@@ -210,18 +213,16 @@ function activateCaptureShortcut(next: string): boolean {
 
 async function connectionStatus(): Promise<DesktopConnectionStatus> {
   const account = await backend.accountStatus();
-  const [google, icloud, billing, tts] = account.authenticated
+  const [google, icloud, billing] = account.authenticated
     ? await Promise.all([
         backend.providerStatus('google'),
         backend.providerStatus('icloud'),
-        backend.billingStatus(),
-        backend.ttsStatus()
+        backend.billingStatus()
       ])
     : [
         { configured: true, connected: false },
         { configured: false, connected: false },
-        { entitled: false },
-        { configured: false, checkoutConfigured: false, balanceMicros: 0 }
+        { entitled: false }
       ];
   return {
     authenticated: account.authenticated,
@@ -237,17 +238,7 @@ async function connectionStatus(): Promise<DesktopConnectionStatus> {
       configured: icloud.configured === true,
       connected: icloud.connected === true
     },
-    tts: {
-      configured: tts.configured === true,
-      checkoutConfigured: tts.checkoutConfigured === true,
-      balanceMicros:
-        typeof tts.balanceMicros === 'number' && Number.isSafeInteger(tts.balanceMicros)
-          ? Math.max(0, tts.balanceMicros)
-          : 0
-    },
-    sync: sync.currentStatus(),
-    voice,
-    ttsModel
+    sync: sync.currentStatus()
   };
 }
 
@@ -258,6 +249,54 @@ async function processingPreferences(): Promise<ProcessingPreferences> {
     prompt: saved.processingPrompt ?? defaultProcessingPrompt,
     defaultPrompt: defaultProcessingPrompt
   };
+}
+
+async function promptPreferences(): Promise<PromptPreferences> {
+  const saved = await settings.load();
+  return {
+    prompts: [
+      {
+        id: 'summarization',
+        title: 'Summarization',
+        description: 'Creates every summary depth and assigns a topic to captured sources.',
+        prompt: saved.processingPrompt ?? defaultProcessingPrompt,
+        defaultPrompt: defaultProcessingPrompt,
+        requiredPlaceholders: ['{{topics}}', '{{source}}']
+      },
+      {
+        id: 'podcast',
+        title: 'Podcast',
+        description: 'Turns new podcast source notes into an episode script.',
+        prompt: saved.podcastPrompt ?? defaultPodcastPrompt,
+        defaultPrompt: defaultPodcastPrompt,
+        requiredPlaceholders: [
+          '{{podcast_title}}',
+          '{{requested_length}}',
+          '{{source_packets}}'
+        ]
+      }
+    ]
+  };
+}
+
+function normalizePromptPreferenceUpdate(value: unknown): PromptPreferenceUpdate {
+  if (!value || typeof value !== 'object') throw new Error('Prompt settings are invalid.');
+  const candidate = value as Partial<PromptPreferenceUpdate>;
+  if (!promptIDs.includes(candidate.id as PromptID)) {
+    throw new Error('The selected prompt does not exist.');
+  }
+  const prompt = typeof candidate.prompt === 'string' ? candidate.prompt.trim() : '';
+  if (!prompt) throw new Error('The prompt cannot be empty.');
+  if (prompt.length > 50_000) throw new Error('Prompts must be 50,000 characters or fewer.');
+  const required: Record<PromptID, string[]> = {
+    summarization: ['{{topics}}', '{{source}}'],
+    podcast: ['{{podcast_title}}', '{{requested_length}}', '{{source_packets}}']
+  };
+  const missing = required[candidate.id as PromptID].find(
+    (placeholder) => !prompt.includes(placeholder)
+  );
+  if (missing) throw new Error(`The ${candidate.id} prompt must include ${missing}.`);
+  return { id: candidate.id as PromptID, prompt };
 }
 
 function normalizeProcessingPreferences(value: unknown): ProcessingPreferencesUpdate {
@@ -343,7 +382,10 @@ function registerIPC(): void {
     library.setWorkspacePath(path);
     await settings.update({ workspacePath: path });
     await agentApi.refreshWorkspace(previousWorkspacePath);
-    return snapshotAndNotify();
+    const snapshot = await snapshotAndNotify();
+    mainWindow?.webContents.send('podcasts:changed', await podcasts.snapshot());
+    podcasts.wake();
+    return snapshot;
   });
   ipcMain.handle(
     'library:read-text',
@@ -437,27 +479,6 @@ function registerIPC(): void {
     await sync.synchronize('the library');
     return connectionStatus();
   });
-  ipcMain.handle('services:set-voice', async (_event, nextVoice: OpenRouterVoice) => {
-    const normalizedVoice = normalizeOpenRouterVoice(nextVoice);
-    if (!normalizedVoice || !isVoiceForTTSModel(ttsModel, normalizedVoice)) {
-      throw new Error('Choose a voice supported by the selected narration quality.');
-    }
-    voice = normalizedVoice;
-    await settings.update({ voice });
-    return connectionStatus();
-  });
-  ipcMain.handle('services:set-tts-model', async (_event, value: unknown) => {
-    const nextModel = normalizeOpenRouterTTSModel(value);
-    if (!nextModel) {
-      throw new Error('Choose Low, Medium, or High narration quality.');
-    }
-    const changed = nextModel !== ttsModel;
-    ttsModel = nextModel;
-    const recommendedVoice = changed ? recommendedVoiceForTTSModel(nextModel) : null;
-    if (recommendedVoice) voice = recommendedVoice;
-    await settings.update({ ttsModel, voice });
-    return connectionStatus();
-  });
   ipcMain.handle('shortcuts:get-preferences', () => shortcutPreferences());
   ipcMain.handle('shortcuts:set-capture', async (_event, value: unknown) => {
     const next = normalizeCaptureShortcut(value);
@@ -490,20 +511,31 @@ function registerIPC(): void {
       return processingPreferences();
     }
   );
-  ipcMain.handle(
-    'narration:start',
-    async (_event, entryID: string, variant: LibraryVariant, selectedVoice: OpenRouterVoice) => {
-      const text = await library.readText(entryID, variant);
-      return narration.start(text, selectedVoice, ttsModel);
-    }
-  );
+  ipcMain.handle('prompts:get', () => promptPreferences());
+  ipcMain.handle('prompts:update', async (_event, value: unknown) => {
+    const next = normalizePromptPreferenceUpdate(value);
+    const key: Record<PromptID, keyof import('./settings.js').DesktopSettings> = {
+      summarization: 'processingPrompt',
+      podcast: 'podcastPrompt'
+    };
+    await settings.update({ [key[next.id]]: next.prompt });
+    return promptPreferences();
+  });
+  ipcMain.handle('podcasts:get', () => podcasts.snapshot());
+  ipcMain.handle('podcasts:save', (_event, value) => podcasts.save(value));
+  ipcMain.handle('podcasts:remove', (_event, id: string) => podcasts.remove(id));
+  ipcMain.handle('podcasts:check', (_event, id: string) => podcasts.check(id));
+  ipcMain.handle('podcasts:run', (_event, id: string) => podcasts.run(id));
+  ipcMain.handle('podcasts:reveal', async (_event, id: string) => {
+    shell.showItemInFolder(await podcasts.filePath(id));
+  });
   ipcMain.handle('sharing:get', async (_event, entryID: string) => {
     const entry = await entryForID(entryID);
     return backend.shareStatus(entry.captureID);
   });
   ipcMain.handle(
     'sharing:publish',
-    async (_event, entryID: string, selectedVoice: OpenRouterVoice) => {
+    async (_event, entryID: string) => {
       const entry = await entryForID(entryID);
       const syncStatus = await sync.synchronize('the document');
       if (syncStatus.phase === 'error') throw new Error(syncStatus.message);
@@ -535,30 +567,8 @@ function registerIPC(): void {
           : undefined;
       let result = await backend.publishShare(
         entry.captureID,
-        selectedVoice,
-        ttsModel,
         source
       );
-      if (source) {
-        for (const variant of entry.availableVariants) {
-          const segments = await narration.storedSegments(
-            await library.readText(entry.id, variant),
-            selectedVoice,
-            ttsModel
-          );
-          if (!segments) continue;
-          for (let index = 0; index < segments.length; index += 1) {
-            await backend.uploadShareAudio(
-              result,
-              variant,
-              index,
-              segments[index].hash,
-              selectedVoice,
-              segments[index].bytes
-            );
-          }
-        }
-      }
       for (let attempt = 0; result.status === 'preparing' && attempt < 30; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
         result = await backend.shareStatus(entry.captureID);
@@ -758,53 +768,87 @@ app.whenReady().then(async () => {
     captureShortcut = defaultCaptureShortcut;
     activateCaptureShortcut(defaultCaptureShortcut);
   }
-  const savedModel = normalizeOpenRouterTTSModel(saved.ttsModel);
-  ttsModel = savedModel ?? defaultOpenRouterTTSModel;
-  voice = migrateVoiceForTTSModel(ttsModel, savedModel ? saved.voice : undefined);
-  if (
-    !savedModel ||
-    voice !== saved.voice ||
-    captureShortcut !== saved.captureShortcut
-  ) {
-    await settings.update({ ttsModel, voice, captureShortcut });
+  if (captureShortcut !== saved.captureShortcut) {
+    await settings.update({ captureShortcut });
   }
   library = new LibraryService(
     saved.workspacePath ?? (await defaultWorkspacePath()),
     process.platform,
     (path) => shell.trashItem(path)
   );
+  protocol.handle('briefly-podcast-audio', async (request) => {
+    try {
+      const filename = new URL(request.url).pathname.split('/').at(-1) ?? '';
+      if (!filename.endsWith('.wav')) throw new Error('Invalid audio path.');
+      const entryID = decodeURIComponent(filename.slice(0, -4));
+      const audioPath = await library.podcastAudioPath(entryID);
+      const size = (await stat(audioPath)).size;
+      const rangeHeader = request.headers.get('range')?.trim() || null;
+      const range = podcastAudioRange(rangeHeader, size);
+      if (!range) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            'Accept-Ranges': 'bytes',
+            'Content-Range': `bytes */${size}`
+          }
+        });
+      }
+      const partial = rangeHeader !== null;
+      return new Response(
+        Readable.toWeb(
+          createReadStream(audioPath, { start: range.start, end: range.end })
+        ) as unknown as BodyInit,
+        {
+          status: partial ? 206 : 200,
+          headers: {
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(range.end - range.start + 1),
+            'Content-Type': 'audio/wav',
+            ...(partial
+              ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` }
+              : {})
+          }
+        }
+      );
+    } catch {
+      return new Response('Not found.', { status: 404 });
+    }
+  });
   backend = new BackendClient();
   extraction = new ExtractionService(() => library.getWorkspacePath());
   processing = new ProcessingService(async () => {
     const current = await settings.load();
     return current.processingPrompt ?? defaultProcessingPrompt;
   });
-  narration = new NarrationService(
-    join(app.getPath('userData'), 'audio'),
-    backend,
-    (segment) => mainWindow?.webContents.send('narration:segment', segment),
-    (status) => mainWindow?.webContents.send('narration:status', status)
+  podcasts = new PodcastService(
+    () => library.getWorkspacePath(),
+    library,
+    extraction,
+    (text) => backend.generatePodcastAudio(text),
+    (path) => shell.trashItem(path),
+    (snapshot) => mainWindow?.webContents.send('podcasts:changed', snapshot),
+    async () => {
+      await snapshotAndNotify();
+    },
+    (reason) => sync.request(reason),
+    sendOperationMessage,
+    beginIngestion,
+    async () => (await settings.load()).podcastPrompt ?? defaultPodcastPrompt
   );
-  protocol.handle('shared-library-audio', (request) => {
-    const streamingResponse = narration.responseForURL(request.url);
-    if (streamingResponse) return Promise.resolve(streamingResponse);
-    const path = narration.pathForURL(request.url);
-    return path
-      ? net.fetch(pathToFileURL(path).toString())
-      : Promise.resolve(new Response('Not found.', { status: 404 }));
-  });
   sync = new SyncCoordinator(
     backend,
     library,
     (status) => mainWindow?.webContents.send('sync:status', status),
     async () => {
       await snapshotAndNotify();
+      podcasts?.wake();
     }
   );
   agentApi = new AgentApiServer(
     {
       library,
-      extractURL: (url) => extraction.extractClipboard(url),
+      extractURL: (url) => extraction.extractURL(url),
       processEntry: (entryID, topicID) =>
         processing.process(entryID, library, topicID),
       onLibraryChanged: async () => {
@@ -820,6 +864,8 @@ app.whenReady().then(async () => {
   registerIPC();
   installMenu();
   await createWindow();
+  podcasts.start();
+  powerMonitor.on('resume', () => podcasts.wake());
   if (app.isPackaged && !process.windowsStore) {
     void electronUpdater.autoUpdater.checkForUpdatesAndNotify().catch((error) => {
       console.error('Desktop update check failed:', error);
@@ -834,6 +880,7 @@ app.whenReady().then(async () => {
 
 let agentApiStopping = false;
 app.on('before-quit', (event) => {
+  podcasts?.stop();
   if (!agentApi || agentApiStopping) return;
   event.preventDefault();
   agentApiStopping = true;

@@ -35,12 +35,7 @@ app.once('ready', () => {
             email: 'schauljonathan@gmail.com'
           },
           '/api/google/status': { configured: true, connected: false },
-          '/api/billing/status': { entitled: true, complimentary: true },
-          '/api/tts/status': {
-            configured: false,
-            checkoutConfigured: false,
-            balanceMicros: 0
-          }
+          '/api/billing/status': { entitled: true, complimentary: true }
         }[url.pathname] ?? { error: 'Unavailable in the Electron smoke test.' };
         return new Response(JSON.stringify(body), {
           status: 'error' in body ? 401 : 200,

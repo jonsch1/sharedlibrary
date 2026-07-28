@@ -5,10 +5,9 @@ import type {
   DesktopOperationResult,
   DesktopSyncStatus,
   LibraryVariant,
-  NarrationSegment,
-  NarrationStatus,
-  OpenRouterTTSModel,
-  OpenRouterVoice,
+  PodcastDraft,
+  PodcastSnapshot,
+  PromptPreferenceUpdate,
   ProcessingPreferencesUpdate,
   SharedLibraryDesktopAPI
 } from '../shared/contracts.js';
@@ -33,9 +32,6 @@ const api: SharedLibraryDesktopAPI = {
   signIn: (provider) => ipcRenderer.invoke('services:sign-in', provider),
   manageAccount: () => ipcRenderer.invoke('services:manage-account'),
   syncNow: () => ipcRenderer.invoke('services:sync-now'),
-  setVoice: (voice: OpenRouterVoice) => ipcRenderer.invoke('services:set-voice', voice),
-  setTTSModel: (model: OpenRouterTTSModel) =>
-    ipcRenderer.invoke('services:set-tts-model', model),
   getShortcutPreferences: () => ipcRenderer.invoke('shortcuts:get-preferences'),
   setCaptureShortcut: (accelerator: string) =>
     ipcRenderer.invoke('shortcuts:set-capture', accelerator),
@@ -43,16 +39,18 @@ const api: SharedLibraryDesktopAPI = {
   getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
   updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>
     ipcRenderer.invoke('processing:update-preferences', preferences),
-  startNarration: (
-    entryID: string,
-    variant: LibraryVariant,
-    voice: OpenRouterVoice
-  ) => ipcRenderer.invoke('narration:start', entryID, variant, voice),
+  getPromptPreferences: () => ipcRenderer.invoke('prompts:get'),
+  updatePromptPreference: (preference: PromptPreferenceUpdate) =>
+    ipcRenderer.invoke('prompts:update', preference),
+  getPodcasts: () => ipcRenderer.invoke('podcasts:get'),
+  savePodcast: (podcast: PodcastDraft) =>
+    ipcRenderer.invoke('podcasts:save', podcast),
+  removePodcast: (id: string) => ipcRenderer.invoke('podcasts:remove', id),
+  checkPodcast: (id: string) => ipcRenderer.invoke('podcasts:check', id),
+  runPodcast: (id: string) => ipcRenderer.invoke('podcasts:run', id),
+  revealPodcast: (id: string) => ipcRenderer.invoke('podcasts:reveal', id),
   getShareLink: (entryID: string) => ipcRenderer.invoke('sharing:get', entryID),
-  publishShareLink: (
-    entryID: string,
-    voice: OpenRouterVoice
-  ) => ipcRenderer.invoke('sharing:publish', entryID, voice),
+  publishShareLink: (entryID: string) => ipcRenderer.invoke('sharing:publish', entryID),
   revokeShareLink: (token: string) => ipcRenderer.invoke('sharing:revoke', token),
   onLibraryChanged: (listener: (snapshot: DesktopLibrarySnapshot) => void) => {
     const callback = (_event: Electron.IpcRendererEvent, snapshot: DesktopLibrarySnapshot) =>
@@ -72,18 +70,12 @@ const api: SharedLibraryDesktopAPI = {
     ipcRenderer.on('sync:status', callback);
     return () => ipcRenderer.removeListener('sync:status', callback);
   },
-  onNarrationStatus: (listener: (status: NarrationStatus) => void) => {
-    const callback = (_event: Electron.IpcRendererEvent, status: NarrationStatus) =>
-      listener(status);
-    ipcRenderer.on('narration:status', callback);
-    return () => ipcRenderer.removeListener('narration:status', callback);
+  onPodcastsChanged: (listener: (snapshot: PodcastSnapshot) => void) => {
+    const callback = (_event: Electron.IpcRendererEvent, snapshot: PodcastSnapshot) =>
+      listener(snapshot);
+    ipcRenderer.on('podcasts:changed', callback);
+    return () => ipcRenderer.removeListener('podcasts:changed', callback);
   },
-  onNarrationSegment: (listener: (segment: NarrationSegment) => void) => {
-    const callback = (_event: Electron.IpcRendererEvent, segment: NarrationSegment) =>
-      listener(segment);
-    ipcRenderer.on('narration:segment', callback);
-    return () => ipcRenderer.removeListener('narration:segment', callback);
-  }
 };
 
 contextBridge.exposeInMainWorld('sharedLibrary', api);

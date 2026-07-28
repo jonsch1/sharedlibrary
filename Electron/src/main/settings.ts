@@ -1,14 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { OpenRouterVoice } from '../shared/contracts.js';
-
 export interface DesktopSettings {
   workspacePath?: string;
-  voice?: OpenRouterVoice;
-  ttsModel?: string;
   captureShortcut?: string;
   processingPrompt?: string;
+  podcastPrompt?: string;
 }
 
 export class SettingsStore {

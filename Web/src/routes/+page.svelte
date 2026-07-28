@@ -7,10 +7,8 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import CreditCardIcon from '@lucide/svelte/icons/credit-card';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import PauseIcon from '@lucide/svelte/icons/pause';
-	import PlayIcon from '@lucide/svelte/icons/play';
+	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import Share2Icon from '@lucide/svelte/icons/share-2';
@@ -37,31 +35,6 @@
 		type LibraryVariant
 	} from '$lib/library.js';
 	import {
-		beginManagedTTSTopUp,
-		consumeManagedTTSResult,
-		defaultOpenRouterModel,
-		formatTTSMicros,
-		audioFingerprint,
-		loadCachedSpeech,
-		loadManagedTTSStatus,
-		loadOpenRouterPreferences,
-		normalizeOpenRouterModel,
-		normalizeOpenRouterVoice,
-		openRouterSpeechChunks,
-		openRouterTTSOptions,
-		recommendedVoiceForModel,
-		saveModelPreference,
-		saveVoicePreference,
-		setDurableAudioProvider,
-		synchronizeOpenRouterAudioCache,
-		voiceName,
-		voicesForModel,
-		type ManagedTTSStatus,
-		type OpenRouterCredential,
-		type OpenRouterTTSModel,
-		type OpenRouterVoice
-	} from '$lib/openrouter.js';
-	import {
 		consumeGoogleDriveConnectionResult,
 		loadGoogleDriveConnection,
 		syncGoogleDriveLibrary,
@@ -76,13 +49,11 @@
 	} from '$lib/icloud.js';
 	import {
 		loadShareLinkStatus,
-		publishShareAudio,
 		publishShareLink,
 		revokeShareLink,
 		type ShareLinkSource,
 		type ShareLinkStatus
 	} from '$lib/share-links.js';
-	import { SpeechPlayer } from '$lib/speech-player.svelte.js';
 	import {
 		beginBrieflyPlusCheckout,
 		consumeBillingResult,
@@ -91,8 +62,15 @@
 		openBillingPortal,
 		type BillingStatus
 	} from '$lib/billing.js';
+	import {
+		readThemePreference,
+		setThemePreference,
+		themeModeOptions,
+		themeOptions,
+		type ThemeMode,
+		type ThemeName
+	} from '../../../Shared/themes';
 
-	type GoogleSyncPhase = 'checking' | 'library' | 'audio';
 	type OriginFilter = 'all' | 'personal';
 	type AccountStatus = {
 		authenticated: boolean;
@@ -119,13 +97,6 @@
 	let shareLink = $state<ShareLinkStatus>({ shared: false });
 	let shareError = $state('');
 	const sharingWatchTokens = new Map<string, string>();
-	let narrationAudio = $state<HTMLAudioElement>();
-	let playbackRate = $state(1);
-	let managedTTS = $state<ManagedTTSStatus | null>(null);
-	let openRouterVoice = $state<OpenRouterVoice>('af_heart');
-	let openRouterModel = $state<OpenRouterTTSModel>(defaultOpenRouterModel);
-	let managedTTSBusy = $state(false);
-	let audioMessage = $state('');
 	let connectionMessage = $state('');
 	let googleConnection = $state<GoogleDriveConnection>({
 		configured: false,
@@ -137,13 +108,11 @@
 	let googleSyncing = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
-	let googleSyncPhase = $state<GoogleSyncPhase>('checking');
+	let themePreference = $state(readThemePreference());
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
 	let textRevision = $state(0);
 	let loadingText = $state(false);
-	let installedAppleWebApp = $state(false);
-	const player = new SpeechPlayer();
 	const textLoads = new Map<string, Promise<string>>();
 
 	let entries = $derived(projection?.entries ?? []);
@@ -185,29 +154,10 @@
 	let selectedWordCount = $derived(
 		selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
 	);
-	let currentTTSOption = $derived(
-		openRouterTTSOptions.find((option) => option.model === openRouterModel) ??
-			openRouterTTSOptions[0]
-	);
-	let selectedAudioActive = $derived(
-		player.currentEntry?.id === selectedEntry?.id &&
-			player.currentVariant === selectedVariant
-	);
-	let selectedAudioLoadingLabel = $derived(
-		player.loadingPhase === 'generating'
-			? 'Generating voice'
-			: player.loadingPhase === 'downloading'
-				? 'Downloading audio'
-				: 'Checking audio'
-	);
-	let toastMessage = $derived(audioMessage || player.notice || connectionMessage || importMessage);
+	let toastMessage = $derived(connectionMessage || importMessage);
 	let currentBillingTier = $derived(
 		billing?.tiers.find((tier) => tier.current) ?? billing?.tiers.at(-1) ?? null
 	);
-	let managedTTSAccess = $derived<OpenRouterCredential | null>(
-		managedTTS?.configured && managedTTS.authenticated ? { connected: true } : null
-	);
-
 	$effect(() => {
 		if (selectedEntry && !textFor(selectedEntry, selectedVariant)) {
 			selectedVariant = preferredVariant(selectedEntry);
@@ -242,7 +192,6 @@
 			loading = false;
 			return;
 		}
-		const ttsResult = consumeManagedTTSResult();
 		let active = true;
 		let lastAutomaticSync = 0;
 		let reloadingForServiceWorker = false;
@@ -252,28 +201,6 @@
 			window.location.reload();
 		};
 		navigator.serviceWorker?.addEventListener('controllerchange', activateLatestVersion);
-		if (narrationAudio) player.attachAudioElement(narrationAudio);
-		const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
-		const isAppleMobile =
-			/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-			(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-		installedAppleWebApp =
-			isAppleMobile &&
-			(navigatorWithStandalone.standalone === true ||
-				window.matchMedia('(display-mode: standalone)').matches);
-		const narrationPreferences = loadOpenRouterPreferences();
-		openRouterVoice = narrationPreferences.voice;
-		openRouterModel = narrationPreferences.model;
-		saveVoicePreference(openRouterVoice);
-		saveModelPreference(openRouterModel);
-		void initializeManagedTTS(() => active, ttsResult);
-		const updateTTSBalance = (event: Event): void => {
-			const balanceMicros = (event as CustomEvent<number>).detail;
-			if (managedTTS && Number.isSafeInteger(balanceMicros) && balanceMicros >= 0) {
-				managedTTS = { ...managedTTS, balanceMicros };
-			}
-		};
-		window.addEventListener('briefly:tts-balance', updateTTSBalance);
 		loadLibraryProjection()
 			.then((saved) => {
 				if (!active || !saved) return;
@@ -298,12 +225,10 @@
 		return () => {
 			active = false;
 			window.clearInterval(syncInterval);
-			window.removeEventListener('briefly:tts-balance', updateTTSBalance);
 			window.removeEventListener('online', automaticallySync);
 			window.removeEventListener('focus', automaticallySync);
 			document.removeEventListener('visibilitychange', automaticallySync);
 			navigator.serviceWorker?.removeEventListener('controllerchange', activateLatestVersion);
-			player.dispose();
 		};
 	});
 
@@ -343,7 +268,6 @@
 			googleConnection = google;
 			billing = initialBilling;
 			syncProvider = account.syncProvider ?? null;
-			setDurableAudioProvider(syncProvider);
 			iCloudConnection = {
 				configured: account.icloud?.configured === true,
 				connected:
@@ -393,41 +317,6 @@
 			if (!isActive()) return;
 			connectionMessage =
 				error instanceof Error ? error.message : 'Connections could not be loaded.';
-		}
-	}
-
-	async function initializeManagedTTS(
-		isActive: () => boolean,
-		result: string | null = null
-	): Promise<void> {
-		try {
-			let status = await loadManagedTTSStatus();
-			if (result === 'success') {
-				for (let attempt = 0; attempt < 5 && status.balanceMicros === 0; attempt += 1) {
-					await new Promise((resolve) => window.setTimeout(resolve, 800));
-					if (!isActive()) return;
-					status = await loadManagedTTSStatus();
-				}
-			}
-			if (!isActive()) return;
-			managedTTS = status;
-			player.configureOpenRouter(
-				status.configured && status.authenticated ? { connected: true } : null,
-				openRouterVoice,
-				openRouterModel
-			);
-			if (result === 'success') {
-				audioMessage = `${formatTTSMicros(status.balanceMicros)} of AI voice credit is ready.`;
-				connectionsVisible = true;
-			} else if (result === 'cancelled') {
-				audioMessage = 'The AI voice top-up was cancelled.';
-				connectionsVisible = true;
-			}
-		} catch (error) {
-			if (!isActive()) return;
-			audioMessage =
-				error instanceof Error ? error.message : 'The AI voice balance could not be loaded.';
-			connectionsVisible = true;
 		}
 	}
 
@@ -492,7 +381,6 @@
 			return;
 		}
 		googleSyncing = true;
-		googleSyncPhase = 'checking';
 		googleSyncCompleted = 0;
 		googleSyncTotal = 0;
 		try {
@@ -501,7 +389,6 @@
 			const syncedProjection = await syncLibrary(
 				(personalProjection) => {
 					applySyncedProjection(personalProjection);
-					googleSyncPhase = 'library';
 				},
 				(completed, total) => {
 					googleSyncCompleted = completed;
@@ -512,15 +399,6 @@
 				connectionMessage = emptyICloudLibraryMessage;
 				connectionsVisible = true;
 				return;
-			}
-			if (syncProvider === 'google') {
-				googleSyncPhase = 'audio';
-				googleSyncCompleted = 0;
-				googleSyncTotal = 0;
-				await synchronizeOpenRouterAudioCache((completed, total) => {
-					googleSyncCompleted = completed;
-					googleSyncTotal = total;
-				});
 			}
 			connectionMessage = showError
 				? `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
@@ -552,12 +430,9 @@
 	function syncDescription(): string {
 		if (!googleSyncing) return '';
 		if (googleSyncTotal > 0) {
-			const noun = googleSyncPhase === 'audio' ? 'audio files' : 'files';
-			return `Saving ${googleSyncCompleted} of ${googleSyncTotal} ${noun} locally…`;
+			return `Saving ${googleSyncCompleted} of ${googleSyncTotal} files locally…`;
 		}
-		return googleSyncPhase === 'audio'
-			? 'Checking offline audio…'
-			: `Checking ${syncProvider === 'icloud' ? 'iCloud' : 'Google Drive'}…`;
+		return `Checking ${syncProvider === 'icloud' ? 'iCloud' : 'Google Drive'}…`;
 	}
 
 	function showDemo(): void {
@@ -602,16 +477,9 @@
 		}
 	}
 
-	async function toggleConnections(): Promise<void> {
+	function toggleConnections(): void {
 		connectionsVisible = !connectionsVisible;
 		sharingVisible = false;
-		if (!connectionsVisible) return;
-		try {
-			managedTTS = await loadManagedTTSStatus();
-		} catch (error) {
-			audioMessage =
-				error instanceof Error ? error.message : 'The AI voice balance could not be refreshed.';
-		}
 	}
 
 	async function openSharing(entry: LibraryEntry | null = selectedEntry): Promise<void> {
@@ -649,21 +517,11 @@
 			const captureID = target.captureID ?? target.id;
 			const source =
 				syncProvider === 'icloud' ? await shareSourceFromICloud(target) : undefined;
-			const result = await publishShareLink(
-				captureID,
-				openRouterVoice,
-				openRouterModel,
-				source
-			);
+			const result = await publishShareLink(captureID, source);
 			shareLink = result;
 			if (result.url) {
 				await navigator.clipboard.writeText(result.url);
 				connectionMessage = 'Share link copied. The document is being prepared.';
-			}
-			if (source) {
-				void publishExistingICloudNarration(result, source).catch(() => {
-					// Existing narration is optional; the public reader can use device speech.
-				});
 			}
 			void watchShareLink(captureID);
 		} catch (error) {
@@ -703,41 +561,6 @@
 			updatedAt: target.updatedAt,
 			texts
 		};
-	}
-
-	async function publishExistingICloudNarration(
-		share: ShareLinkStatus,
-		source: ShareLinkSource
-	): Promise<void> {
-		for (const document of source.texts) {
-			const displayText =
-				document.variant === 'source'
-					? document.markdown.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim()
-					: document.markdown;
-			const chunks = openRouterSpeechChunks(displayText);
-			const segments = [];
-			for (const chunk of chunks) {
-				const audio = await loadCachedSpeech(chunk, openRouterVoice, openRouterModel);
-				if (!audio) {
-					segments.length = 0;
-					break;
-				}
-				segments.push({
-					audio,
-					hash: await audioFingerprint(chunk, openRouterVoice, openRouterModel)
-				});
-			}
-			for (let index = 0; index < segments.length; index += 1) {
-				await publishShareAudio(
-					share,
-					document.variant,
-					index,
-					segments[index].hash,
-					openRouterVoice,
-					segments[index].audio
-				);
-			}
-		}
 	}
 
 	async function watchShareLink(captureID: string): Promise<void> {
@@ -837,88 +660,17 @@
 		}
 	}
 
-	async function listen(): Promise<void> {
-		if (!selectedEntry) return;
-		if (installedAppleWebApp) {
-			audioMessage =
-				'Apple currently blocks audio in installed iPhone web apps. Delete this Home Screen icon, reopen Briefly in Safari, then add it again with “Open as Web App” turned off.';
-			connectionsVisible = true;
-			return;
-		}
-		if (selectedAudioActive && player.state !== 'idle') {
-			player.toggle();
-			return;
-		}
-		if (!(await ensureTextLoaded(selectedEntry, selectedVariant, true))) return;
-		player.configureOpenRouter(managedTTSAccess, openRouterVoice, openRouterModel);
-		player.play(selectedEntry, selectedVariant);
-	}
-
-	function updateRate(rate: number): void {
-		playbackRate = rate;
-		player.setRate(rate);
-	}
-
-	function cyclePlaybackRate(): void {
-		const rates = [1, 1.2, 1.5, 0.8];
-		const currentIndex = rates.findIndex((rate) => rate === playbackRate);
-		updateRate(rates[(currentIndex + 1) % rates.length]);
-	}
-
-	async function topUpManagedTTS(amountCents: number): Promise<void> {
-		if (managedTTSBusy) return;
-		managedTTSBusy = true;
-		audioMessage = '';
-		try {
-			await beginManagedTTSTopUp(amountCents);
-		} catch (error) {
-			audioMessage =
-				error instanceof Error ? error.message : 'Could not open the AI voice top-up.';
-			managedTTSBusy = false;
-		}
-	}
-
-	function updateVoice(event: Event): void {
-		const input = event.currentTarget as HTMLSelectElement;
-		const selected = normalizeOpenRouterVoice(input.value);
-		if (!selected || !voicesForModel(openRouterModel).includes(selected)) {
-			input.value = openRouterVoice;
-			audioMessage = 'Choose a voice supported by the selected quality.';
-			return;
-		}
-		openRouterVoice = selected;
-		input.value = selected;
-		saveVoicePreference(selected);
-		player.configureOpenRouter(managedTTSAccess, selected, openRouterModel);
-		audioMessage = `${voiceName(selected)} selected.`;
-	}
-
-	function updateOpenRouterModel(event: Event): void {
-		const input = event.currentTarget as HTMLSelectElement;
-		const nextModel = normalizeOpenRouterModel(input.value);
-		if (!nextModel) {
-			input.value = openRouterModel;
-			audioMessage = 'Choose Low, Medium, or High narration quality.';
-			return;
-		}
-		const changed = nextModel !== openRouterModel;
-		openRouterModel = nextModel;
-		saveModelPreference(nextModel);
-		const recommendedVoice = changed ? recommendedVoiceForModel(nextModel) : openRouterVoice;
-		if (changed) {
-			openRouterVoice = recommendedVoice;
-			saveVoicePreference(recommendedVoice);
-		}
-		player.configureOpenRouter(managedTTSAccess, openRouterVoice, nextModel);
-		const option = openRouterTTSOptions.find((candidate) => candidate.model === nextModel);
-		audioMessage = `${option?.quality ?? 'Selected'} quality selected for new narration.`;
-	}
-
 	function dismissToast(): void {
 		importMessage = '';
-		audioMessage = '';
 		connectionMessage = '';
-		player.notice = '';
+	}
+
+	function updateTheme(theme?: ThemeName, mode?: ThemeMode): void {
+		themePreference = {
+			theme: theme ?? themePreference.theme,
+			mode: mode ?? themePreference.mode
+		};
+		setThemePreference(themePreference);
 	}
 
 </script>
@@ -933,14 +685,14 @@
 	<meta property="og:title" content="Briefly" />
 	<meta
 		property="og:description"
-		content="Read, search, and listen to your private library anywhere."
+		content="Read and search your private library anywhere."
 	/>
 	<meta property="og:image" content="https://www.readbriefly.fyi/og.png" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Briefly" />
 	<meta
 		name="twitter:description"
-		content="Read, search, and listen to your private library anywhere."
+		content="Read and search your private library anywhere."
 	/>
 	<meta name="twitter:image" content="https://www.readbriefly.fyi/og.png" />
 </svelte:head>
@@ -948,36 +700,34 @@
 {#if publicShareToken}
 	<PublicShareReader token={publicShareToken} />
 {:else}
-	<audio bind:this={narrationAudio} class="narration-engine" preload="none"></audio>
-
-	<div class="app-shell">
+	<div class="app-shell bg-background! bg-none! text-foreground! font-sans!">
 
 	{#if loading}
-		<main class="center-stage" aria-live="polite">
+		<main class="center-stage text-foreground!" aria-live="polite">
 			<div class="launch-sequence">
 				<div class="loading-mark" aria-hidden="true">
 					<span class="loading-halo"></span>
 					<img src="/icons/icon-192.png" alt="" />
 				</div>
-				<p class="loading-title">Opening your library</p>
-				<p class="loading-copy">Preparing the offline collection</p>
-				<div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+				<p class="loading-title text-foreground!">Opening your library</p>
+				<p class="loading-copy text-muted-foreground!">Preparing the offline collection</p>
+				<div class="loading-dots [&_span]:bg-muted-foreground!" aria-hidden="true"><span></span><span></span><span></span></div>
 			</div>
 		</main>
 	{:else if !projection}
-		<main class="center-stage">
-			<section class="empty-card">
-				<div class="empty-illustration">
+		<main class="center-stage text-foreground!">
+			<section class="empty-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+				<div class="empty-illustration bg-muted! bg-none! text-muted-foreground!">
 					<CloudIcon />
-					<span class="empty-check"><CheckIcon /></span>
+					<span class="empty-check bg-primary! bg-none! text-primary-foreground!"><CheckIcon /></span>
 				</div>
-				<p class="eyebrow">Briefly</p>
+				<p class="eyebrow text-muted-foreground!">Briefly</p>
 				{#if syncProvider && googleSyncing}
 					<h1>Making your library available</h1>
-					<p class="empty-copy">{syncDescription()}</p>
+					<p class="empty-copy text-muted-foreground!">{syncDescription()}</p>
 				{:else if syncProvider && billing?.configured && !billing.entitled}
 					<h1>Take your library everywhere</h1>
-					<p class="empty-copy">
+					<p class="empty-copy text-muted-foreground!">
 						Briefly Plus adds private cloud synchronization and deliberate share links.
 						Your local desktop files remain on your device.
 					</p>
@@ -997,7 +747,7 @@
 					</div>
 				{:else if syncProvider === 'icloud' && !iCloudConnection.connected}
 					<h1>Authorize iCloud on this browser</h1>
-					<p class="empty-copy">
+					<p class="empty-copy text-muted-foreground!">
 						Each browser needs its own permission to read your private iCloud library.
 					</p>
 					<div class="empty-actions">
@@ -1012,7 +762,7 @@
 					</div>
 				{:else if !account.authenticated}
 					<h1>Sign in to Briefly</h1>
-					<p class="empty-copy">
+					<p class="empty-copy text-muted-foreground!">
 						Your account keeps membership and sync settings together. Choose Apple or Google.
 					</p>
 					<div class="empty-actions">
@@ -1038,7 +788,7 @@
 					</div>
 				{:else}
 					<h1>Set up library sync</h1>
-					<p class="empty-copy">
+					<p class="empty-copy text-muted-foreground!">
 						Choose iCloud or Google Drive from your account page.
 					</p>
 					<div class="empty-actions">
@@ -1052,7 +802,7 @@
 						</Button>
 					</div>
 				{/if}
-				<p class="empty-legal">
+				<p class="empty-legal text-muted-foreground! [&_a]:text-primary!">
 					By signing in or subscribing, you agree to the <a href="/terms">Terms</a>. See how
 					Briefly handles data in the <a href="/privacy">Privacy Notice</a>. Provider details
 					are in the <a href="/imprint">Imprint</a>.
@@ -1061,13 +811,13 @@
 		</main>
 	{:else}
 		<div class="native-workspace" class:reader-open={mobileReaderVisible}>
-			<aside class="native-library-pane">
+			<aside class="native-library-pane border-sidebar-border! bg-sidebar! bg-none! text-sidebar-foreground! rounded-xl! border shadow-sm!">
 				<div class="native-library-toolbar">
 					<div class="native-search-field">
-						<SearchIcon aria-hidden="true" />
+						<SearchIcon class="text-muted-foreground!" aria-hidden="true" />
 						<Input bind:value={query} aria-label="Search library" placeholder="Search" />
 						{#if query}
-							<button class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
+							<button class="clear-search text-muted-foreground! hover:bg-accent! hover:text-accent-foreground!" aria-label="Clear search" onclick={() => (query = '')}>
 								<XIcon />
 							</button>
 						{/if}
@@ -1075,7 +825,7 @@
 
 					<div class="topic-strip" aria-label="Topic filter">
 						<button
-							class="topic-chip"
+							class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
 							class:active={topicFilter === 'all' && originFilter === 'all'}
 							onclick={() => {
 								selectTopic('all');
@@ -1084,7 +834,7 @@
 						>
 						{#each topics as topic}
 							<button
-								class="topic-chip"
+								class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
 								class:active={topicFilter === topic}
 								onclick={() => selectTopic(topic)}>{topic}</button
 							>
@@ -1094,10 +844,11 @@
 
 				<div class="native-entry-list">
 					{#if filteredEntries.length === 0}
-						<div class="native-no-results">
+						<div class="native-no-results text-muted-foreground!">
 							<FileTextIcon />
 							<p>No matching documents</p>
 							<button
+								class="text-primary!"
 								onclick={() => {
 									query = '';
 									selectTopic('all');
@@ -1108,11 +859,11 @@
 					{:else}
 						{#each filteredEntries as entry (entry.id)}
 							<button
-								class="native-entry-row"
+								class="native-entry-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
 								class:selected={selectedEntry?.id === entry.id}
 								onclick={() => selectEntry(entry)}
 							>
-								<FileTextIcon aria-hidden="true" />
+								<FileTextIcon class="text-sidebar-foreground/70!" aria-hidden="true" />
 								<span>{entry.title}</span>
 							</button>
 						{/each}
@@ -1121,17 +872,17 @@
 
 			</aside>
 
-			<main class="native-reader-pane">
+			<main class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
 				{#if selectedEntry}
-					<div class="native-mobile-reader-bar">
-						<button onclick={() => (mobileReaderVisible = false)}>
+					<div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
+						<button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
 							<ChevronLeftIcon />
 							<span>Library</span>
 						</button>
 					</div>
 
 					<div class="native-document-scroll">
-						<article class="native-document-body" aria-busy={loadingText}>
+						<article class="native-document-body text-card-foreground! font-serif!" aria-busy={loadingText}>
 							{#if loadingText}
 								<div class="document-skeleton" aria-label="Loading document">
 									<span class="skeleton-heading"></span>
@@ -1151,14 +902,8 @@
 						</article>
 					</div>
 
-					<footer class="native-document-footer">
-						<div
-							class="native-player-progress"
-							class:visible={selectedAudioActive}
-							style={`--progress: ${player.progress * 100}%`}
-						></div>
-
-						<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
+					<footer class="native-document-footer border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm!">
+						<div class="footer-stat text-muted-foreground!">{selectedWordCount.toLocaleString()} words</div>
 
 						<DepthControl
 							variants={availableVariants}
@@ -1169,7 +914,7 @@
 						<div class="native-footer-actions">
 							{#if selectedEntry.sourceURL}
 								<a
-									class="native-icon-button"
+									class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
 									href={selectedEntry.sourceURL}
 									target="_blank"
 									rel="noreferrer"
@@ -1182,7 +927,7 @@
 
 							{#if selectedEntry.origin === 'personal'}
 								<button
-									class="native-icon-button"
+									class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:bg-accent! [&.active]:text-accent-foreground!"
 									class:active={sharingVisible && shareTarget?.id === selectedEntry.id}
 									aria-label="Share document"
 									title="Create share link"
@@ -1193,43 +938,7 @@
 							{/if}
 
 							<button
-								class="native-play-button"
-								class:loading={player.state === 'loading' && selectedAudioActive}
-								aria-label={player.state === 'loading' && selectedAudioActive
-									? `Cancel ${selectedAudioLoadingLabel.toLowerCase()}`
-									: player.state === 'playing' && selectedAudioActive
-										? 'Pause'
-										: 'Play'}
-								title={player.state === 'loading' && selectedAudioActive
-									? selectedAudioLoadingLabel
-									: player.state === 'playing' && selectedAudioActive
-										? 'Pause'
-										: 'Play'}
-								onclick={listen}
-							>
-								{#if player.state === 'loading' && selectedAudioActive}
-									<span class="narration-loading-wave" aria-hidden="true">
-										<span></span><span></span><span></span><span></span>
-									</span>
-									<span class="narration-loading-label">{selectedAudioLoadingLabel}</span>
-								{:else if player.state === 'playing' && selectedAudioActive}
-									<PauseIcon />
-								{:else}
-									<PlayIcon />
-								{/if}
-							</button>
-
-							<button
-								class="native-rate-button"
-								aria-label={`Playback speed ${playbackRate.toFixed(1)} times`}
-								title="Change playback speed"
-								onclick={cyclePlaybackRate}
-							>
-								{playbackRate.toFixed(1)}×
-							</button>
-
-							<button
-								class="native-icon-button"
+								class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:bg-accent! [&.active]:text-accent-foreground!"
 								class:active={connectionsVisible}
 								aria-label="Connections"
 								title="Connections"
@@ -1245,7 +954,7 @@
 
 		{#if toastMessage}
 			<div
-				class="toast"
+				class="toast border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm! [&.error]:border-destructive! [&.error]:bg-destructive/10! [&.error]:text-destructive!"
 				class:error={toastMessage.includes('failed') ||
 					toastMessage.includes('could not') ||
 					toastMessage.includes('unavailable')}
@@ -1253,21 +962,21 @@
 				aria-live="polite"
 			>
 				{toastMessage}
-				<button aria-label="Dismiss message" onclick={dismissToast}><XIcon /></button>
+				<button class="text-muted-foreground! hover:text-foreground!" aria-label="Dismiss message" onclick={dismissToast}><XIcon /></button>
 			</div>
 		{/if}
 	{/if}
 
 	{#if connectionsVisible}
 		<div
-			class="audio-backdrop"
+			class="audio-backdrop bg-foreground/20! bg-none!"
 			role="presentation"
 			onclick={() => (connectionsVisible = false)}
 		></div>
-		<aside class="audio-panel connections-panel" aria-label="Connections">
+		<aside class="audio-panel connections-panel border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm! font-sans!" aria-label="Connections">
 			<div class="audio-header">
 				<div>
-					<p class="eyebrow">Storage</p>
+					<p class="eyebrow text-muted-foreground!">Storage</p>
 					<h2>Connections</h2>
 				</div>
 				<Button
@@ -1281,9 +990,50 @@
 			</div>
 
 			<div class="audio-content">
-				<section class="audio-connection billing-connection" class:connected={billing?.entitled}>
-					<div class="audio-connection-heading">
-						<div class="provider-mark"><CreditCardIcon /></div>
+				<section class="audio-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
+						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><PaletteIcon /></div>
+						<div>
+							<div class="provider-title"><h3>Appearance</h3></div>
+							<p>Choose from Briefly and every built-in TweakCN theme.</p>
+						</div>
+					</div>
+					<div class="theme-controls grid grid-cols-[minmax(0,1fr)_minmax(110px,0.45fr)] gap-2.5 max-[420px]:grid-cols-1">
+						<label class="theme-field grid gap-1.5">
+							<span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Theme</span>
+							<select
+								class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+								value={themePreference.theme}
+								onchange={(event) =>
+									updateTheme((event.currentTarget as HTMLSelectElement).value as ThemeName)}
+							>
+								{#each themeOptions as option}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
+						</label>
+						<label class="theme-field grid gap-1.5">
+							<span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Mode</span>
+							<select
+								class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+								value={themePreference.mode}
+								onchange={(event) =>
+									updateTheme(
+										undefined,
+										(event.currentTarget as HTMLSelectElement).value as ThemeMode
+									)}
+							>
+								{#each themeModeOptions as option}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
+						</label>
+					</div>
+				</section>
+
+				<section class="audio-connection billing-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!" class:connected={billing?.entitled}>
+					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
+						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><CreditCardIcon /></div>
 						<div>
 							<div class="provider-title">
 								<h3>Briefly Plus</h3>
@@ -1341,11 +1091,11 @@
 				</section>
 
 				<section
-					class="audio-connection"
+					class="audio-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
 					class:connected={Boolean(syncProvider)}
 				>
-					<div class="audio-connection-heading">
-						<div class="provider-mark"><CloudIcon /></div>
+					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
+						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><CloudIcon /></div>
 						<div>
 							<div class="provider-title">
 								<h3>Library sync</h3>
@@ -1374,122 +1124,9 @@
 					</Button>
 				</section>
 
-				{#if installedAppleWebApp}
-					<section class="ios-audio-warning">
-						<TriangleAlertIcon />
-						<div>
-							<strong>Listening needs Safari on this iPhone</strong>
-							<p>
-								Apple has an audio bug in installed Home Screen web apps. Delete this
-								icon, open Briefly in Safari, then add it again. If shown, turn
-								off “Open as Web App.”
-							</p>
-						</div>
-					</section>
-				{/if}
-
-				<section class="audio-connection" class:connected={managedTTS?.configured}>
-					<div class="audio-connection-heading">
-						<div class="provider-mark"><HeadphonesIcon /></div>
-						<div>
-							<div class="provider-title">
-								<h3>Briefly AI voice</h3>
-								<Badge variant={managedTTS?.configured ? 'secondary' : 'outline'}>
-									{managedTTS?.configured ? 'Managed' : 'Unavailable'}
-								</Badge>
-							</div>
-							<p>
-								Your first paid month of Plus is matched in AI voice credit. Top up after that;
-								device speech remains available without AI credit.
-							</p>
-						</div>
-					</div>
-
-					{#if managedTTS}
-						<div class="billing-summary">
-							<strong>{formatTTSMicros(managedTTS.balanceMicros)}</strong>
-							<span>AI voice credit · successful generations only</span>
-						</div>
-						{#if managedTTS.checkoutConfigured && managedTTS.authenticated}
-							<div class="tts-topups" aria-label="Top up AI voice credit">
-								{#each managedTTS.topUpAmounts as amount}
-									<Button
-										variant="outline"
-										disabled={managedTTSBusy}
-										onclick={() => topUpManagedTTS(amount)}
-									>
-										Pay {formatMonthlyPrice(amount)}
-									</Button>
-								{/each}
-							</div>
-						{:else if managedTTS.configured}
-							<p class="connection-help">
-								{managedTTS.authenticated
-									? 'Top-ups have not been configured for this deployment.'
-									: 'Sign in to buy and use AI voice credit.'}
-							</p>
-						{/if}
-						<p class="connection-help">
-							Payment includes applicable VAT; the added credit excludes VAT. AI voice
-							credit is non-refundable except where required by law.
-						</p>
-					{:else}
-						<p class="connection-help">Loading AI voice credit…</p>
-					{/if}
-				</section>
-
-				<section class="audio-section">
-					<div class="audio-section-heading">
-						<div>
-							<h3>Narrator</h3>
-							<p>Used for newly generated audio.</p>
-						</div>
-						<select
-							class="audio-voice-input"
-							value={openRouterVoice}
-							disabled={!managedTTSAccess}
-							aria-label="AI voice narrator"
-							onchange={updateVoice}
-						>
-							{#each voicesForModel(openRouterModel) as voice}
-								<option value={voice}>{voiceName(voice)}</option>
-							{/each}
-						</select>
-					</div>
-					<label class="audio-model-field">
-						<span>Quality</span>
-						<select
-							value={openRouterModel}
-							aria-label="Narration quality"
-							onchange={updateOpenRouterModel}
-						>
-							{#each openRouterTTSOptions as option}
-								<option value={option.model}>
-									{option.quality} · {option.name} · ≈{option.hoursPerEuro}
-									{option.hoursPerEuro === 1 ? 'hour' : 'hours'}/€
-								</option>
-							{/each}
-						</select>
-					</label>
-					<p class="voice-description">
-						{currentTTSOption.description} Audio starts as bytes arrive.
-					</p>
-					{#if managedTTS?.usage.length}
-						<div class="tts-usage">
-							<strong>Recent usage</strong>
-							{#each managedTTS.usage.slice(0, 5) as entry}
-								<span>
-									{entry.characterCount.toLocaleString()} characters ·
-									{formatTTSMicros(entry.amountMicros)}
-								</span>
-							{/each}
-						</div>
-					{/if}
-				</section>
-
-				<section class="audio-connection connected">
-					<div class="audio-connection-heading">
-						<div class="provider-mark"><Share2Icon /></div>
+				<section class="audio-connection connected border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
+						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Share2Icon /></div>
 						<div>
 							<div class="provider-title">
 								<h3>Share links</h3>
@@ -1503,7 +1140,7 @@
 					</div>
 				</section>
 
-				<div class="audio-privacy">
+				<div class="audio-privacy border-border! bg-muted! bg-none! text-foreground! rounded-xl! border [&>svg]:text-primary! [&_p]:text-muted-foreground!">
 					<ShieldCheckIcon />
 					<div>
 							<strong>Your selected storage remains the source of truth</strong>
@@ -1515,7 +1152,7 @@
 						</p>
 					</div>
 				</div>
-				<nav class="connections-legal" aria-label="Legal">
+				<nav class="connections-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
 					<a href="/feedback">Feedback</a>
 					<a href="/privacy">Privacy</a>
 					<a href="/terms">Terms</a>
@@ -1528,14 +1165,14 @@
 
 	{#if sharingVisible && shareTarget}
 		<div
-			class="audio-backdrop"
+			class="audio-backdrop bg-foreground/20! bg-none!"
 			role="presentation"
 			onclick={() => (sharingVisible = false)}
 		></div>
-		<aside class="audio-panel share-panel" aria-label="Share document">
+		<aside class="audio-panel share-panel border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm! font-sans!" aria-label="Share document">
 			<div class="audio-header">
 				<div>
-					<p class="eyebrow">Shareable reader</p>
+					<p class="eyebrow text-muted-foreground!">Shareable reader</p>
 					<h2>Share link</h2>
 				</div>
 				<Button
@@ -1549,7 +1186,7 @@
 			</div>
 
 			<div class="share-content">
-				<div class="share-document">
+				<div class="share-document border-border! bg-muted! bg-none! text-foreground! rounded-xl! border shadow-sm! [&>svg]:text-muted-foreground! [&_span]:text-muted-foreground!">
 					<FileTextIcon />
 					<div>
 						<span>Document</span>
@@ -1558,7 +1195,7 @@
 				</div>
 
 				{#if shareError}
-					<div class="share-sync-state error" role="alert">
+					<div class="share-sync-state error border-destructive/40! bg-destructive/10! bg-none! text-destructive!" role="alert">
 						<TriangleAlertIcon />
 						<div>
 							<strong>Share link needs attention</strong>
@@ -1568,13 +1205,13 @@
 				{/if}
 
 				{#if shareBusy && !shareLink.shared}
-					<div class="share-loading">
+					<div class="share-loading text-muted-foreground!">
 						<LoaderCircleIcon class="spin" />
 						<span>Checking for an existing link…</span>
 					</div>
 				{:else if shareLink.shared && shareLink.url}
-					<div class="share-link-card">
-						<div class="share-link-status">
+					<div class="share-link-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+						<div class="share-link-status [&>svg]:text-primary! [&_small]:text-muted-foreground!">
 							{#if shareLink.status === 'ready'}
 								<CheckIcon />
 								<span>
@@ -1595,7 +1232,7 @@
 								</span>
 							{/if}
 						</div>
-						<div class="share-link-value">
+						<div class="share-link-value [&>span]:border-border! [&>span]:bg-background! [&>span]:bg-none! [&>span]:text-foreground!">
 							<span>{shareLink.url}</span>
 							<Button variant="outline" onclick={copyShareLink}>Copy</Button>
 						</div>
@@ -1606,13 +1243,10 @@
 						{/if}
 					</div>
 				{:else}
-					<div class="share-empty">
+					<div class="share-empty text-muted-foreground!">
 						<Share2Icon />
 						<p>Publish this document as an unguessable, forwardable link.</p>
-						<span>
-							The reader includes every summary level and complete narration that has
-							already been generated.
-						</span>
+						<span>The reader includes every available summary level.</span>
 					</div>
 				{/if}
 			</div>

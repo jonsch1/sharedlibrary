@@ -14,7 +14,7 @@ This directory contains the cross-platform Briefly desktop application.
   `CommandOrControl-G`).
 - Apple or Google signs in to the Briefly account; iCloud or Google Drive is chosen
   separately on the hosted account page for folder-structured Markdown and
-  content-addressed audio sync.
+  podcast-definition sync.
 - Clipboard URLs use the bundled extractor, then the local Codex CLI creates four
   summaries and assigns a topic in the background. The app shows persistent ingest
   status and mirrors active work on the dock/taskbar progress indicator; macOS also
@@ -26,17 +26,18 @@ This directory contains the cross-platform Briefly desktop application.
 - Versioned workspace input packages in `.briefly/inputs/` can override extraction
   for narrowly matched sites. They are hot-discovered and execute in restricted,
   secret-free child processes with optional built-in fallback.
-- Managed Briefly AI voice offers Low (Kokoro), Medium (Orpheus), and High
-  (Grok Voice) quality using prepaid account credit. The first MP3 segment plays as
-  provider bytes arrive while later segments are generated, cached locally, and
-  backed up through the selected sync service.
-- Share links publish all text levels and already-generated narration through the
-  same D1/R2 sharing service as the web reader.
+- Scheduled podcasts are plain Markdown files in `podcasts/`. Each file contains
+  only a name, schedule, sources, and optional length; the device timezone is
+  automatic. While Briefly is running, it watches sources, ingests updates, and
+  writes episode drafts back into the library; missed schedules are caught up
+  after launch or wake.
+- Share links publish all text levels through the same D1/R2 sharing service as
+  the web reader.
 
-Google and managed narration credentials remain in the hosted account service;
-CloudKit access stays in an authenticated Apple web context. Account and sync
-settings open in an Electron-hosted `/account` window so its per-device CloudKit
-authorization is available to desktop sync. The
+Google credentials remain in the hosted account service; CloudKit access stays
+in an authenticated Apple web context. Account and sync settings open in an
+Electron-hosted `/account` window so its per-device CloudKit authorization is
+available to desktop sync. The
 sandboxed renderer and local workspace never receive OAuth refresh tokens or API
 keys.
 

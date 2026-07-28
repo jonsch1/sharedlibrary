@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import worker from './index.js';
 import { hasSameLibraryContent } from '../src/lib/library.ts';
-import { ttsModels } from '../tts-pricing.js';
 
 test('iCloud setup verifies the remote library before reporting success', async () => {
 	const [setup, reader] = await Promise.all([
@@ -920,43 +919,20 @@ function signedStripeRequest(event, secret, timestamp = Math.floor(Date.now() / 
 	});
 }
 
-test('managed speech status exposes balance and prices, never the server key', async () => {
-	const database = new MockDatabase();
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts/status'),
-		fundedTTSEnvironment(database)
-	);
-	assert.equal(response.status, 200);
-	const status = await response.json();
-	assert.equal(status.configured, true);
-	assert.equal(status.authenticated, true);
-	assert.equal(status.balanceMicros, 500_000_000);
-	assert.deepEqual(status.topUpAmounts, [500, 1000, 1500]);
-	assert.equal(status.prices.length, 3);
-	assert.equal(JSON.stringify(status).includes('sk-or-managed'), false);
-});
-
-test('the owner receives exactly €10 of AI voice credit each UTC month', async (context) => {
-	const database = new MockDatabase();
-	database.sessionEmail = 'schauljonathan@gmail.com';
-	const env = environment(database);
-	let now = Date.UTC(2026, 6, 1);
-	context.mock.method(Date, 'now', () => now);
-
-	for (let request = 0; request < 2; request += 1) {
-		const response = await worker.fetch(authenticatedRequest('/api/tts/status'), env);
-		assert.equal((await response.json()).balanceMicros, 1_000_000_000);
+test('document narration and credit endpoints are no longer exposed', async () => {
+	for (const [path, method] of [
+		['/api/tts/status', 'GET'],
+		['/api/tts/checkout', 'POST'],
+		['/api/tts', 'POST'],
+		['/api/media/audio', 'GET'],
+		[`/api/media/audio/${'a'.repeat(64)}`, 'PUT']
+	]) {
+		const response = await worker.fetch(
+			authenticatedRequest(path, { method }),
+			environment()
+		);
+		assert.equal(response.status, 404);
 	}
-	assert.equal(database.ttsMonthlyCredits.size, 1);
-
-	now = Date.UTC(2026, 7, 1);
-	const nextMonth = await worker.fetch(authenticatedRequest('/api/tts/status'), env);
-	assert.equal((await nextMonth.json()).balanceMicros, 2_000_000_000);
-	assert.equal(database.ttsMonthlyCredits.size, 2);
-});
-
-test('managed speech pricing reports rounded audio hours per euro', () => {
-	assert.deepEqual(ttsModels.map((option) => option.hoursPerEuro), [10, 2, 1]);
 });
 
 test('Google Drive setup is centrally configured without exposing OAuth credentials', async () => {
@@ -1276,60 +1252,6 @@ test('checkout validates its Price, pins the API version, and reuses one open Se
 	}
 });
 
-test('AI voice top-up checkout accepts only fixed VAT-inclusive credit amounts', async () => {
-	const database = new MockDatabase();
-	const env = stripeEnvironment(database);
-	const originalFetch = globalThis.fetch;
-	let checkoutForm;
-	let checkoutHeaders;
-	globalThis.fetch = async (input, init = {}) => {
-		const url = new URL(input);
-		if (url.pathname === '/v1/products/prod_briefly_tts') {
-			return Response.json({ id: 'prod_briefly_tts', active: true });
-		}
-		if (url.pathname === '/v1/checkout/sessions') {
-			checkoutForm = init.body;
-			checkoutHeaders = init.headers;
-			return Response.json({
-				id: 'cs_tts_topup',
-				url: 'https://checkout.stripe.test/c/pay/cs_tts_topup'
-			});
-		}
-		return Response.json({ error: { message: 'Unexpected Stripe request.' } }, { status: 500 });
-	};
-	try {
-		const response = await worker.fetch(
-			authenticatedRequest('/api/tts/checkout', {
-				method: 'POST',
-				headers: {
-					Origin: 'https://library.example',
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					amountCents: 500,
-					checkoutID: '8f44eb45-905c-4eb1-8f91-4f6c37de3e35'
-				})
-			}),
-			env
-		);
-		assert.equal(response.status, 200);
-		assert.equal(checkoutForm.get('mode'), 'payment');
-		assert.equal(checkoutForm.get('line_items[0][price_data][unit_amount]'), '500');
-		assert.equal(checkoutForm.get('line_items[0][price_data][tax_behavior]'), 'inclusive');
-		assert.equal(checkoutForm.get('line_items[0][price_data][product]'), 'prod_briefly_tts');
-		assert.equal(checkoutForm.get('metadata[briefly_kind]'), 'tts_credit');
-		assert.match(checkoutHeaders['Idempotency-Key'], /^briefly-tts-checkout-v3-/);
-		assert.equal(checkoutForm.get('payment_method_types[0]'), null);
-		assert.equal(checkoutForm.get('automatic_tax[enabled]'), 'true');
-		assert.equal(checkoutForm.get('tax_id_collection[enabled]'), 'true');
-		assert.equal(checkoutForm.get('billing_address_collection'), 'required');
-		assert.equal(checkoutForm.get('customer_creation'), 'always');
-		assert.equal(checkoutForm.get('custom_text[submit][message]'), null);
-	} finally {
-		globalThis.fetch = originalFetch;
-	}
-});
-
 test('active subscriptions on unknown Prices never grant Plus entitlement', async () => {
 	const database = new MockDatabase();
 	database.billingCustomers.set('reader@example.com', {
@@ -1433,7 +1355,7 @@ test('paid AI voice checkout credits the VAT-exclusive amount exactly once', asy
 	}
 });
 
-test('first paid Plus month grants matching AI voice credit only once', async (context) => {
+test('paid Plus checkout does not create voice credit', async (context) => {
 	const database = new MockDatabase();
 	database.billingCustomers.set('reader@example.com', {
 		user_email: 'reader@example.com',
@@ -1495,8 +1417,8 @@ test('first paid Plus month grants matching AI voice credit only once', async (c
 		);
 		assert.equal(response.status, 200);
 	}
-	assert.equal(database.ttsAccounts.get('account-reader').balance_micros, 475_000_000);
-	assert.equal(database.ttsWelcomeCredits.get('account-reader').credited_at > 0, true);
+	assert.equal(database.ttsAccounts.has('account-reader'), false);
+	assert.equal(database.ttsWelcomeCredits.has('account-reader'), false);
 });
 
 test('Stripe webhooks require a current raw-body signature and are idempotent', async () => {
@@ -1647,8 +1569,7 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 				'Content-Type': 'application/json'
 			},
 			body: JSON.stringify({
-				captureID: 'capture-1',
-				voice: 'eve'
+				captureID: 'capture-1'
 			})
 		}),
 		entitledEnvironment(database),
@@ -1683,13 +1604,7 @@ test('publishing creates a stable 192-bit capability link and returns immediatel
 test('iCloud clients publish the selected document without routing private files through Drive', async () => {
 	const database = new MockDatabase();
 	database.syncPreferences.set('reader@example.com', 'icloud');
-	const storedAudio = new Map();
 	const env = entitledEnvironment(database);
-	env.SHARE_MEDIA = {
-		async put(key, bytes) {
-			storedAudio.set(key, new Uint8Array(bytes));
-		}
-	};
 	let backgroundTask;
 	const response = await worker.fetch(
 		authenticatedRequest('/api/share-links', {
@@ -1698,10 +1613,9 @@ test('iCloud clients publish the selected document without routing private files
 				Origin: 'https://library.example',
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify({
-				captureID: 'capture-icloud',
-				voice: 'eve',
-				source: {
+				body: JSON.stringify({
+					captureID: 'capture-icloud',
+					source: {
 					filename: 'icloud-note.md',
 					title: 'iCloud note',
 					excerpt: 'A private note selected for sharing.',
@@ -1731,25 +1645,6 @@ test('iCloud clients publish the selected document without routing private files
 	assert.equal(published.status, 'preparing');
 	assert.match(published.generation, /^[a-f0-9-]{36}$/);
 	await backgroundTask;
-	const audioHash = 'a'.repeat(64);
-	const audioResponse = await worker.fetch(
-		authenticatedRequest(
-			`/api/share-links/${published.token}/audio/${published.generation}/source/0/${audioHash}`,
-			{
-				method: 'PUT',
-				headers: {
-					Origin: 'https://library.example',
-					'Content-Type': 'audio/mpeg',
-					'X-Briefly-Voice': 'eve'
-				},
-				body: new Uint8Array([1, 2, 3])
-			}
-		),
-		env
-	);
-	assert.equal(audioResponse.status, 200);
-	assert.equal(database.shareAudioSegments.length, 1);
-	assert.equal(storedAudio.size, 1);
 
 	const ready = await worker.fetch(
 		new Request(`https://library.example/api/public/shares/${published.token}`),
@@ -1883,7 +1778,7 @@ test('an account can update at 200 active links but cannot publish a 201st', asy
 				Origin: 'https://library.example',
 				'Content-Type': 'application/json'
 			},
-			body: JSON.stringify({ captureID, voice: 'eve' })
+			body: JSON.stringify({ captureID })
 		});
 
 	const denied = await worker.fetch(request('capture-200'), entitledEnvironment(database));
@@ -2011,18 +1906,6 @@ test('library file access rejects paths outside the mirrored workspace', async (
 	assert.deepEqual(await response.json(), { error: 'Invalid library file request.' });
 });
 
-test('audio mirror listing requires an authenticated account', async () => {
-	const response = await worker.fetch(
-		new Request('https://library.example/api/media/audio'),
-		stripeEnvironment()
-	);
-	assert.equal(response.status, 401);
-	assert.deepEqual(await response.json(), {
-		error: 'Sign in before using Briefly Plus.',
-		code: 'authentication_required'
-	});
-});
-
 test('GitHub endpoints are no longer exposed', async () => {
 	const response = await worker.fetch(
 		authenticatedRequest('/api/github/status'),
@@ -2035,44 +1918,35 @@ test('user-managed OpenRouter OAuth endpoints are no longer exposed', async () =
 	for (const path of [
 		'/api/openrouter/status',
 		'/api/openrouter/connect/start',
-		'/api/openrouter/connect/callback?state=pending&code=authorization'
+		'/api/openrouter/connect/callback?state=pending&code=authorization',
+		'/api/tts/status',
+		'/api/tts/checkout',
+		'/api/tts'
 	]) {
 		const response = await worker.fetch(authenticatedRequest(path), environment());
 		assert.equal(response.status, 404);
 	}
 });
 
-test('credential and media mutations reject cross-origin requests', async () => {
+test('share mutations reject cross-origin requests', async () => {
 	const env = entitledEnvironment();
 	const mutations = [
-		{ path: '/api/tts', body: { input: 'Hello', voice: 'eve' } },
-		{ path: '/api/tts/checkout', body: { amountCents: 500 } },
-		{
-			path: `/api/media/audio/${'a'.repeat(64)}`,
-			body: new Uint8Array([1, 2, 3]),
-			contentType: 'audio/mpeg'
-		},
 		{
 			path: '/api/share-links',
-			body: { captureID: 'capture-1', voice: 'eve' }
+			body: { captureID: 'capture-1' }
 		},
 		{
 			path: `/api/public/shares/${'A'.repeat(32)}/import`
 		}
-	];
+		];
 	for (const mutation of mutations) {
-		const body =
-			mutation.body instanceof Uint8Array
-				? mutation.body
-				: mutation.body
-					? JSON.stringify(mutation.body)
-					: undefined;
+		const body = mutation.body ? JSON.stringify(mutation.body) : undefined;
 		const response = await worker.fetch(
 			authenticatedRequest(mutation.path, {
-				method: mutation.path.startsWith('/api/media/') ? 'PUT' : 'POST',
+				method: 'POST',
 				headers: {
 					Origin: 'https://attacker.example',
-					'Content-Type': mutation.contentType ?? 'application/json'
+					'Content-Type': 'application/json'
 				},
 				body
 			}),
@@ -2080,206 +1954,4 @@ test('credential and media mutations reject cross-origin requests', async () => 
 		);
 		assert.equal(response.status, 403);
 	}
-});
-
-test('speech requires prepaid credit before making a provider request', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json',
-				'X-Briefly-Request-Id': crypto.randomUUID()
-			},
-			body: JSON.stringify({ input: 'Hello', voice: 'af_heart' })
-		}),
-		environment()
-	);
-	assert.equal(response.status, 402);
-	assert.deepEqual(await response.json(), {
-		error: 'Not enough Briefly AI voice credit. Top up in Settings.'
-	});
-});
-
-test('speech rejects malformed model identifiers before making a provider request', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				input: 'Hello',
-				voice: 'alloy',
-				model: 'not a model slug'
-			})
-		}),
-		environment()
-	);
-	assert.equal(response.status, 400);
-	assert.deepEqual(await response.json(), {
-		error: 'Invalid speech text, voice, or model.'
-	});
-});
-
-test('speech accepts provider-specific voice identifiers', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json',
-				'X-Briefly-Request-Id': crypto.randomUUID()
-			},
-			body: JSON.stringify({
-				input: 'Hello',
-				voice: 'af_heart',
-				model: 'hexgrad/kokoro-82m'
-			})
-		}),
-		environment()
-	);
-	assert.equal(response.status, 402);
-	assert.deepEqual(await response.json(), {
-		error: 'Not enough Briefly AI voice credit. Top up in Settings.'
-	});
-});
-
-test('speech rejects models outside the three quality tiers', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				input: 'Hello',
-				voice: 'coral',
-				model: 'openai/gpt-4o-mini-tts'
-			})
-		}),
-		environment()
-	);
-	assert.equal(response.status, 400);
-	assert.deepEqual(await response.json(), {
-		error: 'Invalid speech text, voice, or model.'
-	});
-});
-
-test('speech rejects a voice that does not belong to the selected quality', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				input: 'Hello',
-				voice: 'eve',
-				model: 'hexgrad/kokoro-82m'
-			})
-		}),
-		environment()
-	);
-	assert.equal(response.status, 400);
-	assert.deepEqual(await response.json(), {
-		error: 'Invalid speech text, voice, or model.'
-	});
-});
-
-test('failed provider speech restores the reserved AI voice credit', async (context) => {
-	const database = new MockDatabase();
-	const env = fundedTTSEnvironment(database);
-	const requestID = 'c84068cb-faf5-4f06-896c-a666a768907d';
-	context.mock.method(globalThis, 'fetch', async () =>
-		Response.json({ error: { message: 'Provider unavailable.' } }, { status: 503 })
-	);
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json',
-				'X-Briefly-Request-Id': requestID
-			},
-			body: JSON.stringify({
-				input: 'Hello',
-				voice: 'af_heart',
-				model: 'hexgrad/kokoro-82m'
-			})
-		}),
-		env
-	);
-	assert.equal(response.status, 503);
-	assert.equal(database.ttsAccounts.get('account-reader').balance_micros, 500_000_000);
-	assert.equal(database.ttsUsage.get(requestID).status, 'released');
-});
-
-test('AI voice credit has no refund endpoint', async () => {
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts/refund', {
-			method: 'POST',
-			headers: { Origin: 'https://library.example' }
-		}),
-		stripeEnvironment()
-	);
-	assert.equal(response.status, 404);
-});
-
-test('speech forwards provider audio progressively', async (context) => {
-	const database = new MockDatabase();
-	let providerController;
-	context.mock.method(globalThis, 'fetch', async (input, init) => {
-		assert.equal(String(input), 'https://openrouter.ai/api/v1/audio/speech');
-		assert.equal(init.headers.Authorization, 'Bearer sk-or-managed');
-		assert.deepEqual(JSON.parse(init.body), {
-			model: 'x-ai/grok-voice-tts-1.0',
-			input: 'A longer streaming example.',
-			voice: 'eve',
-			response_format: 'mp3'
-		});
-		return new Response(
-			new ReadableStream({
-				start(controller) {
-					providerController = controller;
-					controller.enqueue(new Uint8Array([1, 2, 3]));
-				}
-			}),
-			{
-				headers: {
-					'Content-Type': 'audio/mpeg',
-					'X-Generation-Id': 'generation-1'
-				}
-			}
-		);
-	});
-
-	const response = await worker.fetch(
-		authenticatedRequest('/api/tts', {
-			method: 'POST',
-			headers: {
-				Origin: 'https://library.example',
-				'Content-Type': 'application/json',
-				'X-Briefly-Request-Id': crypto.randomUUID()
-			},
-			body: JSON.stringify({
-				input: 'A longer streaming example.',
-				voice: 'eve',
-				model: 'x-ai/grok-voice-tts-1.0'
-			})
-		}),
-		fundedTTSEnvironment(database)
-	);
-	assert.equal(response.status, 200);
-	assert.equal(response.headers.get('X-Generation-Id'), 'generation-1');
-	assert.equal(
-		response.headers.get('X-Briefly-TTS-Balance-Micros'),
-		String(500_000_000 - 27 * 1800)
-	);
-	const reader = response.body.getReader();
-	assert.deepEqual(await reader.read(), {
-		done: false,
-		value: new Uint8Array([1, 2, 3])
-	});
-	providerController.enqueue(new Uint8Array([4, 5]));
-	providerController.close();
-	assert.deepEqual(await reader.read(), {
-		done: false,
-		value: new Uint8Array([4, 5])
-	});
-	assert.deepEqual(await reader.read(), { done: true, value: undefined });
 });

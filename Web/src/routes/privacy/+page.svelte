@@ -23,7 +23,7 @@
 			<p>
 				<strong>Local-first by default.</strong> The desktop app keeps your workspace on
 				your device. Briefly does not receive that library unless you choose a connected
-				feature such as cloud synchronization, narration, or a public share link. Private
+				feature such as cloud synchronization or a public share link. Private
 				iCloud sync passes directly between your device and Apple.
 			</p>
 		</div>
@@ -55,32 +55,26 @@
 				</tr>
 				<tr>
 					<td>iCloud sync</td>
-					<td>Your selected-provider preference. Apple processes the private CloudKit records, documents, and audio exchanged directly with your device.</td>
+					<td>Your selected-provider preference. Apple processes the private CloudKit records and documents exchanged directly with your device.</td>
 					<td>Synchronize the Briefly files you choose without sending private iCloud content through Briefly's application server.</td>
 					<td>Performance of our contract; you choose whether to connect iCloud.</td>
 				</tr>
 				<tr>
 					<td>Google Drive sync</td>
-					<td>Encrypted Google access/refresh tokens, connection dates, folder ID, library index, documents, and audio passing through the service.</td>
+					<td>Encrypted Google access/refresh tokens, connection dates, folder ID, library index, and documents passing through the service.</td>
 					<td>Read and update the Briefly files you ask us to synchronize. Private file content is proxied in memory and is not retained in Briefly's application database.</td>
 					<td>Performance of our contract; you choose whether to connect Drive.</td>
 				</tr>
 				<tr>
-					<td>Optional narration</td>
-					<td>Your account ID, selected model/voice, requested text, character count, charge, generation ID, and timestamps.</td>
-					<td>Generate speech using Briefly's managed OpenRouter account, debit only successful usage, show your history, and return failed reservations. Returned audio may be cached locally and saved through your selected sync provider.</td>
-					<td>Performance of the feature you request.</td>
-				</tr>
-				<tr>
 					<td>Public share links</td>
-					<td>Your account email, document text and metadata, source URL, optional narration, share token, and timestamps.</td>
+					<td>Your account email, document text and metadata, source URL, share token, and timestamps.</td>
 					<td>Publish the specific document you deliberately select at a forwardable public link.</td>
 					<td>Performance of your sharing request.</td>
 				</tr>
 				<tr>
 					<td>Briefly Plus billing</td>
-					<td>Email, internal account ID, Stripe customer/subscription/price/payment/refund IDs, status, billing dates, AI voice balance and top-ups, usage charges, and webhook event IDs. Stripe separately receives payment, billing-address, and tax details.</td>
-					<td>Start and administer subscriptions and AI voice credit, prevent duplicate allocations, collect or refund payment, and keep accounting records.</td>
+					<td>Email, internal account ID, Stripe customer/subscription/price/payment/refund IDs, status, billing dates, webhook event IDs, and historical records from the discontinued voice-credit feature. Stripe separately receives payment, billing-address, and tax details.</td>
+					<td>Start and administer subscriptions, prevent duplicate allocations, collect or refund payment, and keep required accounting records.</td>
 					<td>Contract and legal obligations; fraud prevention is a legitimate interest.</td>
 				</tr>
 				<tr>
@@ -104,7 +98,7 @@
 			<li>Directly from you when you sign in, connect a provider, subscribe, contact us, or publish a document.</li>
 			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
 			<li>From Google when it confirms your account email and returns OAuth credentials or Drive files within the narrow <code>drive.file</code> permission.</li>
-			<li>From Stripe when it reports checkout, subscription, top-up, and refund status.</li>
+			<li>From Stripe when it reports checkout, subscription, and refund status.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
 			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
 		</ul>
@@ -136,10 +130,6 @@
 				<tr>
 					<td><a href="https://stripe.com/privacy" rel="noreferrer">Stripe</a></td>
 					<td>Checkout, subscriptions, payment, invoicing, tax, and fraud prevention. Stripe acts under its own legal obligations for some payment processing.</td>
-				</tr>
-				<tr>
-					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
-					<td>Managed text-to-speech provider; receives the selected text, model, voice, and associated technical request data only when you request paid narration.</td>
 				</tr>
 				<tr>
 					<td><a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub</a></td>
@@ -206,7 +196,7 @@
 				</tr>
 				<tr>
 					<td>Public shares</td>
-					<td>Until you revoke or replace the share. Revocation deletes its text and stored narration from Briefly's active systems; provider backups may age out later.</td>
+					<td>Until you revoke or replace the share. Revocation deletes its text from Briefly's active systems; provider backups may age out later.</td>
 				</tr>
 				<tr>
 					<td>Billing and transaction records</td>
@@ -261,9 +251,8 @@
 		<h2>8. Security, children, and changes</h2>
 		<p>
 			Briefly uses encrypted transport, secure HTTP-only session cookies, same-origin checks, and
-			encryption for stored Google credentials. The managed OpenRouter credential remains
-			server-side and is never returned to users. Access is scoped to the signed-in
-			account. iCloud content is protected by Apple's private CloudKit database and does not
+			encryption for stored Google credentials. Access is scoped to the signed-in account.
+			iCloud content is protected by Apple's private CloudKit database and does not
 			pass through Briefly's Worker. No internet service is risk-free, so protect forwardable share links and revoke a
 			link if it reaches the wrong person.
 		</p>

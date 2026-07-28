@@ -23,6 +23,41 @@ Body text.
   assert.equal(parsed.body.trim(), 'Body text.');
 });
 
+test('stores and indexes podcast WAV audio with its episode', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'briefly-podcast-audio-'));
+  const trashed: string[] = [];
+  try {
+    const service = new LibraryService(root, 'linux', async (path) => {
+      trashed.push(path);
+    });
+    const wav = new Uint8Array(44);
+    wav.set(Buffer.from('RIFF'), 0);
+    wav.set(Buffer.from('WAVE'), 8);
+    const entryID = await service.capturePodcastEpisode({
+      podcastID: 'daily-ai',
+      podcastTitle: 'Daily AI',
+      title: 'Daily AI — today',
+      body: 'Episode script.',
+      sources: ['https://example.com/feed'],
+      sourceIDs: ['personal:source-1'],
+      audio: wav
+    });
+    const entry = (await service.snapshot()).entries.find(({ id }) => id === entryID);
+    assert.equal(entry?.hasAudio, true);
+    assert.deepEqual(entry?.sourceIDs, ['personal:source-1']);
+    assert.deepEqual(entry?.sourceURLs, ['https://example.com/feed']);
+    const audioPath = await service.podcastAudioPath(entryID);
+    assert.deepEqual(await readFile(audioPath), Buffer.from(wav));
+    await service.trashCapture(entryID);
+    assert.deepEqual(
+      trashed.map((path) => relative(root, path)).sort(),
+      [join('library', 'audio', `${entry?.captureID}.wav`), join('library', entry!.filename)]
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('indexes, edits, captures, and trashes a folder-structured library', async () => {
   const root = await mkdtemp(join(tmpdir(), 'shared-library-electron-'));
   const trashed: string[] = [];

@@ -26,6 +26,7 @@ interface ParsedMarkdown {
 interface IndexedEntry {
   entry: DesktopLibraryEntry;
   sourcePath: string;
+  audioPath?: string;
   variantPaths: Partial<Record<LibraryVariant, string>>;
 }
 
@@ -49,6 +50,8 @@ export interface DriveLibraryIndex {
   entries: Array<{
     id: string;
     captureID: string;
+    entryType?: string;
+    podcastID?: string;
     title: string;
     excerpt: string;
     topicIDs: string[];
@@ -270,7 +273,7 @@ export class LibraryService {
     const indexed = await this.requireEntry(entryID);
     const paths = Array.from(
       new Set(
-        [indexed.sourcePath, ...Object.values(indexed.variantPaths)].filter(
+        [indexed.sourcePath, indexed.audioPath, ...Object.values(indexed.variantPaths)].filter(
           (path): path is string => Boolean(path)
         )
       )
@@ -325,6 +328,54 @@ export class LibraryService {
     ].join('\n');
     await atomicWrite(join(this.workspacePath, 'library', filename), metadata);
     return captureID;
+  }
+
+  async capturePodcastEpisode(value: {
+    podcastID: string;
+    podcastTitle: string;
+    title: string;
+    body: string;
+    sources: string[];
+    sourceIDs: string[];
+    audio: Uint8Array;
+  }): Promise<string> {
+    await this.ensureWorkspace();
+    const captureID = randomUUID().toUpperCase();
+    const now = new Date().toISOString();
+    const filename = await this.availableFilename(
+      slug(`${value.podcastTitle}-${now.slice(0, 10)}`)
+    );
+    const audioPath = `audio/${captureID}.wav`;
+    const metadata = {
+      id: captureID,
+      type: 'podcast_episode',
+      title: value.title.trim() || `${value.podcastTitle} — ${now.slice(0, 10)}`,
+      created_at: now,
+      updated_at: now,
+      tags: ['podcast'],
+      topics: [],
+      podcast_id: value.podcastID,
+      podcast_title: value.podcastTitle,
+      audio_path: audioPath,
+      source_ids: [...new Set(value.sourceIDs)],
+      source_urls: [...new Set(value.sources)]
+    };
+    await atomicWrite(
+      join(this.workspacePath, 'library', audioPath),
+      value.audio
+    );
+    await atomicWrite(
+      join(this.workspacePath, 'library', filename),
+      `${serializeFrontmatter(metadata)}\n\n${value.body.trim()}\n`
+    );
+    this.indexedEntries.clear();
+    return `personal:${captureID}`;
+  }
+
+  async podcastAudioPath(entryID: string): Promise<string> {
+    const path = (await this.requireEntry(entryID)).audioPath;
+    if (!path) throw new Error('That podcast episode has no audio.');
+    return path;
   }
 
   async processingInput(entryID: string): Promise<{
@@ -437,6 +488,8 @@ export class LibraryService {
       return {
         id: entry.id,
         captureID: entry.captureID,
+        entryType: entry.entryType,
+        podcastID: entry.podcastID,
         title: entry.title,
         excerpt: entry.excerpt,
         topicIDs: entry.topicIDs,
@@ -551,10 +604,18 @@ export class LibraryService {
         ? parsed.body
         : await readFile(excerptPath, 'utf8');
     const id = `personal:${captureID}`;
+    const audioRelativePath = stringValue(parsed.metadata.audio_path);
+    const audioPath =
+      /^audio\/[A-Za-z0-9-]+\.wav$/.test(audioRelativePath)
+        ? join(this.workspacePath, 'library', audioRelativePath)
+        : undefined;
+    const existingAudioPath = audioPath && (await isFile(audioPath)) ? audioPath : undefined;
     return {
       entry: {
         id,
         captureID,
+        entryType: stringValue(parsed.metadata.type) || undefined,
+        podcastID: stringValue(parsed.metadata.podcast_id) || undefined,
         filename,
         title,
         excerpt: excerpt(excerptText),
@@ -562,13 +623,17 @@ export class LibraryService {
         topicNames: topicIDs.map((topic) => topicNames.get(topic) ?? titleize(topic)),
         tags: arrayValue(parsed.metadata.tags),
         sourceURL: stringValue(parsed.metadata.source_url) || undefined,
+        sourceIDs: arrayValue(parsed.metadata.source_ids),
+        sourceURLs: arrayValue(parsed.metadata.source_urls),
         createdAt:
           stringValue(parsed.metadata.created_at) || sourceStat.birthtime.toISOString(),
         updatedAt:
           stringValue(parsed.metadata.updated_at) || sourceStat.mtime.toISOString(),
+        hasAudio: Boolean(existingAudioPath),
         availableVariants: libraryVariants.filter((variant) => variantPaths[variant])
       },
       sourcePath,
+      audioPath: existingAudioPath,
       variantPaths
     };
   }
@@ -621,6 +686,17 @@ export class LibraryService {
       }
     };
     await walk(join(this.workspacePath, 'library'), '');
+    const podcastDirectory = join(this.workspacePath, 'podcasts');
+    try {
+      const podcastFiles = await readdir(podcastDirectory, { withFileTypes: true });
+      for (const entry of podcastFiles) {
+        if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+          paths.push(`podcasts/${entry.name}`);
+        }
+      }
+    } catch {
+      // A workspace without scheduled podcasts has nothing extra to mirror.
+    }
     return paths.sort((left, right) => left.localeCompare(right));
   }
 
@@ -783,7 +859,10 @@ function countWords(value: string): number {
 
 function validMirroredPath(value: string): boolean {
   if (value === 'topics.md') return true;
-  if (!value.startsWith('library/') || !value.toLowerCase().endsWith('.md')) return false;
+  if (
+    !(value.startsWith('library/') || value.startsWith('podcasts/')) ||
+    !value.toLowerCase().endsWith('.md')
+  ) return false;
   return !value.split('/').some((component) => !component || component === '.' || component === '..');
 }
 
@@ -829,9 +908,10 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-async function atomicWrite(path: string, text: string): Promise<void> {
+async function atomicWrite(path: string, value: string | Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporaryPath, text, 'utf8');
+  if (typeof value === 'string') await writeFile(temporaryPath, value, 'utf8');
+  else await writeFile(temporaryPath, value);
   await rename(temporaryPath, path);
 }

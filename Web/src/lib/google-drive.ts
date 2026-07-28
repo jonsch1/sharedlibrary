@@ -5,12 +5,6 @@ export interface GoogleDriveConnection {
 	callbackURL?: string;
 }
 
-export interface GoogleDriveAudioFile {
-	hash: string;
-	byteCount: number;
-	contentType: string;
-}
-
 async function errorMessage(response: Response, fallback: string): Promise<string> {
 	try {
 		const value = (await response.json()) as { error?: string; message?: string };
@@ -88,50 +82,6 @@ export async function syncGoogleDriveLibrary(
 	return projection;
 }
 
-export async function listGoogleDriveAudio(): Promise<GoogleDriveAudioFile[]> {
-	const response = await fetch('/api/media/audio', {
-		headers: { Accept: 'application/json' },
-		cache: 'no-store'
-	});
-	if (response.status === 401 || response.status === 404) return [];
-	if (!response.ok) {
-		throw new Error(await errorMessage(response, 'Could not list audio from Google Drive.'));
-	}
-	const value = (await response.json()) as { files?: unknown };
-	if (!Array.isArray(value.files)) return [];
-	return value.files.filter((file): file is GoogleDriveAudioFile => {
-		if (typeof file !== 'object' || file === null) return false;
-		const candidate = file as Record<string, unknown>;
-		return (
-			typeof candidate.hash === 'string' &&
-			/^[a-f0-9]{64}$/.test(candidate.hash) &&
-			typeof candidate.byteCount === 'number' &&
-			Number.isSafeInteger(candidate.byteCount) &&
-			candidate.byteCount >= 0 &&
-			typeof candidate.contentType === 'string' &&
-			candidate.contentType.startsWith('audio/')
-		);
-	});
-}
-
-export async function loadGoogleDriveAudio(hash: string): Promise<Blob | null> {
-	const response = await fetch(`/api/media/audio/${hash}`);
-	if (response.status === 401 || response.status === 404) return null;
-	if (!response.ok) return null;
-	return response.blob();
-}
-
-export async function storeGoogleDriveAudio(hash: string, audio: Blob): Promise<void> {
-	const response = await fetch(`/api/media/audio/${hash}`, {
-		method: 'PUT',
-		headers: { 'Content-Type': audio.type || 'audio/mpeg' },
-		body: audio
-	});
-	if (response.status === 401 || response.status === 404) return;
-	if (!response.ok) {
-		throw new Error(await errorMessage(response, 'Could not save audio to Google Drive.'));
-	}
-}
 import {
 	mirrorLibraryProjection,
 	parseLibraryProjection,

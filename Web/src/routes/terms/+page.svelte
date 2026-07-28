@@ -12,7 +12,7 @@
 		<p>
 			These Terms are an agreement between you and <strong>Jonathan Schaul</strong>, operating
 			Briefly in Germany (“Briefly”, “we”, or “us”). They apply to the Briefly website,
-			desktop and web apps, accounts, synchronization, narration, share links, downloads, and
+			desktop and web apps, accounts, synchronization, scheduled podcasts, share links, downloads, and
 			Briefly Plus (together, the “Service”).
 		</p>
 		<p>
@@ -32,7 +32,7 @@
 		<h2>2. What Briefly provides</h2>
 		<p>
 			Briefly helps you capture sources and notes into a local Markdown library, read them at
-			different levels of detail, generate optional narration, synchronize selected files through
+			different levels of detail, watch sources and prepare scheduled podcast episodes, synchronize selected files through
 			your selected iCloud or Google Drive provider, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
@@ -42,7 +42,7 @@
 			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
-			Generated summaries, extraction, metadata, and narration may contain errors or omissions.
+			Generated summaries, extraction, metadata, and podcast episodes may contain errors or omissions.
 			They are aids, not professional legal, medical, financial, or other expert advice. Check
 			important information against the original source.
 		</p>
@@ -59,7 +59,7 @@
 		<p>
 			Cloud sync is optional and can be stopped or disconnected in the app. Doing so does not
 			delete Briefly files already stored in iCloud or Google Drive. Signing out does not cancel
-			Briefly Plus or remove purchased AI voice credit.
+			Briefly Plus.
 		</p>
 	</section>
 
@@ -117,16 +117,6 @@
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
 
-		<h3>Briefly AI voice credit</h3>
-		<ul>
-			<li>Purchased AI voice credit is a limited, non-transferable right to use Briefly's managed narration service. It is not money, a bank account, or a general-purpose wallet and cannot be sent to another person or payment destination.</li>
-			<li>Your account's first successfully paid Briefly Plus Checkout receives a one-time AI voice credit equal to the total EUR amount paid. Renewals and later subscriptions do not grant another welcome credit.</li>
-			<li>Top-up payments include applicable VAT. The credit added to your balance equals the payment excluding VAT, as calculated by Stripe. Pricing changes apply prospectively and do not reduce credit already purchased.</li>
-			<li>Briefly reserves the displayed charge before requesting narration, settles successful generations, and restores the reservation when the provider request fails. A completed provider generation is chargeable even if you dislike its style or choose not to listen.</li>
-			<li>Purchased and welcome credit have no short product expiry.</li>
-			<li>Top-ups are final and non-refundable except where withdrawal, defect, termination, or refund rights are required by law.</li>
-		</ul>
-
 		<h3>German and EEA consumer right of withdrawal</h3>
 		<p>
 			If you are a consumer in Germany or elsewhere in the EEA, you generally have 14 days from
@@ -137,7 +127,7 @@
 			rules on full performance and your express consent remain unaffected.
 		</p>
 		<p>
-			To withdraw from Plus or an AI voice top-up, email an unambiguous statement to
+			To withdraw from Plus, email an unambiguous statement to
 			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a> before the deadline. You
 			may use this optional model:
 		</p>
@@ -158,7 +148,7 @@
 	<section>
 		<h2>7. Third-party services</h2>
 		<p>
-			Briefly interoperates with Google Drive, Stripe, OpenRouter, GitHub, operating systems, and
+			Briefly interoperates with Google Drive, Stripe, GitHub, operating systems, and
 			browsers. Their services and terms are separate from ours. We are responsible for Briefly,
 			not for third-party outages, account decisions, content, or changes outside our reasonable
 			control. We will use reasonable care when choosing and integrating providers and will not

@@ -1,32 +1,32 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     Archive,
     ArrowUpRight,
     Check,
     ChevronLeft,
     Clipboard,
-    Copy,
+    Cog,
     FileText,
+    Folder,
     FolderOpen,
     Headphones,
     Keyboard,
     LoaderCircle,
     LogIn,
-    Pause,
-    Pencil,
-    Play,
+    Palette,
     Plus,
     RefreshCw,
     RotateCcw,
     Search,
-    Settings2,
     Share2,
     Sparkles,
-    Trash2,
     X
   } from '@lucide/svelte';
+  import AudioPlayer from './AudioPlayer.svelte';
   import DepthControl from './DepthControl.svelte';
   import MarkdownView from './MarkdownView.svelte';
+  import PodcastsView from './PodcastsView.svelte';
   import appIcon from './assets/app-icon.png';
   import { shouldRenderSourceAsPlainText } from '../shared/source-presentation';
   import type {
@@ -38,67 +38,65 @@
     DesktopShortcutPreferences,
     DesktopSyncStatus,
     LibraryVariant,
-    NarrationLoadingPhase,
-    NarrationSegment,
-    NarrationStatus,
-    OpenRouterTTSModel,
-    OpenRouterVoice,
+    PodcastSnapshot,
+    PromptID,
+    PromptPreferences,
     ProcessingPreferences,
-    TopicDefinition,
-    ShareLinkStatus
+    TopicDefinition
   } from '../shared/contracts';
   import {
     captureShortcutFromKeyboardEvent,
     formatCaptureShortcut
   } from '../shared/shortcuts';
   import {
-    defaultOpenRouterTTSModel,
-    normalizeOpenRouterTTSModel,
-    openRouterTTSModels,
-    openRouterVoiceName,
-    voicesForTTSModel
-  } from '../shared/contracts';
-
+    initializeTheme,
+    readThemePreference,
+    setThemePreference,
+    themeModeOptions,
+    themeOptions,
+    type ThemeMode,
+    type ThemeName
+  } from '../../../Shared/themes';
+  type SettingsTab =
+    | 'general'
+    | 'topics'
+    | 'prompt-summarization'
+    | 'prompt-podcast'
+    | 'podcasts';
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
+  let podcastSnapshot = $state<PodcastSnapshot | null>(null);
+  let activeView = $state<'library' | 'podcasts'>('library');
   let selectedID = $state('');
   let selectedVariant = $state<LibraryVariant>('concise');
   let selectedText = $state('');
   let query = $state('');
   let selectedTopic = $state('all');
+  let selectedPodcastID = $state('all');
+  let expandedEpisodeIDs = $state<string[]>([]);
   let loading = $state(true);
   let loadingText = $state(false);
   let busy = $state(false);
   let message = $state('');
   let settingsOpen = $state(false);
-  let editing = $state(false);
-  let editorText = $state('');
+  let settingsTab = $state<SettingsTab>('general');
+  let promptsExpanded = $state(true);
   let mobileReaderVisible = $state(false);
-  let playbackRate = $state(1);
   let connections = $state<DesktopConnectionStatus | null>(null);
   let syncStatus = $state<DesktopSyncStatus>({
     phase: 'idle',
     message: 'Sign in and choose a sync service.'
   });
-  let voice = $state<OpenRouterVoice>('af_heart');
-  let ttsModel = $state<OpenRouterTTSModel>(defaultOpenRouterTTSModel);
-  let narrationState = $state<'idle' | 'loading' | 'playing' | 'paused'>('idle');
-  let narrationLoadingPhase = $state<NarrationLoadingPhase>('checking');
-  let narrationRequestID = 0;
-  let narrationSessionID = $state('');
-  let narrationSegments = $state<string[]>([]);
-  let narrationIndex = $state(0);
-  let narrationTotal = $state(0);
-  let narrationProgress = $state(0);
-  let narrationProgressFrame = 0;
-  let narrationAudio: HTMLAudioElement | null = null;
-  let share = $state<ShareLinkStatus>({ shared: false });
   let shareBusy = $state(false);
-  let processingPreferences = $state<ProcessingPreferences | null>(null);
-  let processingPromptDraft = $state('');
   let processingTopicsDraft = $state<TopicDefinition[]>([]);
+  let promptPreferences = $state<PromptPreferences | null>(null);
+  let promptDrafts = $state<Record<PromptID, string>>({
+    summarization: '',
+    podcast: ''
+  });
   let shortcutPreferences = $state<DesktopShortcutPreferences | null>(null);
   let shortcutRecording = $state(false);
   let shortcutSaving = $state(false);
+  let themePreference = $state(readThemePreference());
   let ingestion = $state<DesktopIngestionStatus>({
     phase: 'idle',
     activeCount: 0,
@@ -106,12 +104,15 @@
   });
 
   let entries = $derived(snapshot?.entries ?? []);
+  let noteEntries = $derived(
+    entries.filter((entry) => entry.entryType !== 'podcast_episode')
+  );
   let selectedEntry = $derived(
-    entries.find((entry) => entry.id === selectedID) ?? entries[0] ?? null
+    entries.find((entry) => entry.id === selectedID) ?? null
   );
   let normalizedQuery = $derived(query.trim().toLowerCase());
   let filteredEntries = $derived(
-    entries.filter((entry) => {
+    noteEntries.filter((entry) => {
       if (selectedTopic !== 'all' && !entry.topicNames.includes(selectedTopic)) return false;
       if (!normalizedQuery) return true;
       return [entry.title, entry.excerpt, ...entry.topicNames, ...entry.tags]
@@ -120,23 +121,37 @@
         .includes(normalizedQuery);
     })
   );
+  let podcastGroups = $derived.by(() =>
+    (podcastSnapshot?.podcasts ?? [])
+      .filter((podcast) =>
+        selectedPodcastID === 'all' || podcast.id === selectedPodcastID)
+      .flatMap((podcast) =>
+        podcast.episodes
+          .map((episode) => {
+            const sourceIDs = new Set(episode.sourceIDs ?? []);
+            const sourceURLs = new Set(episode.sourceURLs ?? []);
+            const notes = noteEntries.filter(
+              (entry) =>
+                sourceIDs.has(entry.id) ||
+                Boolean(entry.sourceURL && sourceURLs.has(entry.sourceURL))
+            );
+            return { podcast, episode, notes };
+          })
+          .filter(({ podcast: owner, episode, notes }) =>
+            !normalizedQuery ||
+            [owner.title, episode.title, episode.excerpt, ...notes.map((note) => note.title)]
+              .join(' ')
+              .toLowerCase()
+              .includes(normalizedQuery)
+          )
+      )
+  );
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
   let renderSelectedTextAsPlain = $derived(
     shouldRenderSourceAsPlainText(selectedVariant, selectedEntry?.sourceURL)
   );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
-  );
-  let narrationLoadingLabel = $derived(
-    narrationLoadingPhase === 'generating'
-      ? 'Generating voice'
-      : narrationLoadingPhase === 'downloading'
-        ? 'Downloading audio'
-        : 'Checking audio'
-  );
-  let currentTTSOption = $derived(
-    openRouterTTSModels.find((option) => option.id === ttsModel) ??
-      openRouterTTSModels[0]
   );
   let captureShortcutLabel = $derived(
     shortcutRecording
@@ -146,10 +161,21 @@
           snapshot?.platform ?? 'darwin'
         )
   );
+  let selectedPromptID = $derived(promptIDForTab(settingsTab));
+  let selectedPrompt = $derived(
+    promptPreferences?.prompts.find(({ id }) => id === selectedPromptID) ?? null
+  );
+  let settingsTitle = $derived(
+    settingsTab === 'general'
+      ? 'General'
+      : settingsTab === 'topics'
+        ? 'Topics'
+        : settingsTab === 'podcasts'
+          ? 'Podcasts'
+          : (selectedPrompt?.title ?? 'Prompts')
+  );
 
-  $effect(() => {
-    if (selectedEntry && !selectedID) selectedID = selectedEntry.id;
-  });
+  onMount(initializeTheme);
 
   $effect(() => {
     const entry = selectedEntry;
@@ -180,13 +206,13 @@
   async function initialize(): Promise<void> {
     try {
       applySnapshot(await window.sharedLibrary.getSnapshot());
+      podcastSnapshot = await window.sharedLibrary.getPodcasts();
       connections = await window.sharedLibrary.getConnectionStatus();
       syncStatus = connections.sync;
-      voice = connections.voice;
-      ttsModel = connections.ttsModel;
       applyProcessingPreferences(
         await window.sharedLibrary.getProcessingPreferences()
       );
+      applyPromptPreferences(await window.sharedLibrary.getPromptPreferences());
       shortcutPreferences = await window.sharedLibrary.getShortcutPreferences();
       ingestion = await window.sharedLibrary.getIngestionStatus();
       const savedTopic = window.localStorage.getItem('shared-library-selected-topic');
@@ -210,21 +236,16 @@
         window.sharedLibrary.onIngestionStatus((status) => {
           ingestion = status;
         });
-      const removeNarrationListener =
-        window.sharedLibrary.onNarrationSegment(receiveNarrationSegment);
-      const removeNarrationStatusListener =
-        window.sharedLibrary.onNarrationStatus(receiveNarrationStatus);
-      narrationAudio = new Audio();
-      narrationAudio.playbackRate = playbackRate;
-      narrationAudio.addEventListener('ended', advanceNarration);
-      narrationAudio.addEventListener('play', () => {
-        narrationState = 'playing';
-        window.cancelAnimationFrame(narrationProgressFrame);
-        updateNarrationProgress();
-      });
-      narrationAudio.addEventListener('pause', () => {
-        if (narrationState === 'playing') narrationState = 'paused';
-      });
+      const removePodcastsListener =
+        window.sharedLibrary.onPodcastsChanged((next) => {
+          podcastSnapshot = next;
+          if (
+            selectedPodcastID !== 'all' &&
+            !next.podcasts.some((podcast) => podcast.id === selectedPodcastID)
+          ) {
+            selectedPodcastID = 'all';
+          }
+        });
       window.addEventListener(
         'beforeunload',
         () => {
@@ -233,9 +254,7 @@
           removeMessageListener();
           removeSyncListener();
           removeIngestionListener();
-          removeNarrationListener();
-          removeNarrationStatusListener();
-          narrationAudio?.pause();
+          removePodcastsListener();
         },
         { once: true }
       );
@@ -249,9 +268,12 @@
   function applySnapshot(next: DesktopLibrarySnapshot): void {
     const previousSelection = selectedID;
     snapshot = next;
-    selectedID = next.entries.some((entry) => entry.id === previousSelection)
-      ? previousSelection
-      : (next.entries[0]?.id ?? '');
+    const previousEntry = next.entries.find((entry) => entry.id === previousSelection);
+    selectedID =
+      previousEntry &&
+      (activeView === 'podcasts' || previousEntry.entryType !== 'podcast_episode')
+        ? previousSelection
+        : (next.entries.find((entry) => entry.entryType !== 'podcast_episode')?.id ?? '');
     if (selectedTopic !== 'all' && !next.topics.includes(selectedTopic)) {
       selectTopic('all');
     }
@@ -266,7 +288,6 @@
       const text = await window.sharedLibrary.readText(entry.id, variant);
       if (selectedEntry?.id === entry.id && selectedVariant === variant) {
         selectedText = text;
-        editorText = text;
       }
     } catch (error) {
       message = error instanceof Error ? error.message : 'The document could not be read.';
@@ -276,13 +297,10 @@
   }
 
   function selectEntry(entry: DesktopLibraryEntry): void {
-    stopNarration();
-    share = { shared: false };
     selectedID = entry.id;
     selectedVariant = entry.availableVariants.includes('concise')
       ? 'concise'
       : (entry.availableVariants[0] ?? 'source');
-    editing = false;
     mobileReaderVisible = true;
   }
 
@@ -291,17 +309,54 @@
     window.localStorage.setItem('shared-library-selected-topic', topic);
   }
 
-  function selectVariant(variant: LibraryVariant): void {
-    stopNarration();
-    selectedVariant = variant;
-    editing = false;
+  function selectView(view: 'library' | 'podcasts'): void {
+    activeView = view;
+    query = '';
+    if (view === 'library') {
+      if (selectedEntry?.entryType === 'podcast_episode') {
+        selectedID = noteEntries[0]?.id ?? '';
+      }
+    } else if (!podcastGroups.some(
+      ({ episode, notes }) =>
+        episode.id === selectedID || notes.some((note) => note.id === selectedID)
+    )) {
+      selectedID = podcastGroups[0]?.episode.id ?? '';
+    }
+    mobileReaderVisible = false;
   }
 
-  function cyclePlaybackRate(): void {
-    const rates = [1, 1.25, 1.5, 1.75, 2];
-    const current = rates.indexOf(playbackRate);
-    playbackRate = rates[(current + 1) % rates.length];
-    if (narrationAudio) narrationAudio.playbackRate = playbackRate;
+  function selectPodcast(podcastID: string): void {
+    selectedPodcastID = podcastID;
+    const podcast = podcastSnapshot?.podcasts.find(({ id }) => id === podcastID);
+    selectedID =
+      (podcastID === 'all'
+        ? podcastSnapshot?.podcasts.flatMap(({ episodes }) => episodes)[0]?.id
+        : podcast?.episodes[0]?.id) ?? '';
+    mobileReaderVisible = false;
+  }
+
+  function togglePodcastEpisode(entry: DesktopLibraryEntry): void {
+    selectEntry(entry);
+    expandedEpisodeIDs = expandedEpisodeIDs.includes(entry.id)
+      ? expandedEpisodeIDs.filter((id) => id !== entry.id)
+      : [...expandedEpisodeIDs, entry.id];
+  }
+
+  function openSettings(tab: SettingsTab = 'general'): void {
+    settingsTab = tab;
+    settingsOpen = true;
+  }
+
+  function selectVariant(variant: LibraryVariant): void {
+    selectedVariant = variant;
+  }
+
+  function updateTheme(theme?: ThemeName, mode?: ThemeMode): void {
+    themePreference = {
+      theme: theme ?? themePreference.theme,
+      mode: mode ?? themePreference.mode
+    };
+    setThemePreference(themePreference);
   }
 
   async function refresh(): Promise<void> {
@@ -334,40 +389,6 @@
         settingsOpen = false;
         message = 'Workspace changed.';
       }
-    });
-  }
-
-  function beginEditing(): void {
-    if (!selectedEntry) return;
-    editorText = selectedText;
-    editing = true;
-    settingsOpen = true;
-  }
-
-  async function save(): Promise<void> {
-    if (!selectedEntry) return;
-    await run(async () => {
-      const result = await window.sharedLibrary.writeText(
-        selectedEntry!.id,
-        selectedVariant,
-        editorText
-      );
-      applySnapshot(result.snapshot);
-      selectedText = editorText;
-      editing = false;
-      message = result.message;
-    });
-  }
-
-  async function trashSelected(): Promise<void> {
-    if (!selectedEntry) return;
-    if (!window.confirm(`Move “${selectedEntry.title}” and all summaries to Trash?`)) return;
-    await run(async () => {
-      const result = await window.sharedLibrary.trashCapture(selectedEntry!.id);
-      applySnapshot(result.snapshot);
-      settingsOpen = false;
-      mobileReaderVisible = false;
-      message = result.message;
     });
   }
 
@@ -416,39 +437,6 @@
     });
   }
 
-  async function changeVoice(event: Event): Promise<void> {
-    const input = event.currentTarget as HTMLSelectElement;
-    try {
-      connections = await window.sharedLibrary.setVoice(input.value);
-      voice = connections.voice;
-      input.value = voice;
-    } catch (error) {
-      input.value = voice;
-      message =
-        error instanceof Error ? error.message : 'The narration voice could not be changed.';
-    }
-  }
-
-  async function changeTTSModel(event: Event): Promise<void> {
-    const input = event.currentTarget as HTMLSelectElement;
-    try {
-      const selected = normalizeOpenRouterTTSModel(input.value);
-      if (!selected) throw new Error('Choose Low, Medium, or High narration quality.');
-      connections = await window.sharedLibrary.setTTSModel(selected);
-      ttsModel = connections.ttsModel;
-      voice = connections.voice;
-      input.value = ttsModel;
-      const option = openRouterTTSModels.find((candidate) => candidate.id === ttsModel);
-      message = `${option?.quality ?? 'Selected'} quality selected for new narration.`;
-    } catch (error) {
-      input.value = ttsModel;
-      message =
-        error instanceof Error
-          ? error.message
-          : 'The AI voice quality could not be changed.';
-    }
-  }
-
   function recordCaptureShortcut(event: KeyboardEvent): void {
     event.preventDefault();
     event.stopPropagation();
@@ -491,9 +479,12 @@
   }
 
   function applyProcessingPreferences(next: ProcessingPreferences): void {
-    processingPreferences = next;
-    processingPromptDraft = next.prompt;
     processingTopicsDraft = next.topics.map((topic) => ({ ...topic }));
+  }
+
+  function applyPromptPreferences(next: PromptPreferences): void {
+    promptPreferences = next;
+    for (const prompt of next.prompts) promptDrafts[prompt.id] = prompt.prompt;
   }
 
   function addProcessingTopic(): void {
@@ -504,149 +495,47 @@
     processingTopicsDraft.splice(index, 1);
   }
 
-  async function saveProcessingPreferences(): Promise<void> {
+  async function saveTopics(): Promise<void> {
     await run(async () => {
       const next = await window.sharedLibrary.updateProcessingPreferences({
         topics: processingTopicsDraft.map((topic) => ({ ...topic })),
-        prompt: processingPromptDraft
+        prompt: promptDrafts.summarization
       });
       applyProcessingPreferences(next);
-      message = 'Topics and summarization prompt saved.';
+      message = 'Topics saved.';
     });
   }
 
-  async function listen(): Promise<void> {
-    if (!selectedEntry || !narrationAudio) return;
-    if (narrationState === 'loading') {
-      stopNarration();
-      return;
-    }
-    if (narrationState === 'playing') {
-      narrationState = 'paused';
-      narrationAudio.pause();
-      return;
-    }
-    if (narrationState === 'paused' && narrationAudio.src) {
-      await narrationAudio.play();
-      return;
-    }
-    if (!connections?.authenticated) {
-      settingsOpen = true;
-      message = 'Sign in to use Briefly AI voice.';
-      return;
-    }
-    if (!connections.tts.configured || connections.tts.balanceMicros === 0) {
-      settingsOpen = true;
-      message = 'Add AI voice credit from your Briefly account.';
-      return;
-    }
-    narrationState = 'loading';
-    narrationLoadingPhase = 'checking';
-    narrationProgress = 0;
-    const requestID = ++narrationRequestID;
-    try {
-      const session = await window.sharedLibrary.startNarration(
-        selectedEntry.id,
-        selectedVariant,
-        voice
+  async function savePrompt(): Promise<void> {
+    if (!selectedPromptID) return;
+    await run(async () => {
+      applyPromptPreferences(
+        await window.sharedLibrary.updatePromptPreference({
+          id: selectedPromptID,
+          prompt: promptDrafts[selectedPromptID]
+        })
       );
-      if (requestID !== narrationRequestID || narrationState !== 'loading') return;
-      narrationSessionID = session.sessionID;
-      narrationTotal = session.total;
-      narrationIndex = 0;
-      narrationSegments = [];
-      narrationSegments[0] = session.first.url;
-      await playNarrationIndex(0);
-    } catch (error) {
-      if (requestID !== narrationRequestID) return;
-      narrationState = 'idle';
-      message = error instanceof Error ? error.message : 'Narration could not be started.';
-    }
+      message = `${selectedPrompt?.title ?? 'Prompt'} prompt saved.`;
+    });
   }
 
-  function receiveNarrationStatus(status: NarrationStatus): void {
-    if (status.error) {
-      if (status.sessionID !== narrationSessionID) return;
-      stopNarration();
-      message = status.error;
-      return;
-    }
-    if (narrationState !== 'loading') return;
-    if (narrationSessionID && status.sessionID !== narrationSessionID) return;
-    narrationLoadingPhase = status.phase;
-  }
-
-  function receiveNarrationSegment(segment: NarrationSegment): void {
-    if (segment.sessionID !== narrationSessionID) return;
-    narrationSegments[segment.index] = segment.url;
-    narrationSegments = [...narrationSegments];
-    if (narrationState === 'loading' && narrationIndex === segment.index) {
-      void playNarrationIndex(segment.index);
-    }
-  }
-
-  async function playNarrationIndex(index: number): Promise<void> {
-    const url = narrationSegments[index];
-    if (!url || !narrationAudio) {
-      narrationState = 'loading';
-      return;
-    }
-    narrationIndex = index;
-    narrationAudio.src = url;
-    narrationAudio.playbackRate = playbackRate;
-    await narrationAudio.play();
-  }
-
-  function advanceNarration(): void {
-    const next = narrationIndex + 1;
-    if (next >= narrationTotal) {
-      narrationState = 'idle';
-      narrationIndex = 0;
-      return;
-    }
-    narrationProgress = next / Math.max(narrationTotal, 1);
-    narrationIndex = next;
-    void playNarrationIndex(next);
-  }
-
-  function updateNarrationProgress(): void {
-    if (narrationState !== 'playing' || !narrationAudio) return;
-    if (Number.isFinite(narrationAudio.duration) && narrationAudio.duration > 0) {
-      narrationProgress =
-        (narrationIndex + narrationAudio.currentTime / narrationAudio.duration) /
-        Math.max(narrationTotal, 1);
-    }
-    narrationProgressFrame = window.requestAnimationFrame(updateNarrationProgress);
-  }
-
-  function stopNarration(): void {
-    narrationRequestID += 1;
-    window.cancelAnimationFrame(narrationProgressFrame);
-    narrationAudio?.pause();
-    if (narrationAudio) {
-      narrationAudio.removeAttribute('src');
-      narrationAudio.load();
-    }
-    narrationSessionID = '';
-    narrationSegments = [];
-    narrationState = 'idle';
-    narrationLoadingPhase = 'checking';
-    narrationProgress = 0;
+  function promptIDForTab(tab: SettingsTab): PromptID | null {
+    return tab.startsWith('prompt-') ? tab.slice(7) as PromptID : null;
   }
 
   async function shareDocument(): Promise<void> {
     if (!selectedEntry || shareBusy) return;
     shareBusy = true;
     try {
-      share = await window.sharedLibrary.getShareLink(selectedEntry.id);
-      if (share.shared && share.status === 'ready' && share.url) {
-        await navigator.clipboard.writeText(share.url);
+      const existing = await window.sharedLibrary.getShareLink(selectedEntry.id);
+      if (existing.shared && existing.status === 'ready' && existing.url) {
+        await navigator.clipboard.writeText(existing.url);
         message = 'Share link copied.';
         return;
       }
-      share = await window.sharedLibrary.publishShareLink(selectedEntry.id, voice);
+      const next = await window.sharedLibrary.publishShareLink(selectedEntry.id);
       message =
-        share.status === 'ready'
+        next.status === 'ready'
           ? 'Share link copied.'
           : 'The share link is being prepared in the background.';
     } catch (error) {
@@ -654,15 +543,6 @@
     } finally {
       shareBusy = false;
     }
-  }
-
-  async function revokeShare(): Promise<void> {
-    if (!share.token) return;
-    await run(async () => {
-      await window.sharedLibrary.revokeShareLink(share.token!);
-      share = { shared: false };
-      message = 'Share link revoked.';
-    });
   }
 
   async function run(operation: () => Promise<void>): Promise<void> {
@@ -677,44 +557,50 @@
     }
   }
 
+  function openPodcastEpisode(entryID: string): void {
+    activeView = 'podcasts';
+    settingsOpen = false;
+    const entry = entries.find((candidate) => candidate.id === entryID);
+    if (entry) selectEntry(entry);
+  }
+
 </script>
 
 <svelte:head>
   <title>Briefly</title>
 </svelte:head>
 
-<div class="app-shell">
+<div class="app-shell bg-background! bg-none! text-foreground! font-sans!">
   {#if loading}
-    <main class="center-stage" aria-live="polite">
+    <main class="center-stage text-foreground!" aria-live="polite">
       <div class="launch-sequence">
         <div class="loading-mark" aria-hidden="true">
           <span class="loading-halo"></span>
           <img src={appIcon} alt="" />
         </div>
-        <p class="loading-title">Opening your library</p>
-        <p class="loading-copy">Preparing the local collection</p>
-        <div class="loading-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <p class="loading-title text-foreground!">Opening your library</p>
+        <p class="loading-copy text-muted-foreground!">Preparing the local collection</p>
+        <div class="loading-dots [&_span]:bg-muted-foreground!" aria-hidden="true"><span></span><span></span><span></span></div>
       </div>
     </main>
   {:else if !connections?.authenticated}
-    <main class="center-stage">
-      <section class="empty-card">
-        <div class="empty-illustration">
+    <main class="center-stage text-foreground!">
+      <section class="empty-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="empty-illustration bg-muted! bg-none! text-muted-foreground!">
           <LogIn />
-          <span class="empty-check"><Check /></span>
+          <span class="empty-check bg-primary! bg-none! text-primary-foreground!"><Check /></span>
         </div>
-        <p class="eyebrow">Briefly account</p>
+        <p class="eyebrow text-muted-foreground!">Briefly account</p>
         <h1>Sign in to continue</h1>
-        <p class="empty-copy">
-          Sign in manages your Briefly membership and AI voice credit. You will choose
-          sync separately.
+        <p class="empty-copy text-muted-foreground!">
+          Sign in manages your Briefly membership. You will choose sync separately.
         </p>
         <div class="empty-actions">
-          <button class="primary-button" onclick={() => signIn('apple')} disabled={busy}>
+          <button class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!" onclick={() => signIn('apple')} disabled={busy}>
             {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
             Sign in with Apple
           </button>
-          <button class="secondary-button" onclick={() => signIn('google')} disabled={busy}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => signIn('google')} disabled={busy}>
             {#if busy}<LoaderCircle class="spin" />{:else}<LogIn />{/if}
             Sign in with Google
           </button>
@@ -722,85 +608,145 @@
       </section>
     </main>
   {:else if !connections.entitled}
-    <main class="center-stage">
-      <section class="empty-card">
-        <div class="empty-illustration">
+    <main class="center-stage text-foreground!">
+      <section class="empty-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="empty-illustration bg-muted! bg-none! text-muted-foreground!">
           <Sparkles />
-          <span class="empty-check"><Check /></span>
+          <span class="empty-check bg-primary! bg-none! text-primary-foreground!"><Check /></span>
         </div>
-        <p class="eyebrow">Briefly membership</p>
+        <p class="eyebrow text-muted-foreground!">Briefly membership</p>
         <h1>Activate your account</h1>
-        <p class="empty-copy">
+        <p class="empty-copy text-muted-foreground!">
           Choose your plan and manage billing on the web, then refresh access here.
         </p>
         <div class="empty-actions">
-          <button class="primary-button" onclick={openAccount}>
+          <button class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!" onclick={openAccount}>
             <ArrowUpRight /> Open account
           </button>
-          <button class="secondary-button" onclick={refreshAccount} disabled={busy}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={refreshAccount} disabled={busy}>
             <RefreshCw class={busy ? 'spin' : ''} /> Refresh access
           </button>
         </div>
       </section>
     </main>
-  {:else if entries.length === 0}
-    <main class="center-stage">
-      <section class="empty-card">
-        <div class="empty-illustration">
+  {:else if activeView === 'library' && noteEntries.length === 0}
+    <main class="center-stage text-foreground!">
+      <section class="empty-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="empty-illustration bg-muted! bg-none! text-muted-foreground!">
           <Archive />
-          <span class="empty-check"><Check /></span>
+          <span class="empty-check bg-primary! bg-none! text-primary-foreground!"><Check /></span>
         </div>
-        <p class="eyebrow">Briefly</p>
+        <p class="eyebrow text-muted-foreground!">Briefly</p>
         <h1>Your library is ready</h1>
-        <p class="empty-copy">
+        <p class="empty-copy text-muted-foreground!">
           Capture clipboard text or choose an existing Briefly workspace.
         </p>
         <div class="empty-actions">
-          <button class="primary-button" onclick={captureClipboard}>
+          <button class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!" onclick={captureClipboard}>
             <Clipboard /> Capture
           </button>
-          <button class="secondary-button" onclick={chooseWorkspace}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={chooseWorkspace}>
             <FolderOpen /> Choose folder
+          </button>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => selectView('podcasts')}>
+            <Headphones /> Podcasts
           </button>
         </div>
       </section>
     </main>
   {:else}
     <div class="native-workspace" class:reader-open={mobileReaderVisible}>
-      <aside class="native-library-pane">
+      <aside class="native-library-pane border-sidebar-border! bg-sidebar! bg-none! text-sidebar-foreground! rounded-xl! border shadow-sm!">
         <div class="native-library-toolbar">
           <div class="native-search-field">
-            <Search aria-hidden="true" />
-            <input bind:value={query} aria-label="Search library" placeholder="Search" />
+            <Search class="text-muted-foreground!" aria-hidden="true" />
+            <input
+              class="border-input! bg-background! bg-none! text-foreground! placeholder:text-muted-foreground! rounded-lg! border shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              bind:value={query}
+              aria-label={activeView === 'podcasts' ? 'Search podcasts' : 'Search library'}
+              placeholder={activeView === 'podcasts' ? 'Search podcasts' : 'Search'}
+            />
             {#if query}
-              <button class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
+              <button class="clear-search text-muted-foreground! hover:bg-accent! hover:text-accent-foreground!" aria-label="Clear search" onclick={() => (query = '')}>
                 <X />
               </button>
             {/if}
           </div>
 
-          <div class="topic-strip" aria-label="Topic filter">
+          <div class="topic-strip" aria-label={activeView === 'podcasts' ? 'Podcast filter' : 'Topic filter'}>
             <button
-              class="topic-chip"
-              class:active={selectedTopic === 'all'}
-              onclick={() => selectTopic('all')}
+              class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+              class:active={activeView === 'podcasts' ? selectedPodcastID === 'all' : selectedTopic === 'all'}
+              onclick={() => activeView === 'podcasts' ? selectPodcast('all') : selectTopic('all')}
             >All</button>
-            {#each snapshot?.topics ?? [] as topic}
-              <button
-                class="topic-chip"
-                class:active={selectedTopic === topic}
-                onclick={() => selectTopic(topic)}
-              >{topic}</button>
-            {/each}
+            {#if activeView === 'podcasts'}
+              {#each podcastSnapshot?.podcasts ?? [] as podcast (podcast.id)}
+                <button
+                  class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+                  class:active={selectedPodcastID === podcast.id}
+                  onclick={() => selectPodcast(podcast.id)}
+                >{podcast.title}</button>
+              {/each}
+            {:else}
+              {#each snapshot?.topics ?? [] as topic}
+                <button
+                  class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+                  class:active={selectedTopic === topic}
+                  onclick={() => selectTopic(topic)}
+                >{topic}</button>
+              {/each}
+            {/if}
           </div>
         </div>
 
         <div class="native-entry-list">
-          {#if filteredEntries.length === 0}
-            <div class="native-no-results">
+          {#if activeView === 'podcasts'}
+            {#if podcastGroups.length === 0}
+              <div class="native-no-results text-muted-foreground!">
+                <Headphones />
+                <p>No podcast episodes</p>
+                <button class="text-primary!" onclick={() => openSettings('podcasts')}>Manage podcasts</button>
+              </div>
+            {:else}
+              {#each podcastGroups as group (group.episode.id)}
+                <div class="podcast-episode-group">
+                  <button
+                    class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                    class:selected={selectedEntry?.id === group.episode.id}
+                    aria-expanded={expandedEpisodeIDs.includes(group.episode.id)}
+                    onclick={() => togglePodcastEpisode(group.episode)}
+                    oncontextmenu={(event) => showEntryContextMenu(event, group.episode)}
+                  >
+                    {#if expandedEpisodeIDs.includes(group.episode.id)}
+                      <FolderOpen class="text-sidebar-foreground/70!" aria-hidden="true" />
+                    {:else}
+                      <Folder class="text-sidebar-foreground/70!" aria-hidden="true" />
+                    {/if}
+                    <span>{group.episode.title}</span>
+                  </button>
+                  {#if group.notes.length && expandedEpisodeIDs.includes(group.episode.id)}
+                    <div class="podcast-note-list">
+                      {#each group.notes as note (note.id)}
+                        <button
+                          class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                          class:selected={selectedEntry?.id === note.id}
+                          onclick={() => selectEntry(note)}
+                          oncontextmenu={(event) => showEntryContextMenu(event, note)}
+                        >
+                          <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                          <span>{note.title}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          {:else if filteredEntries.length === 0}
+            <div class="native-no-results text-muted-foreground!">
               <FileText />
               <p>No matching documents</p>
-              <button onclick={() => {
+              <button class="text-primary!" onclick={() => {
                 query = '';
                 selectTopic('all');
               }}>Clear filters</button>
@@ -808,12 +754,12 @@
           {:else}
             {#each filteredEntries as entry (entry.id)}
               <button
-                class="native-entry-row"
+                class="native-entry-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
                 class:selected={selectedEntry?.id === entry.id}
                 onclick={() => selectEntry(entry)}
                 oncontextmenu={(event) => showEntryContextMenu(event, entry)}
               >
-                <FileText aria-hidden="true" />
+                <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
                 <span>{entry.title}</span>
               </button>
             {/each}
@@ -822,19 +768,36 @@
 
         <div class="native-sidebar-footer">
           <button
-            class="agent-button"
+            class="agent-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+            class:active={activeView === 'podcasts'}
+            title={activeView === 'podcasts' ? 'Show notes' : 'Show podcasts'}
+            onclick={() => selectView(activeView === 'podcasts' ? 'library' : 'podcasts')}
+          >
+            <Headphones />
+            <span>Pod</span>
+          </button>
+          <button
+            class="agent-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
             onclick={launchAgent}
           >
             <Sparkles />
-            <span>Agent</span>
+            <span>AI</span>
+          </button>
+          <button
+            class="agent-button sidebar-settings-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+            aria-label="Settings"
+            title="Settings"
+            onclick={() => openSettings(activeView === 'podcasts' ? 'podcasts' : 'general')}
+          >
+            <Cog />
           </button>
         </div>
       </aside>
 
-      <main class="native-reader-pane">
+      <main class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         {#if selectedEntry}
-          <div class="native-mobile-reader-bar">
-            <button onclick={() => (mobileReaderVisible = false)}>
+          <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
+            <button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
               <ChevronLeft />
               <span>Library</span>
             </button>
@@ -842,7 +805,7 @@
 
           <div class="native-document-scroll">
             <article
-              class="native-document-body"
+              class="native-document-body text-card-foreground! font-serif!"
               aria-busy={loadingText}
               oncontextmenu={(event) =>
                 showEntryContextMenu(event, selectedEntry!, selectedVariant)}
@@ -859,6 +822,14 @@
                   <span class="skeleton-line short"></span>
                 </div>
               {:else if selectedText}
+                {#if selectedEntry.entryType === 'podcast_episode' && selectedEntry.hasAudio}
+                  <div class="podcast-reader-player">
+                    <AudioPlayer
+                      src={`briefly-podcast-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`}
+                      title={selectedEntry.title}
+                    />
+                  </div>
+                {/if}
                 <MarkdownView text={selectedText} plain={renderSelectedTextAsPlain} />
               {:else}
                 <p class="missing-text">This version is not available.</p>
@@ -866,13 +837,11 @@
             </article>
           </div>
 
-          <footer class="native-document-footer">
-            <div
-              class="native-player-progress"
-              class:visible={narrationState === 'playing'}
-              style={`--progress: ${narrationProgress * 100}%`}
-            ></div>
-            <div class="footer-stat">{wordCount.toLocaleString()} words</div>
+          <footer
+            class="native-document-footer border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm!"
+            aria-label="Document actions"
+          >
+            <div class="footer-stat text-muted-foreground!">{wordCount.toLocaleString()} words</div>
 
             <DepthControl
               variants={availableVariants}
@@ -883,7 +852,7 @@
             <div class="native-footer-actions">
               {#if selectedEntry.sourceURL}
                 <button
-                  class="native-icon-button"
+                  class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
                   aria-label="Open original source"
                   title="Open original source"
                   onclick={() => window.sharedLibrary.openExternal(selectedEntry!.sourceURL!)}
@@ -893,7 +862,7 @@
               {/if}
 
               <button
-                class="native-icon-button"
+                class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
                 aria-label="Share document"
                 title="Create share link"
                 onclick={shareDocument}
@@ -905,51 +874,6 @@
                 {/if}
               </button>
 
-              <button
-                class="native-play-button"
-                class:loading={narrationState === 'loading'}
-                aria-label={narrationState === 'loading'
-                  ? `Cancel ${narrationLoadingLabel.toLowerCase()}`
-                  : narrationState === 'playing'
-                    ? 'Pause'
-                    : 'Play'}
-                title={narrationState === 'loading'
-                  ? narrationLoadingLabel
-                  : narrationState === 'playing'
-                    ? 'Pause'
-                    : 'Play'}
-                onclick={listen}
-              >
-                {#if narrationState === 'loading'}
-                  <span class="narration-loading-wave" aria-hidden="true">
-                    <span></span><span></span><span></span><span></span>
-                  </span>
-                  <span class="narration-loading-label">{narrationLoadingLabel}</span>
-                {:else if narrationState === 'playing'}
-                  <Pause />
-                {:else}
-                  <Play />
-                {/if}
-              </button>
-
-              <button
-                class="native-rate-button"
-                aria-label={`Playback speed ${playbackRate.toFixed(1)} times`}
-                title="Change playback speed"
-                onclick={cyclePlaybackRate}
-              >
-                {playbackRate.toFixed(1)}×
-              </button>
-
-              <button
-                class="native-icon-button"
-                class:active={settingsOpen}
-                aria-label="Connections"
-                title="Connections"
-                onclick={() => (settingsOpen = true)}
-              >
-                <Settings2 />
-              </button>
             </div>
           </footer>
         {/if}
@@ -960,20 +884,20 @@
   {#if ingestion.phase === 'processing' || message}
     <div class="notification-stack">
       {#if ingestion.phase === 'processing'}
-        <div class="ingestion-indicator" role="status" aria-live="polite">
+        <div class="ingestion-indicator border-primary/30! bg-primary/10! text-foreground!" role="status" aria-live="polite">
           <LoaderCircle class="spin" />
           <span>{ingestion.message} Extracting and preparing summaries.</span>
         </div>
       {/if}
       {#if message}
         <div
-          class="toast"
+          class="toast border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm! [&.error]:border-destructive! [&.error]:bg-destructive/10! [&.error]:text-destructive!"
           class:error={message.includes('failed') || message.includes('could not')}
           role="status"
           aria-live="polite"
         >
           <span>{message}</span>
-          <button aria-label="Dismiss message" onclick={() => (message = '')}><X /></button>
+          <button class="text-muted-foreground! hover:text-foreground!" aria-label="Dismiss message" onclick={() => (message = '')}><X /></button>
         </div>
       {/if}
     </div>
@@ -981,43 +905,108 @@
 </div>
 
 {#if settingsOpen}
-  <div class="audio-backdrop" role="presentation" onclick={() => (settingsOpen = false)}></div>
-  <aside class="audio-panel connections-panel" aria-label="Settings">
-    <div class="audio-header">
-      <div>
-        <p class="eyebrow">Desktop</p>
-        <h2>Settings</h2>
-      </div>
-      <button class="panel-close" aria-label="Close settings" onclick={() => (settingsOpen = false)}>
-        <X />
+  <section class="settings-screen bg-popover! bg-none! text-popover-foreground! font-sans!" aria-label="Settings">
+    <aside class="settings-navigation border-border! bg-sidebar! text-sidebar-foreground!">
+      <button class="settings-back border-border! bg-secondary! text-secondary-foreground!" onclick={() => (settingsOpen = false)}>
+        <ChevronLeft /> Back to app
       </button>
-    </div>
-    <div class="audio-content">
-      <section class="settings-card">
+      <p class="settings-label text-muted-foreground!">Settings</p>
+      <nav class="settings-tabs" aria-label="Settings categories">
+        <button class:active={settingsTab === 'general'} onclick={() => (settingsTab = 'general')}>General</button>
+        <button class:active={settingsTab === 'topics'} onclick={() => (settingsTab = 'topics')}>Topics</button>
+        <button
+          class:active={Boolean(selectedPromptID)}
+          aria-expanded={promptsExpanded}
+          onclick={() => (promptsExpanded = !promptsExpanded)}
+        >
+          Prompts <span>{promptsExpanded ? '−' : '+'}</span>
+        </button>
+        {#if promptsExpanded}
+          <div class="settings-subtabs">
+            {#each promptPreferences?.prompts ?? [] as prompt (prompt.id)}
+              <button
+                class:active={selectedPromptID === prompt.id}
+                onclick={() => (settingsTab = `prompt-${prompt.id}` as SettingsTab)}
+              >{prompt.title}</button>
+            {/each}
+          </div>
+        {/if}
+        <button class:active={settingsTab === 'podcasts'} onclick={() => (settingsTab = 'podcasts')}>Podcasts</button>
+      </nav>
+    </aside>
+    <div class="settings-main">
+      <header class="settings-header">
+        <p class="settings-breadcrumb text-muted-foreground!">
+          Briefly <span>›</span> Settings <span>›</span>
+          {settingsTitle}
+        </p>
+        <h2>{settingsTitle}</h2>
+      </header>
+      <main class="settings-content" class:podcasts-tab={settingsTab === 'podcasts'}>
+      {#if settingsTab === 'general'}
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="settings-card-heading">
-          <div class="provider-mark"><FolderOpen /></div>
+          <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Palette /></div>
+          <div>
+            <h3>Appearance</h3>
+            <p>Choose from Briefly and every built-in TweakCN theme.</p>
+          </div>
+        </div>
+        <div class="theme-controls grid grid-cols-[minmax(0,1fr)_minmax(110px,0.45fr)] gap-2.5 max-[420px]:grid-cols-1">
+          <label class="theme-field grid gap-1.5">
+            <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Theme</span>
+            <select
+              class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={themePreference.theme}
+              onchange={(event) =>
+                updateTheme((event.currentTarget as HTMLSelectElement).value as ThemeName)}
+            >
+              {#each themeOptions as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="theme-field grid gap-1.5">
+            <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Mode</span>
+            <select
+              class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={themePreference.mode}
+              onchange={(event) =>
+                updateTheme(undefined, (event.currentTarget as HTMLSelectElement).value as ThemeMode)}
+            >
+              {#each themeModeOptions as option}
+                <option value={option.value}>{option.label}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="settings-card-heading">
+          <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><FolderOpen /></div>
           <div>
             <h3>Library workspace</h3>
             <p>The same Markdown folder structure is used by every client.</p>
           </div>
         </div>
-        <code>{snapshot?.workspacePath}</code>
+        <code class="border-border! bg-muted! bg-none! text-foreground! rounded-lg! border font-mono!">{snapshot?.workspacePath}</code>
         <div class="panel-actions">
-          <button class="secondary-button" onclick={chooseWorkspace}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={chooseWorkspace}>
             <FolderOpen /> Choose folder
           </button>
-          <button class="secondary-button" onclick={refresh} disabled={busy}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={refresh} disabled={busy}>
             <RefreshCw class={busy ? 'spin' : ''} /> Refresh
           </button>
-          <button class="secondary-button" onclick={captureClipboard} disabled={busy}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={captureClipboard} disabled={busy}>
             <Clipboard /> Capture
           </button>
         </div>
       </section>
 
-      <section class="settings-card">
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="settings-card-heading">
-          <div class="provider-mark"><Keyboard /></div>
+          <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Keyboard /></div>
           <div>
             <h3>Capture shortcut</h3>
             <p>Press a new key combination to capture the clipboard from anywhere.</p>
@@ -1025,6 +1014,7 @@
         </div>
         <div class="shortcut-controls">
           <input
+            class="border-input! bg-background! bg-none! text-foreground! rounded-lg! border shadow-sm! font-mono! focus:border-ring focus:ring-2 focus:ring-ring/20"
             class:recording={shortcutRecording}
             aria-label="Capture shortcut"
             value={captureShortcutLabel}
@@ -1034,7 +1024,7 @@
             onkeydown={recordCaptureShortcut}
           />
           <button
-            class="secondary-button"
+            class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
             type="button"
             disabled={shortcutSaving ||
               !shortcutPreferences ||
@@ -1050,7 +1040,7 @@
             Reset
           </button>
         </div>
-        <p class="shortcut-status">
+        <p class="shortcut-status text-muted-foreground!">
           {#if shortcutPreferences?.registered}
             Active system-wide. Click the field and press the replacement shortcut.
           {:else}
@@ -1059,16 +1049,16 @@
         </p>
       </section>
 
-      <section class="settings-card">
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="settings-card-heading">
           <div>
             <h3>Briefly account</h3>
-            <p>Manage membership, AI voice credit, and library sync on the web.</p>
+            <p>Manage membership and library sync on the web.</p>
           </div>
         </div>
-        <div class="connection-status">
+        <div class="connection-status text-muted-foreground!">
           {#if connections?.syncProvider}
-            <span class="status-dot"></span>
+            <span class="status-dot bg-primary! bg-none!"></span>
           {/if}
           <span>
             {connections?.syncProvider
@@ -1081,129 +1071,21 @@
           {/if}
         </div>
         <div class="panel-actions">
-          <button class="secondary-button" onclick={openAccount} disabled={busy}>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={openAccount} disabled={busy}>
             <ArrowUpRight /> Manage account and sync
           </button>
         </div>
       </section>
 
-      <section class="settings-card">
-        <div class="settings-card-heading">
-          <div class="provider-mark"><Headphones /></div>
-          <div>
-            <h3>Narration</h3>
-            <p>
-              Briefly AI voice uses prepaid account credit. Audio streams as it is
-              generated, caches locally, and is backed up to your selected sync service.
-            </p>
-          </div>
-        </div>
-        <label class="voice-field">
-          <span>Quality</span>
-          <select
-            value={ttsModel}
-            aria-label="Narration quality"
-            onchange={changeTTSModel}
-          >
-            {#each openRouterTTSModels as option}
-              <option value={option.id}>{option.quality}</option>
-            {/each}
-          </select>
-          <small>{currentTTSOption.description}</small>
-        </label>
-        <label class="voice-field">
-          <span>Voice</span>
-          <select
-            value={voice}
-            aria-label="AI voice narrator"
-            onchange={changeVoice}
-          >
-            {#each voicesForTTSModel(ttsModel) as option}
-              <option value={option}>{openRouterVoiceName(option)}</option>
-            {/each}
-          </select>
-        </label>
-        <div class="connection-status">
-          <span class="status-dot"></span>
-          <span>
-            {new Intl.NumberFormat(undefined, {
-              style: 'currency',
-              currency: 'EUR',
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 4
-            }).format((connections?.tts.balanceMicros ?? 0) / 100_000_000)}
-            AI voice credit
-          </span>
-        </div>
-      </section>
-
-      {#if selectedEntry}
-        <section class="settings-card">
-          <div class="settings-card-heading">
-            <div class="provider-mark"><FileText /></div>
-            <div>
-              <h3>Current document</h3>
-              <p>{selectedEntry.title}</p>
-            </div>
-          </div>
-
-          {#if editing}
-            <textarea class="document-editor" bind:value={editorText}></textarea>
-            <div class="panel-actions">
-              <button class="secondary-button" onclick={() => {
-                editing = false;
-                editorText = selectedText;
-              }}>Cancel</button>
-              <button class="primary-button" onclick={save} disabled={busy}>
-                <Check /> Save
-              </button>
-            </div>
-          {:else}
-            <div class="panel-actions">
-              <button class="secondary-button" onclick={() => {
-                window.sharedLibrary.revealEntry(selectedEntry!.id);
-              }}>
-                <FolderOpen /> Reveal
-              </button>
-              <button class="secondary-button" onclick={beginEditing}>
-                <Pencil /> Edit
-              </button>
-              <button class="secondary-button" onclick={shareDocument} disabled={shareBusy}>
-                {#if shareBusy}<LoaderCircle class="spin" />{:else}<Copy />{/if}
-                {share.shared ? 'Copy link' : 'Share'}
-              </button>
-              {#if share.shared && share.token}
-                <button class="secondary-button danger-button" onclick={revokeShare}>
-                  Revoke link
-                </button>
-              {/if}
-              <button class="secondary-button danger-button" onclick={trashSelected}>
-                <Trash2 /> Trash
-              </button>
-            </div>
-          {/if}
-        </section>
-      {/if}
-
-      <section class="settings-card">
-        <div class="settings-card-heading">
-          <div class="provider-mark"><Sparkles /></div>
-          <div>
-            <h3>Capture processing</h3>
-            <p>
-              These topics and this prompt are sent to Codex for every future capture.
-              Existing summaries are unchanged.
-            </p>
-          </div>
-        </div>
-
-        <div class="processing-field-heading">
+      {:else if settingsTab === 'topics'}
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="processing-field-heading [&_small]:text-muted-foreground! [&_span]:text-card-foreground!">
           <div>
             <span>Topics</span>
             <small>Rename existing topics or add reusable ones.</small>
           </div>
           <button
-            class="processing-add-button"
+            class="processing-add-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
             type="button"
             onclick={addProcessingTopic}
           >
@@ -1216,6 +1098,7 @@
             <div class="processing-topic-row">
               <div>
                 <input
+                  class="border-input! bg-background! bg-none! text-foreground! rounded-lg! border shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
                   aria-label={`Topic ${index + 1} title`}
                   value={topic.title}
                   placeholder="Topic name"
@@ -1224,9 +1107,10 @@
                       (event.currentTarget as HTMLInputElement).value;
                   }}
                 />
-                <small>{topic.id || 'ID created when saved'}</small>
+                <small class="text-muted-foreground!">{topic.id || 'ID created when saved'}</small>
               </div>
               <button
+                class="border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
                 type="button"
                 aria-label={`Remove ${topic.title || `topic ${index + 1}`}`}
                 title="Remove topic"
@@ -1237,44 +1121,78 @@
             </div>
           {/each}
           {#if processingTopicsDraft.length === 0}
-            <p class="processing-empty">No topics yet. Codex can create one during processing.</p>
+            <p class="processing-empty border-border! bg-muted! bg-none! text-muted-foreground! rounded-lg! border">No topics yet. Codex can create one during processing.</p>
           {/if}
         </div>
-
-        <label class="processing-prompt-field">
-          <span>Summarization prompt</span>
-          <small>
-            This is the exact template sent to Codex. Keep
-            <code>{'{{topics}}'}</code> and <code>{'{{source}}'}</code> where the
-            current taxonomy and capture should be inserted.
-          </small>
-          <textarea bind:value={processingPromptDraft} spellcheck="false"></textarea>
-        </label>
-
         <div class="panel-actions processing-actions">
           <button
-            class="secondary-button"
+            class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
             type="button"
-            disabled={busy || !processingPreferences}
-            onclick={() => {
-              if (processingPreferences) {
-                processingPromptDraft = processingPreferences.defaultPrompt;
-              }
-            }}
-          >
-            <RotateCcw /> Reset prompt
-          </button>
-          <button
-            class="primary-button"
-            type="button"
-            disabled={busy || !processingPreferences}
-            onclick={saveProcessingPreferences}
+            disabled={busy}
+            onclick={saveTopics}
           >
             {#if busy}<LoaderCircle class="spin" />{:else}<Check />{/if}
-            Save processing settings
+            Save topics
           </button>
         </div>
       </section>
+      {:else if selectedPrompt && selectedPromptID}
+        <section class="settings-card prompt-settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+          <div class="settings-card-heading">
+            <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Sparkles /></div>
+            <div>
+              <h3>{selectedPrompt.title} prompt</h3>
+              <p>{selectedPrompt.description}</p>
+            </div>
+          </div>
+          <label class="processing-prompt-field">
+            {#if selectedPrompt.requiredPlaceholders.length}
+              <small class="text-muted-foreground!">
+                Keep these placeholders:
+                {#each selectedPrompt.requiredPlaceholders as placeholder, index}
+                  <code>{placeholder}</code>{index < selectedPrompt.requiredPlaceholders.length - 1 ? ', ' : ''}
+                {/each}
+              </small>
+            {/if}
+            <textarea
+              class="border-input! bg-background! bg-none! text-foreground! rounded-lg! border shadow-sm! font-mono! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={promptDrafts[selectedPromptID]}
+              oninput={(event) => {
+                promptDrafts[selectedPromptID] =
+                  (event.currentTarget as HTMLTextAreaElement).value;
+              }}
+              spellcheck="false"
+            ></textarea>
+          </label>
+          <div class="panel-actions processing-actions">
+            <button
+              class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+              type="button"
+              disabled={busy}
+              onclick={() => (promptDrafts[selectedPromptID] = selectedPrompt.defaultPrompt)}
+            >
+              <RotateCcw /> Reset prompt
+            </button>
+            <button
+              class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+              type="button"
+              disabled={busy}
+              onclick={savePrompt}
+            >
+              {#if busy}<LoaderCircle class="spin" />{:else}<Check />{/if}
+              Save prompt
+            </button>
+          </div>
+        </section>
+      {:else}
+        <PodcastsView
+          embedded
+          onlibrary={() => (settingsOpen = false)}
+          onopenepisode={openPodcastEpisode}
+          onmessage={(value) => (message = value)}
+        />
+      {/if}
+      </main>
     </div>
-  </aside>
+  </section>
 {/if}

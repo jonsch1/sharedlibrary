@@ -3,8 +3,7 @@
 The mobile Briefly client is a private SvelteKit reader hosted on Cloudflare
 Workers. Users sign in with Apple or Google, then independently choose iCloud or
 Google Drive for their private library. IndexedDB keeps a complete path-preserving Markdown mirror
-available offline, and existing narration is mirrored into the local audio cache.
-The previous complete mirror opens immediately while synchronization continues in
+available offline. The previous complete mirror opens immediately while synchronization continues in
 the background.
 
 ## Accounts
@@ -27,9 +26,8 @@ and Electron clients reuse the saved personal library location.
 
 The backend encrypts account tokens and requests only `drive.file`. It can therefore
 access only files Briefly creates or that the user explicitly opens with it,
-not the rest of the user's Drive. The app mirrors `library/` and `topics.md`, stores a
-rebuildable metadata-only index under `.shared-library/`, and keeps content-addressed
-audio under `audio/` in a visible `Briefly` folder. It reuses existing
+not the rest of the user's Drive. The app mirrors `library/`, `podcasts/`, and `topics.md`, and stores a
+rebuildable metadata-only index under `.shared-library/`. It reuses existing
 `Shared Library` and `Shared Library Media` folders during migration.
 
 ## iCloud
@@ -43,7 +41,6 @@ Briefly stores data in the user's private database and a custom `Briefly` zone:
 | --- | --- |
 | `BrieflyLibraryIndex` | `schemaVersion` Int64, `generatedAt` Int64, `payload` Asset |
 | `BrieflyLibraryFile` | `path` String, `contentHash` String, `byteCount` Int64, `content` Asset |
-| `BrieflyAudio` | `hash` String, `byteCount` Int64, `contentType` String, `content` Asset |
 
 Create and test the record types in development, then promote the schema in
 CloudKit Console before setting `CLOUDKIT_ENVIRONMENT=production`. The browser
@@ -51,22 +48,6 @@ authenticates directly with CloudKit; Briefly's Worker receives the selected-pro
 preference but not private iCloud file content. Each browser or Electron installation
 must authorize iCloud from `/account` because CloudKit authentication is local to
 that web session.
-
-## OpenRouter
-
-Briefly uses one server-side OpenRouter account for optional paid narration. Users
-never connect or see that credential. Readers choose Low (Kokoro), Medium (Orpheus),
-or High (Grok Voice) quality. Supported browsers begin playback as MP3 bytes arrive;
-the complete result is cached in the browser and copied to Google Drive.
-
-AI voice credit is prepaid with €5, €10, or €15 VAT-inclusive payments through
-Stripe. The server credits the payment excluding Stripe-calculated tax, reserves the
-exact character-based retail charge before requesting speech, releases it on provider
-failure, and records successful usage in D1. Purchased credit is non-refundable
-except where required by law and has no short product expiry.
-The first successfully paid Briefly Plus Checkout also grants that account a
-one-time AI voice credit equal to the total EUR amount paid; renewals and later
-subscriptions do not grant it again.
 
 ## Development
 
@@ -110,21 +91,18 @@ test card `4242 4242 4242 4242` (any future expiry and any CVC), verify the
 account and desktop app unlock, open the customer portal, cancel at period end,
 and confirm access remains until the period ends. Also test checkout cancellation,
 the declined card `4000 0000 0000 0002`, the 3D Secure card
-`4000 0025 0000 3155`, an AI voice top-up, duplicate webhook delivery, and a
+`4000 0025 0000 3155`, duplicate webhook delivery, and a
 renewal/payment failure with a Stripe Billing simulation. Local Wrangler uses
 its own D1 and R2 data, not production data.
 
 The deployment needs:
 
 - a D1 binding named `DB`;
-- an `OPENROUTER_CREDENTIAL_KEY` secret containing 32 random bytes encoded as
-  64 hexadecimal characters;
-- an `OPENROUTER_API_KEY` secret for Briefly's managed OpenRouter account;
 - `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
 - the four Sign in with Apple values and three CloudKit values described above
   when those providers should be offered;
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
-  `STRIPE_PRODUCT_TTS`, `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
+  `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
   Price IDs described below;
 - public access to the account callback and capability-link routes. Provider
   credentials and library operations remain account-scoped by the app's secure,
@@ -174,18 +152,10 @@ Configure Stripe for paid access:
 5. Complete Stripe Tax registration and set the Briefly Plus product's tax code
    to the appropriate software-as-a-service code. Checkout collects and validates
    billing location and tax IDs.
-6. Create a separate one-time Product named **Briefly AI voice credit**, set its
-   appropriate digital-service tax code, and save its ID as `STRIPE_PRODUCT_TTS`.
-   Top-up Prices are created inline by Checkout so no separate Price IDs are
-   needed. Keep the existing webhook subscribed to Checkout completion and async
-   payment events; the same idempotent handler credits both subscriptions and
-   narration top-ups.
-
-Paid access and managed narration activate automatically when their required
-deployment secrets and Stripe IDs are present. Missing or invalid Stripe
+Paid access activates automatically when the required deployment secrets and
+Stripe IDs are present. Missing or invalid Stripe
 configuration fails closed instead of granting free Plus access.
 The owner account `schauljonathan@gmail.com` has complimentary Plus entitlement;
-it does not receive unlimited metered AI voice credit.
 `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement window and
 defaults to seven days. A daily Worker cron reconciles D1 subscription state with
 Stripe.

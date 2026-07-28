@@ -10,6 +10,22 @@ export interface ExtractedContent {
   sourceURL: string;
 }
 
+export interface DiscoveredSourceItem {
+  id: string;
+  title: string;
+  url: string;
+  publishedAt: string | null;
+}
+
+export interface DiscoveredSource {
+  source: string;
+  sourceURL: string;
+  feedURL?: string;
+  title: string;
+  kind: 'feed' | 'podcast' | 'page';
+  items: DiscoveredSourceItem[];
+}
+
 interface ExtractorOutput {
   url?: string;
   title?: string;
@@ -25,17 +41,23 @@ export class ExtractionService {
     const sourceURL = webURL(value);
     if (!sourceURL) return undefined;
 
-    const helper = this.helperPath();
+    return this.extractURL(sourceURL.toString());
+  }
+
+  async extractURL(value: string): Promise<ExtractedContent> {
+    const sourceURL = webURL(value);
+    if (!sourceURL) throw new Error('Only HTTP(S) links can be extracted.');
+    const helper = this.helperPath('extract.mjs');
     if (!helper) {
       throw new Error(
         'The web extractor is missing from Briefly. Reinstall the application.'
       );
     }
 
-    const extracted = await runHelper(
+    const extracted = await runHelper<ExtractorOutput>(
       helper,
-      sourceURL.toString(),
-      join(this.workspacePath(), '.briefly', 'inputs')
+      ['--extensions', join(this.workspacePath(), '.briefly', 'inputs'), sourceURL.toString()],
+      'Web extraction failed.'
     );
     const content = extracted.content?.trim();
     if (!content) throw new Error('The page did not contain extractable text.');
@@ -47,11 +69,33 @@ export class ExtractionService {
     };
   }
 
-  private helperPath(): string | null {
+  async discoverSource(value: string): Promise<DiscoveredSource> {
+    const helper = this.helperPath('watch.mjs');
+    if (!helper) {
+      throw new Error(
+        'The source watcher is missing from Briefly. Reinstall the application.'
+      );
+    }
+    const discovered = await runHelper<DiscoveredSource>(
+      helper,
+      [value],
+      'The source could not be checked.'
+    );
+    if (
+      !discovered ||
+      typeof discovered !== 'object' ||
+      !Array.isArray(discovered.items)
+    ) {
+      throw new Error('The source watcher returned invalid content.');
+    }
+    return discovered;
+  }
+
+  private helperPath(filename: string): string | null {
     const candidates = [
-      join(process.resourcesPath, 'Tools', 'extractor', 'extract.mjs'),
-      join(app.getAppPath(), '..', 'Tools', 'extractor', 'extract.mjs'),
-      join(process.cwd(), 'Tools', 'extractor', 'extract.mjs')
+      join(process.resourcesPath, 'Tools', 'extractor', filename),
+      join(app.getAppPath(), '..', 'Tools', 'extractor', filename),
+      join(process.cwd(), 'Tools', 'extractor', filename)
     ];
     return candidates.find((path) => existsSync(path)) ?? null;
   }
@@ -68,15 +112,15 @@ function webURL(value: string): URL | null {
   }
 }
 
-async function runHelper(
+async function runHelper<T>(
   helper: string,
-  url: string,
-  extensionsDirectory: string
-): Promise<ExtractorOutput> {
+  arguments_: string[],
+  fallbackError: string
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [helper, '--extensions', extensionsDirectory, url],
+      [helper, ...arguments_],
       {
         cwd: dirname(helper),
         env: extractorEnvironment(helper),
@@ -109,11 +153,11 @@ async function runHelper(
         return;
       }
       if (code !== 0) {
-        reject(new Error(lastExtractorError(error) || 'Web extraction failed.'));
+        reject(new Error(lastExtractorError(error) || fallbackError));
         return;
       }
       try {
-        resolve(JSON.parse(output) as ExtractorOutput);
+        resolve(JSON.parse(output) as T);
       } catch {
         reject(new Error('The web extractor returned invalid content.'));
       }
