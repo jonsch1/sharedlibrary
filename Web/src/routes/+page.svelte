@@ -11,7 +11,6 @@
 	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
@@ -23,7 +22,6 @@
 	import PublicShareReader from '$lib/PublicShareReader.svelte';
 	import LibraryAudio from '$lib/LibraryAudio.svelte';
 	import LibraryFavicon from '$lib/LibraryFavicon.svelte';
-	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import {
@@ -70,7 +68,6 @@
 		consumeBillingResult,
 		formatMonthlyPrice,
 		loadBillingStatus,
-		openBillingPortal,
 		type BillingStatus
 	} from '$lib/billing.js';
 	import {
@@ -83,7 +80,6 @@
 	} from '../../../Shared/themes';
 
 	type OriginFilter = 'all' | 'personal';
-	type SettingsCategory = 'general' | 'membership' | 'sync';
 	type AccountStatus = {
 		authenticated: boolean;
 		email?: string;
@@ -106,7 +102,6 @@
 	let importMessage = $state('');
 	let mobileReaderVisible = $state(false);
 	let connectionsVisible = $state(false);
-	let settingsCategory = $state<SettingsCategory>('general');
 	let sharingVisible = $state(false);
 	let shareTarget = $state<LibraryEntry | null>(null);
 	let shareBusy = $state(false);
@@ -124,7 +119,6 @@
 	let googleSyncing = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
-	let signingOut = $state(false);
 	let themePreference = $state(readThemePreference());
 	let googleSyncCompleted = $state(0);
 	let googleSyncTotal = $state(0);
@@ -132,13 +126,6 @@
 	let loadingText = $state(false);
 	let syncInFlight = false;
 	const textLoads = new Map<string, Promise<string>>();
-	let settingsTitle = $derived(
-		settingsCategory === 'general'
-			? 'General'
-			: settingsCategory === 'membership'
-				? 'Membership'
-				: 'Sync'
-	);
 
 	let allEntries = $derived(projection?.entries ?? []);
 	let podcastNoteEntries = $derived(
@@ -339,33 +326,21 @@
 				connectionMessage = billing.entitled
 					? 'Your Briefly membership is active. Your joined price is locked while you stay subscribed.'
 					: 'Payment completed. Your membership is still being activated.';
-				settingsCategory = 'membership';
-				connectionsVisible = true;
 			}
 			if (googleResult === 'signed-in') {
 				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
-				settingsCategory = 'sync';
-				connectionsVisible = true;
 			} else if (googleResult) {
 				connectionMessage = 'Google could not be connected. Check the callback URL.';
-				settingsCategory = 'sync';
-				connectionsVisible = true;
 			}
 			if (appleResult === 'signed-in') {
 				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
-				settingsCategory = 'sync';
-				connectionsVisible = true;
 			} else if (appleResult) {
 				connectionMessage = 'Apple sign-in could not be completed.';
-				settingsCategory = 'sync';
-				connectionsVisible = true;
 			}
 			if (iCloudResult === 'connected') {
 				connectionMessage = 'iCloud is authorized for this browser.';
 			} else if (iCloudResult === 'empty') {
 				connectionMessage = emptyICloudLibraryMessage;
-				settingsCategory = 'sync';
-				connectionsVisible = true;
 			}
 			if (syncProvider && billing.entitled) {
 				void requestPersistentOfflineStorage();
@@ -436,7 +411,6 @@
 		}
 		if (billing?.configured && !billing.entitled) {
 			connectionMessage = 'An active Briefly membership is required to synchronize your library.';
-			settingsCategory = 'membership';
 			connectionsVisible = true;
 			return;
 		}
@@ -510,19 +484,6 @@
 		window.location.assign(`/api/auth/${provider}/start`);
 	}
 
-	async function signOut(): Promise<void> {
-		if (signingOut) return;
-		signingOut = true;
-		try {
-			const response = await fetch('/api/auth/logout', { method: 'POST' });
-			if (!response.ok) throw new Error('Sign out failed.');
-			window.location.reload();
-		} catch (error) {
-			connectionMessage = error instanceof Error ? error.message : 'Sign out failed.';
-			signingOut = false;
-		}
-	}
-
 	async function startBrieflyPlus(): Promise<void> {
 		if (billingBusy) return;
 		billingBusy = true;
@@ -533,7 +494,6 @@
 			const checkoutError = error as Error & { code?: string };
 			if (checkoutError.code === 'authentication_required') {
 				connectionMessage = 'Sign in with Apple or Google before choosing your membership.';
-				settingsCategory = 'membership';
 				connectionsVisible = true;
 				return;
 			}
@@ -543,22 +503,7 @@
 		}
 	}
 
-	async function manageBilling(): Promise<void> {
-		if (billingBusy) return;
-		billingBusy = true;
-		connectionMessage = '';
-		try {
-			await openBillingPortal();
-		} catch (error) {
-			connectionMessage =
-				error instanceof Error ? error.message : 'The billing portal could not be opened.';
-		} finally {
-			billingBusy = false;
-		}
-	}
-
-	function openSettings(category: SettingsCategory = 'general'): void {
-		settingsCategory = category;
+	function openSettings(): void {
 		connectionsVisible = true;
 		sharingVisible = false;
 	}
@@ -567,7 +512,6 @@
 		if (!entry || entry.origin !== 'personal') return;
 		if (billing?.configured && !billing.entitled) {
 			connectionMessage = 'An active Briefly membership is required to create share links.';
-			settingsCategory = 'membership';
 			connectionsVisible = true;
 			sharingVisible = false;
 			return;
@@ -1232,36 +1176,16 @@
 
 	{#if connectionsVisible}
 		<section class="settings-screen bg-popover! text-popover-foreground! font-sans!" aria-label="Settings">
-			<aside class="settings-navigation border-border! bg-sidebar! text-sidebar-foreground!">
+			<header class="settings-header">
 				<button class="settings-back border-border! hover:bg-accent!" onclick={() => (connectionsVisible = false)}>
 					<ChevronLeftIcon />
 					<span>Back to app</span>
 				</button>
-				<p class="settings-label text-muted-foreground!">Settings</p>
-				<nav class="settings-tabs" aria-label="Settings categories">
-					<button
-						class:active={settingsCategory === 'general'}
-						onclick={() => (settingsCategory = 'general')}>General</button
-					>
-					<button
-						class:active={settingsCategory === 'membership'}
-						onclick={() => (settingsCategory = 'membership')}>Membership</button
-					>
-					<button
-						class:active={settingsCategory === 'sync'}
-						onclick={() => (settingsCategory = 'sync')}>Sync</button
-					>
-				</nav>
-			</aside>
+				<p class="settings-breadcrumb text-muted-foreground!">Briefly › Settings</p>
+				<h2>Settings</h2>
+			</header>
 
-			<div class="settings-main">
-				<header class="settings-header">
-					<p class="settings-breadcrumb text-muted-foreground!">Briefly › Settings › {settingsTitle}</p>
-					<h2>{settingsTitle}</h2>
-				</header>
-
-				<main class="settings-content">
-				{#if settingsCategory === 'general'}
+			<main class="settings-content">
 				<section class="settings-card border-border! bg-card! text-card-foreground!">
 					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
 						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><PaletteIcon /></div>
@@ -1308,124 +1232,15 @@
 						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><ArrowUpRightIcon /></div>
 						<div>
 							<div class="provider-title"><h3>Account</h3></div>
-							<p>Manage your account, app downloads, published links, and legal information.</p>
+							<p>Manage your account, membership, sync, and app downloads.</p>
 						</div>
 					</div>
-					<Button variant="outline" onclick={() => window.location.assign('/account')}>
+					<Button variant="outline" href="/account">
 						<ArrowUpRightIcon data-icon="inline-start" />
-						Account and app downloads
-					</Button>
-					{#if account.authenticated}
-						<Button variant="outline" disabled={signingOut} onclick={signOut}>
-							<LogOutIcon data-icon="inline-start" />
-							{signingOut ? 'Signing out…' : 'Sign out'}
-						</Button>
-					{/if}
-					<nav class="connections-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
-						<a href="/feedback">Feedback</a>
-						<a href="/privacy">Privacy</a>
-						<a href="/terms">Terms</a>
-						<a href="/cookies">Cookies & storage</a>
-						<a href="/imprint">Imprint</a>
-					</nav>
-				</section>
-				{:else if settingsCategory === 'membership'}
-				<section class="settings-card billing-connection border-border! bg-card! text-card-foreground!" class:connected={billing?.entitled}>
-					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
-						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><CreditCardIcon /></div>
-						<div>
-							<div class="provider-title">
-								<h3>Briefly membership</h3>
-								<Badge variant={billing?.entitled ? 'secondary' : 'outline'}>
-									{billing?.entitled
-										? billing.subscription?.cancelAtPeriodEnd
-											? 'Cancels soon'
-											: 'Active'
-										: billing?.subscription
-											? 'Inactive'
-											: 'Not active'}
-								</Badge>
-							</div>
-							<p>Cross-device library sync and deliberate share links.</p>
-						</div>
-					</div>
-
-					{#if billing?.entitled && billing.subscription}
-						<div class="billing-summary">
-							<strong>
-								{formatMonthlyPrice(
-									billing.subscription.amount,
-									billing.subscription.currency
-								)}/month
-							</strong>
-							<span>{billing.subscription.tierName} price · kept while subscribed</span>
-						</div>
-						<Button variant="outline" disabled={billingBusy} onclick={manageBilling}>
-							<ArrowUpRightIcon data-icon="inline-start" />
-							{billingBusy ? 'Opening billing…' : 'Manage billing'}
-						</Button>
-					{:else if billing?.entitled}
-						<p class="connection-help">Complimentary membership for this account.</p>
-					{:else if billing?.configured}
-						<Button disabled={billingBusy} onclick={startBrieflyPlus}>
-							<CreditCardIcon data-icon="inline-start" />
-							{billingBusy
-								? 'Opening checkout…'
-								: currentBillingTier
-									? `Subscribe · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
-									: 'Choose membership'}
-						</Button>
-						<p class="connection-help">
-							The current launch price is locked while you remain subscribed. Cancel anytime.
-						</p>
-					{:else}
-						<p class="connection-help">
-							Stripe checkout is ready in the app but has not been configured for this deployment.
-						</p>
-					{/if}
-					<Button variant="outline" onclick={() => window.location.assign('/account')}>
-						<ArrowUpRightIcon data-icon="inline-start" />
-						Account and app downloads
+						Open account
 					</Button>
 				</section>
-
-				{:else}
-				<section
-					class="settings-card border-border! bg-card! text-card-foreground!"
-					class:connected={Boolean(syncProvider)}
-				>
-					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
-						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><CloudIcon /></div>
-						<div>
-							<div class="provider-title">
-								<h3>Library sync</h3>
-								<Badge variant={syncProvider ? 'secondary' : 'outline'}>
-									{syncProvider === 'icloud'
-										? 'iCloud'
-										: syncProvider === 'google'
-											? 'Google Drive'
-											: 'Not set'}
-								</Badge>
-							</div>
-							<p>
-								{syncProvider === 'icloud'
-									? iCloudConnection.connected
-										? 'This browser is authorized to synchronize your private CloudKit library.'
-										: 'Authorize iCloud for this browser from your account page.'
-									: syncProvider === 'google'
-										? 'Your private library synchronizes through the connected Google Drive.'
-										: 'Choose iCloud or Google Drive from your account page.'}
-							</p>
-						</div>
-					</div>
-					<Button href="/account#sync">
-						<ArrowUpRightIcon data-icon="inline-start" />
-						Manage sync
-					</Button>
-				</section>
-				{/if}
-				</main>
-			</div>
+			</main>
 		</section>
 	{/if}
 
