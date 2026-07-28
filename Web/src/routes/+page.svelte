@@ -1081,18 +1081,18 @@
 							<ChevronLeftIcon />
 							<span>Library</span>
 						</button>
-					</div>
 
-					{#if selectedEntry.audio || selectedEntry.mediaURL}
-						<div class="native-reader-audio">
-							<LibraryAudio
-								title={selectedEntry.title}
-								audio={selectedEntry.audio}
-								mediaURL={selectedEntry.mediaURL}
-								provider={syncProvider}
-							/>
-						</div>
-					{/if}
+						{#if selectedEntry.audio || selectedEntry.mediaURL}
+							<div class="native-reader-audio">
+								<LibraryAudio
+									title={selectedEntry.title}
+									audio={selectedEntry.audio}
+									mediaURL={selectedEntry.mediaURL}
+									provider={syncProvider}
+								/>
+							</div>
+						{/if}
+					</div>
 
 					<div class="native-document-scroll">
 						<article class="native-document-body text-card-foreground! font-serif!" aria-busy={loadingText}>

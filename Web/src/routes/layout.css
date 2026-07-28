@@ -2392,6 +2392,10 @@ html {
 }
 
 .native-mobile-reader-bar {
+	display: contents;
+}
+
+.native-mobile-reader-bar > button {
 	display: none;
 }
 
@@ -3052,13 +3056,14 @@ html {
 		height: 48px;
 		flex: 0 0 48px;
 		align-items: center;
+		gap: 6px;
 		padding: 0 8px;
 		border-bottom: 1px solid rgb(46 46 43 / 22%);
 		background: rgb(235 232 222 / 92%);
 		backdrop-filter: blur(14px);
 	}
 
-	.native-mobile-reader-bar button {
+	.native-mobile-reader-bar > button {
 		display: flex;
 		height: 36px;
 		align-items: center;
@@ -3071,29 +3076,42 @@ html {
 		font-weight: 550;
 	}
 
-	.native-mobile-reader-bar button:hover {
+	.native-mobile-reader-bar > button:hover {
 		background: rgb(46 46 43 / 7%);
 	}
 
-	.native-mobile-reader-bar svg {
+	.native-mobile-reader-bar > button svg {
 		width: 18px;
 		height: 18px;
 	}
 
 	.native-reader-audio {
-		top: 47px;
-		width: calc(100% - 28px);
+		position: static;
+		min-width: 0;
+		flex: 1;
+		width: auto;
+		transform: none;
+	}
+
+	.native-reader-audio .audio-player {
+		height: 40px;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: 6px;
+		padding: 3px 6px;
+		border: 1px solid var(--border) !important;
+		border-radius: 12px !important;
+	}
+
+	.native-reader-audio .play {
+		width: 32px;
+		min-width: 32px;
+		height: 32px;
 	}
 
 	.native-document-body {
 		width: calc(100% - 38px);
 		padding: 30px 0 158px;
 		background-position: 0 27px;
-	}
-
-	.native-reader-pane.has-reader-audio .native-document-body {
-		padding-top: 86px;
-		background-position: 0 83px;
 	}
 
 	.native-document-footer {
