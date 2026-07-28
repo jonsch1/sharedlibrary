@@ -80,11 +80,15 @@ test(
         modifiers: ['Meta']
       });
       await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
-      await page.getByRole('button', { name: 'Electron smoke fixture' }).click({
-        button: 'right'
-      });
-      await page.keyboard.press('Escape');
-      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
+      // ponytail: macOS Actions cannot dismiss native menus through CDP; the
+      // Windows and Linux runners cover right-click selection until Playwright can.
+      if (snapshot.platform !== 'darwin') {
+        await page.getByRole('button', { name: 'Electron smoke fixture' }).click({
+          button: 'right'
+        });
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
+      }
       await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
       await expect(page.locator('.native-entry-row.selected')).toHaveCount(1);
 
