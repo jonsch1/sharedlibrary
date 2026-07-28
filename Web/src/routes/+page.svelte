@@ -15,7 +15,6 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import Share2Icon from '@lucide/svelte/icons/share-2';
-	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
 	import MarkdownText from '../../../Shared/MarkdownView.svelte';
@@ -80,6 +79,7 @@
 	} from '../../../Shared/themes';
 
 	type OriginFilter = 'all' | 'personal';
+	type SettingsCategory = 'general' | 'membership' | 'sync';
 	type AccountStatus = {
 		authenticated: boolean;
 		email?: string;
@@ -102,6 +102,7 @@
 	let importMessage = $state('');
 	let mobileReaderVisible = $state(false);
 	let connectionsVisible = $state(false);
+	let settingsCategory = $state<SettingsCategory>('general');
 	let sharingVisible = $state(false);
 	let shareTarget = $state<LibraryEntry | null>(null);
 	let shareBusy = $state(false);
@@ -125,6 +126,13 @@
 	let textRevision = $state(0);
 	let loadingText = $state(false);
 	const textLoads = new Map<string, Promise<string>>();
+	let settingsTitle = $derived(
+		settingsCategory === 'general'
+			? 'General'
+			: settingsCategory === 'membership'
+				? 'Membership'
+				: 'Sync'
+	);
 
 	let allEntries = $derived(projection?.entries ?? []);
 	let podcastNoteEntries = $derived(
@@ -323,28 +331,34 @@
 					billing = await loadBillingStatus();
 				}
 				connectionMessage = billing.entitled
-					? 'Briefly Plus is active. Your joined price is locked while you stay subscribed.'
-					: 'Payment completed. Briefly Plus is still being activated.';
+					? 'Your Briefly membership is active. Your joined price is locked while you stay subscribed.'
+					: 'Payment completed. Your membership is still being activated.';
+				settingsCategory = 'membership';
 				connectionsVisible = true;
 			}
 			if (googleResult === 'signed-in') {
 				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
+				settingsCategory = 'sync';
 				connectionsVisible = true;
 			} else if (googleResult) {
 				connectionMessage = 'Google could not be connected. Check the callback URL.';
+				settingsCategory = 'sync';
 				connectionsVisible = true;
 			}
 			if (appleResult === 'signed-in') {
 				connectionMessage = 'Signed in. Choose iCloud or Google Drive for library sync.';
+				settingsCategory = 'sync';
 				connectionsVisible = true;
 			} else if (appleResult) {
 				connectionMessage = 'Apple sign-in could not be completed.';
+				settingsCategory = 'sync';
 				connectionsVisible = true;
 			}
 			if (iCloudResult === 'connected') {
 				connectionMessage = 'iCloud is authorized for this browser.';
 			} else if (iCloudResult === 'empty') {
 				connectionMessage = emptyICloudLibraryMessage;
+				settingsCategory = 'sync';
 				connectionsVisible = true;
 			}
 			if (syncProvider && billing.entitled) {
@@ -354,7 +368,7 @@
 		} catch (error) {
 			if (!isActive()) return;
 			connectionMessage =
-				error instanceof Error ? error.message : 'Connections could not be loaded.';
+				error instanceof Error ? error.message : 'Settings could not be loaded.';
 		}
 	}
 
@@ -414,7 +428,8 @@
 			return;
 		}
 		if (billing?.configured && !billing.entitled) {
-			connectionMessage = 'Briefly Plus is required to synchronize your library.';
+			connectionMessage = 'An active Briefly membership is required to synchronize your library.';
+			settingsCategory = 'membership';
 			connectionsVisible = true;
 			return;
 		}
@@ -491,7 +506,8 @@
 		} catch (error) {
 			const checkoutError = error as Error & { code?: string };
 			if (checkoutError.code === 'authentication_required') {
-				connectionMessage = 'Sign in with Apple or Google before choosing Briefly Plus.';
+				connectionMessage = 'Sign in with Apple or Google before choosing your membership.';
+				settingsCategory = 'membership';
 				connectionsVisible = true;
 				return;
 			}
@@ -515,15 +531,17 @@
 		}
 	}
 
-	function toggleConnections(): void {
-		connectionsVisible = !connectionsVisible;
+	function openSettings(category: SettingsCategory = 'general'): void {
+		settingsCategory = category;
+		connectionsVisible = true;
 		sharingVisible = false;
 	}
 
 	async function openSharing(entry: LibraryEntry | null = selectedEntry): Promise<void> {
 		if (!entry || entry.origin !== 'personal') return;
 		if (billing?.configured && !billing.entitled) {
-			connectionMessage = 'Briefly Plus is required to create share links.';
+			connectionMessage = 'An active Briefly membership is required to create share links.';
+			settingsCategory = 'membership';
 			connectionsVisible = true;
 			sharingVisible = false;
 			return;
@@ -803,7 +821,7 @@
 				{:else if syncProvider && billing?.configured && !billing.entitled}
 					<h1>Take your library everywhere</h1>
 					<p class="empty-copy text-muted-foreground!">
-						Briefly Plus adds private cloud synchronization and deliberate share links.
+						Your Briefly membership includes private cloud synchronization and deliberate share links.
 						Your local desktop files remain on your device.
 					</p>
 					<div class="empty-actions">
@@ -812,8 +830,8 @@
 							{billingBusy
 								? 'Opening checkout…'
 								: currentBillingTier
-									? `Get Plus · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
-									: 'Get Briefly Plus'}
+									? `Subscribe · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
+									: 'Choose membership'}
 						</Button>
 						<Button size="lg" variant="ghost" onclick={showDemo}>
 							<BookOpenIcon data-icon="inline-start" />
@@ -1029,6 +1047,18 @@
 					{/if}
 				</div>
 
+				<div class="native-sidebar-footer">
+					<button
+						class="agent-button sidebar-settings-button"
+						class:active={connectionsVisible}
+						aria-label="Settings"
+						title="Settings"
+						onclick={() => openSettings()}
+					>
+						<Settings2Icon />
+						<span>Settings</span>
+					</button>
+				</div>
 			</aside>
 
 			<main class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
@@ -1121,15 +1151,6 @@
 								</button>
 							{/if}
 
-							<button
-								class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:bg-accent! [&.active]:text-accent-foreground!"
-								class:active={connectionsVisible}
-								aria-label="Connections"
-								title="Connections"
-								onclick={toggleConnections}
-							>
-								<Settings2Icon />
-							</button>
 						</div>
 					</footer>
 				{/if}
@@ -1152,29 +1173,38 @@
 	{/if}
 
 	{#if connectionsVisible}
-		<div
-			class="audio-backdrop bg-foreground/20! bg-none!"
-			role="presentation"
-			onclick={() => (connectionsVisible = false)}
-		></div>
-		<aside class="audio-panel connections-panel border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm! font-sans!" aria-label="Connections">
-			<div class="audio-header">
-				<div>
-					<p class="eyebrow text-muted-foreground!">Storage</p>
-					<h2>Connections</h2>
-				</div>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="Close connections"
-					onclick={() => (connectionsVisible = false)}
-				>
-					<XIcon />
-				</Button>
-			</div>
+		<section class="settings-screen bg-popover! text-popover-foreground! font-sans!" aria-label="Settings">
+			<aside class="settings-navigation border-border! bg-sidebar! text-sidebar-foreground!">
+				<button class="settings-back border-border! hover:bg-accent!" onclick={() => (connectionsVisible = false)}>
+					<ChevronLeftIcon />
+					<span>Back to app</span>
+				</button>
+				<p class="settings-label text-muted-foreground!">Settings</p>
+				<nav class="settings-tabs" aria-label="Settings categories">
+					<button
+						class:active={settingsCategory === 'general'}
+						onclick={() => (settingsCategory = 'general')}>General</button
+					>
+					<button
+						class:active={settingsCategory === 'membership'}
+						onclick={() => (settingsCategory = 'membership')}>Membership</button
+					>
+					<button
+						class:active={settingsCategory === 'sync'}
+						onclick={() => (settingsCategory = 'sync')}>Sync</button
+					>
+				</nav>
+			</aside>
 
-			<div class="audio-content">
-				<section class="audio-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+			<div class="settings-main">
+				<header class="settings-header">
+					<p class="settings-breadcrumb text-muted-foreground!">Briefly › Settings › {settingsTitle}</p>
+					<h2>{settingsTitle}</h2>
+				</header>
+
+				<main class="settings-content">
+				{#if settingsCategory === 'general'}
+				<section class="settings-card border-border! bg-card! text-card-foreground!">
 					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
 						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><PaletteIcon /></div>
 						<div>
@@ -1215,12 +1245,33 @@
 					</div>
 				</section>
 
-				<section class="audio-connection billing-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!" class:connected={billing?.entitled}>
+				<section class="settings-card border-border! bg-card! text-card-foreground!">
+					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
+						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><ArrowUpRightIcon /></div>
+						<div>
+							<div class="provider-title"><h3>Account</h3></div>
+							<p>Manage your account, app downloads, published links, and legal information.</p>
+						</div>
+					</div>
+					<Button variant="outline" onclick={() => window.location.assign('/account')}>
+						<ArrowUpRightIcon data-icon="inline-start" />
+						Account and app downloads
+					</Button>
+					<nav class="connections-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
+						<a href="/feedback">Feedback</a>
+						<a href="/privacy">Privacy</a>
+						<a href="/terms">Terms</a>
+						<a href="/cookies">Cookies & storage</a>
+						<a href="/imprint">Imprint</a>
+					</nav>
+				</section>
+				{:else if settingsCategory === 'membership'}
+				<section class="settings-card billing-connection border-border! bg-card! text-card-foreground!" class:connected={billing?.entitled}>
 					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
 						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><CreditCardIcon /></div>
 						<div>
 							<div class="provider-title">
-								<h3>Briefly Plus</h3>
+								<h3>Briefly membership</h3>
 								<Badge variant={billing?.entitled ? 'secondary' : 'outline'}>
 									{billing?.entitled
 										? billing.subscription?.cancelAtPeriodEnd
@@ -1228,7 +1279,7 @@
 											: 'Active'
 										: billing?.subscription
 											? 'Inactive'
-											: 'Optional'}
+											: 'Not active'}
 								</Badge>
 							</div>
 							<p>Cross-device library sync and deliberate share links.</p>
@@ -1250,15 +1301,15 @@
 							{billingBusy ? 'Opening billing…' : 'Manage billing'}
 						</Button>
 					{:else if billing?.entitled}
-						<p class="connection-help">Complimentary Plus access for this account.</p>
+						<p class="connection-help">Complimentary membership for this account.</p>
 					{:else if billing?.configured}
 						<Button disabled={billingBusy} onclick={startBrieflyPlus}>
 							<CreditCardIcon data-icon="inline-start" />
 							{billingBusy
 								? 'Opening checkout…'
 								: currentBillingTier
-									? `Get Plus · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
-									: 'Get Briefly Plus'}
+									? `Subscribe · ${formatMonthlyPrice(currentBillingTier.amount)}/mo`
+									: 'Choose membership'}
 						</Button>
 						<p class="connection-help">
 							The current launch price is locked while you remain subscribed. Cancel anytime.
@@ -1274,8 +1325,9 @@
 					</Button>
 				</section>
 
+				{:else}
 				<section
-					class="audio-connection border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
+					class="settings-card border-border! bg-card! text-card-foreground!"
 					class:connected={Boolean(syncProvider)}
 				>
 					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
@@ -1307,44 +1359,10 @@
 						Manage sync
 					</Button>
 				</section>
-
-				<section class="audio-connection connected border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
-					<div class="audio-connection-heading [&_p]:text-muted-foreground!">
-						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Share2Icon /></div>
-						<div>
-							<div class="provider-title">
-								<h3>Share links</h3>
-								<Badge variant="secondary">Built in</Badge>
-							</div>
-							<p>
-								Publish individual documents as hard-to-guess, forwardable links. No
-								shared Drive folder is required.
-							</p>
-						</div>
-					</div>
-				</section>
-
-				<div class="audio-privacy border-border! bg-muted! bg-none! text-foreground! rounded-xl! border [&>svg]:text-primary! [&_p]:text-muted-foreground!">
-					<ShieldCheckIcon />
-					<div>
-							<strong>Your selected storage remains the source of truth</strong>
-							<p>
-								Your private library stays in iCloud or Google Drive. Google credentials
-								are encrypted per signed-in account; iCloud content goes directly between
-								this device and Apple. Only documents you deliberately publish are copied
-								to the sharing service.
-						</p>
-					</div>
-				</div>
-				<nav class="connections-legal [&_a]:text-muted-foreground! [&_a:hover]:text-primary!" aria-label="Legal">
-					<a href="/feedback">Feedback</a>
-					<a href="/privacy">Privacy</a>
-					<a href="/terms">Terms</a>
-					<a href="/cookies">Cookies & storage</a>
-					<a href="/imprint">Imprint</a>
-				</nav>
+				{/if}
+				</main>
 			</div>
-		</aside>
+		</section>
 	{/if}
 
 	{#if sharingVisible && shareTarget}

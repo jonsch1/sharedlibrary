@@ -277,7 +277,7 @@
 			if (continueCheckout && billing.authenticated) await startCheckout();
 		} catch (error) {
 			billingMessage =
-				error instanceof Error ? error.message : 'Briefly Plus pricing could not be loaded.';
+				error instanceof Error ? error.message : 'Briefly pricing could not be loaded.';
 		}
 	}
 
@@ -903,7 +903,7 @@
 						<p class="plan-plus-intro">
 							Your monthly price stays fixed while your subscription remains active.
 						</p>
-						<div class="pricing-ladder" aria-label="Briefly Plus launch pricing">
+						<div class="pricing-ladder" aria-label="Briefly launch pricing">
 							{#each displayedPricingTiers as tier}
 								<div class:current={tier.current} class:past={!tier.current && tier.remaining === 0}>
 									<span>
@@ -947,7 +947,7 @@
 							</button>
 						{:else if billing?.entitled}
 							<button class="pricing-cta" type="button" disabled>
-								Plus access active
+								Membership active
 								<CheckCircleIcon aria-hidden="true" />
 							</button>
 						{:else}

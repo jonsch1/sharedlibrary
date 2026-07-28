@@ -1417,12 +1417,134 @@
 		var(--card);
 }
 
-.connections-panel {
-	width: min(460px, 96vw);
+.settings-screen {
+	position: fixed;
+	z-index: 70;
+	inset: 0;
+	display: grid;
+	grid-template-columns: 250px minmax(0, 1fr);
+	overflow: hidden;
+	background: var(--popover);
 }
 
-.connections-panel .audio-connection + .audio-connection {
+.settings-navigation {
+	min-width: 0;
+	padding: 18px 0;
+	border-right: 1px solid var(--border);
+	background: var(--sidebar);
+}
+
+.settings-back {
+	display: flex;
+	width: calc(100% - 28px);
+	height: 38px;
+	align-items: center;
+	gap: 8px;
+	margin: 0 14px 18px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	border-radius: 9px;
+	font-size: 12px;
+	font-weight: 650;
+}
+
+.settings-back:hover {
+	background: var(--accent);
+}
+
+.settings-back svg {
+	width: 16px;
+	height: 16px;
+}
+
+.settings-label {
+	margin: 0;
+	padding: 0 20px 9px;
+	font-size: 10px;
+	font-weight: 720;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+
+.settings-tabs {
+	display: grid;
+	gap: 2px;
+}
+
+.settings-tabs button {
+	position: relative;
+	display: flex;
+	height: 42px;
+	align-items: center;
+	padding: 0 20px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0.035em;
+	text-align: left;
+}
+
+.settings-tabs button:hover,
+.settings-tabs button.active {
+	background: var(--sidebar-accent);
+	color: var(--sidebar-accent-foreground);
+}
+
+.settings-tabs button.active::before {
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 3px;
+	background: var(--primary);
+	content: '';
+}
+
+.settings-main {
+	display: grid;
+	min-width: 0;
+	min-height: 0;
+	grid-template-rows: auto minmax(0, 1fr);
+}
+
+.settings-header {
+	width: min(980px, 100%);
+	margin: 0 auto;
+	padding: 22px 30px 4px;
+}
+
+.settings-header h2 {
+	margin: 24px 0 0;
+	font-family: 'Iowan Old Style', 'Palatino Linotype', serif;
+	font-size: 25px;
+	font-weight: 650;
+}
+
+.settings-breadcrumb {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 560;
+}
+
+.settings-content {
+	width: min(980px, 100%);
+	min-height: 0;
+	margin: 0 auto;
+	padding: 22px 30px 40px;
+	overflow-y: auto;
+}
+
+.settings-card {
+	padding: 17px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--card);
+}
+
+.settings-card + .settings-card {
 	margin-top: 14px;
+}
+
+.settings-card.connected {
+	border-color: oklch(0.65 0.08 174 / 0.38);
 }
 
 .shared-folder-fields {
@@ -2225,6 +2347,51 @@ html {
 	scrollbar-width: thin;
 }
 
+.native-sidebar-footer {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	flex: 0 0 auto;
+	background: var(--sidebar);
+}
+
+.agent-button {
+	display: flex;
+	width: 100%;
+	height: 44px;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	padding: 0 12px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--sidebar-foreground);
+	font-size: 13px;
+	font-weight: 560;
+	box-shadow: none;
+}
+
+.agent-button:hover,
+.agent-button.active {
+	background: var(--sidebar-accent);
+	color: var(--sidebar-accent-foreground);
+}
+
+.agent-button:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--sidebar-ring);
+}
+
+.agent-button svg {
+	width: 15px;
+	height: 15px;
+	stroke-width: 1.7;
+}
+
+.sidebar-settings-button {
+	grid-column: 2;
+	padding: 0;
+}
+
 .native-entry-row {
 	display: flex;
 	width: 100%;
@@ -2861,6 +3028,62 @@ html {
 }
 
 @media (max-width: 680px) {
+	.settings-screen {
+		grid-template-columns: 1fr;
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+
+	.settings-navigation {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: center;
+		gap: 8px;
+		padding: 8px;
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.settings-back {
+		width: auto;
+		margin: 0;
+	}
+
+	.settings-label {
+		display: none;
+	}
+
+	.settings-tabs {
+		display: flex;
+		min-width: 0;
+		overflow-x: auto;
+	}
+
+	.settings-tabs button {
+		height: 38px;
+		flex: 1 0 auto;
+		padding: 0 12px;
+		border-radius: 8px;
+		text-align: center;
+	}
+
+	.settings-tabs button.active::before {
+		inset: auto 8px 0;
+		width: auto;
+		height: 2px;
+	}
+
+	.settings-header {
+		padding: 18px 18px 2px;
+	}
+
+	.settings-header h2 {
+		margin-top: 14px;
+	}
+
+	.settings-content {
+		padding: 18px;
+	}
+
 	.native-workspace {
 		inset: 8px;
 		display: block;

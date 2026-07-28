@@ -5,7 +5,7 @@
 <LegalShell
 	active="terms"
 	title="Terms of service"
-	description="The agreement for using Briefly's apps, website, connected services, public shares, and Briefly Plus."
+	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -13,7 +13,7 @@
 			These Terms are an agreement between you and <strong>Jonathan Schaul</strong>, operating
 			Briefly in Germany (“Briefly”, “we”, or “us”). They apply to the Briefly website,
 			desktop and web apps, accounts, synchronization, scheduled podcasts, share links, downloads, and
-			Briefly Plus (together, the “Service”).
+			the Briefly membership (together, the “Service”).
 		</p>
 		<p>
 			By creating an account, using a connected feature, or subscribing, you agree to these
@@ -59,7 +59,7 @@
 		<p>
 			Cloud sync is optional and can be stopped or disconnected in the app. Doing so does not
 			delete Briefly files already stored in iCloud or Google Drive. Signing out does not cancel
-			Briefly Plus.
+			your membership.
 		</p>
 	</section>
 
@@ -107,13 +107,13 @@
 	</section>
 
 	<section>
-		<h2>6. Briefly Plus, payment, and cancellation</h2>
+		<h2>6. Membership, payment, and cancellation</h2>
 		<ul>
-			<li>Briefly Plus is billed monthly in advance at the price and currency shown before checkout, plus applicable taxes disclosed by Stripe.</li>
+			<li>The Briefly membership is billed monthly in advance at the price and currency shown before checkout, plus applicable taxes disclosed by Stripe.</li>
 			<li>Your launch-tier monthly price remains fixed while that subscription stays continuously active. If it ends and you later resubscribe, the then-current available price applies.</li>
 			<li>You authorize Stripe to charge the payment method associated with your subscription each billing period until cancellation.</li>
 			<li>You can cancel at any time in the Stripe billing portal opened from Briefly. Unless law or the checkout states otherwise, cancellation takes effect at the end of the paid billing period and does not retroactively refund an already-started period.</li>
-			<li>If payment fails, access to Plus features may be limited or suspended after Stripe's retry process. Your locally stored or Google Drive files remain yours.</li>
+			<li>If payment fails, access to Briefly may be limited or suspended after Stripe's retry process. Your locally stored or Google Drive files remain yours.</li>
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
 
@@ -121,19 +121,19 @@
 		<p>
 			If you are a consumer in Germany or elsewhere in the EEA, you generally have 14 days from
 			concluding an online service contract to withdraw without giving a reason. When you choose
-			to activate Plus immediately, you request performance during that period. If you withdraw
+			to activate your membership immediately, you request performance during that period. If you withdraw
 			after service has begun, the law may permit a proportionate charge for service supplied
 			before your notice. Your right does not expire merely because access begins; statutory
 			rules on full performance and your express consent remain unaffected.
 		</p>
 		<p>
-			To withdraw from Plus, email an unambiguous statement to
+			To withdraw from your membership, email an unambiguous statement to
 			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a> before the deadline. You
 			may use this optional model:
 		</p>
 		<div class="withdrawal-form">
 			<p>To: Briefly · hello@readbriefly.fyi</p>
-			<p>I hereby give notice that I withdraw from my Briefly Plus contract.</p>
+			<p>I hereby give notice that I withdraw from my Briefly membership contract.</p>
 			<p>Ordered on: [date]</p>
 			<p>Account email: [email]</p>
 			<p>Name: [name]</p>
@@ -179,7 +179,7 @@
 			by applicable consumer law.
 		</p>
 		<p>
-			You may stop using Briefly at any time. Cancel Plus separately, revoke public shares you no
+			You may stop using Briefly at any time. Cancel your membership separately, revoke public shares you no
 			longer want online, and contact us to request deletion of server-side account data. We may
 			end the Service or your access for a material breach, legal requirement, security risk, or
 			discontinuation. Where practicable, we will give reasonable notice and an opportunity to
@@ -199,7 +199,7 @@
 			loss. Briefly is not responsible for loss caused by your unlawful content, disclosure of a
 			forwardable share link, failure to secure your account, or a third-party service outside
 			our reasonable control. For business use, Briefly's aggregate liability is limited to
-			€100; for paid business use, it is limited to the fees paid for Plus in the 12 months before
+			€100; for paid business use, it is limited to the membership fees paid in the 12 months before
 			the event. These business caps do not apply to consumers where mandatory law provides a
 			greater remedy.
 		</p>

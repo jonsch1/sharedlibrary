@@ -50,7 +50,7 @@ export async function loadBillingStatus(): Promise<BillingStatus> {
 		cache: 'no-store'
 	});
 	if (!response.ok) {
-		throw await billingError(response, 'Briefly Plus pricing could not be loaded.');
+		throw await billingError(response, 'Briefly pricing could not be loaded.');
 	}
 	return (await response.json()) as BillingStatus;
 }
@@ -61,7 +61,7 @@ export async function beginBrieflyPlusCheckout(): Promise<void> {
 		headers: { Accept: 'application/json' }
 	});
 	if (!response.ok) {
-		throw await billingError(response, 'Briefly Plus checkout could not be opened.');
+		throw await billingError(response, 'Briefly checkout could not be opened.');
 	}
 	const value = (await response.json()) as { url?: unknown };
 	if (typeof value.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');

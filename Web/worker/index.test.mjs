@@ -1215,7 +1215,7 @@ test('billing fails closed when Stripe configuration is incomplete', async () =>
 	assert.equal((await response.json()).code, 'billing_unavailable');
 });
 
-test('the owner account has complimentary Plus access without Stripe', async () => {
+test('the owner account has complimentary membership access without Stripe', async () => {
 	const database = new MockDatabase();
 	database.sessionEmail = 'SchaulJonathan@gmail.com';
 	const env = environment(database);
@@ -1320,7 +1320,7 @@ test('checkout validates its Price, pins the API version, and reuses one open Se
 	}
 });
 
-test('active subscriptions on unknown Prices never grant Plus entitlement', async () => {
+test('active subscriptions on unknown Prices never grant membership entitlement', async () => {
 	const database = new MockDatabase();
 	database.billingCustomers.set('reader@example.com', {
 		user_email: 'reader@example.com',
@@ -1348,7 +1348,7 @@ test('active subscriptions on unknown Prices never grant Plus entitlement', asyn
 	assert.equal(status.subscription.recognized, false);
 });
 
-test('configured Plus routes reject free accounts without blocking public readers', async () => {
+test('membership routes reject inactive accounts without blocking public readers', async () => {
 	const env = stripeEnvironment();
 	const privateResponse = await worker.fetch(
 		authenticatedRequest('/api/library'),
@@ -1423,7 +1423,7 @@ test('paid AI voice checkout credits the VAT-exclusive amount exactly once', asy
 	}
 });
 
-test('paid Plus checkout does not create voice credit', async (context) => {
+test('paid membership checkout does not create voice credit', async (context) => {
 	const database = new MockDatabase();
 	database.billingCustomers.set('reader@example.com', {
 		user_email: 'reader@example.com',

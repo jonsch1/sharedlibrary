@@ -97,7 +97,7 @@
 			<li>Removing site data signs you out and deletes the offline web copy and preferences on that device. It does not delete files in iCloud or Google Drive, an active subscription, or a public share.</li>
 			<li>Disconnect Google Drive from Settings to delete the stored Google provider credentials.</li>
 			<li>Stop iCloud sync from Settings to clear the selected-provider preference. Manage private CloudKit data through your Apple account.</li>
-			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel Briefly Plus.</li>
+			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel your membership.</li>
 		</ul>
 		<p>
 			Questions about device storage can be sent to

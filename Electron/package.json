@@ -16,7 +16,7 @@
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json && svelte-check --tsconfig tsconfig.web.json",
     "test": "node --import tsx --test src/main/*.test.ts",
-    "test:e2e": "npm run build && playwright test",
+    "test:e2e": "npm run build && install-electron && playwright test",
     "extractor:install": "npm --prefix ../Tools/extractor ci --omit=dev",
     "package": "npm run extractor:install && npm run build && electron-builder --dir -c.mac.identity=null",
     "dist": "npm run extractor:install && npm run build && electron-builder"
@@ -150,12 +150,8 @@
       "category": "Office",
       "artifactName": "Briefly-linux-${arch}.${ext}",
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ]
-    },
-    "deb": {
-      "artifactName": "Briefly-linux-amd64.${ext}"
     }
   }
 }

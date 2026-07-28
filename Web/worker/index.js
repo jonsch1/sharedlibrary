@@ -2412,7 +2412,7 @@ async function paidAccessResponse(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) {
 		return json(
-			{ error: 'Sign in before using Briefly Plus.', code: 'authentication_required' },
+			{ error: 'Sign in before using Briefly.', code: 'authentication_required' },
 			{ status: 401 }
 		);
 	}
@@ -2421,7 +2421,7 @@ async function paidAccessResponse(request, env) {
 	if (!config) {
 		return json(
 			{
-				error: 'Briefly Plus billing is temporarily unavailable.',
+				error: 'Briefly billing is temporarily unavailable.',
 				code: 'billing_unavailable'
 			},
 			{ status: 503 }
@@ -2432,7 +2432,7 @@ async function paidAccessResponse(request, env) {
 	if (subscriptionIsEntitled(record, config, env)) return null;
 	return json(
 		{
-			error: 'Briefly Plus is required for synchronization and sharing.',
+			error: 'An active Briefly membership is required for synchronization and sharing.',
 			code: 'subscription_required'
 		},
 		{ status: 402 }
@@ -2593,7 +2593,7 @@ async function reservePricingTier(env, accountID) {
 			expiresAt: Number(concurrent.expires_at)
 		};
 	}
-	throw new Error('No Briefly Plus price is currently available.');
+	throw new Error('No Briefly membership price is currently available.');
 }
 
 async function createCheckoutSession(request, env) {
@@ -2608,7 +2608,7 @@ async function createCheckoutSession(request, env) {
 	if (hasComplimentaryPlusAccess(email)) {
 		return json(
 			{
-				error: 'This account already has complimentary Briefly Plus access.',
+				error: 'This account already has complimentary Briefly access.',
 				code: 'access_exists'
 			},
 			{ status: 409 }
@@ -2616,7 +2616,7 @@ async function createCheckoutSession(request, env) {
 	}
 	const config = stripeConfig(env);
 	if (!config) {
-		return json({ error: 'Briefly Plus checkout is not configured yet.' }, { status: 503 });
+		return json({ error: 'Briefly checkout is not configured yet.' }, { status: 503 });
 	}
 	await ensureSchema(env.DB);
 	const customer = await ensureBillingCustomer(env, email);
@@ -2625,7 +2625,7 @@ async function createCheckoutSession(request, env) {
 		return json(
 			{
 				error: recognized
-					? 'This account already has Briefly Plus.'
+					? 'This account already has an active Briefly membership.'
 					: 'This account has a Stripe subscription that needs support before checkout can continue.',
 				code: recognized ? 'subscription_exists' : 'billing_attention_required'
 			},
@@ -2712,7 +2712,7 @@ async function createCheckoutSession(request, env) {
 			return json(
 			{
 				error:
-					error instanceof Error ? error.message : 'Briefly Plus checkout could not be opened.'
+					error instanceof Error ? error.message : 'Briefly checkout could not be opened.'
 			},
 			{ status: 502 }
 		);

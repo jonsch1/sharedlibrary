@@ -109,7 +109,7 @@ The deployment needs:
   credentials and library operations remain account-scoped by the app's secure,
   HTTP-only session cookie.
 
-## Briefly Plus and Stripe
+## Briefly membership and Stripe
 
 Briefly requires an account and active membership for app access and downloads.
 The subscription includes cross-device iCloud or Google Drive synchronization and deliberate
@@ -123,14 +123,14 @@ is a grandfathered monthly ladder:
 | Next 250 | €7.99/month | `STRIPE_PRICE_GROWING` |
 | Thereafter | €9.99/month | `STRIPE_PRICE_STANDARD` |
 
-Create one recurring Stripe Product named **Briefly Plus** and four EUR monthly
+Create one recurring Stripe Product named **Briefly** and four EUR monthly
 Prices matching that table. Existing subscribers remain on their Price while
 their subscription stays active. A customer who cancels and later returns joins
 at the price then available.
 
 Configure Stripe for paid access:
 
-1. Create a single `Briefly Plus` Product and four flat-rate recurring monthly
+1. Create a single `Briefly` Product and four flat-rate recurring monthly
    Prices. Add their Product and Price IDs plus a least-privilege
    `STRIPE_SECRET_KEY` as deployment secrets. Briefly validates each selected
    Price against its expected Product, EUR amount, and monthly recurrence before
@@ -150,12 +150,12 @@ Configure Stripe for paid access:
    `STRIPE_WEBHOOK_SECRET`. Briefly currently restricts Checkout to card-based
    payment methods; also subscribe to Checkout's async payment success/failure
    events before enabling asynchronous methods.
-5. Complete Stripe Tax registration and set the Briefly Plus product's tax code
+5. Complete Stripe Tax registration and set the Briefly product's tax code
    to the appropriate software-as-a-service code. Checkout collects and validates
    billing location and tax IDs.
 Paid access activates automatically when the required deployment secrets and
 Stripe IDs are present. Missing or invalid Stripe
-configuration fails closed instead of granting free Plus access.
+configuration fails closed instead of granting membership access.
 The owner account `schauljonathan@gmail.com` has complimentary Plus entitlement;
 `STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement window and
 defaults to seven days. A daily Worker cron reconciles D1 subscription state with

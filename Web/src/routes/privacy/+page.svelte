@@ -72,7 +72,7 @@
 					<td>Performance of your sharing request.</td>
 				</tr>
 				<tr>
-					<td>Briefly Plus billing</td>
+					<td>Briefly membership billing</td>
 					<td>Email, internal account ID, Stripe customer/subscription/price/payment/refund IDs, status, billing dates, webhook event IDs, and historical records from the discontinued voice-credit feature. Stripe separately receives payment, billing-address, and tax details.</td>
 					<td>Start and administer subscriptions, prevent duplicate allocations, collect or refund payment, and keep required accounting records.</td>
 					<td>Contract and legal obligations; fraud prevention is a legitimate interest.</td>

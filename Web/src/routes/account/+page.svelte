@@ -41,8 +41,7 @@
 	const desktopDownloads = [
 		{ platform: 'macOS', detail: 'Apple silicon and Intel', href: `${downloadBase}/Briefly-mac-universal.dmg`, file: '.dmg' },
 		{ platform: 'Windows', detail: '64-bit installer', href: `${downloadBase}/Briefly-windows-x64.exe`, file: '.exe' },
-		{ platform: 'Linux', detail: 'Portable AppImage', href: `${downloadBase}/Briefly-linux-x64.AppImage`, file: 'AppImage' },
-		{ platform: 'Debian / Ubuntu', detail: '64-bit package', href: `${downloadBase}/Briefly-linux-amd64.deb`, file: '.deb' }
+		{ platform: 'Linux', detail: '64-bit AppImage', href: `${downloadBase}/Briefly-linux-x64.AppImage`, file: 'AppImage' }
 	];
 
 	let account = $state<AccountStatus | null>(null);
@@ -295,7 +294,7 @@
 								Manage billing <ArrowUpRightIcon />
 							</button>
 						{:else if billing?.entitled}
-							<p>Complimentary Plus access for this account.</p>
+							<p>Complimentary membership for this account.</p>
 						{:else}
 							<p>One membership for capture, reading, sync, sharing, and all Briefly apps.</p>
 							<button class="primary-action" onclick={subscribe} disabled={busy || !billing?.configured}>

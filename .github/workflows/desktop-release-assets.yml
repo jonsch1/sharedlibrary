@@ -42,7 +42,7 @@ jobs:
             os: ubuntu-latest
             target: linux
             artifact_name: briefly-linux
-            build_args: --linux AppImage deb --x64
+            build_args: --linux AppImage --x64
 
     env:
       CSC_LINK: ${{ matrix.target == 'mac' && secrets.MAC_CSC_LINK || '' }}
@@ -134,7 +134,6 @@ jobs:
             Electron/release/*.exe
             Electron/release/*.appx
             Electron/release/*.AppImage
-            Electron/release/*.deb
             Electron/release/*.blockmap
             Electron/release/latest*.yml
           if-no-files-found: error
@@ -167,7 +166,6 @@ jobs:
             Briefly-windows-x64.exe \
             Briefly-windows-x64.exe.blockmap \
             Briefly-linux-x64.AppImage \
-            Briefly-linux-amd64.deb \
             latest-mac.yml \
             latest.yml \
             latest-linux.yml
