@@ -42,7 +42,7 @@ test('sync routes every library operation through the selected provider', async 
       download: (file: DriveLibraryIndex['files'][number]) => Promise<string>
     ) => {
       await download(remote.files[0]);
-      return 1;
+      return { changed: 1, conflicts: 0 };
     },
     mergeRemoteMedia: async () => 0,
     buildDriveMirror: async () => mirror,

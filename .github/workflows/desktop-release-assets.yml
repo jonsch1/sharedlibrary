@@ -88,8 +88,19 @@ jobs:
       - name: Test extractor
         run: npm --prefix ../Tools/extractor test
 
+      - name: Test shared library contract
+        run: npm --prefix ../Shared test
+
       - name: Test Electron main process
         run: npm test
+
+      - name: Build and smoke-test Electron
+        if: runner.os != 'Linux'
+        run: npm run test:e2e
+
+      - name: Build and smoke-test Electron under Xvfb
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:e2e
 
       - name: Build installer
         run: npm run dist -- ${{ matrix.build_args }} --publish never
@@ -151,7 +162,7 @@ jobs:
       - name: Download release files
         uses: actions/download-artifact@v7
         with:
-          pattern: briefly-*
+          pattern: '*'
           path: release-assets
           merge-multiple: true
 
@@ -165,6 +176,7 @@ jobs:
             Briefly-mac-universal.zip.blockmap \
             Briefly-windows-x64.exe \
             Briefly-windows-x64.exe.blockmap \
+            Briefly-windows-store-x64.appx \
             Briefly-linux-x64.AppImage \
             latest-mac.yml \
             latest.yml \
@@ -186,4 +198,4 @@ jobs:
               --title "Briefly $version" --notes "Briefly desktop $version"
           gh release upload "$tag" release-assets/* \
             --repo jonsch1/briefly-downloads --clobber
-          gh release edit "$tag" --repo jonsch1/briefly-downloads --draft=false
+          echo "Draft release $tag is ready for manual acceptance and publication."

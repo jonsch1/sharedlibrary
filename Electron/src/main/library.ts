@@ -62,6 +62,11 @@ export interface DriveLibraryMirror {
   media: DriveLibraryMedia[];
 }
 
+export interface MirrorMergeResult {
+  changed: number;
+  conflicts: number;
+}
+
 export interface ProcessingSuggestion {
   shortFilename: string;
   topicName: string;
@@ -638,33 +643,70 @@ export class LibraryService {
   async mergeRemoteMirror(
     index: DriveLibraryIndex,
     download: (file: DriveLibraryFile) => Promise<string>
-  ): Promise<number> {
+  ): Promise<MirrorMergeResult> {
     const baseline = await this.readSyncBaseline();
     const local = await this.buildDriveMirror();
     const localHashes = new Map(local.files.map((file) => [file.path, file.contentHash]));
-    let downloaded = 0;
-    for (const remote of index.files) {
-      if (!validMirroredPath(remote.path)) continue;
-      const localHash = localHashes.get(remote.path);
-      const previousHash = baseline[remote.path];
-      const locallyDeleted = !localHash && Boolean(previousHash);
-      const localChanged = Boolean(localHash && (!previousHash || localHash !== previousHash));
-      if (
-        locallyDeleted ||
-        localChanged ||
-        localHash === remote.contentHash
-      ) {
+    const remoteFiles = new Map(
+      index.files
+        .filter((file) => validMirroredPath(file.path))
+        .map((file) => [file.path, file])
+    );
+    let changed = 0;
+    let conflicts = 0;
+    for (const path of new Set([
+      ...Object.keys(baseline),
+      ...localHashes.keys(),
+      ...remoteFiles.keys()
+    ])) {
+      const localHash = localHashes.get(path);
+      const remote = remoteFiles.get(path);
+      const previousHash = baseline[path];
+
+      if (!previousHash) {
+        if (!localHash && remote) {
+          await this.downloadRemoteFile(remote, download);
+          changed += 1;
+        }
         continue;
       }
-      const content = await download(remote);
-      if (sha256(content) !== remote.contentHash) {
-        throw new Error(`Google Drive returned an invalid copy of ${remote.path}.`);
+
+      const localChanged = localHash !== previousHash;
+      const remoteChanged = remote?.contentHash !== previousHash;
+      if (!localChanged && !remoteChanged) continue;
+
+      if (!localChanged && !remote) {
+        await this.trash(join(this.workspacePath, path));
+        changed += 1;
+        continue;
       }
-      await atomicWrite(join(this.workspacePath, remote.path), content);
-      downloaded += 1;
+
+      if (!localChanged && remote) {
+        await this.downloadRemoteFile(remote, download);
+        changed += 1;
+        continue;
+      }
+
+      if (!remoteChanged || localHash === remote?.contentHash) continue;
+
+      if (localHash) {
+        const content = await readFile(join(this.workspacePath, path), 'utf8');
+        await this.writeConflictCopy(path, content);
+        await this.trash(join(this.workspacePath, path));
+      }
+      if (remote) {
+        if (!localHash) {
+          const content = await this.validatedRemoteContent(remote, download);
+          await this.writeConflictCopy(path, content);
+        } else {
+          await this.downloadRemoteFile(remote, download);
+        }
+      }
+      changed += 1;
+      conflicts += 1;
     }
-    if (downloaded > 0) this.indexedEntries.clear();
-    return downloaded;
+    if (changed > 0) this.indexedEntries.clear();
+    return { changed, conflicts };
   }
 
   async mergeRemoteMedia(
@@ -883,6 +925,46 @@ export class LibraryService {
       return {};
     }
   }
+
+  private async validatedRemoteContent(
+    remote: DriveLibraryFile,
+    download: (file: DriveLibraryFile) => Promise<string>
+  ): Promise<string> {
+    const content = await download(remote);
+    if (sha256(content) !== remote.contentHash) {
+      throw new Error(`The sync provider returned an invalid copy of ${remote.path}.`);
+    }
+    return content;
+  }
+
+  private async downloadRemoteFile(
+    remote: DriveLibraryFile,
+    download: (file: DriveLibraryFile) => Promise<string>
+  ): Promise<void> {
+    await atomicWrite(
+      join(this.workspacePath, remote.path),
+      await this.validatedRemoteContent(remote, download)
+    );
+  }
+
+  private async writeConflictCopy(path: string, content: string): Promise<void> {
+    const directory =
+      path === 'topics.md'
+        ? '.shared-library/conflicts'
+        : path.slice(0, Math.max(0, path.lastIndexOf('/')));
+    const filename = path.slice(path.lastIndexOf('/') + 1, -3);
+    for (let suffix = 1; ; suffix += 1) {
+      const name = `${filename}-conflict${suffix === 1 ? '' : `-${suffix}`}.md`;
+      const conflictPath = directory ? `${directory}/${name}` : name;
+      if (!(await isFile(join(this.workspacePath, conflictPath)))) {
+        await atomicWrite(
+          join(this.workspacePath, conflictPath),
+          uniqueConflictMetadata(content)
+        );
+        return;
+      }
+    }
+  }
 }
 
 export function parseMarkdown(text: string): ParsedMarkdown {
@@ -1027,6 +1109,15 @@ function validMirroredPath(value: string): boolean {
     !value.toLowerCase().endsWith('.md')
   ) return false;
   return !value.split('/').some((component) => !component || component === '.' || component === '..');
+}
+
+function uniqueConflictMetadata(content: string): string {
+  if (!content.startsWith('---')) return content;
+  const id = randomUUID();
+  if (/^id:\s*.*$/m.test(content)) {
+    return content.replace(/^id:\s*.*$/m, `id: ${JSON.stringify(id)}`);
+  }
+  return content.replace(/^---\r?\n/, `---\nid: ${JSON.stringify(id)}\n`);
 }
 
 function validMediaPath(value: string, kind: LibraryMediaKind): boolean {

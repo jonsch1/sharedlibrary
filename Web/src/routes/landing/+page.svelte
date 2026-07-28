@@ -21,6 +21,7 @@
 		type BillingStatus,
 		type PricingTier
 	} from '$lib/billing.js';
+	import posthog from 'posthog-js';
 
 	type SourceCard = {
 		id: string;
@@ -286,6 +287,7 @@
 		billingBusy = true;
 		billingMessage = '';
 		try {
+			posthog.capture('checkout_started', { source: 'landing' });
 			await beginBrieflyPlusCheckout();
 		} catch (error) {
 			const checkoutError = error as Error & { code?: string };
@@ -309,6 +311,7 @@
 		billingBusy = true;
 		billingMessage = '';
 		try {
+			posthog.capture('billing_portal_opened', { source: 'landing' });
 			await openBillingPortal();
 		} catch (error) {
 			billingMessage =
@@ -869,7 +872,10 @@
 			<div class="privacy-grid">
 				<article class="reveal">
 					<h3>Private by default</h3>
-					<p>Your library stays in your own local workspace until you choose otherwise.</p>
+					<p>
+						Your library stays in your own local workspace until you choose sync,
+						extraction, AI processing, transcription, voice generation, or sharing.
+					</p>
 				</article>
 				<article class="reveal">
 					<h3>Offline when you need it</h3>
@@ -967,6 +973,9 @@
 						{/if}
 						<p class="pricing-note">
 							Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe<br />
+							High fair-use limits apply to hosted processing and public storage. Briefly AI
+							is included; optional third-party agent CLIs use your separate provider
+							account.<br />
 							By subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
 							<a href="/privacy">Privacy Notice</a>.
 						</p>

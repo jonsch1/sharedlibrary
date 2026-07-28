@@ -23,7 +23,8 @@
 			<p>
 				<strong>Local-first by default.</strong> The desktop app keeps your workspace on
 				your device. Briefly does not receive that library unless you choose a connected
-				feature such as cloud synchronization or a public share link. Private
+				feature such as cloud synchronization, extraction, AI processing, transcription,
+				voice generation, or a public share link. Private
 				iCloud sync passes directly between your device and Apple.
 			</p>
 		</div>
@@ -66,10 +67,34 @@
 					<td>Performance of our contract; you choose whether to connect Drive.</td>
 				</tr>
 				<tr>
+					<td>Summaries and podcast scripts</td>
+					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI sends these to OpenRouter and its selected model provider. If you choose a custom local command, the desktop instead passes them to the CLI/provider you configured.</td>
+					<td>Create the summaries or podcast script you request. Briefly does not use this content to train its own models.</td>
+					<td>Performance of your processing request.</td>
+				</tr>
+				<tr>
+					<td>Web extraction fallback</td>
+					<td>The source URL and page content returned for it. Firecrawl caching is disabled by Briefly.</td>
+					<td>Extract readable Markdown when the local extractor cannot read a page.</td>
+					<td>Performance of your capture request.</td>
+				</tr>
+				<tr>
+					<td>Transcription and voice generation</td>
+					<td>Uploaded audio or video for transcription, podcast-script text for speech generation, account-scoped usage units, and short-lived concurrency leases.</td>
+					<td>Transcribe media and create the podcast audio you request while enforcing fair-use and abuse limits.</td>
+					<td>Performance of your request and legitimate interests in preventing abuse and controlling service cost.</td>
+				</tr>
+				<tr>
 					<td>Public share links</td>
-					<td>Your account email, document text and metadata, source URL, share token, and timestamps.</td>
+					<td>Your account email, document text and metadata, optional audio, source URL, share token, and timestamps.</td>
 					<td>Publish the specific document you deliberately select at a forwardable public link.</td>
 					<td>Performance of your sharing request.</td>
+				</tr>
+				<tr>
+					<td>Optional product analytics</td>
+					<td>Only after consent: manually named interaction events, client error details, and ordinary request/device information. Automatic interaction capture, page views, session recording, and account-email identification are disabled.</td>
+					<td>Understand whether key product workflows are useful and diagnose client errors.</td>
+					<td>Your consent, which you may withdraw at any time.</td>
 				</tr>
 				<tr>
 					<td>Briefly membership billing</td>
@@ -99,6 +124,7 @@
 			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
 			<li>From Google when it confirms your account email and returns OAuth credentials or Drive files within the narrow <code>drive.file</code> permission.</li>
 			<li>From Stripe when it reports checkout, subscription, and refund status.</li>
+			<li>From OpenRouter or a custom AI provider, Firecrawl, Modal, and PostHog when they return requested processing or operational results.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
 			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
 		</ul>
@@ -134,6 +160,26 @@
 				<tr>
 					<td><a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub</a></td>
 					<td>Hosts desktop downloads. GitHub receives normal request data only when you follow a download link.</td>
+				</tr>
+				<tr>
+					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
+					<td>Provides Briefly AI summaries and podcast scripts using the selected hosted model. Source content is sent only when you request processing.</td>
+				</tr>
+				<tr>
+					<td><a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">OpenAI</a></td>
+					<td>Processes source content only if you deliberately choose a separately installed and authenticated Codex CLI instead of Briefly AI.</td>
+				</tr>
+				<tr>
+					<td><a href="https://modal.com/legal/privacy-policy" rel="noreferrer">Modal</a></td>
+					<td>Hosts Briefly's Whisper transcription and Kokoro voice-generation workloads and processes the media or script submitted for those features.</td>
+				</tr>
+				<tr>
+					<td><a href="https://www.firecrawl.dev/privacy" rel="noreferrer">Firecrawl</a></td>
+					<td>Optional extraction fallback for a source URL. Briefly requests Markdown with provider caching disabled.</td>
+				</tr>
+				<tr>
+					<td><a href="https://posthog.com/privacy" rel="noreferrer">PostHog</a></td>
+					<td>EU-hosted, consent-only anonymous product events. Briefly disables automatic capture and session recording.</td>
 				</tr>
 			</tbody>
 		</table>
@@ -197,6 +243,22 @@
 				<tr>
 					<td>Public shares</td>
 					<td>Until you revoke or replace the share. Revocation deletes its text from Briefly's active systems; provider backups may age out later.</td>
+				</tr>
+				<tr>
+					<td>Transcription and voice inputs</td>
+					<td>Kept only for the active processing job by Briefly's Modal workloads, then deleted from temporary job storage. Generated audio is saved only to the library or share destination you request.</td>
+				</tr>
+				<tr>
+					<td>AI processing inputs</td>
+					<td>Briefly keeps prompts and generated output only for the active API request; the output is then written to your selected library. OpenRouter, the selected model provider, or a custom CLI provider applies its own service retention terms.</td>
+				</tr>
+				<tr>
+					<td>Fair-use counters and leases</td>
+					<td>Expired leases are removed automatically. Daily usage rows are retained for up to approximately two months so current monthly allowances can be enforced.</td>
+				</tr>
+				<tr>
+					<td>Optional analytics</td>
+					<td>Only after consent and subject to the configured PostHog project retention, which Briefly limits operationally to no more than 12 months. Withdrawing consent stops future collection.</td>
 				</tr>
 				<tr>
 					<td>Billing and transaction records</td>

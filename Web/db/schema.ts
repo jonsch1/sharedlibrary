@@ -38,6 +38,13 @@ export const googleOAuthStates = sqliteTable('google_oauth_states', {
 	createdAt: integer('created_at').notNull()
 });
 
+export const googleLoginStates = sqliteTable('google_login_states', {
+	state: text('state').primaryKey(),
+	codeVerifier: text('code_verifier').notNull(),
+	returnTo: text('return_to').notNull(),
+	createdAt: integer('created_at').notNull()
+});
+
 export const appleLoginStates = sqliteTable('apple_login_states', {
 	state: text('state').primaryKey(),
 	nonce: text('nonce').notNull(),
@@ -54,6 +61,17 @@ export const authIdentities = sqliteTable(
 		createdAt: integer('created_at').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.provider, table.subject] })]
+);
+
+export const appSessions = sqliteTable(
+	'app_sessions',
+	{
+		tokenHash: text('token_hash').primaryKey(),
+		userEmail: text('user_email').notNull(),
+		createdAt: integer('created_at').notNull(),
+		expiresAt: integer('expires_at').notNull()
+	},
+	(table) => [index('app_sessions_user_email_idx').on(table.userEmail)]
 );
 
 export const syncPreferences = sqliteTable('sync_preferences', {
@@ -120,6 +138,12 @@ export const billingAllocations = sqliteTable('billing_allocations', {
 	accountID: text('account_id').notNull(),
 	tierKey: text('tier_key').notNull(),
 	allocatedAt: integer('allocated_at').notNull()
+});
+
+export const complimentaryAccess = sqliteTable('complimentary_access', {
+	userEmail: text('user_email').primaryKey(),
+	grantedBy: text('granted_by').notNull(),
+	createdAt: integer('created_at').notNull()
 });
 
 export const stripeWebhookEvents = sqliteTable('stripe_webhook_events', {
@@ -282,5 +306,50 @@ export const feedbackUpvotes = sqliteTable(
 	(table) => [
 		primaryKey({ columns: [table.feedbackItemID, table.userEmail] }),
 		index('feedback_upvotes_item_idx').on(table.feedbackItemID)
+	]
+);
+
+export const serviceUsage = sqliteTable(
+	'service_usage',
+	{
+		accountID: text('account_id').notNull(),
+		service: text('service').notNull(),
+		usageDay: text('usage_day').notNull(),
+		units: integer('units').notNull().default(0),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [
+		primaryKey({ columns: [table.accountID, table.service, table.usageDay] })
+	]
+);
+
+export const serviceLimitOverrides = sqliteTable(
+	'service_limit_overrides',
+	{
+		accountID: text('account_id').notNull(),
+		service: text('service').notNull(),
+		dailyUnits: integer('daily_units').notNull(),
+		monthlyUnits: integer('monthly_units').notNull(),
+		concurrency: integer('concurrency').notNull(),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [primaryKey({ columns: [table.accountID, table.service] })]
+);
+
+export const serviceLeases = sqliteTable(
+	'service_leases',
+	{
+		leaseID: text('lease_id').primaryKey(),
+		accountID: text('account_id').notNull(),
+		service: text('service').notNull(),
+		expiresAt: integer('expires_at').notNull(),
+		createdAt: integer('created_at').notNull()
+	},
+	(table) => [
+		index('service_leases_account_service_idx').on(
+			table.accountID,
+			table.service,
+			table.expiresAt
+		)
 	]
 );

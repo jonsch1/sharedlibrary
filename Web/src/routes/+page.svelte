@@ -78,6 +78,7 @@
 		type ThemeMode,
 		type ThemeName
 	} from '../../../Shared/themes';
+	import posthog from 'posthog-js';
 
 	type OriginFilter = 'all' | 'personal';
 	type AccountStatus = {
@@ -440,6 +441,7 @@
 				return;
 			}
 			if (showError) {
+				posthog.capture('library_synced', { provider: syncProvider });
 				connectionMessage = `Everything is available offline and synchronized as of ${new Intl.DateTimeFormat(undefined, {
 						hour: 'numeric',
 						minute: '2-digit'
@@ -476,11 +478,13 @@
 	}
 
 	function showDemo(): void {
+		posthog.capture('demo_explored');
 		setProjection(demoProjection);
 		importMessage = 'This is sample content. Choose a sync provider when you are ready.';
 	}
 
 	function signIn(provider: 'google' | 'apple'): void {
+		posthog.capture('sign_in_started', { provider });
 		window.location.assign(`/api/auth/${provider}/start`);
 	}
 
@@ -489,6 +493,7 @@
 		billingBusy = true;
 		connectionMessage = '';
 		try {
+			posthog.capture('checkout_started', { source: 'app' });
 			await beginBrieflyPlusCheckout();
 		} catch (error) {
 			const checkoutError = error as Error & { code?: string };
@@ -552,6 +557,7 @@
 					error instanceof Error ? error.message : 'Could not include the document audio.';
 			}
 			if (result.url) {
+				posthog.capture('share_link_created', { provider: syncProvider });
 				connectionMessage = 'Share link created. The document is being prepared.';
 			}
 			void watchShareLink(captureID);
@@ -649,6 +655,7 @@
 	async function copyShareLink(): Promise<void> {
 		if (!shareLink.url) return;
 		await navigator.clipboard.writeText(shareLink.url);
+		posthog.capture('share_link_copied');
 		connectionMessage = 'Share link copied.';
 	}
 
@@ -658,6 +665,7 @@
 		shareError = '';
 		try {
 			await revokeShareLink(shareLink.token);
+			posthog.capture('share_link_revoked');
 			shareLink = { shared: false };
 			sharingVisible = false;
 			connectionMessage = 'Share link revoked. Saved library copies remain.';

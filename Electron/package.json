@@ -115,6 +115,28 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "node_modules",
+        "to": "licenses/electron-node-modules",
+        "filter": [
+          "@fontsource*/**/LICENSE",
+          "@lucide/svelte/LICENSE",
+          "electron-updater/LICENSE",
+          "svelte/LICENSE.md"
+        ]
+      },
+      {
+        "from": "../Shared/node_modules",
+        "to": "licenses/shared-node-modules",
+        "filter": [
+          "dompurify/LICENSE*",
+          "marked/LICENSE"
+        ]
       }
     ],
     "mac": {

@@ -28,6 +28,9 @@ jobs:
     defaults:
       run:
         working-directory: Web
+    env:
+      PUBLIC_POSTHOG_PROJECT_TOKEN: phc_w66BqjKTdB2kHnyvyurtEGH2uKaVNqJ7ywf5ZtaKGqJW
+      PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
 
     steps:
       - name: Check out repository

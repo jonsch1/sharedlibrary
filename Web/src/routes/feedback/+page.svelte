@@ -3,6 +3,7 @@
 	import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import SendIcon from '@lucide/svelte/icons/send';
+	import posthog from 'posthog-js';
 
 	type FeedbackItem = {
 		id: string;
@@ -59,6 +60,7 @@
 			});
 			const value = await response.json();
 			if (!response.ok) throw new Error(value.error ?? 'Feedback could not be posted.');
+			posthog.capture('feedback_submitted');
 			items = [value, ...items];
 			title = '';
 			details = '';
@@ -86,6 +88,7 @@
 			});
 			const value = await response.json();
 			if (!response.ok) throw new Error(value.error ?? 'Your upvote could not be saved.');
+			posthog.capture('feedback_upvoted', { upvoted: value.upvoted });
 			item.upvotes = value.upvotes;
 			item.upvoted = value.upvoted;
 			items = [...items].sort(

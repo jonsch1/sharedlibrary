@@ -26,10 +26,12 @@
 		disconnectGoogleDrive
 	} from '$lib/google-drive.js';
 	import { disconnectICloud, emptyICloudLibraryMessage } from '$lib/icloud.js';
+	import posthog from 'posthog-js';
 
 	type AccountStatus = {
 		authenticated: boolean;
 		email?: string;
+		isAdmin?: boolean;
 		syncProvider?: 'google' | 'icloud' | null;
 		providers?: { google?: boolean; apple?: boolean };
 		google?: { configured?: boolean; connected?: boolean };
@@ -115,6 +117,7 @@
 				body: JSON.stringify({ provider: 'google' })
 			});
 			if (!response.ok) throw new Error('Google Drive could not be selected.');
+			posthog.capture('sync_provider_selected', { provider: 'google' });
 			account = { ...account, syncProvider: 'google' };
 			message = 'Google Drive is selected for library sync.';
 		} catch (error) {
@@ -129,6 +132,7 @@
 		busy = true;
 		try {
 			await disconnectGoogleDrive();
+			posthog.capture('google_drive_disconnected');
 			account = {
 				...account,
 				syncProvider: account.syncProvider === 'google' ? null : account.syncProvider,
@@ -147,6 +151,7 @@
 		busy = true;
 		try {
 			await disconnectICloud();
+			posthog.capture('icloud_sync_stopped');
 			account = {
 				...account,
 				syncProvider: account.syncProvider === 'icloud' ? null : account.syncProvider,
@@ -169,6 +174,7 @@
 		if (busy) return;
 		busy = true;
 		try {
+			posthog.capture('checkout_started', { source: 'account' });
 			await beginBrieflyPlusCheckout();
 		} catch (error) {
 			message = error instanceof Error ? error.message : 'Checkout could not be opened.';
@@ -180,6 +186,7 @@
 		if (busy) return;
 		busy = true;
 		try {
+			posthog.capture('billing_portal_opened', { source: 'account' });
 			await openBillingPortal();
 		} catch (error) {
 			message = error instanceof Error ? error.message : 'Billing could not be opened.';
@@ -191,6 +198,8 @@
 		if (busy) return;
 		busy = true;
 		try {
+			posthog.capture('signed_out');
+			posthog.reset();
 			await fetch('/api/auth/logout', { method: 'POST' });
 			window.location.reload();
 		} catch (error) {
@@ -206,6 +215,7 @@
 		revokingToken = link.token;
 		try {
 			await revokeShareLink(link.token);
+			posthog.capture('share_link_revoked', { source: 'account' });
 			published = {
 				...published,
 				links: published.links.filter((candidate) => candidate.token !== link.token)
@@ -271,9 +281,12 @@
 					<h1>Welcome back.</h1>
 					<p>{account.email}</p>
 				</div>
-				<button class="secondary-action" onclick={signOut} disabled={busy}>
-					<LogOutIcon /> Sign out
-				</button>
+				<div class="account-heading-actions">
+					{#if account.isAdmin}<a class="secondary-action" href="/admin">Admin</a>{/if}
+					<button class="secondary-action" onclick={signOut} disabled={busy}>
+						<LogOutIcon /> Sign out
+					</button>
+				</div>
 			</section>
 
 			{#if message}<p class="account-message" role="status">{message}</p>{/if}
@@ -509,6 +522,7 @@
 	header,
 	.brand,
 	.account-heading,
+	.account-heading-actions,
 	.secondary-action,
 	.primary-action,
 	.download-grid a,

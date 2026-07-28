@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 MODEL = "hexgrad/Kokoro-82M"
 VOICE = "af_heart"
 SAMPLE_RATE = 24_000
+BRIEFLY_API = "https://www.readbriefly.fyi"
 
 app = modal.App("briefly-kokoro")
 cache = modal.Volume.from_name("kokoro-cache", create_if_missing=True)
@@ -27,7 +28,7 @@ image = (
 
 
 class SpeechRequest(BaseModel):
-    text: str = Field(min_length=1, max_length=120_000)
+    text: str = Field(min_length=1, max_length=60_000)
 
 
 @app.function(image=image, volumes={"/cache": cache}, cpu=1, timeout=1800)
@@ -104,30 +105,66 @@ async def speech(
     request: SpeechRequest,
     authorization: str | None = Header(default=None),
 ):
-    import httpx
     from fastapi import HTTPException, Response
     from kokoro import KPipeline
 
-    if authorization is None:
-        raise HTTPException(status_code=401, detail="Sign in to Briefly.")
-    token = authorization.removeprefix("Bearer ").strip()
+    lease = await _reserve_usage(authorization, len(request.text))
+    try:
+        pipeline = KPipeline(lang_code="a", repo_id=MODEL, model=False)
+        phonemes = [
+            result.phonemes
+            for result in pipeline(request.text.strip(), model=False)
+            if result.phonemes
+        ]
+        if not phonemes:
+            raise HTTPException(status_code=400, detail="The podcast contains no speakable text.")
+        audio = await Kokoro().generate.remote.aio(phonemes)
+        return Response(audio, media_type="audio/wav")
+    finally:
+        await _release_usage(authorization, lease)
+
+
+async def _reserve_usage(authorization: str | None, units: int) -> str:
+    import httpx
+    from fastapi import HTTPException
+
+    token = (authorization or "").removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Sign in to Briefly.")
     async with httpx.AsyncClient(timeout=20) as client:
-        account = await client.get(
-            "https://www.readbriefly.fyi/api/billing/status",
+        response = await client.post(
+            f"{BRIEFLY_API}/api/usage",
             headers={"Cookie": f"shared_library_session={token}"},
+            json={"action": "reserve", "service": "voice", "units": units},
         )
-    if account.status_code != 200 or not account.json().get("entitled"):
-        raise HTTPException(status_code=403, detail="A Briefly subscription is required.")
+    if response.status_code != 200:
+        try:
+            detail = response.json().get("error")
+        except Exception:
+            detail = None
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=detail or "Briefly could not authorize this podcast.",
+        )
+    return response.json()["leaseID"]
 
-    pipeline = KPipeline(lang_code="a", repo_id=MODEL, model=False)
-    phonemes = [
-        result.phonemes
-        for result in pipeline(request.text.strip(), model=False)
-        if result.phonemes
-    ]
-    if not phonemes:
-        raise HTTPException(status_code=400, detail="The podcast contains no speakable text.")
-    audio = await Kokoro().generate.remote.aio(phonemes)
-    return Response(audio, media_type="audio/wav")
+
+async def _release_usage(authorization: str | None, lease_id: str) -> None:
+    import httpx
+
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not token:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            await client.post(
+                f"{BRIEFLY_API}/api/usage",
+                headers={"Cookie": f"shared_library_session={token}"},
+                json={
+                    "action": "release",
+                    "service": "voice",
+                    "leaseID": lease_id,
+                },
+            )
+    except Exception as error:
+        print(f"Usage lease release failed: {error}", flush=True)

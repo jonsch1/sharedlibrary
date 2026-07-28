@@ -18,6 +18,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { Readable } from 'node:stream';
+import { pathToFileURL } from 'node:url';
 import electronUpdater from 'electron-updater';
 import {
   promptIDs,
@@ -66,6 +67,7 @@ import {
   PodcastService
 } from './podcasts.js';
 import { SettingsStore } from './settings.js';
+import { isTrustedRendererURL, isWebURL } from './security.js';
 import { SyncCoordinator } from './sync.js';
 
 app.setName('Briefly');
@@ -394,6 +396,9 @@ function normalizeProcessingPreferences(value: unknown): ProcessingPreferencesUp
 }
 
 async function createWindow(): Promise<void> {
+  const rendererEntryURL =
+    process.env.ELECTRON_RENDERER_URL ||
+    pathToFileURL(join(__dirname, '../renderer/index.html')).toString();
   mainWindow = new BrowserWindow({
     title: 'Briefly',
     icon: applicationIconPath(),
@@ -417,22 +422,36 @@ async function createWindow(): Promise<void> {
     mainWindow?.show();
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    if (isWebURL(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedRendererURL(url, rendererEntryURL)) return;
+    event.preventDefault();
+    if (isWebURL(url)) void shell.openExternal(url);
+  });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    await mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
-  }
+  await mainWindow.loadURL(rendererEntryURL);
   updateIngestionPresentation();
 }
 
 function registerIPC(): void {
-  ipcMain.handle('library:get-snapshot', () => library.snapshot());
-  ipcMain.handle('library:refresh', () => snapshotAndNotify());
-  ipcMain.handle('library:choose-workspace', async () => {
+  const handle: typeof ipcMain.handle = (channel, listener) => {
+    ipcMain.handle(channel, (event, ...args) => {
+      if (
+        !mainWindow ||
+        event.sender !== mainWindow.webContents ||
+        event.senderFrame !== mainWindow.webContents.mainFrame
+      ) {
+        throw new Error('This desktop request did not come from the Briefly app.');
+      }
+      return listener(event, ...args);
+    });
+  };
+
+  handle('library:get-snapshot', () => library.snapshot());
+  handle('library:refresh', () => snapshotAndNotify());
+  handle('library:choose-workspace', async () => {
     const options: OpenDialogOptions = {
       title: 'Choose your Briefly workspace',
       properties: ['openDirectory', 'createDirectory']
@@ -452,12 +471,12 @@ function registerIPC(): void {
     podcasts.wake();
     return snapshot;
   });
-  ipcMain.handle(
+  handle(
     'library:read-text',
     (_event, entryID: string, variant: LibraryVariant) =>
       library.readText(entryID, variant)
   );
-  ipcMain.handle(
+  handle(
     'library:write-text',
     async (_event, entryID: string, variant: LibraryVariant, text: string) => {
       await library.writeText(entryID, variant, text);
@@ -469,7 +488,7 @@ function registerIPC(): void {
       };
     }
   );
-  ipcMain.handle('library:trash-capture', async (_event, entryID: string) => {
+  handle('library:trash-capture', async (_event, entryID: string) => {
     await library.trashCapture(entryID);
     sync.request('deleted documents');
     return {
@@ -477,23 +496,22 @@ function registerIPC(): void {
       message: 'The source, its audio, and summaries were moved to Trash.'
     };
   });
-  ipcMain.handle('library:capture-clipboard', () => captureClipboard());
-  ipcMain.handle('library:capture-pdf', (_event, path: unknown) => capturePDF(path));
-  ipcMain.handle('library:open-external', async (_event, value: string) => {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+  handle('library:capture-clipboard', () => captureClipboard());
+  handle('library:capture-pdf', (_event, path: unknown) => capturePDF(path));
+  handle('library:open-external', async (_event, value: string) => {
+    if (!isWebURL(value)) {
       throw new Error('Only web links can be opened.');
     }
-    await shell.openExternal(url.toString());
+    await shell.openExternal(new URL(value).toString());
   });
-  ipcMain.handle('library:open-agent', () => openAgentWorkspace());
-  ipcMain.handle('library:reveal-entry', async (_event, entryID: string) => {
+  handle('library:open-agent', () => openAgentWorkspace());
+  handle('library:reveal-entry', async (_event, entryID: string) => {
     const snapshot = await library.snapshot();
     const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
     if (!entry) throw new Error('The selected item no longer exists.');
     shell.showItemInFolder(join(library.getWorkspacePath(), 'library', entry.filename));
   });
-  ipcMain.handle(
+  handle(
     'library:show-entry-context-menu',
     async (
       event,
@@ -543,8 +561,8 @@ function registerIPC(): void {
       menu.popup({ window });
     }
   );
-  ipcMain.handle('services:get-status', () => connectionStatus());
-  ipcMain.handle(
+  handle('services:get-status', () => connectionStatus());
+  handle(
     'services:sign-in',
     async (_event, provider: AccountProvider) => {
       if (provider !== 'google' && provider !== 'apple') {
@@ -554,7 +572,7 @@ function registerIPC(): void {
       return connectionStatus();
     }
   );
-  ipcMain.handle(
+  handle(
     'services:manage-account',
     async () => {
       await backend.manageAccount(mainWindow);
@@ -562,12 +580,12 @@ function registerIPC(): void {
       return connectionStatus();
     }
   );
-  ipcMain.handle('services:sync-now', async () => {
+  handle('services:sync-now', async () => {
     await sync.synchronize('the library');
     return connectionStatus();
   });
-  ipcMain.handle('shortcuts:get-preferences', () => shortcutPreferences());
-  ipcMain.handle('shortcuts:set-capture', async (_event, value: unknown) => {
+  handle('shortcuts:get-preferences', () => shortcutPreferences());
+  handle('shortcuts:set-capture', async (_event, value: unknown) => {
     const next = normalizeCaptureShortcut(value);
     if (!next) {
       throw new Error('Choose a shortcut with Ctrl, Command, or Alt plus another key.');
@@ -585,15 +603,15 @@ function registerIPC(): void {
     installMenu();
     return shortcutPreferences();
   });
-  ipcMain.handle('audio:get-preferences', () => audioPreferences());
-  ipcMain.handle('audio:set-save-captured', async (_event, value: unknown) => {
+  handle('audio:get-preferences', () => audioPreferences());
+  handle('audio:set-save-captured', async (_event, value: unknown) => {
     if (typeof value !== 'boolean') throw new Error('Choose whether to save audio.');
     await settings.update({ saveCapturedAudio: value });
     return audioPreferences();
   });
-  ipcMain.handle('ingestion:get-status', () => ingestionStatus());
-  ipcMain.handle('processing:get-preferences', () => processingPreferences());
-  ipcMain.handle(
+  handle('ingestion:get-status', () => ingestionStatus());
+  handle('processing:get-preferences', () => processingPreferences());
+  handle(
     'processing:update-preferences',
     async (_event, value: unknown) => {
       const next = normalizeProcessingPreferences(value);
@@ -604,8 +622,8 @@ function registerIPC(): void {
       return processingPreferences();
     }
   );
-  ipcMain.handle('prompts:get', () => promptPreferences());
-  ipcMain.handle('prompts:update', async (_event, value: unknown) => {
+  handle('prompts:get', () => promptPreferences());
+  handle('prompts:update', async (_event, value: unknown) => {
     const next = normalizePromptPreferenceUpdate(value);
     const key: Record<PromptID, keyof import('./settings.js').DesktopSettings> = {
       summarization: 'processingPrompt',
@@ -614,13 +632,13 @@ function registerIPC(): void {
     await settings.update({ [key[next.id]]: next.prompt });
     return promptPreferences();
   });
-  ipcMain.handle('ai-commands:get', () => aiCommandPreferences());
-  ipcMain.handle('ai-commands:update', async (_event, value: unknown) => {
+  handle('ai-commands:get', () => aiCommandPreferences());
+  handle('ai-commands:update', async (_event, value: unknown) => {
     const next = normalizeAICommandPreferences(value);
     await settings.update(next);
     return aiCommandPreferences();
   });
-  ipcMain.handle('ai-commands:test-processing', async (_event, value: unknown) => {
+  handle('ai-commands:test-processing', async (_event, value: unknown) => {
     if (typeof value !== 'string' || !value.trim() || value.length > 4_000) {
       throw new Error('The AI command is invalid.');
     }
@@ -633,19 +651,19 @@ function registerIPC(): void {
       throw new Error('The command ran, but returned an unexpected response.');
     }
   });
-  ipcMain.handle('podcasts:get', () => podcasts.snapshot());
-  ipcMain.handle('podcasts:save', (_event, value) => podcasts.save(value));
-  ipcMain.handle('podcasts:remove', (_event, id: string) => podcasts.remove(id));
-  ipcMain.handle('podcasts:check', (_event, id: string) => podcasts.check(id));
-  ipcMain.handle('podcasts:run', (_event, id: string) => podcasts.run(id));
-  ipcMain.handle('podcasts:reveal', async (_event, id: string) => {
+  handle('podcasts:get', () => podcasts.snapshot());
+  handle('podcasts:save', (_event, value) => podcasts.save(value));
+  handle('podcasts:remove', (_event, id: string) => podcasts.remove(id));
+  handle('podcasts:check', (_event, id: string) => podcasts.check(id));
+  handle('podcasts:run', (_event, id: string) => podcasts.run(id));
+  handle('podcasts:reveal', async (_event, id: string) => {
     shell.showItemInFolder(await podcasts.filePath(id));
   });
-  ipcMain.handle('sharing:get', async (_event, entryID: string) => {
+  handle('sharing:get', async (_event, entryID: string) => {
     const entry = await entryForID(entryID);
     return backend.shareStatus(entry.captureID);
   });
-  ipcMain.handle(
+  handle(
     'sharing:publish',
     async (_event, entryID: string) => {
       const entry = await entryForID(entryID);
@@ -692,7 +710,7 @@ function registerIPC(): void {
       return result;
     }
   );
-  ipcMain.handle('sharing:revoke', async (_event, token: string) => {
+  handle('sharing:revoke', async (_event, token: string) => {
     if (!/^[A-Za-z0-9_-]{32}$/.test(token)) throw new Error('Invalid share link.');
     await backend.revokeShare(token);
   });

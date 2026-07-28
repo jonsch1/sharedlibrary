@@ -24,7 +24,8 @@ its Client ID and Client Secret once for the deployment, then register
 redirect URI. Drive authorization is a separate flow after account sign-in. The web
 and Electron clients reuse the saved personal library location.
 
-The backend encrypts account tokens and requests only `drive.file`. It can therefore
+The backend encrypts account tokens with `OPENROUTER_CREDENTIAL_KEY` (32 random
+bytes encoded as 64 hexadecimal characters) and requests only `drive.file`. It can therefore
 access only files Briefly creates or that the user explicitly opens with it,
 not the rest of the user's Drive. The app mirrors `library/`, `podcasts/`, and `topics.md`, and stores a
 rebuildable metadata-only index under `.shared-library/`. It reuses existing
@@ -58,7 +59,7 @@ npm run db:generate
 ```
 
 Database definitions live in `db/schema.ts`; generated migrations live in
-`drizzle/`. The worker also creates missing active tables defensively.
+`drizzle/`. Production applies migrations before deploying the Worker.
 
 ### Local Stripe sandbox
 
@@ -102,12 +103,21 @@ The deployment needs:
 - the four Sign in with Apple values and three CloudKit values described above
   when those providers should be offered;
 - a `FIRECRAWL_API_KEY` Worker secret for authenticated extraction fallback;
+- an `OPENROUTER_CREDENTIAL_KEY` Worker secret generated with
+  `openssl rand -hex 32`; keep the existing value stable or saved Google
+  credentials will become unreadable;
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
   `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
   Price IDs described below;
 - public access to the account callback and capability-link routes. Provider
   credentials and library operations remain account-scoped by the app's secure,
   HTTP-only session cookie.
+
+`PAID_PROCESSING_ENABLED=false` is the emergency kill switch for transcription,
+voice generation, and Firecrawl. Account fair-use limits are enforced in D1:
+transcription is limited to 8 media hours/day and 50/month, voice generation to
+250,000 characters/day and 2 million/month, and Firecrawl to a conservative
+500-credit monthly allowance.
 
 ## Briefly membership and Stripe
 

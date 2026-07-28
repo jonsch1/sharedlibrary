@@ -70,12 +70,15 @@ export class SyncCoordinator {
 
       const remote = await this.backend.fetchLibraryIndex(provider);
       let downloaded = 0;
+      let conflicts = 0;
       if (remote) {
         this.update('downloading', 'Downloading newer library files…');
-        downloaded = await this.library.mergeRemoteMirror(
+        const merge = await this.library.mergeRemoteMirror(
           remote,
           (file) => this.backend.fetchLibraryFile(file, provider)
         );
+        downloaded = merge.changed;
+        conflicts = merge.conflicts;
         downloaded += await this.library.mergeRemoteMedia(
           remote,
           (media) => this.backend.fetchLibraryMedia(media, provider)
@@ -91,7 +94,9 @@ export class SyncCoordinator {
       const updatedAt = result.syncedAt || new Date().toISOString();
       return this.update(
         'up-to-date',
-        changed > 0
+        conflicts > 0
+          ? `Synchronized with ${conflicts} ${conflicts === 1 ? 'conflict copy' : 'conflict copies'} kept in the library.`
+          : changed > 0
           ? `Synchronized ${changed} ${changed === 1 ? 'change' : 'changes'}.`
           : 'Everything is up to date.',
         updatedAt

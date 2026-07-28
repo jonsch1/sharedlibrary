@@ -1,5 +1,21 @@
 <script lang="ts">
 	import LegalShell from '$lib/LegalShell.svelte';
+	import { browser } from '$app/environment';
+
+	let analyticsConsent = $state(
+		browser ? localStorage.getItem('briefly_analytics_consent') : null
+	);
+
+	function chooseAnalytics(value: 'yes' | 'no'): void {
+		if (value === 'no') {
+			for (const key of Object.keys(localStorage)) {
+				if (key.startsWith('ph_')) localStorage.removeItem(key);
+			}
+		}
+		localStorage.setItem('briefly_analytics_consent', value);
+		analyticsConsent = value;
+		location.reload();
+	}
 </script>
 
 <LegalShell
@@ -10,16 +26,16 @@
 	<section>
 		<h2>1. The short version</h2>
 		<p>
-			Briefly does <strong>not</strong> use advertising cookies, cross-site trackers, analytics
-			cookies, tracking pixels, or device fingerprinting. It uses one first-party session cookie
-			after sign-in and local browser storage for the offline library and preferences you choose.
+			Briefly does <strong>not</strong> use advertising cookies, tracking pixels, or device
+			fingerprinting. It uses one first-party session cookie after sign-in and local browser
+			storage for the offline library and preferences you choose. Anonymous product analytics
+			are off unless you explicitly opt in below.
 		</p>
 		<div class="legal-callout">
 			<p>
-				<strong>Why there is no cookie banner:</strong> Briefly currently stores only the
-				session and local functionality needed to provide the service you request. It does not
-				set optional tracking or advertising technology. If that changes, we will update this
-				notice and request consent before non-essential storage is used where required.
+				<strong>Why there is no cookie banner:</strong> optional analytics start disabled.
+				Briefly asks for consent here before enabling them; declining does not affect the
+				service.
 			</p>
 		</div>
 	</section>
@@ -81,6 +97,12 @@
 					<td>Restores the interface choices you made.</td>
 					<td>Until you change them or clear the site's data.</td>
 				</tr>
+				<tr>
+					<td>Local storage, optional analytics</td>
+					<td>Your analytics consent choice and, only after opt-in, PostHog's anonymous browser identifier and event queue.</td>
+					<td>Remembers your choice and sends the limited product events described below. PostHog is configured not to use cookie persistence.</td>
+					<td>Until you change the choice or clear the site's data.</td>
+				</tr>
 			</tbody>
 		</table>
 		<p>
@@ -90,7 +112,24 @@
 	</section>
 
 	<section>
-		<h2>4. Your controls</h2>
+		<h2>4. Optional product analytics</h2>
+		<p>
+			If you opt in, Briefly sends a small set of manually named product events—such as starting
+			sign-in, choosing a sync provider, or creating a share link—to PostHog's EU service.
+			Briefly also reports client errors, but disables automatic interaction capture, page-view
+			capture, and session recording. Events are not connected to your Briefly email.
+		</p>
+		<p>
+			Current choice: <strong>{analyticsConsent === 'yes' ? 'enabled' : analyticsConsent === 'no' ? 'disabled' : 'not chosen (disabled)'}</strong>.
+		</p>
+		<p>
+			<button type="button" onclick={() => chooseAnalytics('yes')}>Allow anonymous analytics</button>
+			<button type="button" onclick={() => chooseAnalytics('no')}>Disable analytics</button>
+		</p>
+	</section>
+
+	<section>
+		<h2>5. Your controls</h2>
 		<ul>
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
 			<li>Use your browser's site-data settings to remove Briefly's cookie, IndexedDB, local storage, service worker, and caches.</li>

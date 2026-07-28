@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac, generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import worker, { libraryMediaManifest } from './index.js';
+import worker, { libraryMediaManifest, serviceUsageLimits } from './index.js';
 import { hasSameLibraryContent } from '../../Shared/library.ts';
 
 test('iCloud setup verifies the remote library before reporting success', async () => {
@@ -153,6 +153,37 @@ class MockStatement {
 					) ?? null
 				);
 			}
+			if (this.sql.includes('FROM complimentary_access')) {
+				return this.database.complimentaryAccess.get(this.arguments[0]) ?? null;
+			}
+			if (this.sql.includes('FROM service_limit_overrides')) {
+				return (
+					this.database.serviceLimitOverrides.get(
+						`${this.arguments[0]}:${this.arguments[1]}`
+					) ?? null
+				);
+			}
+			if (this.sql.includes('FROM service_usage')) {
+				const [day, month, accountID, service] = this.arguments;
+				const rows = [...this.database.serviceUsage.values()].filter(
+					(row) => row.account_id === accountID && row.service === service
+				);
+				return {
+					daily_units: rows.find((row) => row.usage_day === day)?.units ?? 0,
+					monthly_units: rows
+						.filter((row) => row.usage_day.startsWith(month))
+						.reduce((sum, row) => sum + row.units, 0)
+				};
+			}
+			if (this.sql.includes('FROM service_leases')) {
+				const lease = this.database.serviceLeases.get(this.arguments[0]);
+				return lease &&
+					lease.account_id === this.arguments[1] &&
+					lease.service === this.arguments[2] &&
+					lease.expires_at > Number(this.arguments[3])
+					? { lease_id: lease.lease_id }
+					: null;
+			}
 			if (this.sql.includes('FROM share_audio_segments')) {
 				return (
 					this.database.shareAudioSegments.find(
@@ -199,6 +230,58 @@ class MockStatement {
 	}
 
 	async all() {
+		if (this.sql.includes('FROM billing_customers')) {
+			return {
+				results: [...this.database.billingCustomers.values()].sort((left, right) =>
+					left.user_email.localeCompare(right.user_email)
+				)
+			};
+		}
+		if (this.sql.includes('FROM service_usage')) {
+			const [day, month] = this.arguments;
+			const totals = new Map();
+			for (const row of this.database.serviceUsage.values()) {
+				if (row.usage_day < month) continue;
+				const key = `${row.account_id}:${row.service}`;
+				const total = totals.get(key) ?? {
+					account_id: row.account_id,
+					service: row.service,
+					daily_units: 0,
+					monthly_units: 0
+				};
+				if (row.usage_day === day) total.daily_units = row.units;
+				total.monthly_units += row.units;
+				totals.set(key, total);
+			}
+			return { results: [...totals.values()] };
+		}
+		if (this.sql.includes('FROM service_limit_overrides')) {
+			return { results: [...this.database.serviceLimitOverrides.values()] };
+		}
+		if (this.sql.includes('FROM service_leases')) {
+			const totals = new Map();
+			for (const lease of this.database.serviceLeases.values()) {
+				if (lease.expires_at <= Number(this.arguments[0])) continue;
+				const key = `${lease.account_id}:${lease.service}`;
+				const total = totals.get(key) ?? {
+					account_id: lease.account_id,
+					service: lease.service,
+					active_leases: 0
+				};
+				total.active_leases += 1;
+				totals.set(key, total);
+			}
+			return { results: [...totals.values()] };
+		}
+		if (this.sql.includes('FROM complimentary_access')) {
+			return {
+				results: [...this.database.complimentaryAccess.values()].sort(
+					(left, right) =>
+						right.created_at - left.created_at ||
+						left.user_email.localeCompare(right.user_email)
+				)
+			};
+		}
 		if (this.sql.includes('FROM feedback_items')) {
 			const userEmail = this.arguments[0];
 			return {
@@ -266,6 +349,21 @@ class MockStatement {
 		let changes = 0;
 			if (this.sql.includes('INSERT INTO feedback_items')) {
 				const [id, userEmail, title, details, createdAt] = this.arguments;
+				const total = [...this.database.feedbackItems.values()].filter(
+					(item) => item.user_email === userEmail
+				).length;
+				const daily = [...this.database.feedbackItems.values()].filter(
+					(item) =>
+						item.user_email === userEmail &&
+						item.created_at >= Number(this.arguments[8] ?? 0)
+				).length;
+				if (
+					this.arguments.length > 5 &&
+					(total >= Number(this.arguments[6]) ||
+						daily >= Number(this.arguments[9]))
+				) {
+					return { success: true, meta: { changes: 0 } };
+				}
 				this.database.feedbackItems.set(id, {
 					id,
 					user_email: userEmail,
@@ -412,6 +510,94 @@ class MockStatement {
 					});
 					changes = 1;
 				}
+			}
+			if (this.sql.includes('INSERT INTO service_leases')) {
+				const [
+					leaseID,
+					accountID,
+					service,
+					expiresAt,
+					createdAt,
+					_countAccountID,
+					_countService,
+					now,
+					concurrency
+				] = this.arguments;
+				const active = [...this.database.serviceLeases.values()].filter(
+					(lease) =>
+						lease.account_id === accountID &&
+						lease.service === service &&
+						lease.expires_at > Number(now)
+				).length;
+				if (active < Number(concurrency)) {
+					this.database.serviceLeases.set(leaseID, {
+						lease_id: leaseID,
+						account_id: accountID,
+						service,
+						expires_at: expiresAt,
+						created_at: createdAt
+					});
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('DELETE FROM service_leases') &&
+				this.sql.includes('expires_at <= ?')
+			) {
+				for (const [id, lease] of this.database.serviceLeases) {
+					if (lease.expires_at <= Number(this.arguments[0])) {
+						this.database.serviceLeases.delete(id);
+						changes += 1;
+					}
+				}
+			}
+			if (
+				this.sql.includes('DELETE FROM service_leases') &&
+				this.sql.includes('lease_id = ?')
+			) {
+				const lease = this.database.serviceLeases.get(this.arguments[0]);
+				if (
+					lease?.account_id === this.arguments[1] &&
+					lease?.service === this.arguments[2]
+				) {
+					this.database.serviceLeases.delete(this.arguments[0]);
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT INTO service_usage')) {
+				const [accountID, service, day, units, updatedAt, dailyLimit] = this.arguments;
+				const key = `${accountID}:${service}:${day}`;
+				const existing = this.database.serviceUsage.get(key);
+				if (!existing || existing.units + Number(units) <= Number(dailyLimit)) {
+					this.database.serviceUsage.set(key, {
+						account_id: accountID,
+						service,
+						usage_day: day,
+						units: Number(existing?.units ?? 0) + Number(units),
+						updated_at: updatedAt
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT INTO service_limit_overrides')) {
+				const [accountID, service, dailyUnits, monthlyUnits, concurrency, updatedAt] =
+					this.arguments;
+				this.database.serviceLimitOverrides.set(`${accountID}:${service}`, {
+					account_id: accountID,
+					service,
+					daily_units: dailyUnits,
+					monthly_units: monthlyUnits,
+					concurrency,
+					updated_at: updatedAt
+				});
+				changes = 1;
+			}
+			if (this.sql.includes('DELETE FROM service_limit_overrides')) {
+				changes = Number(
+					this.database.serviceLimitOverrides.delete(
+						`${this.arguments[0]}:${this.arguments[1]}`
+					)
+				);
 			}
 			if (
 				this.sql.includes('UPDATE managed_ai_usage') &&
@@ -733,6 +919,20 @@ class MockStatement {
 					changes = 1;
 				}
 			}
+			if (this.sql.includes('INSERT OR IGNORE INTO complimentary_access')) {
+				const [userEmail, grantedBy, createdAt] = this.arguments;
+				if (!this.database.complimentaryAccess.has(userEmail)) {
+					this.database.complimentaryAccess.set(userEmail, {
+						user_email: userEmail,
+						granted_by: grantedBy,
+						created_at: createdAt
+					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('DELETE FROM complimentary_access')) {
+				changes = Number(this.database.complimentaryAccess.delete(this.arguments[0]));
+			}
 			if (
 				this.sql.includes('DELETE FROM billing_checkout_reservations') &&
 				this.sql.includes('expires_at <= ?')
@@ -904,12 +1104,16 @@ class MockDatabase {
 	billingSubscriptions = new Map();
 	checkoutReservations = new Map();
 	billingAllocations = new Map();
+	complimentaryAccess = new Map();
 	ttsAccounts = new Map();
 	ttsWelcomeCredits = new Map();
 	ttsMonthlyCredits = new Map();
 	ttsTopUps = new Map();
 	ttsUsage = new Map();
 	managedAIUsage = new Map();
+	serviceUsage = new Map();
+	serviceLimitOverrides = new Map();
+	serviceLeases = new Map();
 	feedbackItems = new Map();
 	feedbackUpvotes = new Map();
 
@@ -1007,6 +1211,123 @@ function authenticatedRequest(path, init = {}) {
 	return new Request(`https://library.example${path}`, { ...init, headers });
 }
 
+test('paid processing has finite account and concurrency limits', async () => {
+	assert.deepEqual(serviceUsageLimits.transcription, {
+		dailyUnits: 28_800,
+		monthlyUnits: 180_000,
+		concurrency: 2,
+		leaseMilliseconds: 2_100_000
+	});
+	const database = new MockDatabase();
+	const env = entitledEnvironment(database);
+	const reserve = (service, units = 0, leaseID) =>
+		worker.fetch(
+			authenticatedRequest('/api/usage', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'reserve', service, units, leaseID })
+			}),
+			env
+		);
+
+	const first = await reserve('voice', 250_000);
+	assert.equal(first.status, 200);
+	const leaseID = (await first.json()).leaseID;
+	assert.equal((await reserve('voice')).status, 429);
+	assert.equal((await reserve('voice', 1, leaseID)).status, 429);
+
+	const released = await worker.fetch(
+		authenticatedRequest('/api/usage', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: 'release', service: 'voice', leaseID })
+		}),
+		env
+	);
+	assert.equal(released.status, 200);
+});
+
+test('administrators can inspect usage and override an account limit', async () => {
+	const database = new MockDatabase();
+	const env = entitledEnvironment(database);
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const day = new Date().toISOString().slice(0, 10);
+	database.serviceUsage.set(`account-reader:voice:${day}`, {
+		account_id: 'account-reader',
+		service: 'voice',
+		usage_day: day,
+		units: 7,
+		updated_at: Date.now()
+	});
+
+	const listed = await worker.fetch(authenticatedRequest('/api/admin/usage'), env);
+	assert.equal(listed.status, 200);
+	const account = (await listed.json()).accounts[0];
+	const voice = account.services.find((entry) => entry.service === 'voice');
+	assert.equal(account.email, 'reader@example.com');
+	assert.deepEqual(voice.usage, { dailyUnits: 7, monthlyUnits: 7, activeLeases: 0 });
+	assert.equal(voice.custom, false);
+
+	const update = await worker.fetch(
+		authenticatedRequest('/api/admin/usage', {
+			method: 'PUT',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				email: account.email,
+				service: 'voice',
+				limits: { dailyUnits: 10, monthlyUnits: 20, concurrency: 1 }
+			})
+		}),
+		env
+	);
+	assert.equal(update.status, 200);
+	assert.equal((await update.json()).custom, true);
+
+	database.sessionEmail = 'reader@example.com';
+	const reserve = (units) =>
+		worker.fetch(
+			authenticatedRequest('/api/usage', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ action: 'reserve', service: 'voice', units })
+			}),
+			env
+		);
+	const allowed = await reserve(3);
+	const leaseID = (await allowed.json()).leaseID;
+	assert.equal(allowed.status, 200);
+	await worker.fetch(
+		authenticatedRequest('/api/usage', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: 'release', service: 'voice', leaseID })
+		}),
+		env
+	);
+	assert.equal((await reserve(1)).status, 429);
+
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const reset = await worker.fetch(
+		authenticatedRequest('/api/admin/usage', {
+			method: 'DELETE',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ email: account.email, service: 'voice' })
+		}),
+		env
+	);
+	assert.equal(reset.status, 200);
+	assert.equal((await reset.json()).custom, false);
+
+	database.sessionEmail = 'reader@example.com';
+	assert.equal((await reserve(1)).status, 200);
+});
+
 function signedStripeRequest(event, secret, timestamp = Math.floor(Date.now() / 1000)) {
 	const body = JSON.stringify(event);
 	const signature = createHmac('sha256', secret)
@@ -1064,6 +1385,7 @@ test('Firecrawl credentials stay in the Worker', async (context) => {
 			formats: ['markdown'],
 			onlyMainContent: true,
 			removeBase64Images: true,
+			storeInCache: false,
 			timeout: 120_000
 		});
 		return Response.json({
@@ -1242,7 +1564,7 @@ test('client-supplied identity headers cannot impersonate a Briefly account', as
 
 test('users can post feedback and independently upvote it', async () => {
 	const database = new MockDatabase();
-	const env = environment(database);
+	const env = entitledEnvironment(database);
 	const createdResponse = await worker.fetch(
 		authenticatedRequest('/api/feedback', {
 			method: 'POST',
@@ -1261,6 +1583,33 @@ test('users can post feedback and independently upvote it', async () => {
 	const created = await createdResponse.json();
 	assert.equal(created.upvotes, 1);
 	assert.equal(created.upvoted, true);
+
+	for (const title of ['Second idea', 'Third idea']) {
+		const response = await worker.fetch(
+			authenticatedRequest('/api/feedback', {
+				method: 'POST',
+				headers: {
+					Origin: 'https://library.example',
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ title, details: '' })
+			}),
+			env
+		);
+		assert.equal(response.status, 201);
+	}
+	const limited = await worker.fetch(
+		authenticatedRequest('/api/feedback', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ title: 'Fourth idea', details: '' })
+		}),
+		env
+	);
+	assert.equal(limited.status, 429);
 
 	database.sessionEmail = 'second-reader@example.com';
 	const upvoteResponse = await worker.fetch(
@@ -1287,8 +1636,12 @@ test('users can post feedback and independently upvote it', async () => {
 	const board = await boardResponse.json();
 	assert.equal(board.authenticated, false);
 	assert.deepEqual(
-		board.items.map((item) => [item.title, item.upvotes, item.upvoted]),
-		[['Add keyboard shortcuts', 2, false]]
+		board.items.map((item) => [item.title, item.upvotes, item.upvoted]).sort(),
+		[
+			['Add keyboard shortcuts', 2, false],
+			['Second idea', 1, false],
+			['Third idea', 1, false]
+		]
 	);
 });
 
@@ -1323,6 +1676,72 @@ test('the owner account has complimentary membership access without Stripe', asy
 	const library = await worker.fetch(authenticatedRequest('/api/library'), env);
 	assert.equal(library.status, 401);
 	assert.equal((await library.json()).error, 'Connect Google Drive first.');
+});
+
+test('the administrator can grant and revoke complimentary membership by email', async () => {
+	const database = new MockDatabase();
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const env = environment(database);
+	const grant = await worker.fetch(
+		authenticatedRequest('/api/admin/complimentary-access', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ email: ' Guest@Example.com ' })
+		}),
+		env
+	);
+	assert.equal(grant.status, 201);
+	assert.equal((await grant.json()).email, 'guest@example.com');
+
+	database.sessionEmail = 'guest@example.com';
+	const billing = await worker.fetch(authenticatedRequest('/api/billing/status'), env);
+	const billingBody = await billing.json();
+	assert.equal(billingBody.entitled, true);
+	assert.equal(billingBody.complimentary, true);
+	const denied = await worker.fetch(
+		authenticatedRequest('/api/admin/complimentary-access', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ email: 'another@example.com' })
+		}),
+		env
+	);
+	assert.equal(denied.status, 403);
+
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const list = await worker.fetch(
+		authenticatedRequest('/api/admin/complimentary-access'),
+		env
+	);
+	assert.deepEqual(
+		(await list.json()).emails.map((entry) => entry.email),
+		['guest@example.com']
+	);
+	const revoke = await worker.fetch(
+		authenticatedRequest('/api/admin/complimentary-access', {
+			method: 'DELETE',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ email: 'guest@example.com' })
+		}),
+		env
+	);
+	assert.equal(revoke.status, 200);
+
+	database.sessionEmail = 'guest@example.com';
+	const revokedBilling = await worker.fetch(
+		authenticatedRequest('/api/billing/status'),
+		env
+	);
+	assert.equal((await revokedBilling.json()).entitled, false);
 });
 
 test('managed AI spends at most half of the monthly subscription price', async (context) => {
@@ -1894,7 +2313,7 @@ test('owners can list and revoke their published links from the account', async 
 	);
 	assert.equal(response.status, 200);
 	const published = await response.json();
-	assert.equal(published.limit, 200);
+	assert.equal(published.limit, 100);
 	assert.equal(published.links.length, 1);
 	assert.equal(published.links[0].token, ownToken);
 	assert.equal(published.links[0].captureID, 'capture-1');
@@ -1911,9 +2330,9 @@ test('owners can list and revoke their published links from the account', async 
 	assert.equal(database.shareLinks.has(ownToken), false);
 });
 
-test('an account can update at 200 active links but cannot publish a 201st', async () => {
+test('an account can update at 100 active links but cannot publish a 101st', async () => {
 	const database = new MockDatabase();
-	for (let index = 0; index < 200; index += 1) {
+	for (let index = 0; index < 100; index += 1) {
 		const token = index.toString(36).padStart(32, '0');
 		database.shareLinks.set(token, {
 			token,
@@ -1940,10 +2359,10 @@ test('an account can update at 200 active links but cannot publish a 201st', asy
 			body: JSON.stringify({ captureID })
 		});
 
-	const denied = await worker.fetch(request('capture-200'), entitledEnvironment(database));
+	const denied = await worker.fetch(request('capture-100'), entitledEnvironment(database));
 	assert.equal(denied.status, 409);
 	assert.equal((await denied.json()).code, 'share_limit_reached');
-	assert.equal(database.shareLinks.size, 200);
+	assert.equal(database.shareLinks.size, 100);
 
 	let backgroundTask;
 	const updated = await worker.fetch(

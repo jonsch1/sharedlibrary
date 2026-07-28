@@ -20,7 +20,7 @@ const YOUTUBE_HOSTS = new Set([
 export async function transcribeMedia(
   mediaURL,
   {
-    downloadMedia = downloadMediaAudio,
+    downloadMedia = downloadTranscriptionMedia,
     endpoint,
     fetchImpl,
     includeTranscriptTimestamps = false,
@@ -28,26 +28,15 @@ export async function transcribeMedia(
     token
   }
 ) {
-  const youtube = isYouTubeURL(mediaURL);
-  let localAudio = null;
-  if (youtube) {
-    localAudio = await downloadMedia(mediaURL, mediaOutputDirectory);
-  }
+  const localAudio = await downloadMedia(mediaURL, mediaOutputDirectory, {
+    fetchImpl
+  });
   const response = await fetchText(endpoint, {
-    body:
-      localAudio ??
-      JSON.stringify({
-        url: mediaURL,
-        include_timestamps: includeTranscriptTimestamps
-      }),
+    body: localAudio,
     headers: {
       "Authorization": `Bearer ${token}`,
-      "Content-Type": localAudio ? "application/octet-stream" : "application/json",
-      ...(localAudio
-        ? {
-            "X-Briefly-Include-Timestamps": includeTranscriptTimestamps ? "1" : "0"
-          }
-        : {})
+      "Content-Type": "application/octet-stream",
+      "X-Briefly-Include-Timestamps": includeTranscriptTimestamps ? "1" : "0"
     },
     fetchImpl,
     maximumBytes: 40_000_000,
@@ -61,6 +50,21 @@ export async function transcribeMedia(
     language: typeof result.language === "string" ? result.language : null,
     text
   };
+}
+
+export async function downloadTranscriptionMedia(
+  url,
+  outputDirectory,
+  { fetchImpl } = {}
+) {
+  if (isYouTubeURL(url)) return downloadMediaAudio(url, outputDirectory);
+  return (
+    await fetchText(url, {
+      fetchImpl,
+      maximumBytes: 250_000_000,
+      timeoutMilliseconds: 180_000
+    })
+  ).bytes;
 }
 
 export async function downloadMediaAudio(url, outputDirectory) {

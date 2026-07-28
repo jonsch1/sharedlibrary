@@ -21,9 +21,38 @@ const stripeWebhookToleranceSeconds = 5 * 60;
 const checkoutLifetimeSeconds = 31 * 60;
 const checkoutReservationLifetimeMilliseconds = 35 * 60 * 1000;
 const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
-const maximumActiveShareLinks = 200;
+const maximumActiveShareLinks = 100;
+const maximumFeedbackItemsPerAccount = 10;
+const maximumFeedbackItemsPerDay = 3;
+const emailAddressPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const serviceUsageLimits = {
+	transcription: {
+		dailyUnits: 8 * 60 * 60,
+		monthlyUnits: 50 * 60 * 60,
+		concurrency: 2,
+		leaseMilliseconds: 35 * 60 * 1000
+	},
+	voice: {
+		dailyUnits: 250_000,
+		monthlyUnits: 2_000_000,
+		concurrency: 1,
+		leaseMilliseconds: 35 * 60 * 1000
+	},
+	firecrawl: {
+		dailyUnits: 250,
+		monthlyUnits: 500,
+		concurrency: 2,
+		leaseMilliseconds: 3 * 60 * 1000
+	},
+	media: {
+		dailyUnits: 2_000_000_000,
+		monthlyUnits: 10_000_000_000,
+		concurrency: 2,
+		leaseMilliseconds: 10 * 60 * 1000
+	}
+};
 const entitledSubscriptionStatuses = new Set(['active', 'trialing']);
-const complimentaryPlusEmails = new Set(['schauljonathan@gmail.com']);
+const administratorEmails = new Set(['schauljonathan@gmail.com']);
 const complimentaryMonthlyTTSMicros = new Map([
 	['schauljonathan@gmail.com', 10 * 100_000_000]
 ]);
@@ -175,8 +204,9 @@ async function scrapeWithFirecrawl(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const denied = await paidAccessResponse(request, env);
 	if (denied) return denied;
-	const apiKey = String(env.FIRECRAWL_API_KEY || '').trim();
-	if (!apiKey) return json({ error: 'Web extraction is unavailable.' }, { status: 503 });
+	if (!paidProcessingEnabled(env)) {
+		return json({ error: 'Web extraction is temporarily paused.' }, { status: 503 });
+	}
 	let rawURL;
 	try {
 		rawURL = (await request.json()).url;
@@ -193,27 +223,59 @@ async function scrapeWithFirecrawl(request, env) {
 	} catch {
 		return json({ error: 'Invalid extraction URL.' }, { status: 400 });
 	}
-	const response = await fetch(firecrawlEndpoint, {
-		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${apiKey}`,
-			'Content-Type': 'application/json'
-		},
-		body: JSON.stringify({
-			url: rawURL,
-			formats: ['markdown'],
-			onlyMainContent: true,
-			removeBase64Images: true,
-			timeout: 120_000
-		})
-	});
-	return new Response(response.body, {
-		status: response.status,
-		headers: {
-			'Cache-Control': 'no-store',
-			'Content-Type': response.headers.get('Content-Type') || 'application/json'
-		}
-	});
+	const email = await authenticatedEmail(request, env);
+	const customer = email ? await ensureBillingCustomer(env, email) : null;
+	if (!customer) return json({ error: 'Authentication required.' }, { status: 401 });
+	const limits = await accountServiceLimits(env, customer.account_id, 'firecrawl');
+	const leaseID = await reserveServiceLease(
+		env,
+		customer.account_id,
+		'firecrawl',
+		limits
+	);
+	if (!leaseID) return quotaResponse('Too many web extractions are already running.');
+	const usage = await consumeServiceUnits(
+		env,
+		customer.account_id,
+		'firecrawl',
+		5,
+		limits
+	);
+	if (!usage) {
+		await releaseServiceLease(env, customer.account_id, 'firecrawl', leaseID);
+		return quotaResponse('The monthly web-extraction allowance has been reached.');
+	}
+	const apiKey = String(env.FIRECRAWL_API_KEY || '').trim();
+	if (!apiKey) {
+		await releaseServiceLease(env, customer.account_id, 'firecrawl', leaseID);
+		return json({ error: 'Web extraction is unavailable.' }, { status: 503 });
+	}
+	try {
+		const response = await fetch(firecrawlEndpoint, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				url: rawURL,
+				formats: ['markdown'],
+				onlyMainContent: true,
+				removeBase64Images: true,
+				storeInCache: false,
+				timeout: 120_000
+			})
+		});
+		return new Response(response.body, {
+			status: response.status,
+			headers: {
+				'Cache-Control': 'no-store',
+				'Content-Type': response.headers.get('Content-Type') || 'application/json'
+			}
+		});
+	} finally {
+		await releaseServiceLease(env, customer.account_id, 'firecrawl', leaseID);
+	}
 }
 
 function json(value, init = {}) {
@@ -234,7 +296,6 @@ async function authenticatedEmail(request, env) {
 		.find((value) => value.startsWith(`${sessionCookieName}=`))
 		?.slice(sessionCookieName.length + 1);
 	if (!rawToken || !env.DB) return null;
-	await ensureSchema(env.DB);
 	const tokenHash = await sha256Hex(rawToken);
 	const session = await env.DB.prepare(
 		`SELECT user_email, expires_at FROM app_sessions WHERE token_hash = ?`
@@ -302,7 +363,7 @@ function base64URLToBytes(value) {
 
 function hexToBytes(value) {
 	if (!/^[0-9a-f]{64}$/i.test(value)) {
-		throw new Error('OPENROUTER_CREDENTIAL_KEY must contain 32 bytes encoded as hexadecimal.');
+		throw new Error('The credential encryption key must contain 32 bytes encoded as hexadecimal.');
 	}
 	return Uint8Array.from(value.match(/.{2}/g), (pair) => Number.parseInt(pair, 16));
 }
@@ -326,12 +387,13 @@ async function sha256Hex(value) {
 }
 
 async function credentialEncryptionKey(env) {
-	if (!env.OPENROUTER_CREDENTIAL_KEY) {
-		throw new Error('OpenRouter credential encryption is not configured.');
+	const value = env.OPENROUTER_CREDENTIAL_KEY;
+	if (!value) {
+		throw new Error('Credential encryption is not configured.');
 	}
 	return crypto.subtle.importKey(
 		'raw',
-		hexToBytes(env.OPENROUTER_CREDENTIAL_KEY),
+		hexToBytes(value),
 		'AES-GCM',
 		false,
 		['encrypt', 'decrypt']
@@ -361,313 +423,6 @@ async function decryptCredential(env, encryptedAPIKey, initializationVector) {
 	return new TextDecoder().decode(plaintext);
 }
 
-async function ensureSchema(database) {
-	await database.batch([
-		database
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS openrouter_credentials (
-					user_email TEXT PRIMARY KEY NOT NULL,
-					encrypted_api_key TEXT NOT NULL,
-					initialization_vector TEXT NOT NULL,
-					openrouter_user_id TEXT,
-					connected_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL
-				)`
-			),
-		database
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS openrouter_oauth_states (
-					state TEXT PRIMARY KEY NOT NULL,
-					user_email TEXT NOT NULL,
-					code_verifier TEXT NOT NULL,
-					created_at INTEGER NOT NULL
-				)`
-			),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS google_drive_connections (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				client_id TEXT NOT NULL,
-				encrypted_client_secret TEXT NOT NULL,
-				client_secret_iv TEXT NOT NULL,
-				encrypted_access_token TEXT,
-				access_token_iv TEXT,
-				encrypted_refresh_token TEXT,
-				refresh_token_iv TEXT,
-				access_token_expires_at INTEGER,
-				folder_id TEXT,
-				connected_at TEXT,
-				updated_at TEXT NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS google_oauth_states (
-				state TEXT PRIMARY KEY NOT NULL,
-				user_email TEXT NOT NULL,
-				code_verifier TEXT NOT NULL,
-				created_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS google_login_states (
-				state TEXT PRIMARY KEY NOT NULL,
-				code_verifier TEXT NOT NULL,
-				return_to TEXT NOT NULL,
-				created_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS apple_login_states (
-				state TEXT PRIMARY KEY NOT NULL,
-				nonce TEXT NOT NULL,
-				return_to TEXT NOT NULL,
-				created_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS auth_identities (
-				provider TEXT NOT NULL,
-				subject TEXT NOT NULL,
-				user_email TEXT NOT NULL,
-				created_at INTEGER NOT NULL,
-				PRIMARY KEY (provider, subject)
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS app_sessions (
-				token_hash TEXT PRIMARY KEY NOT NULL,
-				user_email TEXT NOT NULL,
-				created_at INTEGER NOT NULL,
-				expires_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE INDEX IF NOT EXISTS app_sessions_user_email_idx
-			 ON app_sessions (user_email)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS sync_preferences (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				provider TEXT NOT NULL,
-				updated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS billing_customers (
-				user_email TEXT PRIMARY KEY NOT NULL,
-				account_id TEXT NOT NULL,
-				stripe_customer_id TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS billing_customers_account_id_unique
-			 ON billing_customers (account_id)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS billing_customers_stripe_customer_id_unique
-			 ON billing_customers (stripe_customer_id)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS billing_subscriptions (
-				account_id TEXT PRIMARY KEY NOT NULL,
-				stripe_subscription_id TEXT NOT NULL,
-				stripe_customer_id TEXT NOT NULL,
-				stripe_price_id TEXT,
-				tier_key TEXT NOT NULL,
-				status TEXT NOT NULL,
-				status_changed_at INTEGER NOT NULL DEFAULT 0,
-				stripe_created_at INTEGER NOT NULL DEFAULT 0,
-				current_period_end INTEGER,
-				cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS billing_subscriptions_stripe_subscription_id_unique
-			 ON billing_subscriptions (stripe_subscription_id)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS billing_checkout_reservations (
-				reservation_id TEXT PRIMARY KEY NOT NULL,
-				account_id TEXT NOT NULL,
-				tier_key TEXT NOT NULL,
-				stripe_session_id TEXT,
-				expires_at INTEGER NOT NULL,
-				created_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS billing_checkout_reservations_account_id_unique
-			 ON billing_checkout_reservations (account_id)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS billing_allocations (
-				reservation_id TEXT PRIMARY KEY NOT NULL,
-				account_id TEXT NOT NULL,
-				tier_key TEXT NOT NULL,
-				allocated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE INDEX IF NOT EXISTS billing_allocations_tier_key_idx
-			 ON billing_allocations (tier_key)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS stripe_webhook_events (
-				event_id TEXT PRIMARY KEY NOT NULL,
-				event_type TEXT NOT NULL,
-				status TEXT NOT NULL DEFAULT 'processed',
-				attempts INTEGER NOT NULL DEFAULT 1,
-				processed_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS tts_accounts (
-				account_id TEXT PRIMARY KEY NOT NULL,
-				balance_micros INTEGER NOT NULL DEFAULT 0,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS tts_welcome_credits (
-				account_id TEXT PRIMARY KEY NOT NULL,
-				stripe_checkout_session_id TEXT NOT NULL UNIQUE,
-				amount_micros INTEGER NOT NULL,
-				created_at INTEGER NOT NULL,
-				credited_at INTEGER
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS tts_monthly_credits (
-				account_id TEXT NOT NULL,
-				credit_month TEXT NOT NULL,
-				amount_micros INTEGER NOT NULL,
-				created_at INTEGER NOT NULL,
-				credited_at INTEGER,
-				PRIMARY KEY (account_id, credit_month)
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS tts_topups (
-				checkout_session_id TEXT PRIMARY KEY NOT NULL,
-				account_id TEXT NOT NULL,
-				stripe_payment_intent_id TEXT NOT NULL,
-				amount_micros INTEGER NOT NULL,
-				refunded_micros INTEGER NOT NULL DEFAULT 0,
-				refund_status TEXT NOT NULL DEFAULT 'disabled',
-				created_at INTEGER NOT NULL,
-				credited_at INTEGER,
-				refunded_at INTEGER
-			)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS tts_topups_stripe_payment_intent_id_unique
-			 ON tts_topups (stripe_payment_intent_id)`
-		),
-		database.prepare(
-			`CREATE INDEX IF NOT EXISTS tts_topups_account_created_idx
-			 ON tts_topups (account_id, created_at)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS tts_usage (
-				request_id TEXT PRIMARY KEY NOT NULL,
-				account_id TEXT NOT NULL,
-				model TEXT NOT NULL,
-				voice TEXT NOT NULL,
-				character_count INTEGER NOT NULL,
-				amount_micros INTEGER NOT NULL,
-				status TEXT NOT NULL,
-				generation_id TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE INDEX IF NOT EXISTS tts_usage_account_created_idx
-			 ON tts_usage (account_id, created_at)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS managed_ai_usage (
-				account_id TEXT NOT NULL,
-				usage_month TEXT NOT NULL,
-				spent_micros INTEGER NOT NULL DEFAULT 0,
-				reserved_micros INTEGER NOT NULL DEFAULT 0,
-				updated_at INTEGER NOT NULL,
-				PRIMARY KEY (account_id, usage_month)
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS share_links (
-				token TEXT PRIMARY KEY NOT NULL,
-				owner_email TEXT NOT NULL,
-				capture_id TEXT NOT NULL,
-				generation TEXT NOT NULL,
-				revision INTEGER NOT NULL DEFAULT 1,
-				status TEXT NOT NULL,
-				metadata_json TEXT,
-				source_filename TEXT,
-				voice TEXT NOT NULL,
-				error_message TEXT,
-				created_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS share_links_owner_capture_unique
-			 ON share_links (owner_email, capture_id)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS share_texts (
-				share_token TEXT NOT NULL,
-				generation TEXT NOT NULL,
-				variant TEXT NOT NULL,
-				markdown TEXT NOT NULL,
-				word_count INTEGER NOT NULL,
-				PRIMARY KEY (share_token, generation, variant)
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS share_audio_segments (
-				share_token TEXT NOT NULL,
-				generation TEXT NOT NULL,
-				variant TEXT NOT NULL,
-				segment_index INTEGER NOT NULL,
-				audio_hash TEXT NOT NULL,
-				r2_key TEXT NOT NULL,
-				content_type TEXT NOT NULL,
-				byte_count INTEGER NOT NULL,
-				voice TEXT NOT NULL,
-				PRIMARY KEY (share_token, generation, variant, segment_index)
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS feedback_items (
-				id TEXT PRIMARY KEY NOT NULL,
-				user_email TEXT NOT NULL,
-				title TEXT NOT NULL,
-				details TEXT NOT NULL,
-				created_at INTEGER NOT NULL
-			)`
-		),
-		database.prepare(
-			`CREATE TABLE IF NOT EXISTS feedback_upvotes (
-				feedback_item_id TEXT NOT NULL,
-				user_email TEXT NOT NULL,
-				created_at INTEGER NOT NULL,
-				PRIMARY KEY (feedback_item_id, user_email),
-				FOREIGN KEY (feedback_item_id) REFERENCES feedback_items(id) ON DELETE CASCADE
-			)`
-		),
-		database.prepare(
-			`CREATE INDEX IF NOT EXISTS feedback_upvotes_item_idx
-			 ON feedback_upvotes (feedback_item_id)`
-		)
-	]);
-}
-
 async function openRouterError(response, fallback) {
 	const body = await response.text();
 	try {
@@ -685,7 +440,6 @@ async function openRouterError(response, fallback) {
 async function connectionStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ connected: false }, { status: 401 });
-	await ensureSchema(env.DB);
 	const credential = await env.DB.prepare(
 		`SELECT openrouter_user_id, connected_at
 		 FROM openrouter_credentials
@@ -703,7 +457,6 @@ async function connectionStatus(request, env) {
 async function startConnection(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 
 	const state = randomBase64URL();
 	const verifier = randomBase64URL(64);
@@ -733,7 +486,6 @@ async function startConnection(request, env) {
 async function finishConnection(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 
 	const url = new URL(request.url);
 	const state = url.searchParams.get('state');
@@ -812,7 +564,6 @@ async function disconnect(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	await env.DB.prepare('DELETE FROM openrouter_credentials WHERE user_email = ?').bind(email).run();
 	return json({ connected: false });
 }
@@ -910,7 +661,6 @@ async function createSpeech(request, env) {
 	if (!apiKey) {
 		return json({ error: 'Briefly AI voice is not available yet.' }, { status: 503 });
 	}
-	await ensureSchema(env.DB);
 
 	let value;
 	try {
@@ -1000,7 +750,6 @@ async function createSpeech(request, env) {
 async function fetchLibrarySnapshot(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
 	listURL.searchParams.set(
 		'q',
@@ -1064,7 +813,6 @@ function validLibraryPath(path) {
 async function fetchLibraryFile(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const url = new URL(request.url);
 	const path = url.searchParams.get('path');
 	const expectedHash = url.searchParams.get('hash');
@@ -1184,7 +932,6 @@ async function syncLibraryMirror(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Sign in before synchronizing.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	let value;
 	try {
 		value = await request.json();
@@ -1431,7 +1178,6 @@ async function authenticatedRedirect(request, env, email, returnTo, provider) {
 }
 
 async function startGoogleLogin(request, env) {
-	await ensureSchema(env.DB);
 	const config = googleOAuthConfig(env);
 	if (!config) return json({ error: 'Google sign-in is not configured.' }, { status: 503 });
 	const state = randomBase64URL();
@@ -1467,7 +1213,6 @@ async function startGoogleLogin(request, env) {
 }
 
 async function finishGoogleLogin(request, env) {
-	await ensureSchema(env.DB);
 	const url = new URL(request.url);
 	const state = url.searchParams.get('state');
 	const code = url.searchParams.get('code');
@@ -1603,7 +1348,6 @@ async function verifiedAppleIdentity(idToken, config, expectedNonce) {
 }
 
 async function startAppleLogin(request, env) {
-	await ensureSchema(env.DB);
 	const config = appleAuthConfig(env);
 	if (!config) return json({ error: 'Apple sign-in is not configured.' }, { status: 503 });
 	const state = randomBase64URL();
@@ -1640,7 +1384,6 @@ async function startAppleLogin(request, env) {
 }
 
 async function finishAppleLogin(request, env) {
-	await ensureSchema(env.DB);
 	let form;
 	try {
 		form = await request.formData();
@@ -1714,7 +1457,6 @@ async function googleDriveStatus(request, env) {
 			{ status: 401 }
 		);
 	}
-	await ensureSchema(env.DB);
 	const connection = await env.DB.prepare(
 		`SELECT client_id, encrypted_refresh_token, connected_at, folder_id
 		 FROM google_drive_connections
@@ -1735,7 +1477,6 @@ async function googleDriveStatus(request, env) {
 }
 
 async function startGoogleDriveConnection(request, env) {
-	await ensureSchema(env.DB);
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Sign in before connecting Google Drive.' }, { status: 401 });
 	const config = googleOAuthConfig(env);
@@ -1779,7 +1520,6 @@ async function startGoogleDriveConnection(request, env) {
 }
 
 async function finishGoogleDriveConnection(request, env) {
-	await ensureSchema(env.DB);
 	const url = new URL(request.url);
 	const state = url.searchParams.get('state');
 	const code = url.searchParams.get('code');
@@ -1897,7 +1637,6 @@ async function disconnectGoogleDrive(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	await env.DB.batch([
 		env.DB.prepare('DELETE FROM google_drive_connections WHERE user_email = ?').bind(email),
 		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email),
@@ -1927,7 +1666,6 @@ async function setSyncProvider(request, env) {
 	if (value.provider === 'icloud' && !cloudKitConfig(env)) {
 		return json({ error: 'iCloud sync is not configured.' }, { status: 503 });
 	}
-	await ensureSchema(env.DB);
 	await env.DB.prepare(
 			`INSERT INTO sync_preferences (user_email, provider, updated_at)
 			 VALUES (?, ?, ?)
@@ -1943,7 +1681,6 @@ async function disconnectICloud(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	await env.DB.prepare(
 		`DELETE FROM sync_preferences WHERE user_email = ? AND provider = 'icloud'`
 	)
@@ -1982,6 +1719,7 @@ async function accountStatus(request, env) {
 	return json({
 		authenticated: true,
 		email,
+		isAdmin: isAdministrator(email),
 		providers,
 		syncProvider,
 		google: {
@@ -1998,9 +1736,207 @@ async function accountStatus(request, env) {
 	});
 }
 
+async function administratorRequest(request, env) {
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return { response: json({ error: 'Authentication required.' }, { status: 401 }) };
+	}
+	if (!isAdministrator(email)) {
+		return {
+			response: json({ error: 'Administrator access required.' }, { status: 403 })
+		};
+	}
+	return { email };
+}
+
+async function adminComplimentaryAccess(request, env) {
+	const administrator = await administratorRequest(request, env);
+	if (administrator.response) return administrator.response;
+	if (request.method === 'GET') {
+		const result = await env.DB.prepare(
+			`SELECT user_email, granted_by, created_at
+			 FROM complimentary_access
+			 ORDER BY created_at DESC, user_email`
+		).all();
+		return json({
+			emails: (result.results ?? []).map((entry) => ({
+				email: entry.user_email,
+				grantedBy: entry.granted_by,
+				createdAt: Number(entry.created_at)
+			}))
+		});
+	}
+	if (!requireSameOrigin(request)) {
+		return json({ error: 'Invalid request origin.' }, { status: 403 });
+	}
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid access request.' }, { status: 400 });
+	}
+	const email = normalizedEmail(value?.email);
+	if (email.length > 254 || !emailAddressPattern.test(email)) {
+		return json({ error: 'Enter a valid email address.' }, { status: 400 });
+	}
+	if (request.method === 'POST') {
+		const createdAt = Date.now();
+		const result = await env.DB.prepare(
+			`INSERT OR IGNORE INTO complimentary_access (user_email, granted_by, created_at)
+			 VALUES (?, ?, ?)`
+		)
+			.bind(email, normalizedEmail(administrator.email), createdAt)
+			.run();
+		return json(
+			{ email, createdAt, created: databaseChanges(result) === 1 },
+			{ status: databaseChanges(result) === 1 ? 201 : 200 }
+		);
+	}
+	if (request.method === 'DELETE') {
+		const result = await env.DB.prepare(
+			'DELETE FROM complimentary_access WHERE user_email = ?'
+		)
+			.bind(email)
+			.run();
+		return json({ email, removed: databaseChanges(result) === 1 });
+	}
+	return json({ error: 'Method not allowed.' }, { status: 405 });
+}
+
+async function adminUsage(request, env) {
+	const administrator = await administratorRequest(request, env);
+	if (administrator.response) return administrator.response;
+	if (request.method === 'GET') {
+		const day = new Date().toISOString().slice(0, 10);
+		const month = `${day.slice(0, 7)}-01`;
+		const accounts = await env.DB.prepare(
+			'SELECT user_email, account_id FROM billing_customers ORDER BY user_email'
+		).all();
+		const usage = await env.DB.prepare(
+			`SELECT account_id, service,
+				MAX(CASE WHEN usage_day = ? THEN units ELSE 0 END) AS daily_units,
+				SUM(units) AS monthly_units
+			 FROM service_usage
+			 WHERE usage_day >= ?
+			 GROUP BY account_id, service`
+		)
+			.bind(day, month)
+			.all();
+		const overrides = await env.DB.prepare(
+			`SELECT account_id, service, daily_units, monthly_units, concurrency
+			 FROM service_limit_overrides`
+		).all();
+		const leases = await env.DB.prepare(
+			`SELECT account_id, service, COUNT(*) AS active_leases
+			 FROM service_leases
+			 WHERE expires_at > ?
+			 GROUP BY account_id, service`
+		)
+			.bind(Date.now())
+			.all();
+		const usageByService = new Map(
+			(usage.results ?? []).map((entry) => [`${entry.account_id}:${entry.service}`, entry])
+		);
+		const overrideByService = new Map(
+			(overrides.results ?? []).map((entry) => [
+				`${entry.account_id}:${entry.service}`,
+				entry
+			])
+		);
+		const leasesByService = new Map(
+			(leases.results ?? []).map((entry) => [`${entry.account_id}:${entry.service}`, entry])
+		);
+		return json({
+			accounts: (accounts.results ?? []).map((account) => ({
+				email: account.user_email,
+				services: Object.entries(serviceUsageLimits).map(([service, defaults]) => {
+					const key = `${account.account_id}:${service}`;
+					const used = usageByService.get(key);
+					const override = overrideByService.get(key);
+					return {
+						service,
+						usage: {
+							dailyUnits: Number(used?.daily_units ?? 0),
+							monthlyUnits: Number(used?.monthly_units ?? 0),
+							activeLeases: Number(leasesByService.get(key)?.active_leases ?? 0)
+						},
+						limits: {
+							dailyUnits: Number(override?.daily_units ?? defaults.dailyUnits),
+							monthlyUnits: Number(override?.monthly_units ?? defaults.monthlyUnits),
+							concurrency: Number(override?.concurrency ?? defaults.concurrency)
+						},
+						custom: Boolean(override)
+					};
+				})
+			}))
+		});
+	}
+	if (!requireSameOrigin(request)) {
+		return json({ error: 'Invalid request origin.' }, { status: 403 });
+	}
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid usage limit request.' }, { status: 400 });
+	}
+	const email = normalizedEmail(value?.email);
+	const service = typeof value?.service === 'string' ? value.service : '';
+	const defaults = serviceUsageLimits[service];
+	if (email.length > 254 || !emailAddressPattern.test(email) || !defaults) {
+		return json({ error: 'Choose a valid account and service.' }, { status: 400 });
+	}
+	const account = await billingCustomer(env, email);
+	if (!account) return json({ error: 'Account not found.' }, { status: 404 });
+	if (request.method === 'DELETE') {
+		await env.DB.prepare(
+			'DELETE FROM service_limit_overrides WHERE account_id = ? AND service = ?'
+		)
+			.bind(account.account_id, service)
+			.run();
+		return json({
+			email,
+			service,
+			limits: {
+				dailyUnits: defaults.dailyUnits,
+				monthlyUnits: defaults.monthlyUnits,
+				concurrency: defaults.concurrency
+			},
+			custom: false
+		});
+	}
+	const limits = value?.limits;
+	if (
+		![limits?.dailyUnits, limits?.monthlyUnits, limits?.concurrency].every(
+			(limit) => Number.isSafeInteger(limit) && limit >= 0
+		)
+	) {
+		return json({ error: 'Limits must be non-negative whole numbers.' }, { status: 400 });
+	}
+	await env.DB.prepare(
+		`INSERT INTO service_limit_overrides (
+			account_id, service, daily_units, monthly_units, concurrency, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(account_id, service) DO UPDATE SET
+			daily_units = excluded.daily_units,
+			monthly_units = excluded.monthly_units,
+			concurrency = excluded.concurrency,
+			updated_at = excluded.updated_at`
+	)
+		.bind(
+			account.account_id,
+			service,
+			limits.dailyUnits,
+			limits.monthlyUnits,
+			limits.concurrency,
+			Date.now()
+		)
+		.run();
+	return json({ email, service, limits, custom: true });
+}
+
 async function feedbackBoard(request, env) {
 	const email = await authenticatedEmail(request, env);
-	await ensureSchema(env.DB);
 	const result = await env.DB.prepare(
 		`SELECT
 			item.id,
@@ -2056,16 +1992,37 @@ async function createFeedback(request, env) {
 		upvotes: 1,
 		upvoted: true
 	};
-	await env.DB.batch([
-		env.DB.prepare(
-			`INSERT INTO feedback_items (id, user_email, title, details, created_at)
-			 VALUES (?, ?, ?, ?, ?)`
-		).bind(item.id, email, title, details, item.createdAt),
-		env.DB.prepare(
+	const inserted = await env.DB.prepare(
+		`INSERT INTO feedback_items (id, user_email, title, details, created_at)
+		 SELECT ?, ?, ?, ?, ?
+		 WHERE (SELECT COUNT(*) FROM feedback_items WHERE user_email = ?) < ?
+		   AND (
+			SELECT COUNT(*) FROM feedback_items
+			WHERE user_email = ? AND created_at >= ?
+		   ) < ?`
+	)
+		.bind(
+			item.id,
+			email,
+			title,
+			details,
+			item.createdAt,
+			email,
+			maximumFeedbackItemsPerAccount,
+			email,
+			item.createdAt - 24 * 60 * 60 * 1000,
+			maximumFeedbackItemsPerDay
+		)
+		.run();
+	if (databaseChanges(inserted) !== 1) {
+		return quotaResponse('You can submit up to three feedback items per day.');
+	}
+	await env.DB.prepare(
 			`INSERT INTO feedback_upvotes (feedback_item_id, user_email, created_at)
 			 VALUES (?, ?, ?)`
-		).bind(item.id, email, item.createdAt)
-	]);
+		)
+		.bind(item.id, email, item.createdAt)
+		.run();
 	return json(item, { status: 201 });
 }
 
@@ -2179,7 +2136,6 @@ async function pricingAvailability(env) {
 	if (!env.DB) {
 		return pricingTiers.map((tier, index) => publicTier(tier, 0, index === 0));
 	}
-	await ensureSchema(env.DB);
 	await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?')
 		.bind(now)
 		.run();
@@ -2200,8 +2156,25 @@ function configuredTierForRecord(record, config) {
 	return config.tiers.find((tier) => tier.priceID === record.stripe_price_id) ?? null;
 }
 
-function hasComplimentaryPlusAccess(email) {
-	return complimentaryPlusEmails.has(String(email || '').trim().toLowerCase());
+function normalizedEmail(email) {
+	return String(email || '').trim().toLowerCase();
+}
+
+function isAdministrator(email) {
+	return administratorEmails.has(normalizedEmail(email));
+}
+
+async function hasComplimentaryPlusAccess(env, email) {
+	const normalized = normalizedEmail(email);
+	if (!normalized) return false;
+	if (isAdministrator(normalized)) return true;
+	return Boolean(
+		await env.DB.prepare(
+			'SELECT user_email FROM complimentary_access WHERE user_email = ?'
+		)
+			.bind(normalized)
+			.first()
+	);
 }
 
 function complimentaryMonthlyTTSAmountMicros(email) {
@@ -2239,7 +2212,6 @@ async function grantComplimentaryMonthlyTTSCredit(env, email, accountID, now = D
 }
 
 async function grantAllComplimentaryMonthlyTTSCredits(env) {
-	await ensureSchema(env.DB);
 	for (const email of complimentaryMonthlyTTSMicros.keys()) {
 		const customer = await ensureBillingCustomer(env, email);
 		await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
@@ -2286,11 +2258,10 @@ async function billingStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	let record = null;
 	if (email && env.DB) {
-		await ensureSchema(env.DB);
 		record = await billingCustomer(env, email);
 	}
 	const subscription = publicSubscription(record, config);
-	const complimentary = hasComplimentaryPlusAccess(email);
+	const complimentary = await hasComplimentaryPlusAccess(env, email);
 	return json({
 		configured: Boolean(config),
 		authenticated: Boolean(email),
@@ -2378,8 +2349,7 @@ async function processWithManagedAI(request, env) {
 	if (!apiKey) {
 		return json({ error: 'Briefly AI is unavailable.' }, { status: 503 });
 	}
-	await ensureSchema(env.DB);
-	const complimentary = hasComplimentaryPlusAccess(email);
+	const complimentary = await hasComplimentaryPlusAccess(env, email);
 	const config = stripeConfig(env);
 	let customer = await billingCustomer(env, email);
 	const tier = complimentary
@@ -2531,7 +2501,6 @@ async function ttsStatus(request, env) {
 			usage: []
 		});
 	}
-	await ensureSchema(env.DB);
 	let customer = await billingCustomer(env, email);
 	if (complimentaryMonthlyTTSAmountMicros(email)) {
 		customer ??= await ensureBillingCustomer(env, email);
@@ -2604,7 +2573,6 @@ async function createTTSCheckoutSession(request, env) {
 	if (!ttsTopUpAmounts.includes(amountCents) || !ttsRequestIDPattern.test(checkoutID)) {
 		return json({ error: 'Invalid top-up amount.' }, { status: 400 });
 	}
-	await ensureSchema(env.DB);
 	const customer = await ensureBillingCustomer(env, email);
 	const origin = new URL(request.url).origin;
 	const form = {
@@ -2660,7 +2628,7 @@ async function paidAccessResponse(request, env) {
 			{ status: 401 }
 		);
 	}
-	if (hasComplimentaryPlusAccess(email)) return null;
+	if (await hasComplimentaryPlusAccess(env, email)) return null;
 	const config = stripeConfig(env);
 	if (!config) {
 		return json(
@@ -2671,7 +2639,6 @@ async function paidAccessResponse(request, env) {
 			{ status: 503 }
 		);
 	}
-	await ensureSchema(env.DB);
 	const record = await billingCustomer(env, email);
 	if (subscriptionIsEntitled(record, config, env)) return null;
 	return json(
@@ -2681,6 +2648,215 @@ async function paidAccessResponse(request, env) {
 		},
 		{ status: 402 }
 	);
+}
+
+function paidProcessingEnabled(env) {
+	return String(env.PAID_PROCESSING_ENABLED ?? 'true').toLowerCase() !== 'false';
+}
+
+function quotaResponse(message) {
+	return json(
+		{ error: message, code: 'usage_limit_reached' },
+		{ status: 429, headers: { 'Retry-After': '3600' } }
+	);
+}
+
+async function serviceAccount(request, env) {
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return {
+			response: json(
+				{ error: 'Sign in before using Briefly.', code: 'authentication_required' },
+				{ status: 401 }
+			)
+		};
+	}
+	const config = stripeConfig(env);
+	const record = await billingCustomer(env, email);
+	if (
+		!(await hasComplimentaryPlusAccess(env, email)) &&
+		(!config || !subscriptionIsEntitled(record, config, env))
+	) {
+		return {
+			response: json(
+				{ error: 'An active Briefly membership is required.', code: 'subscription_required' },
+				{ status: config ? 402 : 503 }
+			)
+		};
+	}
+	return { email, customer: record ?? (await ensureBillingCustomer(env, email)) };
+}
+
+async function accountServiceLimits(env, accountID, service) {
+	const defaults = serviceUsageLimits[service];
+	const override = await env.DB.prepare(
+		`SELECT daily_units, monthly_units, concurrency
+		 FROM service_limit_overrides
+		 WHERE account_id = ? AND service = ?`
+	)
+		.bind(accountID, service)
+		.first();
+	if (!override) return defaults;
+	return {
+		...defaults,
+		dailyUnits: Number(override.daily_units),
+		monthlyUnits: Number(override.monthly_units),
+		concurrency: Number(override.concurrency)
+	};
+}
+
+async function reserveServiceLease(env, accountID, service, limits) {
+	const now = Date.now();
+	const leaseID = crypto.randomUUID();
+	await env.DB.prepare('DELETE FROM service_leases WHERE expires_at <= ?')
+		.bind(now)
+		.run();
+	const result = await env.DB.prepare(
+		`INSERT INTO service_leases (lease_id, account_id, service, expires_at, created_at)
+		 SELECT ?, ?, ?, ?, ?
+		 WHERE (
+			SELECT COUNT(*) FROM service_leases
+			WHERE account_id = ? AND service = ? AND expires_at > ?
+		 ) < ?`
+	)
+		.bind(
+			leaseID,
+			accountID,
+			service,
+			now + limits.leaseMilliseconds,
+			now,
+			accountID,
+			service,
+			now,
+			limits.concurrency
+		)
+		.run();
+	return databaseChanges(result) === 1 ? leaseID : null;
+}
+
+async function releaseServiceLease(env, accountID, service, leaseID) {
+	await env.DB.prepare(
+		'DELETE FROM service_leases WHERE lease_id = ? AND account_id = ? AND service = ?'
+	)
+		.bind(leaseID, accountID, service)
+		.run();
+}
+
+async function validServiceLease(env, accountID, service, leaseID) {
+	return env.DB.prepare(
+		`SELECT lease_id FROM service_leases
+		 WHERE lease_id = ? AND account_id = ? AND service = ? AND expires_at > ?`
+	)
+		.bind(leaseID, accountID, service, Date.now())
+		.first();
+}
+
+async function consumeServiceUnits(env, accountID, service, units, limits) {
+	const now = new Date();
+	const day = now.toISOString().slice(0, 10);
+	const month = day.slice(0, 7);
+	const usage = await env.DB.prepare(
+		`SELECT
+			COALESCE(MAX(CASE WHEN usage_day = ? THEN units ELSE 0 END), 0) AS daily_units,
+			COALESCE(SUM(CASE WHEN substr(usage_day, 1, 7) = ? THEN units ELSE 0 END), 0) AS monthly_units
+		 FROM service_usage
+		 WHERE account_id = ? AND service = ?`
+	)
+		.bind(day, month, accountID, service)
+		.first();
+	const dailyUnits = Number(usage?.daily_units ?? 0);
+	const monthlyUnits = Number(usage?.monthly_units ?? 0);
+	if (
+		dailyUnits + units > limits.dailyUnits ||
+		monthlyUnits + units > limits.monthlyUnits
+	) {
+		return null;
+	}
+	// ponytail: the concurrency cap bounds a monthly counter race to one in-flight request.
+	const result = await env.DB.prepare(
+		`INSERT INTO service_usage (account_id, service, usage_day, units, updated_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(account_id, service, usage_day) DO UPDATE SET
+			units = service_usage.units + excluded.units,
+			updated_at = excluded.updated_at
+		 WHERE service_usage.units + excluded.units <= ?`
+	)
+		.bind(accountID, service, day, units, Date.now(), limits.dailyUnits)
+		.run();
+	if (databaseChanges(result) !== 1) return null;
+	return {
+		dailyUnits: dailyUnits + units,
+		monthlyUnits: monthlyUnits + units
+	};
+}
+
+async function serviceUsage(request, env) {
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid usage request.' }, { status: 400 });
+	}
+	const defaults = serviceUsageLimits[value?.service];
+	if (!defaults || !['reserve', 'release'].includes(value?.action)) {
+		return json({ error: 'Invalid usage request.' }, { status: 400 });
+	}
+	if (value.action === 'reserve' && !paidProcessingEnabled(env)) {
+		return json({ error: 'Paid processing is temporarily paused.' }, { status: 503 });
+	}
+	const account = await serviceAccount(request, env);
+	if (account.response) return account.response;
+	const service = value.service;
+	const accountID = account.customer.account_id;
+	const leaseID =
+		typeof value.leaseID === 'string' && /^[0-9a-f-]{36}$/i.test(value.leaseID)
+			? value.leaseID
+			: null;
+	if (value.action === 'release') {
+		if (!leaseID) return json({ error: 'Invalid usage lease.' }, { status: 400 });
+		await releaseServiceLease(env, accountID, service, leaseID);
+		return json({ released: true });
+	}
+
+	const limits = await accountServiceLimits(env, accountID, service);
+	const units = Number(value.units ?? 0);
+	if (!Number.isSafeInteger(units) || units < 0 || units > limits.dailyUnits) {
+		return json({ error: 'Invalid usage amount.' }, { status: 400 });
+	}
+	const activeLease = leaseID
+		? (await validServiceLease(env, accountID, service, leaseID))
+			? leaseID
+			: null
+		: await reserveServiceLease(env, accountID, service, limits);
+	if (!activeLease) return quotaResponse('Too many jobs are already running.');
+	const usage =
+		units === 0
+			? { dailyUnits: 0, monthlyUnits: 0 }
+			: await consumeServiceUnits(env, accountID, service, units, limits);
+	if (!usage) {
+		if (!leaseID) await releaseServiceLease(env, accountID, service, activeLease);
+		return quotaResponse('This account has reached its processing allowance.');
+	}
+	return json({
+		leaseID: activeLease,
+		usage,
+		limits: {
+			dailyUnits: limits.dailyUnits,
+			monthlyUnits: limits.monthlyUnits,
+			concurrency: limits.concurrency
+		}
+	});
+}
+
+async function cleanServiceUsage(env) {
+	const cutoff = new Date();
+	cutoff.setUTCMonth(cutoff.getUTCMonth() - 2);
+	await env.DB.batch([
+		env.DB.prepare('DELETE FROM service_leases WHERE expires_at <= ?').bind(Date.now()),
+		env.DB.prepare('DELETE FROM service_usage WHERE usage_day < ?').bind(
+			cutoff.toISOString().slice(0, 10)
+		)
+	]);
 }
 
 class StripeRequestError extends Error {
@@ -2849,7 +3025,7 @@ async function createCheckoutSession(request, env) {
 			{ status: 401 }
 		);
 	}
-	if (hasComplimentaryPlusAccess(email)) {
+	if (await hasComplimentaryPlusAccess(env, email)) {
 		return json(
 			{
 				error: 'This account already has complimentary Briefly access.',
@@ -2862,7 +3038,6 @@ async function createCheckoutSession(request, env) {
 	if (!config) {
 		return json({ error: 'Briefly checkout is not configured yet.' }, { status: 503 });
 	}
-	await ensureSchema(env.DB);
 	const customer = await ensureBillingCustomer(env, email);
 	if (liveSubscriptionStatuses.has(customer?.status)) {
 		const recognized = Boolean(configuredTierForRecord(customer, config));
@@ -2971,7 +3146,6 @@ async function createBillingPortalSession(request, env) {
 	}
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const customer = await billingCustomer(env, email);
 	if (!customer?.stripe_customer_id) {
 		return json({ error: 'This account does not have a Stripe customer yet.' }, { status: 404 });
@@ -3398,7 +3572,6 @@ async function stripeWebhook(request, env) {
 	if (typeof event?.id !== 'string' || typeof event?.type !== 'string') {
 		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
 	}
-	await ensureSchema(env.DB);
 	const claim = await claimStripeWebhookEvent(env, event);
 	if (claim === 'processed') return json({ received: true, duplicate: true });
 	if (claim === 'processing') {
@@ -3446,7 +3619,6 @@ async function reconcileStripeSubscriptions(env) {
 }
 
 async function releaseStaleTTSReservations(env) {
-	await ensureSchema(env.DB);
 	const result = await env.DB.prepare(
 		`SELECT request_id, account_id, amount_micros
 		 FROM tts_usage
@@ -3650,7 +3822,6 @@ function mediaPath(url) {
 async function listDriveAudio(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const files = [];
 	let pageToken;
 	do {
@@ -3690,7 +3861,6 @@ async function listDriveAudio(request, env) {
 async function downloadDriveMedia(request, env, media) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const found = await findDriveMedia(env, email, media);
 	if (found.response) return found.response;
 	if (!found.file) return json({ error: 'Media is not stored in Google Drive.' }, { status: 404 });
@@ -3715,7 +3885,6 @@ async function uploadDriveMedia(request, env, media) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const maximumBytes = media.kind === 'audio' ? 100_000_000 : 2_000_000;
 	const contentLength = Number(request.headers.get('Content-Length') || 0);
 	if (contentLength > maximumBytes) {
@@ -3736,6 +3905,19 @@ async function uploadDriveMedia(request, env, media) {
 	}
 	if ((await sha256Hex(bytes)) !== media.hash) {
 		return json({ error: 'The media hash does not match its content.' }, { status: 400 });
+	}
+	const customer = await ensureBillingCustomer(env, email);
+	const limits = await accountServiceLimits(env, customer.account_id, 'media');
+	if (
+		!(await consumeServiceUnits(
+			env,
+			customer.account_id,
+			'media',
+			bytes.byteLength,
+			limits
+		))
+	) {
+		return quotaResponse('This account has reached its media upload allowance.');
 	}
 	const folderID = await ensureDriveMediaFolder(env, email, media.kind);
 	const metadata = JSON.stringify({
@@ -3791,8 +3973,11 @@ function mediaExtension(contentType) {
 
 const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive', 'source'];
 const maximumShareSpeechSegmentLength = 360;
-const maximumShareDocumentBytes = 8_000_000;
-const maximumSharePayloadBytes = 32_000_000;
+const maximumShareDocumentBytes = 1_000_000;
+const maximumSharePayloadBytes = 3_000_000;
+const maximumShareTextBytesPerAccount = 100_000_000;
+const maximumShareAudioBytes = 100_000_000;
+const maximumShareAudioBytesPerAccount = 2_000_000_000;
 
 function validShareToken(value) {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
@@ -3884,6 +4069,42 @@ function directShareSource(value, captureID) {
 		sourcePath: `library/${value.filename}`,
 		documents
 	};
+}
+
+function validateShareDocuments(documents) {
+	let totalBytes = 0;
+	for (const document of documents) {
+		const byteCount = new TextEncoder().encode(document.markdown).byteLength;
+		totalBytes += byteCount;
+		if (byteCount > maximumShareDocumentBytes || totalBytes > maximumSharePayloadBytes) {
+			throw new Error('The selected document is too large to share.');
+		}
+	}
+	return totalBytes;
+}
+
+async function ownerShareTextBytes(env, email, excludedToken) {
+	const row = await env.DB.prepare(
+		`SELECT COALESCE(SUM(length(CAST(text.markdown AS BLOB))), 0) AS byte_count
+		 FROM share_texts text
+		 JOIN share_links link ON link.token = text.share_token
+		 WHERE link.owner_email = ? AND text.share_token <> ?`
+	)
+		.bind(email, excludedToken)
+		.first();
+	return Number(row?.byte_count ?? 0);
+}
+
+async function ownerShareAudioBytes(env, email, excludedToken) {
+	const row = await env.DB.prepare(
+		`SELECT COALESCE(SUM(audio.byte_count), 0) AS byte_count
+		 FROM share_audio_segments audio
+		 JOIN share_links link ON link.token = audio.share_token
+		 WHERE link.owner_email = ? AND audio.share_token <> ?`
+	)
+		.bind(email, excludedToken)
+		.first();
+	return Number(row?.byte_count ?? 0);
 }
 
 async function shareLinkForOwner(env, email, captureID) {
@@ -4129,6 +4350,13 @@ async function prepareShareLink(
 		if (!documents.some((document) => document.variant === 'source')) {
 			throw new Error('The source document is unavailable.');
 		}
+		const textBytes = validateShareDocuments(documents);
+		if (
+			(await ownerShareTextBytes(env, email, token)) + textBytes >
+			maximumShareTextBytesPerAccount
+		) {
+			throw new Error('This account has reached its public sharing storage limit.');
+		}
 
 		for (const document of documents) {
 			await env.DB.prepare(
@@ -4152,6 +4380,14 @@ async function prepareShareLink(
 			if (found.response) throw new Error('The document audio could not be read.');
 			if (found.file) {
 				const bytes = await downloadDriveFile(env, email, found.file.id);
+				if (
+					!bytes.byteLength ||
+					bytes.byteLength > maximumShareAudioBytes ||
+					(await ownerShareAudioBytes(env, email, token)) + bytes.byteLength >
+						maximumShareAudioBytesPerAccount
+				) {
+					throw new Error('This account has reached its public audio storage limit.');
+				}
 				if ((await sha256Hex(bytes)) !== hash) {
 					throw new Error('The document audio did not match the library index.');
 				}
@@ -4228,15 +4464,12 @@ async function uploadShareAudio(request, env, token, generation, variant, index,
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	if (
 		!/^[a-f0-9-]{36}$/.test(generation) ||
-		!shareVariants.includes(variant) ||
-		!Number.isSafeInteger(index) ||
-		index < 0 ||
-		index > 10_000 ||
+		variant !== 'source' ||
+		index !== 0 ||
 		!/^[a-f0-9]{64}$/.test(hash)
 	) {
 		return json({ error: 'Invalid narration segment.' }, { status: 400 });
 	}
-	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
 	if (!record || record.owner_email !== email) {
 		return json({ error: 'Share link not found.' }, { status: 404 });
@@ -4252,8 +4485,17 @@ async function uploadShareAudio(request, env, token, generation, variant, index,
 		return json({ error: 'Only audio narration can be shared.' }, { status: 400 });
 	}
 	const bytes = await request.arrayBuffer();
-	if (!bytes.byteLength || bytes.byteLength > 100_000_000) {
+	if (!bytes.byteLength || bytes.byteLength > maximumShareAudioBytes) {
 		return json({ error: 'Shared audio must be between 1 byte and 100 MB.' }, { status: 413 });
+	}
+	if (
+		(await ownerShareAudioBytes(env, email, token)) + bytes.byteLength >
+		maximumShareAudioBytesPerAccount
+	) {
+		return json(
+			{ error: 'This account has reached its public audio storage limit.' },
+			{ status: 413 }
+		);
 	}
 	if ((await sha256Hex(bytes)) !== hash) {
 		return json({ error: 'The shared audio hash does not match its content.' }, { status: 400 });
@@ -4284,7 +4526,6 @@ async function uploadShareAudio(request, env, token, generation, variant, index,
 async function ownerShareLinkStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const captureID = new URL(request.url).searchParams.get('captureID');
 	if (!captureID) {
 		const result = await shareLinksForOwner(env, email);
@@ -4306,7 +4547,6 @@ async function publishShareLink(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	let value;
 	try {
 		value = await request.json();
@@ -4382,7 +4622,6 @@ async function revokeShareLink(request, env, token, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
 	if (!record || record.owner_email !== email) {
 		return json({ error: 'Share link not found.' }, { status: 404 });
@@ -4409,7 +4648,6 @@ async function revokeShareLink(request, env, token, context) {
 }
 
 async function publicShareDocument(request, env, token) {
-	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
 	if (!record) return json({ error: 'This share link is no longer available.' }, { status: 404 });
 	if (record.status !== 'ready') {
@@ -4474,7 +4712,6 @@ async function publicShareDocument(request, env, token) {
 }
 
 async function publicShareAudio(request, env, token, variant, index) {
-	await ensureSchema(env.DB);
 	const record = await shareLinkByToken(env, token);
 	if (!record || record.status !== 'ready') {
 		return json({ error: 'This narration is no longer available.' }, { status: 404 });
@@ -4538,7 +4775,6 @@ async function sharedFolderConnection(env, email) {
 async function sharedFolderStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ connected: false }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	return json({
 		connected: Boolean(connection),
@@ -4855,7 +5091,6 @@ async function connectSharedFolder(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	let value;
 	try {
 		value = await request.json();
@@ -4914,7 +5149,6 @@ async function disconnectSharedFolder(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	await env.DB.batch([
 		env.DB.prepare('DELETE FROM sharing_operations WHERE user_email = ?').bind(email),
 		env.DB.prepare('DELETE FROM shared_folder_connections WHERE user_email = ?').bind(email)
@@ -5360,7 +5594,6 @@ async function resumeSharingOperation(env, email, captureID, operation, context)
 async function sharedItemStatus(request, env, context) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
 	const captureID = new URL(request.url).searchParams.get('captureID');
@@ -5410,7 +5643,6 @@ async function sharedItemStatus(request, env, context) {
 async function sharedOperationStatus(request, env, context) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const captureID = new URL(request.url).searchParams.get('captureID');
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
@@ -5433,7 +5665,6 @@ async function updateSharedItem(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
 	let value;
@@ -5468,7 +5699,6 @@ async function updateSharedItem(request, env, context) {
 async function loadSharedInboxProjection(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) {
 		return json({ schemaVersion: 3, generatedAt: new Date().toISOString(), files: [], entries: [] });
@@ -5653,7 +5883,6 @@ async function dismissInboxReference(request, env, referenceID) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
 	try {
@@ -5817,7 +6046,6 @@ async function saveInboxReference(request, env, referenceID) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await ensureSchema(env.DB);
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
 	try {
@@ -5907,9 +6135,13 @@ async function saveInboxReference(request, env, referenceID) {
 	}
 }
 
-const worker = {
+const routeWorker = {
 	async fetch(request, env, context) {
 		const url = new URL(request.url);
+		if (url.hostname === 'readbriefly.fyi') {
+			url.hostname = 'www.readbriefly.fyi';
+			return Response.redirect(url.toString(), 308);
+		}
 		const publicShare = url.pathname.match(
 			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})$/
 		);
@@ -5917,7 +6149,7 @@ const worker = {
 			return publicShareDocument(request, env, publicShare[1]);
 		}
 		const publicShareAudioMatch = url.pathname.match(
-			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(brief|concise|detailed|comprehensive|source)\/(\d+)$/
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(source)\/(0)$/
 		);
 		if (publicShareAudioMatch && request.method === 'GET') {
 			return publicShareAudio(
@@ -5929,7 +6161,7 @@ const worker = {
 			);
 		}
 		const ownerShareAudio = url.pathname.match(
-			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(brief|concise|detailed|comprehensive|source)\/(\d+)\/([a-f0-9]{64})$/
+			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(source)\/(0)\/([a-f0-9]{64})$/
 		);
 		if (ownerShareAudio && request.method === 'PUT') {
 			const denied = await paidAccessResponse(request, env);
@@ -5962,10 +6194,24 @@ const worker = {
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
 		}
+		if (
+			url.pathname === '/api/admin/complimentary-access' &&
+			['GET', 'POST', 'DELETE'].includes(request.method)
+		) {
+			return adminComplimentaryAccess(request, env);
+		}
+		if (
+			url.pathname === '/api/admin/usage' &&
+			['GET', 'PUT', 'DELETE'].includes(request.method)
+		) {
+			return adminUsage(request, env);
+		}
 		if (url.pathname === '/api/feedback' && request.method === 'GET') {
 			return feedbackBoard(request, env);
 		}
 		if (url.pathname === '/api/feedback' && request.method === 'POST') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
 			return createFeedback(request, env);
 		}
 		const feedbackUpvote = url.pathname.match(
@@ -5976,6 +6222,9 @@ const worker = {
 		}
 		if (url.pathname === '/api/billing/status' && request.method === 'GET') {
 			return billingStatus(request, env);
+		}
+		if (url.pathname === '/api/usage' && request.method === 'POST') {
+			return serviceUsage(request, env);
 		}
 		if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
 			return createCheckoutSession(request, env);
@@ -6065,11 +6314,75 @@ const worker = {
 		context.waitUntil(
 			Promise.all([
 				reconcileStripeSubscriptions(env),
-				releaseStaleTTSReservations(env)
+				releaseStaleTTSReservations(env),
+				cleanServiceUsage(env)
 			])
 		);
 	}
 };
 
-export { libraryMediaManifest };
+const contentSecurityPolicy = [
+	"default-src 'self'",
+	"script-src 'self' https://cdn.apple-cloudkit.com",
+	"style-src 'self' 'unsafe-inline'",
+	"font-src 'self'",
+	"img-src 'self' data: blob:",
+	"media-src 'self' blob:",
+	"connect-src 'self' https://*.apple.com https://*.apple-cloudkit.com https://*.icloud.com https://*.icloud-content.com https://*.posthog.com",
+	"frame-src https://*.apple.com",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"form-action 'self'",
+	"frame-ancestors 'none'"
+].join('; ');
+
+function secureResponse(response, requestID) {
+	const headers = new Headers(response.headers);
+	headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+	headers.set('X-Content-Type-Options', 'nosniff');
+	headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+	headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+	headers.set('X-Frame-Options', 'DENY');
+	headers.set('Content-Security-Policy', contentSecurityPolicy);
+	headers.set('X-Request-ID', requestID);
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers
+	});
+}
+
+const worker = {
+	async fetch(request, env, context) {
+		const requestID = crypto.randomUUID();
+		try {
+			return secureResponse(
+				await routeWorker.fetch(request, env, context),
+				requestID
+			);
+		} catch (error) {
+			console.error(
+				JSON.stringify({
+					level: 'error',
+					requestID,
+					method: request.method,
+					path: new URL(request.url).pathname,
+					message: error instanceof Error ? error.message : String(error)
+				})
+			);
+			return secureResponse(
+				json(
+					{ error: 'Briefly could not complete this request.', requestID },
+					{ status: 500 }
+				),
+				requestID
+			);
+		}
+	},
+	scheduled(controller, env, context) {
+		return routeWorker.scheduled(controller, env, context);
+	}
+};
+
+export { libraryMediaManifest, serviceUsageLimits };
 export default worker;

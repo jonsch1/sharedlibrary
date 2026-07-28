@@ -5,9 +5,8 @@ Deploy:
     modal deploy Tools/whisper/modal_whisper_service.py
 """
 
-from ipaddress import ip_address
+from math import ceil, isfinite
 from pathlib import Path
-from socket import getaddrinfo
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -18,7 +17,9 @@ from pydantic import BaseModel, Field
 MODEL = "large-v3-turbo"
 CACHE = "/cache/huggingface"
 MEDIA = Path("/media")
-MAXIMUM_MEDIA_BYTES = 2_000_000_000
+MAXIMUM_MEDIA_BYTES = 250_000_000
+MAXIMUM_MEDIA_SECONDS = 4 * 60 * 60
+BRIEFLY_API = "https://www.readbriefly.fyi"
 YOUTUBE_HOSTS = {
     "youtu.be",
     "youtube.com",
@@ -67,6 +68,7 @@ def download() -> str:
     memory=4096,
     volumes={"/cache": cache, "/media": media},
     min_containers=0,
+    max_containers=3,
     scaledown_window=2,
     timeout=1800,
 )
@@ -125,7 +127,7 @@ async def transcribe(
 ):
     from fastapi import HTTPException
 
-    await _require_subscription(authorization)
+    lease = await _reserve_usage(authorization, "transcription", 0)
     job = uuid4().hex
     paths: list[Path] = []
     try:
@@ -148,6 +150,10 @@ async def transcribe(
             include_timestamps = (
                 request.headers.get("x-briefly-include-timestamps") == "1"
             )
+        duration = await _media_duration(paths[0])
+        await _reserve_usage(
+            authorization, "transcription", ceil(duration), lease
+        )
         media.commit()
         result = await Whisper().transcribe.remote.aio(str(paths[0]))
         return {
@@ -162,12 +168,18 @@ async def transcribe(
         print(f"Transcription failed: {error}", flush=True)
         raise HTTPException(status_code=422, detail=str(error)) from error
     finally:
+        await _release_usage(authorization, "transcription", lease)
         for path in MEDIA.glob(f"{job}.*"):
             path.unlink(missing_ok=True)
         media.commit()
 
 
-async def _require_subscription(authorization: str | None) -> None:
+async def _reserve_usage(
+    authorization: str | None,
+    service: str,
+    units: int,
+    lease_id: str | None = None,
+) -> str:
     import httpx
     from fastapi import HTTPException
 
@@ -175,14 +187,49 @@ async def _require_subscription(authorization: str | None) -> None:
     if not token:
         raise HTTPException(status_code=401, detail="Sign in to Briefly.")
     async with httpx.AsyncClient(timeout=20) as client:
-        account = await client.get(
-            "https://www.readbriefly.fyi/api/billing/status",
+        response = await client.post(
+            f"{BRIEFLY_API}/api/usage",
             headers={"Cookie": f"shared_library_session={token}"},
+            json={
+                "action": "reserve",
+                "service": service,
+                "units": units,
+                **({"leaseID": lease_id} if lease_id else {}),
+            },
         )
-    if account.status_code != 200 or not account.json().get("entitled"):
+    if response.status_code != 200:
+        try:
+            detail = response.json().get("error")
+        except Exception:
+            detail = None
         raise HTTPException(
-            status_code=403, detail="A Briefly subscription is required."
+            status_code=response.status_code,
+            detail=detail or "Briefly could not authorize this transcription.",
         )
+    return response.json()["leaseID"]
+
+
+async def _release_usage(
+    authorization: str | None, service: str, lease_id: str | None
+) -> None:
+    import httpx
+
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not token or not lease_id:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            await client.post(
+                f"{BRIEFLY_API}/api/usage",
+                headers={"Cookie": f"shared_library_session={token}"},
+                json={
+                    "action": "release",
+                    "service": service,
+                    "leaseID": lease_id,
+                },
+            )
+    except Exception as error:
+        print(f"Usage lease release failed: {error}", flush=True)
 
 
 async def _download_media(raw_url: str, job: str) -> list[Path]:
@@ -209,42 +256,38 @@ async def _download_media(raw_url: str, job: str) -> list[Path]:
         if process.returncode != 0 or not paths:
             message = errors.decode(errors="replace").strip().splitlines()
             raise ValueError(message[-1] if message else "YouTube audio download failed.")
+        if any(path.stat().st_size > MAXIMUM_MEDIA_BYTES for path in paths):
+            raise ValueError("Media is too large to transcribe.")
         return paths
-
-    destination = MEDIA / f"{job}.media"
-    await _download_direct(url, destination)
-    return [destination]
+    raise ValueError("Upload podcast media directly for transcription.")
 
 
-async def _download_direct(raw_url: str, destination: Path) -> None:
-    import httpx
+async def _media_duration(path: Path) -> float:
+    import asyncio
 
-    url = raw_url
-    async with httpx.AsyncClient(timeout=120, follow_redirects=False) as client:
-        for _ in range(12):
-            _validated_url(url)
-            async with client.stream("GET", url) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise ValueError("Media redirect had no destination.")
-                    url = str(response.url.join(location))
-                    continue
-                response.raise_for_status()
-                declared = int(response.headers.get("content-length", "0") or 0)
-                if declared > MAXIMUM_MEDIA_BYTES:
-                    raise ValueError("Media is too large to transcribe.")
-                written = 0
-                with destination.open("wb") as output:
-                    async for chunk in response.aiter_bytes():
-                        written += len(chunk)
-                        if written > MAXIMUM_MEDIA_BYTES:
-                            raise ValueError("Media is too large to transcribe.")
-                        output.write(chunk)
-                if written == 0:
-                    raise ValueError("Media download was empty.")
-                return
-        raise ValueError("Media redirected too many times.")
+    process = await asyncio.create_subprocess_exec(
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    output, errors = await process.communicate()
+    try:
+        duration = float(output.decode().strip())
+    except ValueError as error:
+        raise ValueError("Media duration could not be read.") from error
+    if process.returncode != 0 or not isfinite(duration) or duration <= 0:
+        message = errors.decode(errors="replace").strip()
+        raise ValueError(message or "Media duration could not be read.")
+    if duration > MAXIMUM_MEDIA_SECONDS:
+        raise ValueError("Media must be four hours or shorter.")
+    return duration
 
 
 def _validated_url(raw_url: str) -> str:
@@ -253,12 +296,8 @@ def _validated_url(raw_url: str) -> str:
         raise ValueError("Only HTTP(S) media URLs are supported.")
     if parsed.username or parsed.password:
         raise ValueError("Media URLs cannot contain credentials.")
-    for result in getaddrinfo(
-        parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
-    ):
-        address = ip_address(result[4][0])
-        if not address.is_global:
-            raise ValueError("Private network media URLs are not supported.")
+    if parsed.hostname.lower() not in YOUTUBE_HOSTS:
+        raise ValueError("Only YouTube URLs may be downloaded by the transcription service.")
     return raw_url
 
 

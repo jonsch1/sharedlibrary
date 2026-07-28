@@ -65,6 +65,6 @@
 		"wrangler": "^4.114.0"
 	},
 	"dependencies": {
-		"@googleworkspace/drive-picker-element": "^0.7.3"
+		"posthog-js": "^1.407.5"
 	}
 }

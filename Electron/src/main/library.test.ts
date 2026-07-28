@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import test from 'node:test';
@@ -273,7 +273,7 @@ test('builds a folder-preserving Drive mirror and keeps local files on the first
         byteCount: Buffer.byteLength(remoteOnly)
       }
     ];
-    const downloaded = await service.mergeRemoteMirror(
+    const merge = await service.mergeRemoteMirror(
       {
         schemaVersion: 3,
         generatedAt: new Date().toISOString(),
@@ -282,7 +282,7 @@ test('builds a folder-preserving Drive mirror and keeps local files on the first
       },
       async (file) => (file.path.endsWith('remote-only.md') ? remoteOnly : remoteText)
     );
-    assert.equal(downloaded, 1);
+    assert.deepEqual(merge, { changed: 1, conflicts: 0 });
     assert.match(await readFile(join(root, 'library', 'local.md'), 'utf8'), /Local text/);
     assert.match(
       await readFile(join(root, 'library', 'remote-only.md'), 'utf8'),
@@ -323,6 +323,78 @@ test('builds a folder-preserving Drive mirror and keeps local files on the first
       await readFile(join(root, 'library', 'audio', 'remote-audio.wav')),
       Buffer.from(remoteAudio)
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('sync applies a remote deletion when the local file is unchanged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'shared-library-electron-remote-delete-'));
+  try {
+    const sourcePath = join(root, 'library', 'example.md');
+    await mkdir(join(root, 'library'), { recursive: true });
+    await writeFile(sourcePath, 'Original text.\n');
+    const service = new LibraryService(root, 'linux', async (path) => {
+      await rename(path, `${path}.trashed`);
+    });
+    const baseline = await service.buildDriveMirror();
+    await service.saveSyncBaseline(baseline.index.files);
+
+    const merge = await service.mergeRemoteMirror(
+      {
+        schemaVersion: 3,
+        generatedAt: new Date().toISOString(),
+        files: [],
+        entries: []
+      },
+      async () => {
+        throw new Error('A deleted remote file must not be downloaded.');
+      }
+    );
+
+    assert.deepEqual(merge, { changed: 1, conflicts: 0 });
+    await assert.rejects(readFile(sourcePath, 'utf8'));
+    assert.equal(await readFile(`${sourcePath}.trashed`, 'utf8'), 'Original text.\n');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('sync keeps both copies when the same file changed locally and remotely', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'shared-library-electron-conflict-'));
+  try {
+    const sourcePath = join(root, 'library', 'example.md');
+    const original = `---\nid: "example"\ntitle: "Example"\n---\n\nOriginal.\n`;
+    const local = original.replace('Original.', 'Changed locally.');
+    const remote = original.replace('Original.', 'Changed remotely.');
+    await mkdir(join(root, 'library'), { recursive: true });
+    await writeFile(sourcePath, original);
+    const service = new LibraryService(root, 'linux', async (path) => {
+      await rename(path, `${path}.trashed`);
+    });
+    const baseline = await service.buildDriveMirror();
+    await service.saveSyncBaseline(baseline.index.files);
+    await writeFile(sourcePath, local);
+
+    const merge = await service.mergeRemoteMirror(
+      {
+        schemaVersion: 3,
+        generatedAt: new Date().toISOString(),
+        files: [{
+          path: 'library/example.md',
+          contentHash: createHash('sha256').update(remote).digest('hex'),
+          byteCount: Buffer.byteLength(remote)
+        }],
+        entries: []
+      },
+      async () => remote
+    );
+
+    assert.deepEqual(merge, { changed: 1, conflicts: 1 });
+    assert.equal(await readFile(sourcePath, 'utf8'), remote);
+    const conflict = await readFile(join(root, 'library', 'example-conflict.md'), 'utf8');
+    assert.match(conflict, /Changed locally/);
+    assert.doesNotMatch(conflict, /id: "example"/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

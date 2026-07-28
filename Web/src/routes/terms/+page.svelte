@@ -38,6 +38,7 @@
 		<ul>
 			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device iCloud or Google Drive synchronization, and public share links.</li>
 			<li>An account and active membership are required to access the apps and downloads.</li>
+			<li>Briefly AI provides hosted summary and podcast-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
 			<li>Features may require a supported operating system, browser, internet connection, Apple or Google account, or third-party service.</li>
 			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
@@ -116,6 +117,22 @@
 			<li>If payment fails, access to Briefly may be limited or suspended after Stripe's retry process. Your locally stored or Google Drive files remain yours.</li>
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
+		<h3>Fair-use limits</h3>
+		<p>
+			The membership includes high but finite processing and storage allowances so one account
+			cannot exhaust shared infrastructure. Current limits include 8 hours of transcription per
+			day and 50 hours per month; 250,000 voice-generation characters per day and 2 million per
+			month; up to 100 active public links, 100 MB of public share text, and 2 GB of public
+			share audio; and a conservative Firecrawl extraction allowance. Individual transcription
+			inputs must be no larger than 250 MB or four hours, and individual voice requests no
+			longer than 60,000 characters.
+		</p>
+		<p>
+			We may temporarily slow or pause processing when a limit is reached, during an incident, or
+			to prevent abuse. We may adjust limits reasonably as actual use and provider costs become
+			clear, but will not use them to remove the core paid service without appropriate notice.
+			Contact us if a legitimate workflow regularly needs more.
+		</p>
 
 		<h3>German and EEA consumer right of withdrawal</h3>
 		<p>
@@ -148,8 +165,11 @@
 	<section>
 		<h2>7. Third-party services</h2>
 		<p>
-			Briefly interoperates with Google Drive, Stripe, GitHub, operating systems, and
-			browsers. Their services and terms are separate from ours. We are responsible for Briefly,
+			Briefly interoperates with Apple and iCloud, Google Drive, Stripe, GitHub, OpenRouter,
+			optional third-party AI CLIs such as OpenAI/Codex,
+			Modal-hosted transcription and voice generation, Firecrawl extraction, consent-only
+			PostHog analytics, operating systems, and browsers. Their services and terms are separate
+			from ours. We are responsible for Briefly,
 			not for third-party outages, account decisions, content, or changes outside our reasonable
 			control. We will use reasonable care when choosing and integrating providers and will not
 			use this section to avoid responsibility that mandatory law places on us.
