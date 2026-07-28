@@ -7,7 +7,7 @@ import {
   stat,
   writeFile
 } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import {
   libraryVariants,
   type DesktopPlatform,
@@ -16,6 +16,15 @@ import {
   type LibraryVariant,
   type TopicDefinition
 } from '../shared/contracts.js';
+import type {
+  LibraryEntry,
+  LibraryFile,
+  LibraryMedia,
+  LibraryMediaKind,
+  LibraryPodcast,
+  LibraryProjection,
+  LibraryText
+} from '../../../Shared/library.js';
 
 interface ParsedMarkdown {
   metadata: Record<string, string | string[]>;
@@ -30,36 +39,18 @@ interface IndexedEntry {
   variantPaths: Partial<Record<LibraryVariant, string>>;
 }
 
-export interface DriveLibraryFile {
-  path: string;
-  contentHash: string;
-  byteCount: number;
-}
-
-export interface DriveLibraryText {
-  variant: LibraryVariant;
+export type DriveLibraryFile = LibraryFile;
+export type DriveLibraryMedia = LibraryMedia & { content: string };
+export type DriveLibraryText = LibraryText & {
   path: string;
   contentHash: string;
   wordCount: number;
-}
+};
 
-export interface DriveLibraryIndex {
+export interface DriveLibraryIndex extends Omit<LibraryProjection, 'entries'> {
   schemaVersion: 3;
-  generatedAt: string;
-  files: DriveLibraryFile[];
-  entries: Array<{
-    id: string;
+  entries: Array<Omit<LibraryEntry, 'captureID' | 'origin' | 'texts'> & {
     captureID: string;
-    entryType?: string;
-    podcastID?: string;
-    title: string;
-    excerpt: string;
-    topicIDs: string[];
-    topicNames: string[];
-    tags: string[];
-    sourceURL?: string;
-    createdAt?: string;
-    updatedAt?: string;
     origin: 'personal';
     texts: DriveLibraryText[];
   }>;
@@ -68,6 +59,7 @@ export interface DriveLibraryIndex {
 export interface DriveLibraryMirror {
   index: DriveLibraryIndex;
   files: Array<DriveLibraryFile & { content: string }>;
+  media: DriveLibraryMedia[];
 }
 
 export interface ProcessingSuggestion {
@@ -537,7 +529,27 @@ export class LibraryService {
       })
     );
     const filesByPath = new Map(files.map((file) => [file.path, file]));
-    const entries = snapshot.entries.map((entry) => {
+    const mediaByHash = new Map<string, DriveLibraryMedia>();
+    const addMedia = async (
+      kind: LibraryMediaKind,
+      path: string
+    ): Promise<LibraryMedia | undefined> => {
+      if (!(await isFile(join(this.workspacePath, path)))) return undefined;
+      const bytes = new Uint8Array(await readFile(join(this.workspacePath, path)));
+      const contentHash = sha256(bytes);
+      const media: DriveLibraryMedia = {
+        kind,
+        path,
+        contentHash,
+        byteCount: bytes.byteLength,
+        contentType: mediaContentType(path, kind),
+        content: Buffer.from(bytes).toString('base64')
+      };
+      mediaByHash.set(`${kind}:${contentHash}`, media);
+      const { content: _, ...reference } = media;
+      return reference;
+    };
+    const entries = await Promise.all(snapshot.entries.map(async (entry) => {
       const texts = entry.availableVariants.flatMap((variant) => {
         const path =
           variant === 'source'
@@ -554,6 +566,15 @@ export class LibraryService {
           wordCount: countWords(text)
         }];
       });
+      const indexed = this.indexedEntries.get(entry.id);
+      const audioPath = indexed?.audioPath
+        ? relative(this.workspacePath, indexed.audioPath).split('\\').join('/')
+        : undefined;
+      const audio = audioPath ? await addMedia('audio', audioPath) : undefined;
+      const faviconPath = entry.faviconFile
+        ? `library/favicons/${entry.faviconFile}`
+        : undefined;
+      const favicon = faviconPath ? await addMedia('favicon', faviconPath) : undefined;
       return {
         id: entry.id,
         captureID: entry.captureID,
@@ -565,11 +586,37 @@ export class LibraryService {
         topicNames: entry.topicNames,
         tags: entry.tags,
         sourceURL: entry.sourceURL,
+        mediaURL: entry.mediaURL,
+        faviconFile: entry.faviconFile,
+        audio,
+        favicon,
+        sourceIDs: entry.sourceIDs,
+        sourceURLs: entry.sourceURLs,
+        hasAudio: Boolean(audio),
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         origin: 'personal' as const,
         texts
       };
+    }));
+    const podcasts: LibraryPodcast[] = files.flatMap((file) => {
+      if (
+        !/^podcasts\/[^/]+\.md$/i.test(file.path) ||
+        file.path.toLowerCase() === 'podcasts/readme.md'
+      ) return [];
+      const filename = basename(file.path);
+      const metadata = parseMarkdown(file.content).metadata;
+      return [{
+        id: stringValue(metadata.id) || `file:${filename}`,
+        filename,
+        title:
+          stringValue(metadata.name) ||
+          stringValue(metadata.title) ||
+          basename(filename, '.md').replaceAll('-', ' '),
+        schedule: stringValue(metadata.schedule) || 'manual',
+        length: stringValue(metadata.length),
+        sources: arrayValue(metadata.sources)
+      }];
     });
     return {
       index: {
@@ -580,9 +627,11 @@ export class LibraryService {
           contentHash,
           byteCount
         })),
-        entries
+        entries,
+        podcasts
       },
-      files
+      files,
+      media: [...mediaByHash.values()]
     };
   }
 
@@ -612,6 +661,37 @@ export class LibraryService {
         throw new Error(`Google Drive returned an invalid copy of ${remote.path}.`);
       }
       await atomicWrite(join(this.workspacePath, remote.path), content);
+      downloaded += 1;
+    }
+    if (downloaded > 0) this.indexedEntries.clear();
+    return downloaded;
+  }
+
+  async mergeRemoteMedia(
+    index: DriveLibraryIndex,
+    download: (media: LibraryMedia) => Promise<Uint8Array>
+  ): Promise<number> {
+    const media = index.entries.flatMap((entry) =>
+      [entry.audio, entry.favicon].filter(
+        (candidate): candidate is LibraryMedia => Boolean(candidate)
+      )
+    );
+    let downloaded = 0;
+    for (const remote of media) {
+      if (!validMediaPath(remote.path, remote.kind)) continue;
+      const path = join(this.workspacePath, remote.path);
+      if (await isFile(path)) {
+        const local = new Uint8Array(await readFile(path));
+        if (sha256(local) === remote.contentHash) continue;
+      }
+      const bytes = await download(remote);
+      if (
+        bytes.byteLength !== remote.byteCount ||
+        sha256(bytes) !== remote.contentHash
+      ) {
+        throw new Error(`The synchronized copy of ${remote.path} is invalid.`);
+      }
+      await atomicWrite(path, bytes);
       downloaded += 1;
     }
     if (downloaded > 0) this.indexedEntries.clear();
@@ -947,6 +1027,37 @@ function validMirroredPath(value: string): boolean {
     !value.toLowerCase().endsWith('.md')
   ) return false;
   return !value.split('/').some((component) => !component || component === '.' || component === '..');
+}
+
+function validMediaPath(value: string, kind: LibraryMediaKind): boolean {
+  const directory = kind === 'audio' ? 'audio' : 'favicons';
+  return (
+    value.startsWith(`library/${directory}/`) &&
+    !value.split('/').some((component) => !component || component === '.' || component === '..')
+  );
+}
+
+function mediaContentType(path: string, kind: LibraryMediaKind): string {
+  const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
+  const types: Record<string, string> = kind === 'audio'
+    ? {
+        aac: 'audio/aac',
+        flac: 'audio/flac',
+        m4a: 'audio/mp4',
+        mp3: 'audio/mpeg',
+        ogg: 'audio/ogg',
+        opus: 'audio/ogg',
+        wav: 'audio/wav',
+        webm: 'audio/webm'
+      }
+    : {
+        gif: 'image/gif',
+        ico: 'image/x-icon',
+        jpg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp'
+      };
+  return types[extension] ?? (kind === 'audio' ? 'audio/mpeg' : 'image/png');
 }
 
 function serializeFrontmatter(metadata: Record<string, string | string[]>): string {

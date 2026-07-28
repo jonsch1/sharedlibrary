@@ -1,160 +1,52 @@
-export const librarySchemaVersion = 3;
+import {
+	hasSameLibraryContent,
+	isMainLibraryEntry,
+	librarySchemaVersion,
+	libraryVariants,
+	matchesLibraryEntry,
+	parseLibraryProjection,
+	preferredVariant,
+	shouldRenderSourceAsPlainText,
+	textFor,
+	type LibraryEntry,
+	type LibraryFile,
+	type LibraryMedia,
+	type LibraryOrigin,
+	type LibraryPodcast,
+	type LibraryProjection,
+	type LibraryText,
+	type LibraryVariant
+} from '../../../Shared/library.js';
 
-export const libraryVariants = [
-	'brief',
-	'concise',
-	'detailed',
-	'comprehensive',
-	'source'
-] as const;
-
-export type LibraryVariant = (typeof libraryVariants)[number];
-export type LibraryOrigin = 'personal' | 'shared';
-
-export interface LibraryText {
-	variant: LibraryVariant;
-	path?: string;
-	contentHash?: string;
-	wordCount?: number;
-	text?: string;
-}
-
-export interface LibraryFile {
-	path: string;
-	contentHash: string;
-	byteCount: number;
-}
-
-export interface LibraryEntry {
-	id: string;
-	captureID?: string;
-	entryType?: string;
-	podcastID?: string;
-	title: string;
-	excerpt: string;
-	topicIDs: string[];
-	topicNames: string[];
-	tags: string[];
-	sourceURL?: string;
-	createdAt?: string;
-	updatedAt?: string;
-	reviewedAt?: string;
-	origin: LibraryOrigin;
-	sharedByUsername?: string;
-	inboxReferenceID?: string;
-	texts: LibraryText[];
-}
-
-export interface LibraryProjection {
-	schemaVersion: number;
-	generatedAt: string;
-	files: LibraryFile[];
-	entries: LibraryEntry[];
-}
+export {
+	hasSameLibraryContent,
+	isMainLibraryEntry,
+	librarySchemaVersion,
+	libraryVariants,
+	matchesLibraryEntry,
+	parseLibraryProjection,
+	preferredVariant,
+	shouldRenderSourceAsPlainText,
+	textFor,
+	type LibraryEntry,
+	type LibraryFile,
+	type LibraryMedia,
+	type LibraryOrigin,
+	type LibraryPodcast,
+	type LibraryProjection,
+	type LibraryText,
+	type LibraryVariant
+};
 
 export interface LibrarySyncProgress {
 	completed: number;
 	total: number;
 }
 
-export function hasSameLibraryContent(
-	left: LibraryProjection,
-	right: LibraryProjection
-): boolean {
-	return (
-		left.schemaVersion === right.schemaVersion &&
-		left.files.length === right.files.length &&
-		left.entries.length === right.entries.length &&
-		left.files.every((file, index) => {
-			const candidate = right.files[index];
-			return file.path === candidate?.path && file.contentHash === candidate.contentHash;
-		}) &&
-		left.entries.every((entry, index) => entry.id === right.entries[index]?.id)
-	);
-}
-
 const databaseName = 'shared-library-web';
 const snapshotStoreName = 'snapshots';
 const textStoreName = 'texts';
 const activeSnapshotKey = 'active';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-	return Array.isArray(value) && value.every((item) => typeof item === 'string');
-}
-
-function isLibraryText(value: unknown): value is LibraryText {
-	return (
-		isObject(value) &&
-		typeof value.variant === 'string' &&
-		libraryVariants.includes(value.variant as LibraryVariant) &&
-		(typeof value.text === 'string' ||
-			(typeof value.path === 'string' &&
-				typeof value.contentHash === 'string' &&
-				typeof value.wordCount === 'number'))
-	);
-}
-
-function isLibraryEntry(value: unknown): value is LibraryEntry {
-	return (
-		isObject(value) &&
-		typeof value.id === 'string' &&
-		typeof value.title === 'string' &&
-		typeof value.excerpt === 'string' &&
-		isStringArray(value.topicIDs) &&
-		isStringArray(value.topicNames) &&
-		isStringArray(value.tags) &&
-		(value.origin === 'personal' || value.origin === 'shared') &&
-		Array.isArray(value.texts) &&
-		value.texts.every(isLibraryText)
-	);
-}
-
-function isLibraryFile(value: unknown): value is LibraryFile {
-	return (
-		isObject(value) &&
-		typeof value.path === 'string' &&
-		typeof value.contentHash === 'string' &&
-		/^[a-f0-9]{64}$/.test(value.contentHash) &&
-		typeof value.byteCount === 'number' &&
-		Number.isSafeInteger(value.byteCount) &&
-		value.byteCount >= 0
-	);
-}
-
-export function parseLibraryProjection(value: unknown): LibraryProjection {
-	if (
-		!isObject(value) ||
-		(value.schemaVersion !== 2 && value.schemaVersion !== librarySchemaVersion) ||
-		typeof value.generatedAt !== 'string' ||
-		Number.isNaN(Date.parse(value.generatedAt)) ||
-		!Array.isArray(value.files) ||
-		!value.files.every(isLibraryFile) ||
-		!Array.isArray(value.entries) ||
-		!value.entries.every(isLibraryEntry)
-	) {
-		throw new Error(
-			'This is not a compatible Briefly Drive index. Open the desktop app and let it synchronize again.'
-		);
-	}
-	const projection = value as unknown as LibraryProjection & {
-		entries: Array<LibraryEntry & { sharedByDisplayName?: string }>;
-	};
-	return {
-		...projection,
-		schemaVersion: librarySchemaVersion,
-		entries: projection.entries.map((entry) => {
-			const legacyEntry = entry as LibraryEntry & { sharedByDisplayName?: string };
-			return {
-				...entry,
-				sharedByUsername: entry.sharedByUsername ?? legacyEntry.sharedByDisplayName
-			};
-		})
-	};
-}
 
 function openDatabase(): Promise<IDBDatabase> {
 	return new Promise((resolve, reject) => {
@@ -214,10 +106,6 @@ export async function loadLibraryProjection(): Promise<LibraryProjection | null>
 	} finally {
 		database.close();
 	}
-}
-
-export function textFor(entry: LibraryEntry, variant: LibraryVariant): LibraryText | undefined {
-	return entry.texts.find((text) => text.variant === variant);
 }
 
 function fileCacheKey(reference: { path?: string; contentHash?: string }): string | null {
@@ -407,13 +295,6 @@ export async function loadRawLibraryText(
 	});
 	await cacheLibraryFile(reference, text);
 	return text;
-}
-
-export function preferredVariant(entry: LibraryEntry): LibraryVariant {
-	for (const variant of ['concise', 'brief', 'detailed', 'comprehensive', 'source'] as const) {
-		if (textFor(entry, variant)) return variant;
-	}
-	return 'source';
 }
 
 export const demoProjection: LibraryProjection = {

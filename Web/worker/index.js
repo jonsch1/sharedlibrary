@@ -1072,15 +1072,16 @@ async function fetchLibraryFile(request, env) {
 	});
 }
 
-async function driveItemsByKind(env, email, kind) {
+async function driveItemsByKind(env, email, kind, role) {
 	const items = [];
 	let pageToken;
 	do {
 		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set(
-			'q',
-			`appProperties has { key='sharedLibraryKind' and value='${kind}' } and trashed=false`
-		);
+		url.searchParams.set('q', [
+			`appProperties has { key='sharedLibraryKind' and value='${kind}' }`,
+			...(role ? [`appProperties has { key='sharedLibraryRole' and value='${role}' }`] : []),
+			'trashed=false'
+		].join(' and '));
 		url.searchParams.set(
 			'fields',
 			'nextPageToken,files(id,name,mimeType,appProperties)'
@@ -1098,6 +1099,51 @@ async function driveItemsByKind(env, email, kind) {
 	return items;
 }
 
+function libraryMediaManifest(media, index) {
+	if (!Array.isArray(media) || media.length > 20_000) return null;
+	const valid = (value, expectedKind) => {
+		if (expectedKind !== 'audio' && expectedKind !== 'favicon') return false;
+		const directory = expectedKind === 'audio' ? 'audio' : 'favicons';
+		const maximumBytes = expectedKind === 'audio' ? 100_000_000 : 2_000_000;
+		return (
+			value &&
+			typeof value === 'object' &&
+			value.kind === expectedKind &&
+			typeof value.path === 'string' &&
+			value.path.startsWith(`library/${directory}/`) &&
+			!value.path.split('/').some((component) => !component || component === '.' || component === '..') &&
+			/^[a-f0-9]{64}$/.test(value.contentHash || '') &&
+			Number.isSafeInteger(value.byteCount) &&
+			value.byteCount > 0 &&
+			value.byteCount <= maximumBytes &&
+			typeof value.contentType === 'string' &&
+			value.contentType.startsWith(expectedKind === 'audio' ? 'audio/' : 'image/')
+		);
+	};
+	const signature = (value) =>
+		[value.kind, value.contentHash, value.path, value.byteCount, value.contentType].join('\n');
+	const manifest = new Set();
+	for (const item of media) {
+		if (!valid(item, item?.kind)) return null;
+		manifest.add(signature(item));
+	}
+	if (manifest.size !== media.length) return null;
+	const referenced = new Set();
+	for (const entry of index.entries) {
+		for (const [property, kind] of [['audio', 'audio'], ['favicon', 'favicon']]) {
+			const item = entry?.[property];
+			if (item === undefined) continue;
+			if (!valid(item, kind)) return null;
+			referenced.add(signature(item));
+		}
+	}
+	if (
+		referenced.size !== manifest.size ||
+		[...referenced].some((item) => !manifest.has(item))
+	) return null;
+	return new Set(media.map((item) => `${item.kind}:${item.contentHash}`));
+}
+
 async function syncLibraryMirror(request, env) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
@@ -1110,7 +1156,7 @@ async function syncLibraryMirror(request, env) {
 		return json({ error: 'Invalid library synchronization request.' }, { status: 400 });
 	}
 	if (
-		value?.schemaVersion !== 1 ||
+		(value?.schemaVersion !== 1 && value?.schemaVersion !== 2) ||
 		typeof value.index !== 'object' ||
 		value.index?.schemaVersion !== 3 ||
 		!Array.isArray(value.index.files) ||
@@ -1151,13 +1197,24 @@ async function syncLibraryMirror(request, env) {
 	) {
 		return json({ error: 'The library index does not match its files.' }, { status: 400 });
 	}
+	const activeMedia =
+		value.schemaVersion === 2 ? libraryMediaManifest(value.media, value.index) : new Set();
+	if (!activeMedia) {
+		return json({ error: 'The library media manifest is invalid.' }, { status: 400 });
+	}
 
 	try {
 		const rootFolderID = await ensureDriveRootFolder(env, email);
-		const [remoteFolders, remoteFiles, remoteIndexes] = await Promise.all([
+		const [remoteFolders, remoteFiles, remoteIndexes, remoteAudio, remoteFavicons] = await Promise.all([
 			driveItemsByKind(env, email, 'folder'),
 			driveItemsByKind(env, email, 'workspace'),
-			driveItemsByKind(env, email, 'library-index')
+			driveItemsByKind(env, email, 'library-index'),
+			...(value.schemaVersion === 2
+				? [
+						driveItemsByKind(env, email, 'audio', 'library'),
+						driveItemsByKind(env, email, 'favicon', 'library')
+					]
+				: [Promise.resolve([]), Promise.resolve([])])
 		]);
 		const folderIDsByHash = new Map(
 			remoteFolders.flatMap((file) => {
@@ -1215,6 +1272,13 @@ async function syncLibraryMirror(request, env) {
 				kind: 'library-index'
 			});
 			uploaded += 1;
+		}
+		for (const stale of [...remoteAudio, ...remoteFavicons]) {
+			const kind = stale.appProperties?.sharedLibraryKind;
+			const hash = stale.appProperties?.sharedLibraryHash;
+			if (activeMedia.has(`${kind}:${hash}`)) continue;
+			await trashDriveFile(env, email, stale.id);
+			deleted += 1;
 		}
 		return json({
 			uploaded,
@@ -3236,8 +3300,8 @@ async function googleDriveRequest(env, email, url, init = {}) {
 	return new Response('Google Drive connection expired.', { status: 401 });
 }
 
-async function findDriveMedia(env, email, media) {
-	const query = `appProperties has { key='sharedLibraryHash' and value='${media.hash}' } and appProperties has { key='sharedLibraryKind' and value='${media.kind}' } and trashed=false`;
+async function findDriveMedia(env, email, media, role = 'library') {
+	const query = `appProperties has { key='sharedLibraryHash' and value='${media.hash}' } and appProperties has { key='sharedLibraryKind' and value='${media.kind}' } and appProperties has { key='sharedLibraryRole' and value='${role}' } and trashed=false`;
 	const url = new URL('https://www.googleapis.com/drive/v3/files');
 	url.searchParams.set('q', query);
 	url.searchParams.set('fields', 'files(id,name,mimeType,size)');
@@ -3297,9 +3361,9 @@ async function ensureDriveRootFolder(env, email) {
 	return folderID;
 }
 
-async function ensureDriveMediaFolder(env, email) {
+async function ensureDriveMediaFolder(env, email, kind) {
 	const rootID = await ensureDriveRootFolder(env, email);
-	const pathHash = await sha256Hex('audio');
+	const pathHash = await sha256Hex(kind);
 	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
 	listURL.searchParams.set(
 		'q',
@@ -3308,7 +3372,7 @@ async function ensureDriveMediaFolder(env, email) {
 	listURL.searchParams.set('fields', 'files(id)');
 	listURL.searchParams.set('pageSize', '1');
 	let response = await googleDriveRequest(env, email, listURL);
-	if (!response.ok) throw new Error(`Google Drive audio folder lookup failed (${response.status}).`);
+	if (!response.ok) throw new Error(`Google Drive media folder lookup failed (${response.status}).`);
 	let value = await response.json();
 	if (value.files?.[0]?.id) return value.files[0].id;
 	response = await googleDriveRequest(
@@ -3319,7 +3383,7 @@ async function ensureDriveMediaFolder(env, email) {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				name: 'audio',
+				name: kind,
 				mimeType: 'application/vnd.google-apps.folder',
 				parents: [rootID],
 				appProperties: {
@@ -3329,14 +3393,14 @@ async function ensureDriveMediaFolder(env, email) {
 			})
 		}
 	);
-	if (!response.ok) throw new Error(`Google Drive audio folder creation failed (${response.status}).`);
+	if (!response.ok) throw new Error(`Google Drive media folder creation failed (${response.status}).`);
 	value = await response.json();
 	return value.id;
 }
 
 function mediaPath(url) {
-	const match = url.pathname.match(/^\/api\/media\/audio\/([a-f0-9]{64})$/);
-	return match ? { kind: 'audio', hash: match[1] } : null;
+	const match = url.pathname.match(/^\/api\/media\/(audio|favicon)\/([a-f0-9]{64})$/);
+	return match ? { kind: match[1], hash: match[2] } : null;
 }
 
 async function listDriveAudio(request, env) {
@@ -3408,29 +3472,35 @@ async function uploadDriveMedia(request, env, media) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	await ensureSchema(env.DB);
+	const maximumBytes = media.kind === 'audio' ? 100_000_000 : 2_000_000;
 	const contentLength = Number(request.headers.get('Content-Length') || 0);
-	if (contentLength > 25_000_000) {
-		return json({ error: 'Media files are limited to 25 MB.' }, { status: 413 });
+	if (contentLength > maximumBytes) {
+		return json({ error: 'The media file is too large.' }, { status: 413 });
 	}
 	const existing = await findDriveMedia(env, email, media);
 	if (existing.response) return existing.response;
 	if (existing.file) return json({ id: existing.file.id, existed: true });
 	const contentType =
-		request.headers.get('Content-Type') || 'audio/mpeg';
-	if (!contentType.startsWith('audio/')) {
-		return json({ error: 'Only audio media is supported.' }, { status: 400 });
+		request.headers.get('Content-Type') ||
+		(media.kind === 'audio' ? 'audio/mpeg' : 'image/png');
+	if (!contentType.startsWith(media.kind === 'audio' ? 'audio/' : 'image/')) {
+		return json({ error: 'The media content type is invalid.' }, { status: 400 });
 	}
 	const bytes = await request.arrayBuffer();
-	if (!bytes.byteLength || bytes.byteLength > 25_000_000) {
-		return json({ error: 'Media files must be between 1 byte and 25 MB.' }, { status: 413 });
+	if (!bytes.byteLength || bytes.byteLength > maximumBytes) {
+		return json({ error: 'The media file is empty or too large.' }, { status: 413 });
 	}
-	const folderID = await ensureDriveMediaFolder(env, email);
+	if ((await sha256Hex(bytes)) !== media.hash) {
+		return json({ error: 'The media hash does not match its content.' }, { status: 400 });
+	}
+	const folderID = await ensureDriveMediaFolder(env, email, media.kind);
 	const metadata = JSON.stringify({
-		name: `${media.hash}.mp3`,
+		name: `${media.hash}.${mediaExtension(contentType)}`,
 		parents: [folderID],
 		appProperties: {
 			sharedLibraryHash: media.hash,
-			sharedLibraryKind: media.kind
+			sharedLibraryKind: media.kind,
+			sharedLibraryRole: 'library'
 		}
 	});
 	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
@@ -3456,6 +3526,23 @@ async function uploadDriveMedia(request, env, media) {
 	}
 	const value = await response.json();
 	return json({ id: value.id, existed: false });
+}
+
+function mediaExtension(contentType) {
+	return {
+		'audio/aac': 'aac',
+		'audio/flac': 'flac',
+		'audio/mp4': 'm4a',
+		'audio/mpeg': 'mp3',
+		'audio/ogg': 'ogg',
+		'audio/wav': 'wav',
+		'audio/webm': 'webm',
+		'image/gif': 'gif',
+		'image/jpeg': 'jpg',
+		'image/png': 'png',
+		'image/webp': 'webp',
+		'image/x-icon': 'ico'
+	}[contentType] || 'bin';
 }
 
 const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive', 'source'];
@@ -5431,18 +5518,19 @@ async function updatePersonalDriveIndexAfterImport(
 }
 
 async function storeDriveAudioBytes(env, email, hash, bytes, contentType) {
-	const existing = await findDriveMedia(env, email, { kind: 'audio', hash });
+	const existing = await findDriveMedia(env, email, { kind: 'audio', hash }, 'share');
 	if (existing.response) {
 		throw new Error(`Google Drive narration lookup failed (${existing.response.status}).`);
 	}
 	if (existing.file) return existing.file.id;
-	const folderID = await ensureDriveMediaFolder(env, email);
+	const folderID = await ensureDriveMediaFolder(env, email, 'audio');
 	const metadata = JSON.stringify({
 		name: `${hash}.mp3`,
 		parents: [folderID],
 		appProperties: {
 			sharedLibraryHash: hash,
-			sharedLibraryKind: 'audio'
+			sharedLibraryKind: 'audio',
+			sharedLibraryRole: 'share'
 		}
 	});
 	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
@@ -5796,6 +5884,17 @@ const worker = {
 			if (denied) return denied;
 			return syncLibraryMirror(request, env);
 		}
+		const media = mediaPath(url);
+		if (media && request.method === 'GET') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
+			return downloadDriveMedia(request, env, media);
+		}
+		if (media && request.method === 'PUT') {
+			const denied = await paidAccessResponse(request, env);
+			if (denied) return denied;
+			return uploadDriveMedia(request, env, media);
+		}
 		if (url.pathname === '/api/share-links' && request.method === 'GET') {
 			return ownerShareLinkStatus(request, env);
 		}
@@ -5849,4 +5948,5 @@ const worker = {
 	}
 };
 
+export { libraryMediaManifest };
 export default worker;

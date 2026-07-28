@@ -3,14 +3,18 @@
 	import BookmarkIcon from '@lucide/svelte/icons/bookmark';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
-	import DepthControl from '$lib/DepthControl.svelte';
-	import MarkdownText from '$lib/MarkdownText.svelte';
+	import DepthControl from '../../../Shared/DepthControl.svelte';
+	import MarkdownText from '../../../Shared/MarkdownView.svelte';
 	import {
 		importPublicShare,
 		loadPublicShare,
 		type PublicShareDocument
 	} from '$lib/share-links.js';
-	import { libraryVariants, type LibraryVariant } from '$lib/library.js';
+	import {
+		libraryVariants,
+		shouldRenderSourceAsPlainText,
+		type LibraryVariant
+	} from '$lib/library.js';
 
 	let { token }: { token: string } = $props();
 
@@ -130,7 +134,10 @@
 	{:else if document}
 		<main class="public-share-reader">
 			<article class="public-share-body text-foreground! font-serif!">
-				<MarkdownText text={selectedText} plain={selectedVariant === 'source'} />
+				<MarkdownText
+					text={selectedText}
+					plain={shouldRenderSourceAsPlainText(selectedVariant, document.sourceURL)}
+				/>
 			</article>
 		</main>
 

@@ -11,7 +11,7 @@
     Sparkles,
     Trash2
   } from '@lucide/svelte';
-  import AudioPlayer from './AudioPlayer.svelte';
+  import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
   import type {
     PodcastDefinition,
     PodcastDraft,

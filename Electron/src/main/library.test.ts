@@ -27,6 +27,11 @@ test('stores and indexes podcast WAV audio with its episode', async () => {
   const root = await mkdtemp(join(tmpdir(), 'briefly-podcast-audio-'));
   const trashed: string[] = [];
   try {
+    await mkdir(join(root, 'podcasts'), { recursive: true });
+    await writeFile(
+      join(root, 'podcasts', 'daily-ai.md'),
+      `---\nid: "daily-ai"\nname: "Daily AI"\nschedule: "daily"\nlength: "short"\nsources:\n  - "https://example.com/feed"\n---\n`
+    );
     const service = new LibraryService(root, 'linux', async (path) => {
       trashed.push(path);
     });
@@ -48,6 +53,20 @@ test('stores and indexes podcast WAV audio with its episode', async () => {
     assert.deepEqual(entry?.sourceURLs, ['https://example.com/feed']);
     const audioPath = await service.podcastAudioPath(entryID);
     assert.deepEqual(await readFile(audioPath), Buffer.from(wav));
+    const mirror = await service.buildDriveMirror();
+    const projected = mirror.index.entries.find(({ id }) => id === entryID);
+    assert.equal(projected?.audio?.contentHash, createHash('sha256').update(wav).digest('hex'));
+    assert.equal(mirror.media[0]?.content, Buffer.from(wav).toString('base64'));
+    assert.deepEqual(mirror.index.podcasts, [
+      {
+        id: 'daily-ai',
+        filename: 'daily-ai.md',
+        title: 'Daily AI',
+        schedule: 'daily',
+        length: 'short',
+        sources: ['https://example.com/feed']
+      }
+    ]);
     await service.trashCapture(entryID);
     assert.deepEqual(
       trashed.map((path) => relative(root, path)).sort(),
@@ -268,6 +287,41 @@ test('builds a folder-preserving Drive mirror and keeps local files on the first
     assert.match(
       await readFile(join(root, 'library', 'remote-only.md'), 'utf8'),
       /New remote text/
+    );
+    const remoteAudio = new Uint8Array([1, 2, 3, 4]);
+    const remoteAudioHash = createHash('sha256').update(remoteAudio).digest('hex');
+    const mediaDownloaded = await service.mergeRemoteMedia(
+      {
+        schemaVersion: 3,
+        generatedAt: new Date().toISOString(),
+        files: [],
+        entries: [
+          {
+            id: 'personal:remote-audio',
+            captureID: 'remote-audio',
+            title: 'Remote audio',
+            excerpt: '',
+            topicIDs: [],
+            topicNames: [],
+            tags: [],
+            origin: 'personal',
+            texts: [],
+            audio: {
+              kind: 'audio',
+              path: 'library/audio/remote-audio.wav',
+              contentHash: remoteAudioHash,
+              byteCount: remoteAudio.byteLength,
+              contentType: 'audio/wav'
+            }
+          }
+        ]
+      },
+      async () => remoteAudio
+    );
+    assert.equal(mediaDownloaded, 1);
+    assert.deepEqual(
+      await readFile(join(root, 'library', 'audio', 'remote-audio.wav')),
+      Buffer.from(remoteAudio)
     );
   } finally {
     await rm(root, { recursive: true, force: true });

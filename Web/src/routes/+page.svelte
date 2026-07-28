@@ -7,6 +7,9 @@
 	import CloudIcon from '@lucide/svelte/icons/cloud';
 	import CreditCardIcon from '@lucide/svelte/icons/credit-card';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
+	import FolderIcon from '@lucide/svelte/icons/folder';
+	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
+	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PaletteIcon from '@lucide/svelte/icons/palette';
 	import SearchIcon from '@lucide/svelte/icons/search';
@@ -15,20 +18,25 @@
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import XIcon from '@lucide/svelte/icons/x';
-	import MarkdownText from '$lib/MarkdownText.svelte';
-	import DepthControl from '$lib/DepthControl.svelte';
+	import MarkdownText from '../../../Shared/MarkdownView.svelte';
+	import DepthControl from '../../../Shared/DepthControl.svelte';
 	import PublicShareReader from '$lib/PublicShareReader.svelte';
+	import LibraryAudio from '$lib/LibraryAudio.svelte';
+	import LibraryFavicon from '$lib/LibraryFavicon.svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import {
 		demoProjection,
 		hasSameLibraryContent,
+		isMainLibraryEntry,
 		libraryVariants,
 		loadLibraryProjection,
 		loadLibraryText,
 		loadRawLibraryText,
+		matchesLibraryEntry,
 		preferredVariant,
+		shouldRenderSourceAsPlainText,
 		textFor,
 		type LibraryEntry,
 		type LibraryProjection,
@@ -82,7 +90,10 @@
 
 	let projection = $state<LibraryProjection | null>(null);
 	let publicShareToken = $state('');
+	let activeView = $state<'library' | 'podcasts'>('library');
 	let selectedEntryID = $state<string | null>(null);
+	let selectedPodcastID = $state('all');
+	let expandedEpisodeIDs = $state<string[]>([]);
 	let selectedVariant = $state<LibraryVariant>('concise');
 	let query = $state('');
 	let topicFilter = $state('all');
@@ -115,10 +126,18 @@
 	let loadingText = $state(false);
 	const textLoads = new Map<string, Promise<string>>();
 
-	let entries = $derived(projection?.entries ?? []);
-	let selectedEntry = $derived(
-		entries.find((entry) => entry.id === selectedEntryID) ?? entries[0] ?? null
+	let allEntries = $derived(projection?.entries ?? []);
+	let podcastNoteEntries = $derived(
+		allEntries.filter((entry) => entry.entryType !== 'podcast_episode')
 	);
+	let entries = $derived(allEntries.filter(isMainLibraryEntry));
+	let selectedEntry = $derived(
+		allEntries.find((entry) => entry.id === selectedEntryID) ??
+			entries[0] ??
+			allEntries[0] ??
+			null
+	);
+	let podcasts = $derived(projection?.podcasts ?? []);
 	let topics = $derived(
 		Array.from(new Set(entries.flatMap((entry) => entry.topicNames))).sort((a, b) =>
 			a.localeCompare(b)
@@ -129,18 +148,37 @@
 		entries.filter((entry) => {
 			if (originFilter !== 'all' && entry.origin !== originFilter) return false;
 			if (topicFilter !== 'all' && !entry.topicNames.includes(topicFilter)) return false;
-			if (!normalizedQuery) return true;
-			const searchable = [
-				entry.title,
-				entry.excerpt,
-				...entry.topicNames,
-				...entry.tags,
-				entry.sharedByUsername ?? ''
-			]
-				.join(' ')
-				.toLocaleLowerCase();
-			return searchable.includes(normalizedQuery);
+			return matchesLibraryEntry(entry, normalizedQuery);
 		})
+	);
+	let podcastGroups = $derived.by(() =>
+		podcasts
+			.filter((podcast) => selectedPodcastID === 'all' || podcast.id === selectedPodcastID)
+			.flatMap((podcast) =>
+				allEntries
+					.filter(
+						(entry) =>
+							entry.entryType === 'podcast_episode' && entry.podcastID === podcast.id
+					)
+					.map((episode) => {
+						const sourceIDs = new Set(episode.sourceIDs ?? []);
+						const sourceURLs = new Set(episode.sourceURLs ?? []);
+						const notes = podcastNoteEntries.filter(
+							(entry) =>
+								sourceIDs.has(entry.id) ||
+								Boolean(entry.sourceURL && sourceURLs.has(entry.sourceURL))
+						);
+						return { podcast, episode, notes };
+					})
+					.filter(
+						({ podcast: owner, episode, notes }) =>
+							!normalizedQuery ||
+							[owner.title, episode.title, episode.excerpt, ...notes.map((note) => note.title)]
+								.join(' ')
+								.toLowerCase()
+								.includes(normalizedQuery)
+					)
+			)
 	);
 	let selectedText = $derived.by(() => {
 		void textRevision;
@@ -322,7 +360,7 @@
 
 	function setProjection(nextProjection: LibraryProjection): void {
 		projection = nextProjection;
-		const firstEntry = nextProjection.entries[0] ?? null;
+		const firstEntry = nextProjection.entries.find(isMainLibraryEntry) ?? null;
 		selectedEntryID = firstEntry?.id ?? null;
 		selectedVariant = firstEntry ? preferredVariant(firstEntry) : 'concise';
 		query = '';
@@ -346,7 +384,7 @@
 		selectedEntryID =
 			nextProjection.entries.some((entry) => entry.id === previousSelection)
 				? previousSelection
-				: (nextProjection.entries[0]?.id ?? null);
+				: (nextProjection.entries.find(isMainLibraryEntry)?.id ?? null);
 		openRequestedShare(nextProjection.entries);
 	}
 
@@ -617,6 +655,43 @@
 		mobileReaderVisible = true;
 	}
 
+	function selectView(view: 'library' | 'podcasts'): void {
+		activeView = view;
+		query = '';
+		if (view === 'library') {
+			if (!selectedEntry || !isMainLibraryEntry(selectedEntry)) {
+				selectedEntryID = entries[0]?.id ?? null;
+			}
+		} else if (
+			!podcastGroups.some(
+				({ episode, notes }) =>
+					episode.id === selectedEntryID || notes.some((note) => note.id === selectedEntryID)
+			)
+		) {
+			selectedEntryID = podcastGroups[0]?.episode.id ?? null;
+		}
+		mobileReaderVisible = false;
+	}
+
+	function selectPodcast(podcastID: string): void {
+		selectedPodcastID = podcastID;
+		const podcast = podcasts.find(({ id }) => id === podcastID);
+		selectedEntryID =
+			(podcastID === 'all'
+				? podcastGroups[0]?.episode.id
+				: allEntries.find(
+						(entry) =>
+							entry.entryType === 'podcast_episode' && entry.podcastID === podcast?.id
+					)?.id) ?? null;
+		mobileReaderVisible = false;
+	}
+
+	function togglePodcastEpisode(entry: LibraryEntry): void {
+		expandedEpisodeIDs = expandedEpisodeIDs.includes(entry.id)
+			? expandedEpisodeIDs.filter((id) => id !== entry.id)
+			: [...expandedEpisodeIDs, entry.id];
+	}
+
 	function selectTopic(topic: string): void {
 		topicFilter = topic;
 		if (topic !== 'all') originFilter = 'all';
@@ -813,37 +888,121 @@
 		<div class="native-workspace" class:reader-open={mobileReaderVisible}>
 			<aside class="native-library-pane border-sidebar-border! bg-sidebar! bg-none! text-sidebar-foreground! rounded-xl! border shadow-sm!">
 				<div class="native-library-toolbar">
-					<div class="native-search-field">
-						<SearchIcon class="text-muted-foreground!" aria-hidden="true" />
-						<Input bind:value={query} aria-label="Search library" placeholder="Search" />
-						{#if query}
-							<button class="clear-search text-muted-foreground! hover:bg-accent! hover:text-accent-foreground!" aria-label="Clear search" onclick={() => (query = '')}>
-								<XIcon />
+					<div class="library-primary-controls">
+						<div class="library-view-tabs" role="tablist" aria-label="Library view">
+							<button
+								class:active={activeView === 'library'}
+								role="tab"
+								aria-selected={activeView === 'library'}
+								onclick={() => selectView('library')}
+							>
+								<FileTextIcon />
+								<span>Main</span>
 							</button>
-						{/if}
+							<button
+								class:active={activeView === 'podcasts'}
+								role="tab"
+								aria-selected={activeView === 'podcasts'}
+								onclick={() => selectView('podcasts')}
+							>
+								<HeadphonesIcon />
+								<span>Pod</span>
+							</button>
+						</div>
+
+						<div class="native-search-field">
+							<SearchIcon class="text-muted-foreground!" aria-hidden="true" />
+							<Input
+								bind:value={query}
+								aria-label={activeView === 'podcasts' ? 'Search podcasts' : 'Search library'}
+								placeholder={activeView === 'podcasts' ? 'Search podcasts' : 'Search'}
+							/>
+							{#if query}
+								<button class="clear-search text-muted-foreground! hover:bg-accent! hover:text-accent-foreground!" aria-label="Clear search" onclick={() => (query = '')}>
+									<XIcon />
+								</button>
+							{/if}
+						</div>
 					</div>
 
-					<div class="topic-strip" aria-label="Topic filter">
+					<div class="topic-strip" aria-label={activeView === 'podcasts' ? 'Podcast filter' : 'Topic filter'}>
 						<button
 							class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-							class:active={topicFilter === 'all' && originFilter === 'all'}
+							class:active={activeView === 'podcasts'
+								? selectedPodcastID === 'all'
+								: topicFilter === 'all' && originFilter === 'all'}
 							onclick={() => {
-								selectTopic('all');
-								selectOrigin('all');
+								if (activeView === 'podcasts') selectPodcast('all');
+								else {
+									selectTopic('all');
+									selectOrigin('all');
+								}
 							}}>All</button
 						>
-						{#each topics as topic}
-							<button
-								class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-								class:active={topicFilter === topic}
-								onclick={() => selectTopic(topic)}>{topic}</button
-							>
-						{/each}
+						{#if activeView === 'podcasts'}
+							{#each podcasts as podcast (podcast.id)}
+								<button
+									class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+									class:active={selectedPodcastID === podcast.id}
+									onclick={() => selectPodcast(podcast.id)}>{podcast.title}</button
+								>
+							{/each}
+						{:else}
+							{#each topics as topic}
+								<button
+									class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+									class:active={topicFilter === topic}
+									onclick={() => selectTopic(topic)}>{topic}</button
+								>
+							{/each}
+						{/if}
 					</div>
 				</div>
 
-				<div class="native-entry-list">
-					{#if filteredEntries.length === 0}
+				<div class="native-entry-list" aria-label="Library items">
+					{#if activeView === 'podcasts'}
+						{#if podcastGroups.length === 0}
+							<div class="native-no-results text-muted-foreground!">
+								<HeadphonesIcon />
+								<p>No podcast episodes</p>
+							</div>
+						{:else}
+							{#each podcastGroups as group (group.episode.id)}
+								<div class="podcast-episode-group">
+									<button
+										class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+										class:selected={selectedEntry?.id === group.episode.id}
+										aria-expanded={expandedEpisodeIDs.includes(group.episode.id)}
+										onclick={() => {
+											selectEntry(group.episode);
+											togglePodcastEpisode(group.episode);
+										}}
+									>
+										{#if expandedEpisodeIDs.includes(group.episode.id)}
+											<FolderOpenIcon class="text-sidebar-foreground/70!" aria-hidden="true" />
+										{:else}
+											<FolderIcon class="text-sidebar-foreground/70!" aria-hidden="true" />
+										{/if}
+										<span>{group.episode.title}</span>
+									</button>
+									{#if group.notes.length && expandedEpisodeIDs.includes(group.episode.id)}
+										<div class="podcast-note-list">
+											{#each group.notes as note (note.id)}
+												<button
+													class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+													class:selected={selectedEntry?.id === note.id}
+													onclick={() => selectEntry(note)}
+												>
+													<LibraryFavicon favicon={note.favicon} provider={syncProvider} />
+													<span>{note.title}</span>
+												</button>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/each}
+						{/if}
+					{:else if filteredEntries.length === 0}
 						<div class="native-no-results text-muted-foreground!">
 							<FileTextIcon />
 							<p>No matching documents</p>
@@ -863,7 +1022,7 @@
 								class:selected={selectedEntry?.id === entry.id}
 								onclick={() => selectEntry(entry)}
 							>
-								<FileTextIcon class="text-sidebar-foreground/70!" aria-hidden="true" />
+								<LibraryFavicon favicon={entry.favicon} provider={syncProvider} />
 								<span>{entry.title}</span>
 							</button>
 						{/each}
@@ -895,7 +1054,32 @@
 									<span class="skeleton-line short"></span>
 								</div>
 							{:else if selectedText}
-								<MarkdownText text={selectedText} plain={selectedVariant === 'source'} />
+								{#if selectedEntry.audio &&
+									(selectedEntry.entryType === 'podcast_episode' ||
+										selectedVariant === 'source')}
+									<div class="podcast-reader-player">
+										<LibraryAudio
+											title={selectedEntry.title}
+											audio={selectedEntry.audio}
+											provider={syncProvider}
+										/>
+									</div>
+								{:else if selectedVariant === 'source' && selectedEntry.mediaURL}
+									<div class="podcast-reader-player">
+										<LibraryAudio
+											title={selectedEntry.title}
+											mediaURL={selectedEntry.mediaURL}
+											provider={syncProvider}
+										/>
+									</div>
+								{/if}
+								<MarkdownText
+									text={selectedText}
+									plain={shouldRenderSourceAsPlainText(
+										selectedVariant,
+										selectedEntry.sourceURL
+									)}
+								/>
 							{:else}
 								<p class="missing-text">This version is not available.</p>
 							{/if}

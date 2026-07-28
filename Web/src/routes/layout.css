@@ -2059,7 +2059,45 @@ html {
 }
 
 .native-library-toolbar {
-	padding: 17px 17px 12px;
+	padding: 0;
+}
+
+.library-primary-controls {
+	background: var(--sidebar);
+}
+
+.library-view-tabs {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+}
+
+.library-view-tabs button {
+	display: flex;
+	height: 40px;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	border: 0;
+	background: transparent;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 650;
+}
+
+.library-view-tabs button:hover,
+.library-view-tabs button.active {
+	background: var(--sidebar-accent);
+	color: var(--sidebar-accent-foreground);
+}
+
+.library-view-tabs button:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--sidebar-ring);
+}
+
+.library-view-tabs svg {
+	width: 15px;
+	height: 15px;
+	stroke-width: 1.8;
 }
 
 .native-search-field {
@@ -2070,29 +2108,29 @@ html {
 	position: absolute;
 	z-index: 2;
 	top: 50%;
-	left: 15px;
+	left: 18px;
 	width: 17px;
 	height: 17px;
 	transform: translateY(-50%);
-	color: rgb(67 67 63 / 72%);
+	color: var(--muted-foreground);
 	pointer-events: none;
 }
 
 .native-search-field input {
-	height: 43px;
-	padding: 0 40px;
-	border: 1px solid rgb(46 46 43 / 38%);
-	border-radius: 999px;
-	background: rgb(232 232 225 / 58%);
-	color: rgb(31 31 29);
+	width: 100%;
+	height: 40px;
+	padding: 0 44px;
+	border: 0;
+	border-radius: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--sidebar-foreground);
 	font-size: 14px;
-	box-shadow:
-		inset 0 1px 2px rgb(0 0 0 / 6%),
-		0 1px 0 rgb(255 255 255 / 18%);
+	box-shadow: none;
 }
 
 .native-search-field input::placeholder {
-	color: rgb(75 75 70 / 68%);
+	color: var(--muted-foreground);
 }
 
 .clear-search {
@@ -2107,12 +2145,12 @@ html {
 	transform: translateY(-50%);
 	border: 0;
 	border-radius: 50%;
-	color: rgb(63 63 59 / 70%);
+	color: var(--muted-foreground);
 }
 
 .clear-search:hover {
-	background: rgb(46 46 43 / 8%);
-	color: rgb(31 31 29);
+	background: var(--accent);
+	color: var(--accent-foreground);
 }
 
 .clear-search svg {
@@ -2123,8 +2161,8 @@ html {
 .topic-strip {
 	display: flex;
 	gap: 6px;
-	margin-top: 10px;
-	padding: 0 1px 2px;
+	margin-top: 0;
+	padding: 12px 17px 14px;
 	overflow-x: auto;
 	overscroll-behavior-inline: contain;
 	scrollbar-width: none;
@@ -2221,6 +2259,15 @@ html {
 	stroke-width: 1.6;
 }
 
+.native-entry-row img {
+	width: 16px;
+	height: 16px;
+	flex: 0 0 16px;
+	margin-top: 1px;
+	border-radius: 3px;
+	object-fit: contain;
+}
+
 .native-entry-row span {
 	overflow: hidden;
 	font-size: 13px;
@@ -2228,6 +2275,19 @@ html {
 	line-height: 18px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.podcast-episode-group {
+	margin-bottom: 5px;
+}
+
+.podcast-note-list {
+	padding-left: 18px;
+}
+
+.podcast-note-row {
+	min-height: 34px;
+	padding-block: 7px;
 }
 
 .native-no-results {
@@ -2301,6 +2361,12 @@ html {
 	line-height: 32px;
 	overflow-wrap: anywhere;
 	-webkit-font-smoothing: antialiased;
+}
+
+.podcast-reader-player {
+	display: block;
+	width: min(780px, 100%);
+	margin: 0 auto 32px;
 }
 
 .native-document-body .library-prose > :first-child {

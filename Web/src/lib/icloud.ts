@@ -3,6 +3,7 @@ import {
 	mirrorLibraryProjection,
 	parseLibraryProjection,
 	type LibraryFile,
+	type LibraryMedia,
 	type LibraryProjection,
 	type LibraryVariant
 } from '$lib/library.js';
@@ -15,6 +16,7 @@ export const emptyICloudLibraryMessage =
 export interface CloudLibraryMirror {
 	index: LibraryProjection;
 	files: Array<LibraryFile & { content: string }>;
+	media: Array<LibraryMedia & { content: string }>;
 }
 
 export interface ICloudShareImport {
@@ -92,6 +94,7 @@ declare global {
 			status(): Promise<boolean>;
 			fetchLibraryIndex(): Promise<LibraryProjection | null>;
 			fetchLibraryFile(file: LibraryFile): Promise<string>;
+			fetchLibraryMedia(media: LibraryMedia): Promise<string>;
 			uploadLibrary(mirror: CloudLibraryMirror): Promise<{ changed: number; syncedAt: string }>;
 		};
 	}
@@ -264,9 +267,13 @@ async function fileRecordName(path: string): Promise<string> {
 	return `file-${await sha256(path)}`;
 }
 
+function mediaRecordName(media: Pick<LibraryMedia, 'kind' | 'contentHash'>): string {
+	return `media-${media.kind}-${media.contentHash}`;
+}
+
 async function saveRecord(
 	name: string,
-	type: 'BrieflyLibraryIndex' | 'BrieflyLibraryFile',
+	type: 'BrieflyLibraryIndex' | 'BrieflyLibraryFile' | 'BrieflyLibraryMedia',
 	fields: CloudKitRecord['fields'],
 	expectedChangeTag?: string | null
 ): Promise<void> {
@@ -332,6 +339,35 @@ export async function fetchICloudLibraryFile(
 	return new TextDecoder().decode(bytes);
 }
 
+export async function fetchICloudLibraryMediaURL(media: LibraryMedia): Promise<string> {
+	const record = await fetchRecord(mediaRecordName(media));
+	if (
+		!record ||
+		recordField<string>(record, 'kind') !== media.kind ||
+		recordField<string>(record, 'contentHash') !== media.contentHash
+	) {
+		throw new Error(`CloudKit does not contain the expected copy of ${media.path}.`);
+	}
+	return assetURL(record, 'content', media.path.split('/').at(-1) || media.contentHash);
+}
+
+async function fetchICloudLibraryMedia(media: LibraryMedia): Promise<string> {
+	const record = await fetchRecord(mediaRecordName(media));
+	if (!record || recordField<string>(record, 'contentHash') !== media.contentHash) {
+		throw new Error(`CloudKit does not contain the expected copy of ${media.path}.`);
+	}
+	const blob = await downloadAsset(
+		record,
+		'content',
+		media.path.split('/').at(-1) || media.contentHash
+	);
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	if (bytes.byteLength !== media.byteCount || (await sha256(bytes.buffer)) !== media.contentHash) {
+		throw new Error(`CloudKit returned an invalid copy of ${media.path}.`);
+	}
+	return bytesToBase64(bytes);
+}
+
 async function mapWithConcurrency<T>(
 	values: T[],
 	operation: (value: T) => Promise<void>
@@ -348,9 +384,46 @@ async function mapWithConcurrency<T>(
 	);
 }
 
+async function uploadICloudLibraryMedia(
+	media: LibraryMedia & { content: string }
+): Promise<boolean> {
+	const name = mediaRecordName(media);
+	const existing = await fetchRecord(name);
+	if (
+		recordField<string>(existing ?? {}, 'contentHash') === media.contentHash &&
+		recordField<number>(existing ?? {}, 'byteCount') === media.byteCount
+	) {
+		return false;
+	}
+	const bytes = base64ToBytes(media.content);
+	const content = bytes.slice().buffer;
+	if (bytes.byteLength !== media.byteCount || (await sha256(content)) !== media.contentHash) {
+		throw new Error(`The synchronized copy of ${media.path} is invalid.`);
+	}
+	await saveRecord(
+		name,
+		'BrieflyLibraryMedia',
+		{
+			kind: { value: media.kind },
+			path: { value: media.path },
+			contentHash: { value: media.contentHash },
+			byteCount: { value: media.byteCount },
+			contentType: { value: media.contentType },
+			content: { value: new Blob([content], { type: media.contentType }) }
+		},
+		existing?.recordChangeTag
+	);
+	return true;
+}
+
 export async function uploadICloudLibrary(
 	mirror: CloudLibraryMirror
 ): Promise<{ changed: number; syncedAt: string }> {
+	const cleansMedia = Array.isArray(mirror.media);
+	let mediaChanged = 0;
+	await mapWithConcurrency(mirror.media ?? [], async (media) => {
+		if (await uploadICloudLibraryMedia(media)) mediaChanged += 1;
+	});
 	const state = await fetchICloudLibraryState();
 	const remote = state.projection;
 	const remoteHashes = new Map(remote?.files.map((file) => [file.path, file.contentHash]) ?? []);
@@ -367,6 +440,16 @@ export async function uploadICloudLibrary(
 	});
 	const activePaths = new Set(mirror.files.map((file) => file.path));
 	const stale = (remote?.files ?? []).filter((file) => !activePaths.has(file.path));
+	const activeMedia = new Set((mirror.media ?? []).map(mediaRecordName));
+	const staleMedia = new Set(
+		cleansMedia
+			? (remote?.entries ?? [])
+					.flatMap((entry) => [entry.audio, entry.favicon])
+					.filter((media): media is LibraryMedia => Boolean(media))
+					.map(mediaRecordName)
+					.filter((name) => !activeMedia.has(name))
+			: []
+	);
 	await saveRecord(indexRecordName, 'BrieflyLibraryIndex', {
 		schemaVersion: { value: mirror.index.schemaVersion },
 		generatedAt: { value: Date.now() },
@@ -374,9 +457,12 @@ export async function uploadICloudLibrary(
 			value: new Blob([JSON.stringify(mirror.index)], { type: 'application/json' })
 		}
 	}, state.changeTag);
-	await deleteRecords(await Promise.all(stale.map((file) => fileRecordName(file.path))));
+	await deleteRecords([
+		...(await Promise.all(stale.map((file) => fileRecordName(file.path)))),
+		...staleMedia
+	]);
 	return {
-		changed: changed.length + stale.length,
+		changed: mediaChanged + changed.length + stale.length + staleMedia.size,
 		syncedAt: new Date().toISOString()
 	};
 }
@@ -532,6 +618,20 @@ export function exposeICloudBridge(): void {
 		status: async () => Boolean((await iCloudIdentity())?.userRecordName),
 		fetchLibraryIndex: fetchICloudLibraryIndex,
 		fetchLibraryFile: fetchICloudLibraryFile,
+		fetchLibraryMedia: fetchICloudLibraryMedia,
 		uploadLibrary: uploadICloudLibrary
 	};
+}
+
+function base64ToBytes(value: string): Uint8Array {
+	const binary = atob(value);
+	return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = '';
+	for (let index = 0; index < bytes.length; index += 32_768) {
+		binary += String.fromCharCode(...bytes.subarray(index, index + 32_768));
+	}
+	return btoa(binary);
 }

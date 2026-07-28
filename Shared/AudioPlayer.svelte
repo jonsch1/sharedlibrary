@@ -3,7 +3,6 @@
 </script>
 
 <script lang="ts">
-  import { Pause, Play, Volume2 } from '@lucide/svelte';
   import { onDestroy } from 'svelte';
 
   let { src, title }: { src: string; title: string } = $props();
@@ -133,7 +132,13 @@
   <div class="transport">
     <button aria-label="Back 15 seconds" title="Back 15 seconds" onclick={() => skip(-15)}>−15</button>
     <button class="play bg-primary! text-primary-foreground!" aria-label={playing ? 'Pause' : 'Play'} onclick={toggle}>
-      {#if playing}<Pause />{:else}<Play />{/if}
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {#if playing}
+          <path d="M8 5v14M16 5v14" />
+        {:else}
+          <path d="m8 5 11 7-11 7Z" />
+        {/if}
+      </svg>
     </button>
     <button aria-label="Forward 15 seconds" title="Forward 15 seconds" onclick={() => skip(15)}>+15</button>
   </div>
@@ -159,7 +164,9 @@
   </button>
 
   <label class="volume text-muted-foreground!">
-    <Volume2 />
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M11 5 6 9H2v6h4l5 4ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
+    </svg>
     <span class="sr-only">Volume</span>
     <input
       aria-label="Volume"
@@ -226,6 +233,14 @@
     height: 38px;
   }
 
+  svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+  }
+
   .play :global(svg) {
     width: 17px;
     height: 17px;
@@ -267,7 +282,7 @@
     border: 2px solid var(--card);
     border-radius: 50%;
     background: var(--primary);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--foreground) 20%, transparent);
     appearance: none;
   }
 

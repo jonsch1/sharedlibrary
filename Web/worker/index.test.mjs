@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { createHmac, generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import worker from './index.js';
-import { hasSameLibraryContent } from '../src/lib/library.ts';
+import worker, { libraryMediaManifest } from './index.js';
+import { hasSameLibraryContent } from '../../Shared/library.ts';
 
 test('iCloud setup verifies the remote library before reporting success', async () => {
 	const [setup, reader] = await Promise.all([
@@ -39,6 +39,26 @@ test('library projection comparison ignores sync timestamps but detects content 
 			files: [{ ...projection.files[0], contentHash: 'b'.repeat(64) }]
 		}),
 		false
+	);
+});
+
+test('library media cleanup accepts only the exact assets referenced by the index', () => {
+	const audio = {
+		kind: 'audio',
+		path: 'library/audio/episode.wav',
+		contentHash: 'a'.repeat(64),
+		byteCount: 44,
+		contentType: 'audio/wav'
+	};
+	const index = { entries: [{ audio }] };
+	assert.deepEqual([...libraryMediaManifest([audio], index)], [`audio:${audio.contentHash}`]);
+	assert.equal(libraryMediaManifest([], index), null);
+	assert.equal(
+		libraryMediaManifest(
+			[{ ...audio, path: 'library/audio/../episode.wav' }],
+			{ entries: [{ audio: { ...audio, path: 'library/audio/../episode.wav' } }] }
+		),
+		null
 	);
 });
 
@@ -923,15 +943,28 @@ test('document narration and credit endpoints are no longer exposed', async () =
 	for (const [path, method] of [
 		['/api/tts/status', 'GET'],
 		['/api/tts/checkout', 'POST'],
-		['/api/tts', 'POST'],
-		['/api/media/audio', 'GET'],
-		[`/api/media/audio/${'a'.repeat(64)}`, 'PUT']
+		['/api/tts', 'POST']
 	]) {
 		const response = await worker.fetch(
 			authenticatedRequest(path, { method }),
 			environment()
 		);
 		assert.equal(response.status, 404);
+	}
+});
+
+test('synchronized audio and favicons remain private', async () => {
+	for (const [kind, method] of [
+		['audio', 'GET'],
+		['favicon', 'PUT']
+	]) {
+		const response = await worker.fetch(
+			new Request(`https://library.example/api/media/${kind}/${'a'.repeat(64)}`, {
+				method
+			}),
+			environment()
+		);
+		assert.equal(response.status, 401);
 	}
 });
 

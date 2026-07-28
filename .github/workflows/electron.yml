@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'Electron/**'
+      - 'Shared/**'
       - 'Tools/extractor/**'
       - '.github/workflows/electron.yml'
   push:
@@ -13,6 +14,7 @@ on:
       - 'v*'
     paths:
       - 'Electron/**'
+      - 'Shared/**'
       - 'Tools/extractor/**'
       - '.github/workflows/electron.yml'
   workflow_dispatch:
@@ -52,6 +54,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             Electron/package-lock.json
+            Shared/package-lock.json
             Tools/extractor/package-lock.json
 
       - name: Install Electron dependencies
@@ -59,6 +62,9 @@ jobs:
 
       - name: Install extractor dependencies
         run: npm --prefix ../Tools/extractor ci
+
+      - name: Test shared library contract
+        run: npm --prefix ../Shared test
 
       - name: Test extractor
         run: npm --prefix ../Tools/extractor test

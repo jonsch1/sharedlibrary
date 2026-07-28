@@ -1,12 +1,9 @@
-export const libraryVariants = [
-  'brief',
-  'concise',
-  'detailed',
-  'comprehensive',
-  'source'
-] as const;
+import {
+  libraryVariants,
+  type LibraryVariant
+} from '../../../Shared/library.js';
 
-export type LibraryVariant = (typeof libraryVariants)[number];
+export { libraryVariants, type LibraryVariant };
 
 export type DesktopPlatform = 'aix' | 'android' | 'darwin' | 'freebsd' | 'haiku' |
   'linux' | 'openbsd' | 'sunos' | 'win32' | 'cygwin' | 'netbsd';

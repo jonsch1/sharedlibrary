@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "Web/**"
+      - "Shared/**"
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
@@ -37,10 +38,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: Web/package-lock.json
+          cache-dependency-path: |
+            Shared/package-lock.json
+            Web/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Test shared library contract
+        run: npm --prefix ../Shared test
 
       - name: Check application
         run: npm run check

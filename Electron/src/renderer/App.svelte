@@ -23,14 +23,16 @@
     Sparkles,
     X
   } from '@lucide/svelte';
-  import AudioPlayer from './AudioPlayer.svelte';
-  import DepthControl from './DepthControl.svelte';
-  import MarkdownView from './MarkdownView.svelte';
+  import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
+  import DepthControl from '../../../Shared/DepthControl.svelte';
+  import MarkdownView from '../../../Shared/MarkdownView.svelte';
   import PodcastsView from './PodcastsView.svelte';
   import appIcon from './assets/app-icon.png';
   import {
+    isMainLibraryEntry,
+    matchesLibraryEntry,
     shouldRenderSourceAsPlainText
-  } from '../shared/source-presentation';
+  } from '../../../Shared/library';
   import type {
     AccountProvider,
     DesktopAudioPreferences,
@@ -115,9 +117,7 @@
   let podcastNoteEntries = $derived(
     entries.filter((entry) => entry.entryType !== 'podcast_episode')
   );
-  let noteEntries = $derived(
-    podcastNoteEntries.filter((entry) => entry.entryType !== 'podcast_source')
-  );
+  let noteEntries = $derived(podcastNoteEntries.filter(isMainLibraryEntry));
   let selectedEntry = $derived(
     entries.find((entry) => entry.id === selectedID) ?? null
   );
@@ -125,11 +125,7 @@
   let filteredEntries = $derived(
     noteEntries.filter((entry) => {
       if (selectedTopic !== 'all' && !entry.topicNames.includes(selectedTopic)) return false;
-      if (!normalizedQuery) return true;
-      return [entry.title, entry.excerpt, ...entry.topicNames, ...entry.tags]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalizedQuery);
+      return matchesLibraryEntry(entry, normalizedQuery);
     })
   );
   let podcastGroups = $derived.by(() =>

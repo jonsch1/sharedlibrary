@@ -8,8 +8,10 @@ import type {
 import type {
   DriveLibraryFile,
   DriveLibraryIndex,
+  DriveLibraryMedia,
   DriveLibraryMirror
 } from './library.js';
+import type { LibraryMedia } from '../../../Shared/library.js';
 
 const backendOrigin = 'https://www.readbriefly.fyi';
 const podcastSpeechEndpoint = 'https://jonsch1--briefly-kokoro-speech.modal.run';
@@ -231,6 +233,24 @@ export class BackendClient {
     return response.text();
   }
 
+  async fetchLibraryMedia(
+    media: LibraryMedia,
+    provider: ConnectionProvider
+  ): Promise<Uint8Array> {
+    if (provider === 'icloud') {
+      const content = await this.callICloud<string>('fetchLibraryMedia', [media]);
+      return new Uint8Array(Buffer.from(content, 'base64'));
+    }
+    const response = await this.fetch(
+      `/api/media/${media.kind}/${media.contentHash}`,
+      { headers: { Accept: media.contentType } }
+    );
+    if (!response.ok) {
+      throw new Error(await this.errorMessage(response, `Could not download ${media.path}.`));
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
   async uploadLibrary(mirror: DriveLibraryMirror, provider: ConnectionProvider): Promise<{
     changed: number;
     syncedAt: string;
@@ -238,16 +258,26 @@ export class BackendClient {
     if (provider === 'icloud') {
       return this.callICloud<{ changed: number; syncedAt: string }>('uploadLibrary', [mirror]);
     }
+    let uploadedMedia = 0;
+    for (const media of mirror.media) {
+      const result = await this.uploadMedia(media);
+      if (!result.existed) uploadedMedia += 1;
+    }
     const response = await this.fetch('/api/library/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         index: mirror.index,
-        files: mirror.files
+        files: mirror.files,
+        media: mirror.media.map(({ content: _, ...media }) => media)
       })
     });
-    return this.json(response, 'Could not synchronize the library with Google Drive.');
+    const result = await this.json<{ changed: number; syncedAt: string }>(
+      response,
+      'Could not synchronize the library with Google Drive.'
+    );
+    return { ...result, changed: result.changed + uploadedMedia };
   }
 
   async shareStatus(captureID: string): Promise<ShareLinkStatus> {
@@ -274,6 +304,18 @@ export class BackendClient {
       method: 'DELETE'
     });
     await this.json(response, 'Could not revoke the share link.');
+  }
+
+  private async uploadMedia(media: DriveLibraryMedia): Promise<{ existed: boolean }> {
+    const response = await this.fetch(
+      `/api/media/${media.kind}/${media.contentHash}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': media.contentType },
+        body: Buffer.from(media.content, 'base64')
+      }
+    );
+    return this.json(response, `Could not upload ${media.path}.`);
   }
 
   private async openProviderWindow(

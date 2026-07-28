@@ -29,11 +29,10 @@ test('ships every TweakCN preset and inherits optional light tokens in dark mode
 test('theme surfaces use semantic colors only', async () => {
   const files = [
     '../renderer/App.svelte',
-    '../renderer/DepthControl.svelte',
-    '../renderer/MarkdownView.svelte',
     '../renderer/PodcastsView.svelte',
-    '../../../Web/src/lib/DepthControl.svelte',
-    '../../../Web/src/lib/MarkdownText.svelte',
+    '../../../Shared/AudioPlayer.svelte',
+    '../../../Shared/DepthControl.svelte',
+    '../../../Shared/MarkdownView.svelte',
     '../../../Web/src/lib/PublicShareReader.svelte',
     '../../../Web/src/routes/+page.svelte'
   ];

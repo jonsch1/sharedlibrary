@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   shouldRenderSourceAsPlainText
-} from '../shared/source-presentation.js';
+} from '../../../Shared/library.js';
 
 test('uses plain presentation for original YouTube transcripts', () => {
   for (const sourceURL of [

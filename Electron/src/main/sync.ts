@@ -76,6 +76,10 @@ export class SyncCoordinator {
           remote,
           (file) => this.backend.fetchLibraryFile(file, provider)
         );
+        downloaded += await this.library.mergeRemoteMedia(
+          remote,
+          (media) => this.backend.fetchLibraryMedia(media, provider)
+        );
         if (downloaded > 0) await this.onLibraryChanged();
       }
 

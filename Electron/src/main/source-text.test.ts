@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sourceTextParagraphs } from '../shared/source-text.js';
+import { sourceTextParagraphs } from '../../../Shared/library.js';
 
 test('renders wrapped transcript text as flat speaker paragraphs', () => {
   assert.deepEqual(

@@ -13,7 +13,8 @@ test('sync routes every library operation through the selected provider', async 
   };
   const mirror: DriveLibraryMirror = {
     index,
-    files: [{ ...index.files[0], content: 'example' }]
+    files: [{ ...index.files[0], content: 'example' }],
+    media: []
   };
   const calls: string[] = [];
   const backend = {
@@ -43,6 +44,7 @@ test('sync routes every library operation through the selected provider', async 
       await download(remote.files[0]);
       return 1;
     },
+    mergeRemoteMedia: async () => 0,
     buildDriveMirror: async () => mirror,
     saveSyncBaseline: async () => {}
   } as unknown as LibraryService;

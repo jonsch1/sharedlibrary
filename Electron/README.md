@@ -58,7 +58,7 @@ and preload/IPC reads and writes:
 npm run test:e2e
 ```
 
-Build an unpacked application for the current platform:
+Build an unpacked, unsigned application for local testing:
 
 ```bash
 npm run package
