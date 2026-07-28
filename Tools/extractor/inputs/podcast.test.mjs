@@ -69,6 +69,49 @@ test("podcast feeds remain useful when the latest episode has no transcript", as
   assert.match(result.content, /What this episode covers\./);
 });
 
+test("podcast feeds transcribe enclosure audio when no transcript is published", async () => {
+  const requested = [];
+  const result = await extractLink("https://example.com/podcast.xml", {
+    fetchImpl: async (url) =>
+      response(
+        podcastFeed({ transcript: "", description: "What this episode covers." }),
+        "application/rss+xml",
+        String(url)
+      ),
+    async transcribeMedia(url) {
+      requested.push(url);
+      return { language: "en", text: "Generated podcast transcript." };
+    }
+  });
+
+  assert.deepEqual(requested, ["https://cdn.example.com/episode.mp3"]);
+  assert.equal(result.transcriptAvailable, true);
+  assert.equal(result.transcriptLanguage, "en");
+  assert.equal(result.mediaURL, "https://cdn.example.com/episode.mp3");
+  assert.equal(result.content, "Transcript:\nGenerated podcast transcript.");
+});
+
+test("podcast feeds fall back when a published transcript cannot be retrieved", async () => {
+  const requested = [];
+  const result = await extractLink("https://example.com/podcast.xml", {
+    fetchImpl: async (url) => {
+      requested.push(String(url));
+      if (requested.length === 1) {
+        return response(podcastFeed(), "application/rss+xml", String(url));
+      }
+      throw new Error("Published transcript failed.");
+    },
+    async transcribeMedia(url) {
+      requested.push(url);
+      return { language: "en", text: "Recovered from audio." };
+    }
+  });
+
+  assert.equal(requested.at(-1), "https://cdn.example.com/episode.mp3");
+  assert.equal(result.content, "Transcript:\nRecovered from audio.");
+  assert.equal(result.transcriptError, null);
+});
+
 test("podcast transcript parsers support the standard JSON and SRT formats", () => {
   assert.equal(
     parseTranscript(

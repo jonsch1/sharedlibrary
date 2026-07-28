@@ -1,4 +1,26 @@
+import { readFile, stat } from "node:fs/promises";
+import { extname } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+
+const MAXIMUM_PDF_BYTES = 20_000_000;
+
+export async function extractPDFFile(path) {
+  if (typeof path !== "string" || extname(path).toLowerCase() !== ".pdf") {
+    throw new Error("Only PDF files can be imported.");
+  }
+  const information = await stat(path);
+  if (!information.isFile()) throw new Error("The dropped PDF is not a file.");
+  if (information.size > MAXIMUM_PDF_BYTES) {
+    throw new Error("The PDF is larger than the 20 MB import limit.");
+  }
+  const url = pathToFileURL(path).toString();
+  return extractPDF(url, {
+    bytes: new Uint8Array(await readFile(path)),
+    finalURL: url
+  });
+}
 
 export async function extractPDF(rawUrl, fetched) {
   const task = getDocument({

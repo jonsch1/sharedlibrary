@@ -23,6 +23,8 @@ export interface DesktopLibraryEntry {
   topicNames: string[];
   tags: string[];
   sourceURL?: string;
+  mediaURL?: string;
+  faviconFile?: string;
   sourceIDs?: string[];
   sourceURLs?: string[];
   createdAt?: string;
@@ -86,6 +88,10 @@ export interface DesktopShortcutPreferences {
   captureShortcut: string;
   defaultCaptureShortcut: string;
   registered: boolean;
+}
+
+export interface DesktopAudioPreferences {
+  saveCapturedAudio: boolean;
 }
 
 export interface DesktopIngestionStatus {
@@ -176,16 +182,19 @@ export interface SharedLibraryDesktopAPI {
   writeText(entryID: string, variant: LibraryVariant, text: string): Promise<DesktopOperationResult>;
   trashCapture(entryID: string): Promise<DesktopOperationResult>;
   captureClipboard(): Promise<DesktopOperationResult>;
+  capturePDF(file: File): Promise<DesktopOperationResult>;
   openExternal(url: string): Promise<void>;
   openAgent(): Promise<void>;
   revealEntry(entryID: string): Promise<void>;
-  showEntryContextMenu(entryID: string, variant?: LibraryVariant): Promise<void>;
+  showEntryContextMenu(entryIDs: string[], variant?: LibraryVariant): Promise<void>;
   getConnectionStatus(): Promise<DesktopConnectionStatus>;
   signIn(provider: AccountProvider): Promise<DesktopConnectionStatus>;
   manageAccount(): Promise<DesktopConnectionStatus>;
   syncNow(): Promise<DesktopConnectionStatus>;
   getShortcutPreferences(): Promise<DesktopShortcutPreferences>;
   setCaptureShortcut(accelerator: string): Promise<DesktopShortcutPreferences>;
+  getAudioPreferences(): Promise<DesktopAudioPreferences>;
+  setSaveCapturedAudio(enabled: boolean): Promise<DesktopAudioPreferences>;
   getIngestionStatus(): Promise<DesktopIngestionStatus>;
   getProcessingPreferences(): Promise<ProcessingPreferences>;
   updateProcessingPreferences(

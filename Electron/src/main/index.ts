@@ -15,8 +15,8 @@ import type { MenuItemConstructorOptions, OpenDialogOptions } from 'electron';
 import type { MessageBoxOptions } from 'electron';
 import { spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, stat } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import electronUpdater from 'electron-updater';
 import {
@@ -25,6 +25,7 @@ import {
   type PromptPreferences,
   type PromptPreferenceUpdate,
   type AccountProvider,
+  type DesktopAudioPreferences,
   type DesktopConnectionStatus,
   type DesktopIngestionStatus,
   type DesktopShortcutPreferences,
@@ -41,7 +42,10 @@ import {
   type BundledAgentSkill
 } from './agent-api.js';
 import { BackendClient } from './backend.js';
-import { ExtractionService } from './extraction.js';
+import {
+  ExtractionService,
+  type ExtractedContent
+} from './extraction.js';
 import { LibraryService } from './library.js';
 import {
   defaultProcessingPrompt,
@@ -63,6 +67,15 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       standard: true,
       stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true
+    }
+  },
+  {
+    scheme: 'briefly-favicon',
+    privileges: {
+      secure: true,
+      standard: true,
       supportFetchAPI: true,
       corsEnabled: true
     }
@@ -180,6 +193,12 @@ function shortcutPreferences(): DesktopShortcutPreferences {
     captureShortcut,
     defaultCaptureShortcut,
     registered: globalShortcut.isRegistered(captureShortcut)
+  };
+}
+
+async function audioPreferences(): Promise<DesktopAudioPreferences> {
+  return {
+    saveCapturedAudio: (await settings.load()).saveCapturedAudio !== false
   };
 }
 
@@ -382,8 +401,9 @@ function registerIPC(): void {
     library.setWorkspacePath(path);
     await settings.update({ workspacePath: path });
     await agentApi.refreshWorkspace(previousWorkspacePath);
+    const podcastSnapshot = await podcasts.snapshot();
     const snapshot = await snapshotAndNotify();
-    mainWindow?.webContents.send('podcasts:changed', await podcasts.snapshot());
+    mainWindow?.webContents.send('podcasts:changed', podcastSnapshot);
     podcasts.wake();
     return snapshot;
   });
@@ -409,10 +429,11 @@ function registerIPC(): void {
     sync.request('deleted documents');
     return {
       snapshot: await snapshotAndNotify(),
-      message: 'The source and its summaries were moved to Trash.'
+      message: 'The source, its audio, and summaries were moved to Trash.'
     };
   });
   ipcMain.handle('library:capture-clipboard', () => captureClipboard());
+  ipcMain.handle('library:capture-pdf', (_event, path: unknown) => capturePDF(path));
   ipcMain.handle('library:open-external', async (_event, value: string) => {
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -431,26 +452,44 @@ function registerIPC(): void {
     'library:show-entry-context-menu',
     async (
       event,
-      entryID: string,
+      entryIDs: unknown,
       variant: LibraryVariant | undefined
     ) => {
       const snapshot = await library.snapshot();
-      const entry = snapshot.entries.find((candidate) => candidate.id === entryID);
-      if (!entry) throw new Error('The selected item no longer exists.');
-      const path = await library.filePath(entryID, variant);
+      if (
+        !Array.isArray(entryIDs) ||
+        entryIDs.length === 0 ||
+        entryIDs.some((entryID) => typeof entryID !== 'string')
+      ) {
+        throw new Error('No valid library items were selected.');
+      }
+      const selectedIDs = [...new Set(entryIDs as string[])];
+      const entries = selectedIDs.map((entryID) =>
+        snapshot.entries.find((candidate) => candidate.id === entryID)
+      );
+      if (entries.some((entry) => !entry)) {
+        throw new Error('A selected item no longer exists.');
+      }
+      const paths = await Promise.all(
+        selectedIDs.map((entryID) => library.filePath(entryID, variant))
+      );
       const window = BrowserWindow.fromWebContents(event.sender) ?? undefined;
       const menu = Menu.buildFromTemplate([
         {
-          label: 'Copy Path',
+          label: selectedIDs.length === 1 ? 'Copy Path' : 'Copy Paths',
           click: () => {
-            clipboard.writeText(path);
-            sendOperationMessage('Path copied.');
+            clipboard.writeText(paths.join('\n'));
+            sendOperationMessage(selectedIDs.length === 1 ? 'Path copied.' : 'Paths copied.');
           }
         },
         { type: 'separator' },
         {
           label: 'Move to Trash…',
-          click: () => void trashEntryFromContextMenu(entryID, entry.title)
+          click: () =>
+            void trashEntriesFromContextMenu(
+              selectedIDs,
+              entries.map((entry) => entry!.title)
+            )
         }
       ]);
       menu.popup({ window });
@@ -497,6 +536,12 @@ function registerIPC(): void {
     }
     installMenu();
     return shortcutPreferences();
+  });
+  ipcMain.handle('audio:get-preferences', () => audioPreferences());
+  ipcMain.handle('audio:set-save-captured', async (_event, value: unknown) => {
+    if (typeof value !== 'boolean') throw new Error('Choose whether to save audio.');
+    await settings.update({ saveCapturedAudio: value });
+    return audioPreferences();
   });
   ipcMain.handle('ingestion:get-status', () => ingestionStatus());
   ipcMain.handle('processing:get-preferences', () => processingPreferences());
@@ -606,27 +651,38 @@ async function openAgentWorkspace(): Promise<void> {
   if (error) throw new Error(error);
 }
 
-async function trashEntryFromContextMenu(
-  entryID: string,
-  title: string
+async function trashEntriesFromContextMenu(
+  entryIDs: string[],
+  titles: string[]
 ): Promise<void> {
+  const count = entryIDs.length;
   const options: MessageBoxOptions = {
     type: 'warning',
     buttons: ['Cancel', 'Move to Trash'],
     defaultId: 0,
     cancelId: 0,
-    message: `Move “${title}” to Trash?`,
-    detail: 'The source document and all of its summaries will be moved together.'
+    message:
+      count === 1
+        ? `Move “${titles[0]}” to Trash?`
+        : `Move ${count} documents to Trash?`,
+    detail:
+      count === 1
+        ? 'The source document and all of its summaries will be moved together.'
+        : 'Each source document and all of its summaries will be moved together.'
   };
   const response = mainWindow
     ? await dialog.showMessageBox(mainWindow, options)
     : await dialog.showMessageBox(options);
   if (response.response !== 1) return;
   try {
-    await library.trashCapture(entryID);
+    for (const entryID of entryIDs) await library.trashCapture(entryID);
     sync.request('deleted documents');
     await snapshotAndNotify();
-    sendOperationMessage('The source and its summaries were moved to Trash.');
+    sendOperationMessage(
+      count === 1
+        ? 'The source and its summaries were moved to Trash.'
+        : `${count} documents and their summaries were moved to Trash.`
+    );
   } catch (error) {
     sendOperationMessage(
       error instanceof Error ? error.message : 'The document could not be moved to Trash.'
@@ -719,11 +775,30 @@ async function captureFromMenu(): Promise<void> {
 }
 
 async function captureClipboard() {
+  const text = clipboard.readText();
+  const preferences = await audioPreferences();
+  return captureText(
+    text,
+    await extraction.extractClipboard(text, preferences.saveCapturedAudio)
+  );
+}
+
+async function capturePDF(path: unknown) {
+  const extracted = await extraction.extractPDFFile(path);
+  return captureText(
+    extracted.title ?? basename(typeof path === 'string' ? path : 'PDF'),
+    extracted
+  );
+}
+
+async function captureText(text: string, extracted?: ExtractedContent) {
   const finishIngestion = beginIngestion();
   try {
-    const text = clipboard.readText();
-    const extracted = await extraction.extractClipboard(text);
-    const captureID = await library.captureText(text, extracted);
+    const stored =
+      extracted && !(await audioPreferences()).saveCapturedAudio
+        ? { ...extracted, audio: undefined }
+        : extracted;
+    const captureID = await library.captureText(text, stored);
     const entryID = `personal:${captureID}`;
     const snapshot = await snapshotAndNotify();
     sync.request('the new capture');
@@ -782,6 +857,18 @@ app.whenReady().then(async () => {
       if (!filename.endsWith('.wav')) throw new Error('Invalid audio path.');
       const entryID = decodeURIComponent(filename.slice(0, -4));
       const audioPath = await library.podcastAudioPath(entryID);
+      const contentTypes: Record<string, string> = {
+        '.aac': 'audio/aac',
+        '.flac': 'audio/flac',
+        '.m4a': 'audio/mp4',
+        '.mp3': 'audio/mpeg',
+        '.ogg': 'audio/ogg',
+        '.opus': 'audio/ogg',
+        '.wav': 'audio/wav',
+        '.webm': 'audio/webm'
+      };
+      const contentType = contentTypes[extname(audioPath).toLowerCase()];
+      if (!contentType) throw new Error('Unsupported audio type.');
       const size = (await stat(audioPath)).size;
       const rangeHeader = request.headers.get('range')?.trim() || null;
       const range = podcastAudioRange(rangeHeader, size);
@@ -804,7 +891,7 @@ app.whenReady().then(async () => {
           headers: {
             'Accept-Ranges': 'bytes',
             'Content-Length': String(range.end - range.start + 1),
-            'Content-Type': 'audio/wav',
+            'Content-Type': contentType,
             ...(partial
               ? { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` }
               : {})
@@ -815,8 +902,34 @@ app.whenReady().then(async () => {
       return new Response('Not found.', { status: 404 });
     }
   });
+  protocol.handle('briefly-favicon', async (request) => {
+    try {
+      const filename = new URL(request.url).pathname.split('/').at(-1) ?? '';
+      const extension = filename.split('.').at(-1) ?? '';
+      const contentTypes: Record<string, string> = {
+        gif: 'image/gif',
+        ico: 'image/x-icon',
+        jpg: 'image/jpeg',
+        png: 'image/png',
+        webp: 'image/webp'
+      };
+      const contentType = contentTypes[extension];
+      if (!contentType) throw new Error('Invalid favicon path.');
+      return new Response(await readFile(await library.faviconPath(filename)), {
+        headers: {
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Content-Type': contentType
+        }
+      });
+    } catch {
+      return new Response('Not found.', { status: 404 });
+    }
+  });
   backend = new BackendClient();
-  extraction = new ExtractionService(() => library.getWorkspacePath());
+  extraction = new ExtractionService(
+    () => library.getWorkspacePath(),
+    () => backend.transcriptCredentials()
+  );
   processing = new ProcessingService(async () => {
     const current = await settings.load();
     return current.processingPrompt ?? defaultProcessingPrompt;

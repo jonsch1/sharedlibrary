@@ -39,6 +39,7 @@ export async function extractYouTube(rawUrl, context = {}) {
   let tracks =
     player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
   let transcript = null;
+  let generatedTranscript = null;
   let transcriptError = null;
   if (Array.isArray(tracks) && tracks.length > 0) {
     try {
@@ -50,22 +51,36 @@ export async function extractYouTube(rawUrl, context = {}) {
       transcriptError = error instanceof Error ? error.message : String(error);
     }
   }
+  if (!transcript?.segments?.length && context.transcribeMedia) {
+    try {
+      generatedTranscript = await context.transcribeMedia(rawUrl);
+      transcriptError = null;
+    } catch (error) {
+      transcriptError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   const content = transcript?.segments?.length
     ? `Transcript:\n${formatTranscript(
         transcript.segments,
         context.includeTranscriptTimestamps === true
       )}`
+    : generatedTranscript?.text
+      ? `Transcript:\n${generatedTranscript.text}`
     : unavailableTranscriptContent({ author, description });
 
   return {
     url: rawUrl,
     title: title || `YouTube video ${videoID}`,
     description: description || null,
+    faviconURL: metadata.faviconURL || "https://www.youtube.com/favicon.ico",
     siteName: "YouTube",
     content,
-    transcriptAvailable: Boolean(transcript?.segments?.length),
-    transcriptLanguage: transcript?.languageCode ?? null,
+    transcriptAvailable: Boolean(
+      transcript?.segments?.length || generatedTranscript?.text
+    ),
+    transcriptLanguage:
+      transcript?.languageCode ?? generatedTranscript?.language ?? null,
     transcriptError
   };
 }

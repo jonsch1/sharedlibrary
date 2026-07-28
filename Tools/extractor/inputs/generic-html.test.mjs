@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   extractGenericHTML,
   extractGenericHTMLFromSource
 } from "./generic-html.mjs";
+import { extractPDFFile } from "./pdf.mjs";
 
 test("generic HTML extraction uses page metadata and readable article text", () => {
   const result = extractGenericHTMLFromSource(
@@ -17,6 +21,7 @@ test("generic HTML extraction uses page metadata and readable article text", () 
           <meta property="og:description" content="A useful extraction example.">
           <meta property="og:site_name" content="Example">
           <link rel="canonical" href="/canonical/reliable-inputs">
+          <link rel="icon" href="/assets/favicon.png">
         </head>
         <body>
           <nav>Unrelated navigation</nav>
@@ -36,6 +41,7 @@ test("generic HTML extraction uses page metadata and readable article text", () 
   assert.equal(result.title, "Reliable inputs");
   assert.equal(result.description, "A useful extraction example.");
   assert.equal(result.siteName, "Example");
+  assert.equal(result.faviconURL, "https://example.com/assets/favicon.png");
   assert.match(result.content, /deliberate input pipeline/);
   assert.doesNotMatch(result.content, /Unrelated navigation/);
 });
@@ -64,6 +70,19 @@ test("generic HTML extraction still rejects unsupported binary responses", async
     }),
     /Unsupported link content type: application\/zip/
   );
+});
+
+test("local PDF extraction reads a dropped file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "briefly-pdf-"));
+  const path = join(root, "local-report.pdf");
+  try {
+    await writeFile(path, pdfBytes("Dropped PDF content.", "Dropped report"));
+    const result = await extractPDFFile(path);
+    assert.equal(result.title, "Dropped report");
+    assert.match(result.content, /Dropped PDF content/);
+  } finally {
+    await rm(root, { recursive: true });
+  }
 });
 
 function response(body, { contentType = "text/html", url = "https://example.com/" } = {}) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import test from 'node:test';
@@ -126,19 +126,52 @@ Original body.
     assert.match(stored, /Edited body\./);
 
     const capturedID = await service.captureText('A new clipboard thought');
+    const podcastSourceID = await service.captureText(
+      'https://example.com/podcast-source',
+      {
+        content: 'Podcast source body.',
+        sourceURL: 'https://example.com/podcast-source',
+        entryType: 'podcast_source'
+      }
+    );
     const afterCapture = await service.snapshot();
     assert.ok(afterCapture.entries.some((entry) => entry.captureID === capturedID));
+    assert.equal(
+      afterCapture.entries.find((entry) => entry.captureID === podcastSourceID)?.entryType,
+      'podcast_source'
+    );
+    const migrated = await service.markPodcastSources([`personal:${capturedID}`]);
+    assert.equal(
+      migrated.entries.find((entry) => entry.captureID === capturedID)?.entryType,
+      'podcast_source'
+    );
 
     const researchTopic = await service.ensureTopic('Approved Research');
+    const favicon = {
+      bytes: new Uint8Array([0, 0, 1, 0]),
+      extension: 'ico' as const
+    };
     const researchedID = await service.captureText(
       'https://example.com/research',
       {
         title: 'Approved source',
         content: 'Approved source body.',
-        sourceURL: 'https://example.com/research'
+        sourceURL: 'https://example.com/research',
+        mediaURL: 'https://cdn.example.com/research.mp3',
+        audio: {
+          bytes: new Uint8Array([26, 69, 223, 163]),
+          extension: 'webm'
+        },
+        favicon
       },
       [researchTopic.id]
     );
+    await service.captureText('https://example.com/other', {
+      title: 'Same favicon',
+      content: 'Another source.',
+      sourceURL: 'https://example.com/other',
+      favicon
+    });
     await service.applyProcessingSuggestion(
       `personal:${researchedID}`,
       {
@@ -157,6 +190,21 @@ Original body.
       (entry) => entry.captureID === researchedID
     );
     assert.deepEqual(researched?.topicIDs, [researchTopic.id]);
+    assert.equal(researched?.mediaURL, 'https://cdn.example.com/research.mp3');
+    assert.equal(researched?.hasAudio, true);
+    assert.deepEqual(
+      await readFile(await service.podcastAudioPath(`personal:${researchedID}`)),
+      Buffer.from([26, 69, 223, 163])
+    );
+    const faviconID = createHash('sha256').update(favicon.bytes).digest('hex');
+    assert.equal(researched?.faviconFile, `${faviconID}.ico`);
+    assert.deepEqual(await readdir(join(root, 'library', 'favicons')), [
+      `${faviconID}.ico`
+    ]);
+    assert.equal(
+      await service.faviconPath(`${faviconID}.ico`),
+      join(root, 'library', 'favicons', `${faviconID}.ico`)
+    );
     assert.deepEqual(researched?.availableVariants, [
       'brief',
       'concise',

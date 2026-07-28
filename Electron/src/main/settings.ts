@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 export interface DesktopSettings {
   workspacePath?: string;
   captureShortcut?: string;
+  saveCapturedAudio?: boolean;
   processingPrompt?: string;
   podcastPrompt?: string;
 }

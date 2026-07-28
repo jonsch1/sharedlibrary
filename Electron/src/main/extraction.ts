@@ -1,13 +1,24 @@
-import { app } from 'electron';
+import { app, session } from 'electron';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { faviconExtension } from './favicon.js';
 
 export interface ExtractedContent {
   title?: string;
   content: string;
   sourceURL: string;
+  mediaURL?: string;
+  audio?: {
+    bytes: Uint8Array;
+    extension: 'aac' | 'flac' | 'm4a' | 'mp3' | 'ogg' | 'opus' | 'wav' | 'webm';
+  };
+  favicon?: {
+    bytes: Uint8Array;
+    extension: 'gif' | 'ico' | 'jpg' | 'png' | 'webp';
+  };
 }
 
 export interface DiscoveredSourceItem {
@@ -30,23 +41,35 @@ interface ExtractorOutput {
   url?: string;
   title?: string;
   content?: string;
+  mediaURL?: string;
+  faviconURL?: string;
+  transcriptError?: string | null;
 }
 
-const extractionTimeoutMilliseconds = 150_000;
+const extractionTimeoutMilliseconds = 1_850_000;
 
 export class ExtractionService {
-  constructor(private readonly workspacePath: () => string) {}
+  constructor(
+    private readonly workspacePath: () => string,
+    private readonly transcriptCredentials: () => Promise<
+      { endpoint: string; token: string } | undefined
+    > = async () => undefined
+  ) {}
 
-  async extractClipboard(value: string): Promise<ExtractedContent | undefined> {
+  async extractClipboard(
+    value: string,
+    saveAudio = false
+  ): Promise<ExtractedContent | undefined> {
     const sourceURL = webURL(value);
     if (!sourceURL) return undefined;
 
-    return this.extractURL(sourceURL.toString());
+    return this.extractURL(sourceURL.toString(), saveAudio);
   }
 
-  async extractURL(value: string): Promise<ExtractedContent> {
+  async extractURL(value: string, saveAudio = false): Promise<ExtractedContent> {
     const sourceURL = webURL(value);
     if (!sourceURL) throw new Error('Only HTTP(S) links can be extracted.');
+    const saveYouTubeAudio = saveAudio && isYouTubeURL(sourceURL);
     const helper = this.helperPath('extract.mjs');
     if (!helper) {
       throw new Error(
@@ -54,18 +77,75 @@ export class ExtractionService {
       );
     }
 
+    const credentials = await this.transcriptCredentials();
+    const mediaDirectory = credentials || saveYouTubeAudio
+      ? await mkdtemp(join(tmpdir(), 'briefly-media-'))
+      : undefined;
+    try {
+      const extracted = await runHelper<ExtractorOutput>(
+        helper,
+        ['--extensions', join(this.workspacePath(), '.briefly', 'inputs'), sourceURL.toString()],
+        'Web extraction failed.',
+        mediaDirectory
+          ? {
+              BRIEFLY_MEDIA_OUTPUT_DIRECTORY: mediaDirectory,
+              BRIEFLY_SAVE_CAPTURED_AUDIO: saveYouTubeAudio ? '1' : '0',
+              ...(credentials
+                ? {
+                    BRIEFLY_TRANSCRIPT_ENDPOINT: credentials.endpoint,
+                    BRIEFLY_TRANSCRIPT_TOKEN: credentials.token
+                  }
+                : {})
+            }
+          : undefined
+      );
+      const content = extracted.content?.trim();
+      if (extracted.transcriptError) {
+        console.warn(`Transcript fallback failed: ${extracted.transcriptError}`);
+      }
+      if (!content) throw new Error('The page did not contain extractable text.');
+
+      const resolvedSourceURL =
+        webURL(extracted.url ?? '')?.toString() ?? sourceURL.toString();
+      return {
+        title: extracted.title?.trim() || undefined,
+        content,
+        sourceURL: resolvedSourceURL,
+        mediaURL: webURL(extracted.mediaURL ?? '')?.toString() ?? undefined,
+        audio:
+          saveYouTubeAudio && mediaDirectory
+            ? await downloadedAudio(mediaDirectory)
+            : undefined,
+        favicon: await downloadFavicon(resolvedSourceURL, extracted.faviconURL)
+      };
+    } finally {
+      if (mediaDirectory) {
+        await rm(mediaDirectory, { force: true, recursive: true });
+      }
+    }
+  }
+
+  async extractPDFFile(value: unknown): Promise<ExtractedContent> {
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Error('The dropped PDF does not have a readable file path.');
+    }
+    const helper = this.helperPath('extract.mjs');
+    if (!helper) {
+      throw new Error(
+        'The PDF extractor is missing from Briefly. Reinstall the application.'
+      );
+    }
     const extracted = await runHelper<ExtractorOutput>(
       helper,
-      ['--extensions', join(this.workspacePath(), '.briefly', 'inputs'), sourceURL.toString()],
-      'Web extraction failed.'
+      ['--file', value],
+      'PDF extraction failed.'
     );
     const content = extracted.content?.trim();
-    if (!content) throw new Error('The page did not contain extractable text.');
-
+    if (!content) throw new Error('The PDF did not contain extractable text.');
     return {
       title: extracted.title?.trim() || undefined,
       content,
-      sourceURL: webURL(extracted.url ?? '')?.toString() ?? sourceURL.toString()
+      sourceURL: ''
     };
   }
 
@@ -101,6 +181,68 @@ export class ExtractionService {
   }
 }
 
+async function downloadedAudio(
+  directory: string
+): Promise<
+  | {
+      bytes: Uint8Array;
+      extension: 'aac' | 'flac' | 'm4a' | 'mp3' | 'ogg' | 'opus' | 'wav' | 'webm';
+    }
+  | undefined
+> {
+  const filename = (await readdir(directory)).find((candidate) =>
+    /\.(?:aac|flac|m4a|mp3|ogg|opus|wav|webm)$/iu.test(candidate)
+  );
+  if (!filename) return undefined;
+  const path = join(directory, filename);
+  if ((await stat(path)).size > 500_000_000) {
+    throw new Error('The downloaded audio is too large to save.');
+  }
+  return {
+    bytes: new Uint8Array(await readFile(path)),
+    extension: filename.split('.').at(-1)?.toLowerCase() as
+      | 'aac'
+      | 'flac'
+      | 'm4a'
+      | 'mp3'
+      | 'ogg'
+      | 'opus'
+      | 'wav'
+      | 'webm'
+  };
+}
+
+async function downloadFavicon(
+  sourceURL: string,
+  preferredURL?: string
+): Promise<
+  | {
+      bytes: Uint8Array;
+      extension: 'gif' | 'ico' | 'jpg' | 'png' | 'webp';
+    }
+  | undefined
+> {
+  const fallbackURL = new URL('/favicon.ico', sourceURL).toString();
+  for (const url of [...new Set([webURL(preferredURL ?? '')?.toString(), fallbackURL])]) {
+    if (!url) continue;
+    try {
+      const response = await session.defaultSession.fetch(url, {
+        headers: { Accept: 'image/*' },
+        signal: AbortSignal.timeout(5_000)
+      });
+      const declaredLength = Number(response.headers.get('content-length') ?? 0);
+      if (!response.ok || declaredLength > 1_000_000) continue;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!bytes.length || bytes.length > 1_000_000) continue;
+      const extension = faviconExtension(bytes);
+      if (extension) return { bytes, extension };
+    } catch {
+      // Missing favicons should not prevent capture.
+    }
+  }
+  return undefined;
+}
+
 function webURL(value: string): URL | null {
   const trimmed = value.trim();
   if (!trimmed || /\s/.test(trimmed)) return null;
@@ -112,10 +254,22 @@ function webURL(value: string): URL | null {
   }
 }
 
+function isYouTubeURL(url: URL): boolean {
+  const hostname = url.hostname.toLowerCase();
+  return (
+    hostname === 'youtu.be' ||
+    hostname === 'youtube.com' ||
+    hostname.endsWith('.youtube.com') ||
+    hostname === 'youtube-nocookie.com' ||
+    hostname.endsWith('.youtube-nocookie.com')
+  );
+}
+
 async function runHelper<T>(
   helper: string,
   arguments_: string[],
-  fallbackError: string
+  fallbackError: string,
+  environmentOverrides?: NodeJS.ProcessEnv
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -123,7 +277,7 @@ async function runHelper<T>(
       [helper, ...arguments_],
       {
         cwd: dirname(helper),
-        env: extractorEnvironment(helper),
+        env: { ...extractorEnvironment(helper), ...environmentOverrides },
         stdio: ['ignore', 'pipe', 'pipe']
       }
     );
@@ -132,7 +286,7 @@ async function runHelper<T>(
     let outputTooLarge = false;
     const timeout = setTimeout(() => {
       child.kill();
-      reject(new Error('Extraction timed out after 150 seconds.'));
+      reject(new Error('Extraction timed out after 31 minutes.'));
     }, extractionTimeoutMilliseconds);
 
     child.stdout.on('data', (chunk) => {

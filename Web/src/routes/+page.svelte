@@ -995,7 +995,7 @@
 						<div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><PaletteIcon /></div>
 						<div>
 							<div class="provider-title"><h3>Appearance</h3></div>
-							<p>Choose from Briefly and every built-in TweakCN theme.</p>
+							<p>Choose from every built-in TweakCN theme.</p>
 						</div>
 					</div>
 					<div class="theme-controls grid grid-cols-[minmax(0,1fr)_minmax(110px,0.45fr)] gap-2.5 max-[420px]:grid-cols-1">

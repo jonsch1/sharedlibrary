@@ -9,7 +9,9 @@ import {
 import { arxivInput } from "./arxiv.mjs";
 import { blueskyInput } from "./bluesky.mjs";
 import { genericHTMLInput } from "./generic-html.mjs";
+import { redditInput } from "./reddit.mjs";
 import { threadsInput } from "./threads.mjs";
+import { tiktokInput } from "./tiktok.mjs";
 import { xInput } from "./x.mjs";
 import { youtubeInput } from "./youtube.mjs";
 
@@ -18,8 +20,11 @@ const specializedInputs = [
   youtubeInput,
   xInput,
   blueskyInput,
-  threadsInput
+  threadsInput,
+  redditInput,
+  tiktokInput
 ];
+const firecrawlInput = { id: "firecrawl", sourceType: "web-page" };
 const extensionRunnerPath = fileURLToPath(
   new URL("../extension-runner.mjs", import.meta.url)
 );
@@ -59,6 +64,20 @@ export async function extractLink(rawUrl, context = {}) {
   const input = selectInput(rawUrl);
   if (!input) throw new Error("Only HTTP(S) links are supported.");
 
+  let extracted;
+  try {
+    extracted = await extractBuiltin(input, rawUrl, context);
+  } catch (error) {
+    return firecrawlFallback(rawUrl, input.id, error, context);
+  }
+
+  const reason = genericFallbackReason(extracted);
+  return reason
+    ? firecrawlFallback(rawUrl, input.id, new Error(reason), context)
+    : extracted;
+}
+
+async function extractBuiltin(input, rawUrl, context) {
   try {
     return normalizeResult(await input.extract(rawUrl, context), input, rawUrl);
   } catch (error) {
@@ -75,6 +94,48 @@ export async function extractLink(rawUrl, context = {}) {
       rawUrl
     );
   }
+}
+
+async function firecrawlFallback(rawUrl, from, originalError, context) {
+  if (!context.firecrawlFallback) throw originalError;
+  const reason =
+    originalError instanceof Error ? originalError.message : String(originalError);
+  context.onProgress?.({
+    kind: "input-fallback",
+    from,
+    to: firecrawlInput.id,
+    reason
+  });
+  try {
+    return normalizeResult(
+      await context.firecrawlFallback(rawUrl),
+      firecrawlInput,
+      rawUrl
+    );
+  } catch (error) {
+    const fallbackReason = error instanceof Error ? error.message : String(error);
+    throw new Error(`${reason} Firecrawl fallback failed: ${fallbackReason}`);
+  }
+}
+
+function genericFallbackReason(result) {
+  if (result.extractor !== genericHTMLInput.id) return null;
+  const text = `${result.title ?? ""}\n${result.content}`;
+  if (
+    /\b(?:checking your browser|recaptcha|please wait for verification|verify (?:that )?you are human|access denied)\b/iu.test(
+      text
+    )
+  ) {
+    return "The page returned a verification or access-block interstitial.";
+  }
+  if (
+    result.wordCount < 10 &&
+    result.title &&
+    normalizedText(result.content) === normalizedText(result.title)
+  ) {
+    return "The page returned only its application-shell title.";
+  }
+  return null;
 }
 
 async function selectWorkspaceInput(rawUrl, context) {
@@ -241,4 +302,8 @@ function lastDiagnostic(value) {
       .filter(Boolean)
       .at(-1) ?? ""
   );
+}
+
+function normalizedText(value) {
+  return value.replace(/\s+/gu, " ").trim().toLowerCase();
 }

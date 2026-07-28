@@ -59,6 +59,7 @@ export function extractGenericHTMLFromSource(rawUrl, html) {
   return {
     url: rawUrl,
     canonicalURL: metadata.canonicalURL,
+    faviconURL: metadata.faviconURL,
     title: metadata.title ?? readability?.title ?? null,
     description: metadata.description ?? readability?.excerpt ?? null,
     siteName: metadata.siteName ?? hostname(rawUrl),
@@ -73,10 +74,21 @@ export function extractHTMLMetadata(html, rawUrl) {
     document.querySelector('link[rel="canonical"]')?.getAttribute("href"),
     rawUrl
   );
+  const faviconURL = validWebURL(
+    [...document.querySelectorAll("link[rel]")]
+      .find((element) =>
+        element.getAttribute("rel")?.toLowerCase().split(/\s+/u).some((value) =>
+          value === "icon" || value.endsWith("-icon")
+        )
+      )
+      ?.getAttribute("href"),
+    rawUrl
+  );
 
   return {
     articleBody: firstText(jsonLD.map((entry) => entry.articleBody)),
     canonicalURL,
+    faviconURL,
     description: firstText([
       metaContent(document, "property", "og:description"),
       metaContent(document, "name", "description"),

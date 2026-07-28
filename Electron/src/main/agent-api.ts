@@ -435,9 +435,10 @@ export class AgentApiServer {
       touch(job);
       const extracted = await this.dependencies.extractURL(source.url);
       if (!extracted) throw new Error('The URL did not return extractable content.');
+      const { audio: _audio, ...stored } = extracted;
       const captureID = await this.dependencies.library.captureText(
         source.url,
-        extracted,
+        stored,
         [job.topic.id]
       );
       const entryID = `personal:${captureID}`;

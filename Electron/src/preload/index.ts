@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   DesktopLibrarySnapshot,
   DesktopIngestionStatus,
@@ -23,11 +23,13 @@ const api: SharedLibraryDesktopAPI = {
   trashCapture: (entryID: string) =>
     ipcRenderer.invoke('library:trash-capture', entryID),
   captureClipboard: () => ipcRenderer.invoke('library:capture-clipboard'),
+  capturePDF: (file: File) =>
+    ipcRenderer.invoke('library:capture-pdf', webUtils.getPathForFile(file)),
   openExternal: (url: string) => ipcRenderer.invoke('library:open-external', url),
   openAgent: () => ipcRenderer.invoke('library:open-agent'),
   revealEntry: (entryID: string) => ipcRenderer.invoke('library:reveal-entry', entryID),
-  showEntryContextMenu: (entryID: string, variant?: LibraryVariant) =>
-    ipcRenderer.invoke('library:show-entry-context-menu', entryID, variant),
+  showEntryContextMenu: (entryIDs: string[], variant?: LibraryVariant) =>
+    ipcRenderer.invoke('library:show-entry-context-menu', entryIDs, variant),
   getConnectionStatus: () => ipcRenderer.invoke('services:get-status'),
   signIn: (provider) => ipcRenderer.invoke('services:sign-in', provider),
   manageAccount: () => ipcRenderer.invoke('services:manage-account'),
@@ -35,6 +37,9 @@ const api: SharedLibraryDesktopAPI = {
   getShortcutPreferences: () => ipcRenderer.invoke('shortcuts:get-preferences'),
   setCaptureShortcut: (accelerator: string) =>
     ipcRenderer.invoke('shortcuts:set-capture', accelerator),
+  getAudioPreferences: () => ipcRenderer.invoke('audio:get-preferences'),
+  setSaveCapturedAudio: (enabled: boolean) =>
+    ipcRenderer.invoke('audio:set-save-captured', enabled),
   getIngestionStatus: () => ipcRenderer.invoke('ingestion:get-status'),
   getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
   updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>

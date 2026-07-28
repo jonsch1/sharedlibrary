@@ -17,3 +17,13 @@ test('the sandboxed preload is emitted and loaded as CommonJS', async () => {
   assert.match(mainProcess, /\.\.\/preload\/index\.cjs/);
   assert.doesNotMatch(mainProcess, /\.\.\/preload\/index\.mjs/);
 });
+
+test('PDF drops use Electron file paths without exposing them to the renderer', async () => {
+  const preload = await readFile(
+    join(electronRoot, 'src', 'preload', 'index.ts'),
+    'utf8'
+  );
+
+  assert.match(preload, /webUtils\.getPathForFile\(file\)/);
+  assert.match(preload, /ipcRenderer\.invoke\('library:capture-pdf'/);
+});

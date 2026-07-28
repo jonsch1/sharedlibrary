@@ -306,9 +306,11 @@ export class PodcastService {
 
   private async ingestItem(item: DiscoveredSourceItem): Promise<WatchedItem> {
     const extracted = await this.extraction.extractURL(item.url);
+    const { audio: _audio, ...stored } = extracted;
     const captureID = await this.library.captureText(item.url, {
-      ...extracted,
-      title: item.title || extracted.title
+      ...stored,
+      title: item.title || extracted.title,
+      entryType: 'podcast_source'
     });
     const entryID = `personal:${captureID}`;
     return {
@@ -441,11 +443,15 @@ export class PodcastService {
     providedState?: PodcastState
   ): Promise<PodcastSnapshot> {
     await this.ensureDirectory();
-    const [podcasts, state, library] = await Promise.all([
+    const [podcasts, state] = await Promise.all([
       this.readDefinitions(),
-      providedState ? Promise.resolve(providedState) : this.readState(),
-      this.library.snapshot()
+      providedState ? Promise.resolve(providedState) : this.readState()
     ]);
+    const library = await this.library.markPodcastSources(
+      Object.values(state.sources).flatMap((source) =>
+        source.items.map((item) => item.entryID)
+      )
+    );
     const now = new Date();
     return {
       generatedAt: now.toISOString(),

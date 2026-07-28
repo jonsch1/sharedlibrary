@@ -14,12 +14,11 @@ Supported specialized inputs:
 - PDF responses are parsed by content type or PDF signature, including download
   URLs without a `.pdf` suffix. Image-only scans report that OCR is unavailable.
 - Podcast RSS feeds and episode pages with RSS autodiscovery use published
-  Podcasting 2.0 transcripts in WebVTT, HTML, JSON, SRT, or plain text. Audio is
-  never downloaded or transcribed.
-- `youtube.mjs` reads video metadata and published caption tracks. It never
-  downloads video or audio. Videos without an available transcript still
-  produce a result containing the title, channel, description, and a clear
-  transcript-unavailable notice.
+  Podcasting 2.0 transcripts in WebVTT, HTML, JSON, SRT, or plain text, then
+  fall back to the authenticated Whisper service when configured.
+- `youtube.mjs` reads video metadata and published caption tracks, then falls
+  back to the authenticated Whisper service when configured. Without that
+  service, metadata and a transcript-unavailable notice are still returned.
 - `x.mjs` reads X posts and Articles through the public FXTwitter response.
 - `bluesky.mjs` reads public Bluesky posts through the AT Protocol API.
 - `threads.mjs` reads public Threads post preview metadata.
@@ -27,6 +26,11 @@ Supported specialized inputs:
 The generic HTML input fetches text documents directly, extracts metadata and
 JSON-LD, and uses Mozilla Readability with a sanitized DOM-text fallback.
 Unsupported binary formats and media are intentionally rejected.
+
+When `FIRECRAWL_API_KEY` is configured, failed built-in extraction and obvious
+verification/login shells fall back to Firecrawl's v2 single-page Markdown
+scraper. Built-in and workspace inputs remain first so ordinary captures do not
+consume Firecrawl credits.
 
 ## Adding an input
 

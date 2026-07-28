@@ -59,6 +59,10 @@ export function parsePodcastFeed(xml, feedURL) {
     ),
     guid: childText(item, "guid"),
     link: absoluteHTTPURL(childText(item, "link"), feedURL),
+    mediaURL: absoluteHTTPURL(
+      item.querySelector("enclosure")?.getAttribute("url"),
+      feedURL
+    ),
     transcripts: [...item.querySelectorAll("*")]
       .filter(isPodcastTranscriptElement)
       .map((element) => ({
@@ -124,23 +128,40 @@ async function podcastResult(rawUrl, feed, episode, context) {
   let content = "Transcript unavailable for this podcast episode.";
   let transcriptAvailable = false;
   let transcriptLanguage = null;
+  let transcriptError = null;
   if (transcript) {
-    const response = await fetchText(transcript.url, {
-      ...context,
-      headers: {
-        ...context.headers,
-        "Accept": `${transcript.type},text/plain;q=0.9,*/*;q=0.1`
-      },
-      maximumBytes: 20_000_000
-    });
-    const transcriptText =
-      response.text || new TextDecoder().decode(response.bytes);
-    const parsed = cleanText(parseTranscript(transcriptText, transcript.type));
-    if (!parsed) throw new Error("The published podcast transcript was empty.");
-    content = `Transcript:\n${parsed}`;
-    transcriptAvailable = true;
-    transcriptLanguage = transcript.language || null;
-  } else if (episode.description) {
+    try {
+      const response = await fetchText(transcript.url, {
+        ...context,
+        headers: {
+          ...context.headers,
+          "Accept": `${transcript.type},text/plain;q=0.9,*/*;q=0.1`
+        },
+        maximumBytes: 20_000_000
+      });
+      const transcriptText =
+        response.text || new TextDecoder().decode(response.bytes);
+      const parsed = cleanText(parseTranscript(transcriptText, transcript.type));
+      if (!parsed) throw new Error("The published podcast transcript was empty.");
+      content = `Transcript:\n${parsed}`;
+      transcriptAvailable = true;
+      transcriptLanguage = transcript.language || null;
+    } catch (error) {
+      transcriptError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (!transcriptAvailable && episode.mediaURL && context.transcribeMedia) {
+    try {
+      const fallback = await context.transcribeMedia(episode.mediaURL);
+      content = `Transcript:\n${fallback.text}`;
+      transcriptAvailable = true;
+      transcriptLanguage = fallback.language;
+      transcriptError = null;
+    } catch (error) {
+      transcriptError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  if (!transcriptAvailable && episode.description) {
     content += `\n\nDescription:\n${episode.description}`;
   }
 
@@ -148,12 +169,15 @@ async function podcastResult(rawUrl, feed, episode, context) {
     url: rawUrl,
     title: episode.title || feed.title || "Podcast episode",
     description: episode.description || null,
+    faviconURL: new URL("/favicon.ico", episode.link || rawUrl).toString(),
     siteName: feed.title || null,
     content,
+    mediaURL: episode.mediaURL,
     extractor: "podcast",
     sourceType: "podcast",
     transcriptAvailable,
-    transcriptLanguage
+    transcriptLanguage,
+    transcriptError
   };
 }
 

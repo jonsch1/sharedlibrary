@@ -28,13 +28,17 @@
   import MarkdownView from './MarkdownView.svelte';
   import PodcastsView from './PodcastsView.svelte';
   import appIcon from './assets/app-icon.png';
-  import { shouldRenderSourceAsPlainText } from '../shared/source-presentation';
+  import {
+    shouldRenderSourceAsPlainText
+  } from '../shared/source-presentation';
   import type {
     AccountProvider,
+    DesktopAudioPreferences,
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
     DesktopConnectionStatus,
     DesktopIngestionStatus,
+    DesktopOperationResult,
     DesktopShortcutPreferences,
     DesktopSyncStatus,
     LibraryVariant,
@@ -67,6 +71,7 @@
   let podcastSnapshot = $state<PodcastSnapshot | null>(null);
   let activeView = $state<'library' | 'podcasts'>('library');
   let selectedID = $state('');
+  let selectedIDs = $state<string[]>([]);
   let selectedVariant = $state<LibraryVariant>('concise');
   let selectedText = $state('');
   let query = $state('');
@@ -94,8 +99,11 @@
     podcast: ''
   });
   let shortcutPreferences = $state<DesktopShortcutPreferences | null>(null);
+  let audioPreferences = $state<DesktopAudioPreferences | null>(null);
   let shortcutRecording = $state(false);
   let shortcutSaving = $state(false);
+  let audioPreferenceSaving = $state(false);
+  let draggingPDF = $state(false);
   let themePreference = $state(readThemePreference());
   let ingestion = $state<DesktopIngestionStatus>({
     phase: 'idle',
@@ -104,8 +112,11 @@
   });
 
   let entries = $derived(snapshot?.entries ?? []);
-  let noteEntries = $derived(
+  let podcastNoteEntries = $derived(
     entries.filter((entry) => entry.entryType !== 'podcast_episode')
+  );
+  let noteEntries = $derived(
+    podcastNoteEntries.filter((entry) => entry.entryType !== 'podcast_source')
   );
   let selectedEntry = $derived(
     entries.find((entry) => entry.id === selectedID) ?? null
@@ -130,7 +141,7 @@
           .map((episode) => {
             const sourceIDs = new Set(episode.sourceIDs ?? []);
             const sourceURLs = new Set(episode.sourceURLs ?? []);
-            const notes = noteEntries.filter(
+            const notes = podcastNoteEntries.filter(
               (entry) =>
                 sourceIDs.has(entry.id) ||
                 Boolean(entry.sourceURL && sourceURLs.has(entry.sourceURL))
@@ -149,6 +160,9 @@
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
   let renderSelectedTextAsPlain = $derived(
     shouldRenderSourceAsPlainText(selectedVariant, selectedEntry?.sourceURL)
+  );
+  let selectedSourceMediaURL = $derived(
+    selectedVariant === 'source' ? selectedEntry?.mediaURL : undefined
   );
   let wordCount = $derived(
     selectedText.trim() ? selectedText.trim().split(/\s+/).length : 0
@@ -201,12 +215,23 @@
     return () => window.clearTimeout(timeout);
   });
 
+  $effect(() => {
+    if (
+      activeView === 'library' &&
+      selectedEntry &&
+      !noteEntries.some((entry) => entry.id === selectedEntry?.id)
+    ) {
+      selectedID = noteEntries[0]?.id ?? '';
+      selectedIDs = selectedID ? [selectedID] : [];
+    }
+  });
+
   void initialize();
 
   async function initialize(): Promise<void> {
     try {
-      applySnapshot(await window.sharedLibrary.getSnapshot());
       podcastSnapshot = await window.sharedLibrary.getPodcasts();
+      applySnapshot(await window.sharedLibrary.getSnapshot());
       connections = await window.sharedLibrary.getConnectionStatus();
       syncStatus = connections.sync;
       applyProcessingPreferences(
@@ -214,6 +239,7 @@
       );
       applyPromptPreferences(await window.sharedLibrary.getPromptPreferences());
       shortcutPreferences = await window.sharedLibrary.getShortcutPreferences();
+      audioPreferences = await window.sharedLibrary.getAudioPreferences();
       ingestion = await window.sharedLibrary.getIngestionStatus();
       const savedTopic = window.localStorage.getItem('shared-library-selected-topic');
       if (savedTopic && snapshot?.topics.includes(savedTopic)) selectedTopic = savedTopic;
@@ -225,6 +251,7 @@
           message = result.message ?? '';
           if (result.selectedEntryID) {
             selectedID = result.selectedEntryID;
+            selectedIDs = [result.selectedEntryID];
             mobileReaderVisible = true;
           }
         });
@@ -274,6 +301,10 @@
       (activeView === 'podcasts' || previousEntry.entryType !== 'podcast_episode')
         ? previousSelection
         : (next.entries.find((entry) => entry.entryType !== 'podcast_episode')?.id ?? '');
+    selectedIDs = selectedIDs.filter((id) =>
+      next.entries.some((entry) => entry.id === id)
+    );
+    if (selectedID && selectedIDs.length === 0) selectedIDs = [selectedID];
     if (selectedTopic !== 'all' && !next.topics.includes(selectedTopic)) {
       selectTopic('all');
     }
@@ -297,11 +328,40 @@
   }
 
   function selectEntry(entry: DesktopLibraryEntry): void {
+    selectedIDs = [entry.id];
+    activateEntry(entry);
+  }
+
+  function activateEntry(entry: DesktopLibraryEntry): void {
     selectedID = entry.id;
     selectedVariant = entry.availableVariants.includes('concise')
       ? 'concise'
       : (entry.availableVariants[0] ?? 'source');
     mobileReaderVisible = true;
+  }
+
+  function selectSidebarEntry(event: MouseEvent | PointerEvent, entry: DesktopLibraryEntry): void {
+    if (event.metaKey || event.ctrlKey) {
+      if (selectedIDs.includes(entry.id)) {
+        selectedIDs = selectedIDs.filter((id) => id !== entry.id);
+        if (selectedID === entry.id) {
+          const next = entries.find(({ id }) => id === selectedIDs.at(-1));
+          if (next) activateEntry(next);
+          else selectedID = '';
+        }
+      } else {
+        selectedIDs = [...selectedIDs, entry.id];
+        activateEntry(entry);
+      }
+      return;
+    }
+    selectEntry(entry);
+  }
+
+  function extendSidebarSelection(event: PointerEvent, entry: DesktopLibraryEntry): void {
+    if (event.buttons !== 1 || selectedIDs.includes(entry.id)) return;
+    selectedIDs = [...selectedIDs, entry.id];
+    activateEntry(entry);
   }
 
   function selectTopic(topic: string): void {
@@ -322,6 +382,7 @@
     )) {
       selectedID = podcastGroups[0]?.episode.id ?? '';
     }
+    selectedIDs = selectedID ? [selectedID] : [];
     mobileReaderVisible = false;
   }
 
@@ -332,11 +393,11 @@
       (podcastID === 'all'
         ? podcastSnapshot?.podcasts.flatMap(({ episodes }) => episodes)[0]?.id
         : podcast?.episodes[0]?.id) ?? '';
+    selectedIDs = selectedID ? [selectedID] : [];
     mobileReaderVisible = false;
   }
 
   function togglePodcastEpisode(entry: DesktopLibraryEntry): void {
-    selectEntry(entry);
     expandedEpisodeIDs = expandedEpisodeIDs.includes(entry.id)
       ? expandedEpisodeIDs.filter((id) => id !== entry.id)
       : [...expandedEpisodeIDs, entry.id];
@@ -368,13 +429,43 @@
 
   async function captureClipboard(): Promise<void> {
     await run(async () => {
-      const result = await window.sharedLibrary.captureClipboard();
-      applySnapshot(result.snapshot);
-      if (result.selectedEntryID) {
-        selectedID = result.selectedEntryID;
-        mobileReaderVisible = true;
-      }
-      message = result.message;
+      applyCaptureResult(await window.sharedLibrary.captureClipboard());
+    });
+  }
+
+  function applyCaptureResult(result: DesktopOperationResult): void {
+    applySnapshot(result.snapshot);
+    if (result.selectedEntryID) {
+      selectedID = result.selectedEntryID;
+      selectedIDs = [result.selectedEntryID];
+      mobileReaderVisible = true;
+    }
+    message = result.message;
+  }
+
+  function handleFileDrag(event: DragEvent): void {
+    if (!connections?.entitled || !event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    draggingPDF = true;
+  }
+
+  function handleFileDragLeave(event: DragEvent): void {
+    if (!event.relatedTarget) draggingPDF = false;
+  }
+
+  async function handleFileDrop(event: DragEvent): Promise<void> {
+    if (!connections?.entitled || !event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault();
+    draggingPDF = false;
+    const pdfs = Array.from(event.dataTransfer.files).filter(
+      (file) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    );
+    if (pdfs.length !== 1) {
+      message = pdfs.length ? 'Drop one PDF at a time.' : 'The dropped file is not a PDF.';
+      return;
+    }
+    await run(async () => {
+      applyCaptureResult(await window.sharedLibrary.capturePDF(pdfs[0]));
     });
   }
 
@@ -407,8 +498,8 @@
     variant: LibraryVariant = 'source'
   ): void {
     event.preventDefault();
-    if (selectedEntry?.id !== entry.id) selectEntry(entry);
-    void window.sharedLibrary.showEntryContextMenu(entry.id, variant);
+    if (!selectedIDs.includes(entry.id)) selectEntry(entry);
+    void window.sharedLibrary.showEntryContextMenu(selectedIDs, variant);
   }
 
   async function signIn(provider: AccountProvider): Promise<void> {
@@ -475,6 +566,23 @@
         error instanceof Error ? error.message : 'The capture shortcut could not be changed.';
     } finally {
       shortcutSaving = false;
+    }
+  }
+
+  async function saveCapturedAudio(enabled: boolean): Promise<void> {
+    if (audioPreferenceSaving) return;
+    audioPreferenceSaving = true;
+    try {
+      audioPreferences =
+        await window.sharedLibrary.setSaveCapturedAudio(enabled);
+      message = enabled
+        ? 'Audio from manually captured YouTube videos will be saved.'
+        : 'YouTube audio will remain temporary.';
+    } catch (error) {
+      message =
+        error instanceof Error ? error.message : 'The audio setting could not be changed.';
+    } finally {
+      audioPreferenceSaving = false;
     }
   }
 
@@ -570,7 +678,21 @@
   <title>Briefly</title>
 </svelte:head>
 
+<svelte:window
+  ondragenter={handleFileDrag}
+  ondragover={handleFileDrag}
+  ondragleave={handleFileDragLeave}
+  ondrop={handleFileDrop}
+/>
+
 <div class="app-shell bg-background! bg-none! text-foreground! font-sans!">
+  {#if draggingPDF}
+    <div class="pdf-drop-overlay" role="status">
+      <FileText />
+      <strong>Drop PDF to capture</strong>
+      <span>Briefly will extract its text and create a note.</span>
+    </div>
+  {/if}
   {#if loading}
     <main class="center-stage text-foreground!" aria-live="polite">
       <div class="launch-sequence">
@@ -658,19 +780,41 @@
     <div class="native-workspace" class:reader-open={mobileReaderVisible}>
       <aside class="native-library-pane border-sidebar-border! bg-sidebar! bg-none! text-sidebar-foreground! rounded-xl! border shadow-sm!">
         <div class="native-library-toolbar">
-          <div class="native-search-field">
-            <Search class="text-muted-foreground!" aria-hidden="true" />
-            <input
-              class="border-input! bg-background! bg-none! text-foreground! placeholder:text-muted-foreground! rounded-lg! border shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
-              bind:value={query}
-              aria-label={activeView === 'podcasts' ? 'Search podcasts' : 'Search library'}
-              placeholder={activeView === 'podcasts' ? 'Search podcasts' : 'Search'}
-            />
-            {#if query}
-              <button class="clear-search text-muted-foreground! hover:bg-accent! hover:text-accent-foreground!" aria-label="Clear search" onclick={() => (query = '')}>
-                <X />
+          <div class="library-primary-controls">
+            <div class="library-view-tabs" role="tablist" aria-label="Library view">
+              <button
+                class:active={activeView === 'library'}
+                role="tab"
+                aria-selected={activeView === 'library'}
+                onclick={() => selectView('library')}
+              >
+                <FileText />
+                <span>Main</span>
               </button>
-            {/if}
+              <button
+                class:active={activeView === 'podcasts'}
+                role="tab"
+                aria-selected={activeView === 'podcasts'}
+                onclick={() => selectView('podcasts')}
+              >
+                <Headphones />
+                <span>Pod</span>
+              </button>
+            </div>
+
+            <div class="native-search-field">
+              <Search aria-hidden="true" />
+              <input
+                bind:value={query}
+                aria-label={activeView === 'podcasts' ? 'Search podcasts' : 'Search library'}
+                placeholder={activeView === 'podcasts' ? 'Search podcasts' : 'Search'}
+              />
+              {#if query}
+                <button class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
+                  <X />
+                </button>
+              {/if}
+            </div>
           </div>
 
           <div class="topic-strip" aria-label={activeView === 'podcasts' ? 'Podcast filter' : 'Topic filter'}>
@@ -699,7 +843,7 @@
           </div>
         </div>
 
-        <div class="native-entry-list">
+        <div class="native-entry-list" aria-label="Library items">
           {#if activeView === 'podcasts'}
             {#if podcastGroups.length === 0}
               <div class="native-no-results text-muted-foreground!">
@@ -712,9 +856,17 @@
                 <div class="podcast-episode-group">
                   <button
                     class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                    class:selected={selectedEntry?.id === group.episode.id}
+                    class:selected={selectedIDs.includes(group.episode.id)}
+                    aria-pressed={selectedIDs.includes(group.episode.id)}
                     aria-expanded={expandedEpisodeIDs.includes(group.episode.id)}
-                    onclick={() => togglePodcastEpisode(group.episode)}
+                    onpointerdown={(event) => {
+                      if (event.button === 0) selectSidebarEntry(event, group.episode);
+                    }}
+                    onpointerenter={(event) => extendSidebarSelection(event, group.episode)}
+                    onclick={(event) => {
+                      if (event.detail === 0) selectSidebarEntry(event, group.episode);
+                      togglePodcastEpisode(group.episode);
+                    }}
                     oncontextmenu={(event) => showEntryContextMenu(event, group.episode)}
                   >
                     {#if expandedEpisodeIDs.includes(group.episode.id)}
@@ -729,11 +881,26 @@
                       {#each group.notes as note (note.id)}
                         <button
                           class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                          class:selected={selectedEntry?.id === note.id}
-                          onclick={() => selectEntry(note)}
+                          class:selected={selectedIDs.includes(note.id)}
+                          aria-pressed={selectedIDs.includes(note.id)}
+                          onpointerdown={(event) => {
+                            if (event.button === 0) selectSidebarEntry(event, note);
+                          }}
+                          onpointerenter={(event) => extendSidebarSelection(event, note)}
+                          onclick={(event) => {
+                            if (event.detail === 0) selectSidebarEntry(event, note);
+                          }}
                           oncontextmenu={(event) => showEntryContextMenu(event, note)}
                         >
-                          <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                          {#if note.faviconFile}
+                            <img
+                              src={`briefly-favicon://icon/${note.faviconFile}`}
+                              alt=""
+                              aria-hidden="true"
+                            />
+                          {:else}
+                            <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                          {/if}
                           <span>{note.title}</span>
                         </button>
                       {/each}
@@ -755,11 +922,26 @@
             {#each filteredEntries as entry (entry.id)}
               <button
                 class="native-entry-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                class:selected={selectedEntry?.id === entry.id}
-                onclick={() => selectEntry(entry)}
+                class:selected={selectedIDs.includes(entry.id)}
+                aria-pressed={selectedIDs.includes(entry.id)}
+                onpointerdown={(event) => {
+                  if (event.button === 0) selectSidebarEntry(event, entry);
+                }}
+                onpointerenter={(event) => extendSidebarSelection(event, entry)}
+                onclick={(event) => {
+                  if (event.detail === 0) selectSidebarEntry(event, entry);
+                }}
                 oncontextmenu={(event) => showEntryContextMenu(event, entry)}
               >
-                <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                {#if entry.faviconFile}
+                  <img
+                    src={`briefly-favicon://icon/${entry.faviconFile}`}
+                    alt=""
+                    aria-hidden="true"
+                  />
+                {:else}
+                  <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                {/if}
                 <span>{entry.title}</span>
               </button>
             {/each}
@@ -768,23 +950,14 @@
 
         <div class="native-sidebar-footer">
           <button
-            class="agent-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
-            class:active={activeView === 'podcasts'}
-            title={activeView === 'podcasts' ? 'Show notes' : 'Show podcasts'}
-            onclick={() => selectView(activeView === 'podcasts' ? 'library' : 'podcasts')}
-          >
-            <Headphones />
-            <span>Pod</span>
-          </button>
-          <button
-            class="agent-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+            class="agent-button"
             onclick={launchAgent}
           >
             <Sparkles />
             <span>AI</span>
           </button>
           <button
-            class="agent-button sidebar-settings-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+            class="agent-button sidebar-settings-button"
             aria-label="Settings"
             title="Settings"
             onclick={() => openSettings(activeView === 'podcasts' ? 'podcasts' : 'general')}
@@ -822,10 +995,17 @@
                   <span class="skeleton-line short"></span>
                 </div>
               {:else if selectedText}
-                {#if selectedEntry.entryType === 'podcast_episode' && selectedEntry.hasAudio}
+                {#if selectedEntry.hasAudio && (selectedEntry.entryType === 'podcast_episode' || selectedVariant === 'source')}
                   <div class="podcast-reader-player">
                     <AudioPlayer
                       src={`briefly-podcast-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`}
+                      title={selectedEntry.title}
+                    />
+                  </div>
+                {:else if selectedSourceMediaURL}
+                  <div class="podcast-reader-player">
+                    <AudioPlayer
+                      src={selectedSourceMediaURL}
                       title={selectedEntry.title}
                     />
                   </div>
@@ -838,10 +1018,10 @@
           </div>
 
           <footer
-            class="native-document-footer border-border! bg-popover! bg-none! text-popover-foreground! rounded-xl! border shadow-sm!"
+            class="native-document-footer"
             aria-label="Document actions"
           >
-            <div class="footer-stat text-muted-foreground!">{wordCount.toLocaleString()} words</div>
+            <div class="footer-stat">{wordCount.toLocaleString()} words</div>
 
             <DepthControl
               variants={availableVariants}
@@ -852,7 +1032,7 @@
             <div class="native-footer-actions">
               {#if selectedEntry.sourceURL}
                 <button
-                  class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+                  class="native-icon-button"
                   aria-label="Open original source"
                   title="Open original source"
                   onclick={() => window.sharedLibrary.openExternal(selectedEntry!.sourceURL!)}
@@ -862,7 +1042,7 @@
               {/if}
 
               <button
-                class="native-icon-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+                class="native-icon-button"
                 aria-label="Share document"
                 title="Create share link"
                 onclick={shareDocument}
@@ -949,7 +1129,7 @@
           <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Palette /></div>
           <div>
             <h3>Appearance</h3>
-            <p>Choose from Briefly and every built-in TweakCN theme.</p>
+            <p>Choose from every built-in TweakCN theme.</p>
           </div>
         </div>
         <div class="theme-controls grid grid-cols-[minmax(0,1fr)_minmax(110px,0.45fr)] gap-2.5 max-[420px]:grid-cols-1">
@@ -980,6 +1160,32 @@
             </select>
           </label>
         </div>
+      </section>
+
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="settings-card-heading">
+          <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Headphones /></div>
+          <div>
+            <h3>YouTube audio</h3>
+            <p>Control permanent storage for videos you capture yourself.</p>
+          </div>
+        </div>
+        <label class="flex items-start gap-3">
+          <input
+            class="mt-1"
+            type="checkbox"
+            checked={audioPreferences?.saveCapturedAudio ?? true}
+            disabled={!audioPreferences || audioPreferenceSaving}
+            onchange={(event) =>
+              void saveCapturedAudio((event.currentTarget as HTMLInputElement).checked)}
+          />
+          <span>
+            Save audio from manually captured YouTube videos
+            <small class="text-muted-foreground! block">
+              Podcasts stay remote. Watched and agent-imported sources remain text-only. Generated podcast episodes keep their audio.
+            </small>
+          </span>
+        </label>
       </section>
 
       <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
@@ -1073,6 +1279,9 @@
         <div class="panel-actions">
           <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={openAccount} disabled={busy}>
             <ArrowUpRight /> Manage account and sync
+          </button>
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => window.sharedLibrary.openExternal('https://readbriefly.fyi/feedback')}>
+            <ArrowUpRight /> Feedback
           </button>
         </div>
       </section>

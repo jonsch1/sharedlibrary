@@ -6,91 +6,9 @@ type ThemePreset = {
   styles: { light: ThemeStyle; dark: ThemeStyle };
 };
 
-const brieflyTheme = {
-  label: 'Briefly',
-  styles: {
-    light: {
-      background: 'rgb(176 178 173)',
-      foreground: 'rgb(31 31 29)',
-      card: 'rgb(232 230 219)',
-      'card-foreground': 'rgb(31 31 29)',
-      popover: 'rgb(235 233 223)',
-      'popover-foreground': 'rgb(31 31 29)',
-      primary: 'rgb(120 122 117)',
-      'primary-foreground': 'rgb(250 249 244)',
-      secondary: 'rgb(221 221 212)',
-      'secondary-foreground': 'rgb(51 51 47)',
-      muted: 'rgb(224 223 214)',
-      'muted-foreground': 'rgb(92 92 85)',
-      accent: 'rgb(202 202 193)',
-      'accent-foreground': 'rgb(39 39 36)',
-      destructive: 'oklch(0.577 0.245 27.325)',
-      'destructive-foreground': 'white',
-      border: 'rgb(46 46 43 / 38%)',
-      input: 'rgb(46 46 43 / 42%)',
-      ring: 'rgb(92 94 89)',
-      'chart-1': 'oklch(0.87 0 0)',
-      'chart-2': 'oklch(0.556 0 0)',
-      'chart-3': 'oklch(0.439 0 0)',
-      'chart-4': 'oklch(0.371 0 0)',
-      'chart-5': 'oklch(0.269 0 0)',
-      radius: '0.85rem',
-      'shadow-color': 'rgb(0 0 0)',
-      'shadow-opacity': '0.1',
-      'shadow-blur': '3px',
-      'shadow-spread': '0px',
-      'shadow-offset-x': '0px',
-      'shadow-offset-y': '1px',
-      sidebar: 'rgb(209 209 201)',
-      'sidebar-foreground': 'rgb(31 31 29)',
-      'sidebar-primary': 'rgb(120 122 117)',
-      'sidebar-primary-foreground': 'rgb(250 249 244)',
-      'sidebar-accent': 'rgb(198 198 189)',
-      'sidebar-accent-foreground': 'rgb(31 31 29)',
-      'sidebar-border': 'rgb(46 46 43 / 38%)',
-      'sidebar-ring': 'rgb(92 94 89)',
-      'font-sans':
-        '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif',
-      'font-serif': '"New York", "Iowan Old Style", Charter, Georgia, serif',
-      'font-mono': 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
-    },
-    dark: {
-      background: 'oklch(0.145 0 0)',
-      foreground: 'oklch(0.985 0 0)',
-      card: 'oklch(0.205 0 0)',
-      'card-foreground': 'oklch(0.985 0 0)',
-      popover: 'oklch(0.205 0 0)',
-      'popover-foreground': 'oklch(0.985 0 0)',
-      primary: 'oklch(0.922 0 0)',
-      'primary-foreground': 'oklch(0.205 0 0)',
-      secondary: 'oklch(0.269 0 0)',
-      'secondary-foreground': 'oklch(0.985 0 0)',
-      muted: 'oklch(0.269 0 0)',
-      'muted-foreground': 'oklch(0.708 0 0)',
-      accent: 'oklch(0.269 0 0)',
-      'accent-foreground': 'oklch(0.985 0 0)',
-      destructive: 'oklch(0.704 0.191 22.216)',
-      border: 'oklch(1 0 0 / 10%)',
-      input: 'oklch(1 0 0 / 15%)',
-      ring: 'oklch(0.556 0 0)',
-      sidebar: 'oklch(0.205 0 0)',
-      'sidebar-foreground': 'oklch(0.985 0 0)',
-      'sidebar-primary': 'oklch(0.488 0.243 264.376)',
-      'sidebar-primary-foreground': 'oklch(0.985 0 0)',
-      'sidebar-accent': 'oklch(0.269 0 0)',
-      'sidebar-accent-foreground': 'oklch(0.985 0 0)',
-      'sidebar-border': 'oklch(1 0 0 / 10%)',
-      'sidebar-ring': 'oklch(0.556 0 0)'
-    }
-  }
-} satisfies ThemePreset;
-
 // TweakCN built-in presets, retrieved from
 // https://github.com/jnsahaj/tweakcn/blob/main/utils/theme-presets.ts
-export const themes = {
-  briefly: brieflyTheme,
-  ...tweakcnThemes
-} satisfies Record<string, ThemePreset>;
+export const themes = tweakcnThemes satisfies Record<string, ThemePreset>;
 
 export type ThemeName = keyof typeof themes;
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -107,7 +25,7 @@ export const themeModeOptions: Array<{ value: ThemeMode; label: string }> = [
   { value: 'system', label: 'System' }
 ];
 
-const defaultPreference: ThemePreference = { theme: 'briefly', mode: 'light' };
+const defaultPreference: ThemePreference = { theme: 'modern-minimal', mode: 'light' };
 const themeStorageKey = 'briefly-theme';
 const modeStorageKey = 'briefly-theme-mode';
 const variableFontFamilies = [

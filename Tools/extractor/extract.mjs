@@ -1,10 +1,18 @@
 #!/usr/bin/env node
 import { extractLink } from "./inputs/registry.mjs";
+import { scrapeWithFirecrawl } from "./inputs/firecrawl.mjs";
+import { extractPDFFile } from "./inputs/pdf.mjs";
+import {
+  downloadMediaAudio,
+  transcribeMedia
+} from "./inputs/transcription.mjs";
 
-const { extensionsDirectory, url } = parseArguments(process.argv.slice(2));
+const { extensionsDirectory, file, url } = parseArguments(process.argv.slice(2));
 
-if (!url) {
-  console.error("Usage: node extract.mjs [--extensions <directory>] <url>");
+if (!url && !file) {
+  console.error(
+    "Usage: node extract.mjs [--extensions <directory>] <url> | --file <pdf>"
+  );
   process.exit(2);
 }
 
@@ -13,25 +21,61 @@ const includeTranscriptTimestamps =
     process.env.BRIEFLY_TRANSCRIPT_TIMESTAMPS ??
       process.env.SHARED_LIBRARY_TRANSCRIPT_TIMESTAMPS
   ) ?? false;
+const mediaOutputDirectory =
+  process.env.BRIEFLY_MEDIA_OUTPUT_DIRECTORY || undefined;
+const saveCapturedAudio =
+  parseBoolean(process.env.BRIEFLY_SAVE_CAPTURED_AUDIO) ?? false;
 
 try {
-  const extracted = await extractLink(url, {
-    extensionsDirectory,
-    includeTranscriptTimestamps,
-    onProgress(event) {
-      if (event.kind === "fetch-start") {
-        console.error(`fetching ${event.url}`);
-      } else if (event.kind === "input-fallback") {
-        console.error(
-          `${event.from} extraction failed; using ${event.to}: ${event.reason}`
-        );
-      } else if (event.kind === "extension-invalid") {
-        console.error(
-          `ignoring invalid workspace input ${event.package}: ${event.reason}`
-        );
-      }
+  const extracted = file
+    ? await extractPDFFile(file)
+    : await extractLink(url, {
+        extensionsDirectory,
+        firecrawlFallback: process.env.FIRECRAWL_API_KEY
+          ? (sourceURL) =>
+              scrapeWithFirecrawl(sourceURL, {
+                apiKey: process.env.FIRECRAWL_API_KEY
+              })
+          : null,
+        includeTranscriptTimestamps,
+        transcribeMedia:
+          process.env.BRIEFLY_TRANSCRIPT_ENDPOINT &&
+          process.env.BRIEFLY_TRANSCRIPT_TOKEN
+            ? (mediaURL) =>
+                transcribeMedia(mediaURL, {
+                  endpoint: process.env.BRIEFLY_TRANSCRIPT_ENDPOINT,
+                  includeTranscriptTimestamps,
+                  mediaOutputDirectory,
+                  token: process.env.BRIEFLY_TRANSCRIPT_TOKEN
+                })
+            : null,
+        onProgress(event) {
+          if (event.kind === "fetch-start") {
+            console.error(`fetching ${event.url}`);
+          } else if (event.kind === "input-fallback") {
+            console.error(
+              `${event.from} extraction failed; using ${event.to}: ${event.reason}`
+            );
+          } else if (event.kind === "extension-invalid") {
+            console.error(
+              `ignoring invalid workspace input ${event.package}: ${event.reason}`
+            );
+          }
+        }
+      });
+  if (
+    saveCapturedAudio &&
+    extracted?.extractor === "youtube" &&
+    mediaOutputDirectory
+  ) {
+    try {
+      await downloadMediaAudio(extracted.url, mediaOutputDirectory);
+    } catch (error) {
+      console.error(
+        `audio retention failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
-  });
+  }
   process.stdout.write(`${JSON.stringify(extracted)}\n`);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
@@ -40,11 +84,15 @@ try {
 
 function parseArguments(values) {
   let extensionsDirectory = null;
+  let file = null;
   let url = null;
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === "--extensions") {
       extensionsDirectory = values[index + 1]?.trim() || null;
+      index += 1;
+    } else if (value === "--file") {
+      file = values[index + 1]?.trim() || null;
       index += 1;
     } else if (!url) {
       url = value?.trim() || null;
@@ -52,7 +100,8 @@ function parseArguments(values) {
       throw new Error(`Unexpected extractor argument: ${value}`);
     }
   }
-  return { extensionsDirectory, url };
+  if (file && url) throw new Error("Choose a URL or a PDF file, not both.");
+  return { extensionsDirectory, file, url };
 }
 
 function parseBoolean(value) {

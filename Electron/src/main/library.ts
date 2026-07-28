@@ -284,7 +284,21 @@ export class LibraryService {
 
   async captureText(
     clipboardText: string,
-    extracted?: { title?: string; content?: string; sourceURL?: string },
+    extracted?: {
+      title?: string;
+      content?: string;
+      sourceURL?: string;
+      entryType?: 'podcast_source';
+      mediaURL?: string;
+      audio?: {
+        bytes: Uint8Array;
+        extension: 'aac' | 'flac' | 'm4a' | 'mp3' | 'ogg' | 'opus' | 'wav' | 'webm';
+      };
+      favicon?: {
+        bytes: Uint8Array;
+        extension: 'gif' | 'ico' | 'jpg' | 'png' | 'webp';
+      };
+    },
     topicIDs: string[] = []
   ): Promise<string> {
     const text = clipboardText.trim();
@@ -299,6 +313,15 @@ export class LibraryService {
     const captureID = randomUUID().toUpperCase();
     const now = new Date().toISOString();
     const sourceURL = safeHTTPURL(extracted?.sourceURL ?? text);
+    const mediaURL = safeHTTPURL(extracted?.mediaURL ?? '');
+    const audioPath = extracted?.audio
+      ? `audio/${captureID}.${extracted.audio.extension}`
+      : undefined;
+    const faviconID = extracted?.favicon ? sha256(extracted.favicon.bytes) : undefined;
+    const faviconFile =
+      faviconID && extracted?.favicon
+        ? `${faviconID}.${extracted.favicon.extension}`
+        : undefined;
     const content = extracted?.content?.trim() || text;
     const title =
       extracted?.title?.trim() ||
@@ -308,7 +331,7 @@ export class LibraryService {
     const metadata = [
       '---',
       `id: ${quoted(captureID)}`,
-      `type: ${quoted(sourceURL ? 'link' : 'text')}`,
+      `type: ${quoted(extracted?.entryType ?? (sourceURL ? 'link' : 'text'))}`,
       `title: ${quoted(title || 'Clipboard capture')}`,
       `created_at: ${quoted(now)}`,
       `updated_at: ${quoted(now)}`,
@@ -320,12 +343,32 @@ export class LibraryService {
             ...normalizedTopicIDs.map((topicID) => `  - ${quoted(topicID)}`)
           ]),
       ...(sourceURL ? [`source_url: ${quoted(sourceURL.toString())}`] : []),
+      ...(mediaURL ? [`media_url: ${quoted(mediaURL.toString())}`] : []),
+      ...(audioPath ? [`audio_path: ${quoted(audioPath)}`] : []),
+      ...(faviconFile ? [`favicon_path: ${quoted(`favicons/${faviconFile}`)}`] : []),
       '---',
       '',
       '',
       content,
       ''
     ].join('\n');
+    if (faviconFile && extracted?.favicon) {
+      const faviconPath = join(
+        this.workspacePath,
+        'library',
+        'favicons',
+        faviconFile
+      );
+      if (!(await isFile(faviconPath))) {
+        await atomicWrite(faviconPath, extracted.favicon.bytes);
+      }
+    }
+    if (audioPath && extracted?.audio) {
+      await atomicWrite(
+        join(this.workspacePath, 'library', audioPath),
+        extracted.audio.bytes
+      );
+    }
     await atomicWrite(join(this.workspacePath, 'library', filename), metadata);
     return captureID;
   }
@@ -372,9 +415,35 @@ export class LibraryService {
     return `personal:${captureID}`;
   }
 
+  async markPodcastSources(entryIDs: string[]): Promise<DesktopLibrarySnapshot> {
+    const sourceIDs = new Set(entryIDs);
+    const snapshot = await this.snapshot();
+    let changed = false;
+    for (const entry of snapshot.entries) {
+      if (!sourceIDs.has(entry.id) || entry.entryType === 'podcast_source') continue;
+      const indexed = this.indexedEntries.get(entry.id);
+      if (!indexed) continue;
+      const text = await readFile(indexed.sourcePath, 'utf8');
+      const updated = text.replace(/^type:.*$/m, 'type: "podcast_source"');
+      if (updated === text) continue;
+      await atomicWrite(indexed.sourcePath, updated);
+      changed = true;
+    }
+    return changed ? this.snapshot() : snapshot;
+  }
+
   async podcastAudioPath(entryID: string): Promise<string> {
     const path = (await this.requireEntry(entryID)).audioPath;
     if (!path) throw new Error('That podcast episode has no audio.');
+    return path;
+  }
+
+  async faviconPath(faviconFile: string): Promise<string> {
+    if (!/^[a-f0-9]{64}\.(?:gif|ico|jpg|png|webp)$/.test(faviconFile)) {
+      throw new Error('Invalid favicon.');
+    }
+    const path = join(this.workspacePath, 'library', 'favicons', faviconFile);
+    if (!(await isFile(path))) throw new Error('That favicon does not exist.');
     return path;
   }
 
@@ -606,10 +675,22 @@ export class LibraryService {
     const id = `personal:${captureID}`;
     const audioRelativePath = stringValue(parsed.metadata.audio_path);
     const audioPath =
-      /^audio\/[A-Za-z0-9-]+\.wav$/.test(audioRelativePath)
+      /^audio\/[A-Za-z0-9-]+\.(?:aac|flac|m4a|mp3|ogg|opus|wav|webm)$/.test(
+        audioRelativePath
+      )
         ? join(this.workspacePath, 'library', audioRelativePath)
         : undefined;
     const existingAudioPath = audioPath && (await isFile(audioPath)) ? audioPath : undefined;
+    const faviconRelativePath = stringValue(parsed.metadata.favicon_path);
+    const faviconMatch =
+      /^favicons\/([a-f0-9]{64}\.(?:gif|ico|jpg|png|webp))$/.exec(
+        faviconRelativePath
+      );
+    const faviconFile =
+      faviconMatch &&
+      (await isFile(join(this.workspacePath, 'library', faviconRelativePath)))
+        ? faviconMatch[1]
+        : undefined;
     return {
       entry: {
         id,
@@ -623,6 +704,8 @@ export class LibraryService {
         topicNames: topicIDs.map((topic) => topicNames.get(topic) ?? titleize(topic)),
         tags: arrayValue(parsed.metadata.tags),
         sourceURL: stringValue(parsed.metadata.source_url) || undefined,
+        mediaURL: safeHTTPURL(stringValue(parsed.metadata.media_url))?.toString(),
+        faviconFile,
         sourceIDs: arrayValue(parsed.metadata.source_ids),
         sourceURLs: arrayValue(parsed.metadata.source_urls),
         createdAt:
@@ -849,7 +932,7 @@ function titleize(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function sha256(value: string): string {
+function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
 

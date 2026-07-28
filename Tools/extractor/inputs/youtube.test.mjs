@@ -151,6 +151,27 @@ test("YouTube extraction returns metadata when captions are unavailable", async 
   assert.match(result.content, /Description:\nHow the pipeline works\./);
 });
 
+test("YouTube extraction transcribes media when captions are unavailable", async () => {
+  const requested = [];
+  const result = await extractYouTube(
+    "https://www.youtube.com/watch?v=abc1234",
+    {
+      includeTranscriptTimestamps: true,
+      fetchImpl: async (url) =>
+        response(youtubePage({ captionTracks: [] }), "text/html", String(url)),
+      async transcribeMedia(url) {
+        requested.push(url);
+        return { language: "en", text: "[0:01] Generated transcript." };
+      }
+    }
+  );
+
+  assert.deepEqual(requested, ["https://www.youtube.com/watch?v=abc1234"]);
+  assert.equal(result.transcriptAvailable, true);
+  assert.equal(result.transcriptLanguage, "en");
+  assert.equal(result.content, "Transcript:\n[0:01] Generated transcript.");
+});
+
 test("parseCaptionResponse also accepts XML caption responses", () => {
   assert.deepEqual(
     parseCaptionResponse(

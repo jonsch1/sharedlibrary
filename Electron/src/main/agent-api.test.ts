@@ -55,7 +55,11 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       extractURL: async (url) => ({
         title: new URL(url).hostname,
         content: `Extracted content from ${url}`,
-        sourceURL: url
+        sourceURL: url,
+        audio: {
+          bytes: new Uint8Array([1, 2, 3]),
+          extension: 'm4a'
+        }
       }),
       processEntry: (entryID, topicID) =>
         library.applyProcessingSuggestion(entryID, fakeSuggestion, topicID),
@@ -180,6 +184,7 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       (await library.snapshot()).entries.map((entry) => entry.topicIDs),
       [['battery-recycling'], ['battery-recycling']]
     );
+    assert.ok((await library.snapshot()).entries.every((entry) => !entry.hasAudio));
     assert.ok(syncReasons.includes('agent capture'));
     assert.ok(syncReasons.includes('agent summaries'));
     assert.equal(activeIngestions, 0);

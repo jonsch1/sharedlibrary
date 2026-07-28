@@ -73,8 +73,33 @@ test(
         (window as ElectronWindow).sharedLibrary.getSnapshot()
       );
       expect(snapshot.workspacePath).toBe(workspacePath);
-      expect(snapshot.entries).toHaveLength(1);
+      expect(snapshot.entries).toHaveLength(2);
       expect(snapshot.entries[0].title).toBe('Electron smoke fixture');
+
+      await page.getByRole('button', { name: 'Second smoke fixture' }).click({
+        modifiers: ['Meta']
+      });
+      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
+      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
+      await expect(page.locator('.native-entry-row.selected')).toHaveCount(1);
+
+      const firstBox = await page
+        .getByRole('button', { name: 'Electron smoke fixture' })
+        .boundingBox();
+      const secondBox = await page
+        .getByRole('button', { name: 'Second smoke fixture' })
+        .boundingBox();
+      expect(firstBox).not.toBeNull();
+      expect(secondBox).not.toBeNull();
+      await page.mouse.move(firstBox!.x + firstBox!.width / 2, firstBox!.y + firstBox!.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(
+        secondBox!.x + secondBox!.width / 2,
+        secondBox!.y + secondBox!.height / 2
+      );
+      await page.mouse.up();
+      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
+      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
 
       const actionBar = page.getByLabel('Document actions');
       await expect(actionBar.getByRole('radio')).toHaveCount(
@@ -89,21 +114,25 @@ test(
         await actionBar.evaluate((element) => element.getBoundingClientRect().width)
       ).toBe(actionBarWidth);
       expect(actionBarWidth).toBe(500);
-      await expect(actionBar).toHaveCSS('column-gap', '16px');
-      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '8px');
+      await expect(actionBar).toHaveCSS('height', '50px');
+      await expect(actionBar).toHaveCSS('column-gap', '8px');
+      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '2px');
       await expect(actionBar.getByRole('button', { name: 'Settings' })).toHaveCount(0);
+      const viewTabs = page.getByRole('tablist', { name: 'Library view' });
+      await expect(viewTabs.getByRole('tab', { name: 'Main' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toBeVisible();
       const sidebarActions = page.locator('.native-sidebar-footer');
-      await expect(sidebarActions.getByRole('button', { name: 'Pod' })).toBeVisible();
       await expect(sidebarActions.getByRole('button', { name: 'AI' })).toBeVisible();
       await expect(sidebarActions.getByRole('button', { name: 'Settings' })).toBeVisible();
-      const sidebarButtonGaps = await sidebarActions.locator('button').evaluateAll(
-        (buttons) =>
-          buttons.slice(1).map((button, index) => {
-            const previous = buttons[index].getBoundingClientRect();
-            return button.getBoundingClientRect().left - previous.right;
-          })
+      await expect(sidebarActions).toHaveCSS('column-gap', '0px');
+      await expect(sidebarActions).toHaveCSS('padding', '0px');
+      const sidebarButtonWidths = await sidebarActions.locator('button').evaluateAll(
+        (buttons) => buttons.map((button) => button.getBoundingClientRect().width)
       );
-      expect(Math.min(...sidebarButtonGaps)).toBeGreaterThanOrEqual(7);
+      expect(sidebarButtonWidths[0]).toBe(sidebarButtonWidths[1]);
 
       const entryID = snapshot.entries[0].id;
       const originalText = await page.evaluate(
@@ -121,8 +150,20 @@ test(
       );
       await page.getByRole('radio', { name: 'Original' }).click();
       await expect(page.locator('.native-document-body')).toContainText(editedText);
+      const audio = page.locator('audio');
+      await expect(audio).toHaveCount(1);
+      await audio.evaluate((element: HTMLAudioElement) => element.play());
+      await expect
+        .poll(() =>
+          audio.evaluate((element: HTMLAudioElement) => element.currentTime)
+        )
+        .toBeGreaterThan(0);
 
-      await page.getByRole('button', { name: 'Pod', exact: true }).click();
+      await viewTabs.getByRole('tab', { name: 'Pod' }).click();
+      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
       await expect(page.getByText('No podcast episodes')).toBeVisible();
       await page.getByRole('button', { name: 'Manage podcasts' }).click();
       await expect(page.locator('.settings-screen')).toBeVisible();
@@ -134,6 +175,19 @@ test(
       await expect(page.getByRole('button', { name: 'Input extensions' })).toHaveCount(0);
       await page.getByRole('button', { name: 'General' }).click();
       await expect(page.getByRole('heading', { name: 'Current document' })).toHaveCount(0);
+      const saveAudio = page.getByRole('checkbox', {
+        name: 'Save audio from manually captured YouTube videos'
+      });
+      await expect(saveAudio).toBeChecked();
+      await saveAudio.uncheck();
+      await expect
+        .poll(() =>
+          page!.evaluate(() =>
+            (window as ElectronWindow).sharedLibrary.getAudioPreferences()
+          )
+        )
+        .toEqual({ saveCapturedAudio: false });
+      await expect(page.getByRole('button', { name: 'Feedback' })).toBeVisible();
       await page.getByRole('button', { name: 'Podcasts', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Create with an agent' })).toBeVisible();
       await page.getByRole('button', { name: 'Examples' }).click();
@@ -179,6 +233,7 @@ async function createFixture(
   await mkdir(join(workspacePath, 'library', 'summaries', 'brief'), {
     recursive: true
   });
+  await mkdir(join(workspacePath, 'library', 'audio'), { recursive: true });
   await mkdir(userDataPath, { recursive: true });
 
   await Promise.all([
@@ -198,6 +253,7 @@ async function createFixture(
 id: "electron-smoke"
 title: "Electron smoke fixture"
 created_at: "2026-07-24T08:00:00.000Z"
+audio_path: "audio/electron-smoke.wav"
 tags: ["ci"]
 topics:
   - "testing"
@@ -208,9 +264,54 @@ Original smoke body.
       'utf8'
     ),
     writeFile(
+      join(workspacePath, 'library', 'second.md'),
+      `---
+id: "electron-smoke-second"
+title: "Second smoke fixture"
+created_at: "2026-07-23T08:00:00.000Z"
+tags: ["ci"]
+topics:
+  - "testing"
+---
+
+Second smoke body.
+`,
+      'utf8'
+    ),
+    writeFile(
+      join(workspacePath, 'library', 'audio', 'electron-smoke.wav'),
+      toneWav()
+    ),
+    writeFile(
       join(workspacePath, 'library', 'summaries', 'brief', 'fixture.md'),
       'Brief smoke summary.\n',
       'utf8'
     )
   ]);
+}
+
+function toneWav(): Buffer {
+  const sampleRate = 8_000;
+  const samples = Buffer.alloc(sampleRate * 2);
+  for (let index = 0; index < sampleRate; index += 1) {
+    samples.writeInt16LE(
+      Math.round(Math.sin((2 * Math.PI * 440 * index) / sampleRate) * 8_000),
+      index * 2
+    );
+  }
+  const wav = Buffer.alloc(44 + samples.length);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(samples.length, 40);
+  samples.copy(wav, 44);
+  return wav;
 }

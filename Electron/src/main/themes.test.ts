@@ -5,9 +5,9 @@ import test from 'node:test';
 import { resolveThemeStyle, themeOptions } from '../../../Shared/themes.js';
 
 test('ships every TweakCN preset and inherits optional light tokens in dark mode', () => {
-  assert.equal(themeOptions.length, 43);
-  assert.equal(new Set(themeOptions.map(({ value }) => value)).size, 43);
-  assert.equal(themeOptions.at(0)?.value, 'briefly');
+  assert.equal(themeOptions.length, 42);
+  assert.equal(new Set(themeOptions.map(({ value }) => value)).size, 42);
+  assert.equal(themeOptions.at(0)?.value, 'modern-minimal');
   assert.equal(themeOptions.at(-1)?.value, 'sage-garden');
   assert.equal(
     resolveThemeStyle('modern-minimal', 'dark')['font-sans'],

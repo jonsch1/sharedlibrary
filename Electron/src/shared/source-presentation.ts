@@ -6,31 +6,36 @@ export function shouldRenderSourceAsPlainText(
   variant: LibraryVariant,
   sourceURL?: string
 ): boolean {
-  return variant === 'source' && isYouTubeVideoURL(sourceURL);
+  return variant === 'source' && Boolean(youtubeVideoID(sourceURL));
 }
 
-function isYouTubeVideoURL(value?: string): boolean {
-  if (!value) return false;
+function youtubeVideoID(value?: string): string | undefined {
+  if (!value) return undefined;
 
   try {
     const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
 
     const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
-    if (hostname === 'youtu.be') return url.pathname.split('/').filter(Boolean).length > 0;
+    if (hostname === 'youtu.be') {
+      return url.pathname.split('/').filter(Boolean)[0];
+    }
 
     const isYouTubeHost =
       hostname === 'youtube.com' ||
       hostname.endsWith('.youtube.com') ||
       hostname === 'youtube-nocookie.com' ||
       hostname.endsWith('.youtube-nocookie.com');
-    if (!isYouTubeHost) return false;
+    if (!isYouTubeHost) return undefined;
 
-    return (
-      (url.pathname === '/watch' && Boolean(url.searchParams.get('v'))) ||
-      youtubeVideoPath.test(url.pathname)
-    );
+    const videoID =
+      url.pathname === '/watch'
+        ? url.searchParams.get('v')
+        : youtubeVideoPath.test(url.pathname)
+          ? url.pathname.split('/').filter(Boolean)[1]
+          : null;
+    return videoID || undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
