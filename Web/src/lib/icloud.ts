@@ -1,11 +1,9 @@
 import {
-	libraryVariants,
 	mirrorLibraryProjection,
 	parseLibraryProjection,
 	type LibraryFile,
 	type LibraryMedia,
-	type LibraryProjection,
-	type LibraryVariant
+	type LibraryProjection
 } from '$lib/library.js';
 
 export type SyncProvider = 'google' | 'icloud';
@@ -17,22 +15,6 @@ export interface CloudLibraryMirror {
 	index: LibraryProjection;
 	files: Array<LibraryFile & { content: string }>;
 	media: Array<LibraryMedia & { content: string }>;
-}
-
-export interface ICloudShareImport {
-	token: string;
-	revision: number;
-	filename?: string;
-	metadata: {
-		title?: string;
-		excerpt?: string;
-		topicIDs?: string[];
-		topicNames?: string[];
-		tags?: string[];
-		sourceURL?: string;
-		createdAt?: string;
-	};
-	texts: Array<{ variant: string; markdown: string }>;
 }
 
 interface CloudKitConfiguration {
@@ -480,137 +462,6 @@ export async function syncICloudLibrary(
 		fetchICloudLibraryFile
 	);
 	return projection;
-}
-
-function importedSourceText(
-	sourceText: string,
-	captureID: string,
-	token: string,
-	revision: number
-): string {
-	const metadata = `---\nid: "${captureID}"\nshared_from: "${token}"\nshared_revision: "${revision}"\n---\n\n`;
-	if (!sourceText.startsWith('---')) return `${metadata}${sourceText}`;
-	const end = sourceText.indexOf('\n---', 3);
-	if (end < 0) return `${metadata}${sourceText}`;
-	let updated = sourceText.slice(0, end);
-	for (const [key, value] of [
-		['id', captureID],
-		['shared_from', token],
-		['shared_revision', String(revision)]
-	]) {
-		updated = new RegExp(`^${key}:`, 'm').test(updated)
-			? updated.replace(new RegExp(`^${key}:.*$`, 'm'), `${key}: "${value}"`)
-			: `${updated}\n${key}: "${value}"`;
-	}
-	return updated + sourceText.slice(end);
-}
-
-export async function importICloudShare(source: ICloudShareImport): Promise<{
-	saved: boolean;
-	path: string;
-	captureID: string;
-}> {
-	const state = await fetchICloudLibraryState();
-	const projection: LibraryProjection = state.projection ?? {
-		schemaVersion: 3,
-		generatedAt: new Date().toISOString(),
-		files: [],
-		entries: []
-	};
-	const documents = new Map(
-		source.texts
-			.filter(
-				(document) =>
-					libraryVariants.includes(document.variant as LibraryVariant) &&
-					typeof document.markdown === 'string'
-			)
-			.map((document) => [document.variant as LibraryVariant, document.markdown])
-	);
-	const originalSource = documents.get('source');
-	if (!originalSource) throw new Error('The shared source document is unavailable.');
-	const safeFilename =
-		typeof source.filename === 'string' && /^[^/\\]+\.md$/i.test(source.filename)
-			? source.filename
-			: 'shared-document.md';
-	const existingPaths = new Set(projection.files.map((file) => file.path));
-	const base = safeFilename.replace(/\.[^.]+$/, '');
-	const extension = safeFilename.includes('.') ? `.${safeFilename.split('.').at(-1)}` : '.md';
-	let filename = safeFilename;
-	for (let index = 1; existingPaths.has(`library/${filename}`); index += 1) {
-		filename = `${base}${index === 1 ? '-shared' : `-shared-${index}`}${extension}`;
-	}
-	const captureID = crypto.randomUUID().toLowerCase();
-	documents.set(
-		'source',
-		importedSourceText(originalSource, captureID, source.token, source.revision)
-	);
-	const importedFiles: Array<LibraryFile & { content: string; variant: LibraryVariant }> = [];
-	for (const variant of libraryVariants) {
-		const content = documents.get(variant);
-		if (content === undefined) continue;
-		const path =
-			variant === 'source'
-				? `library/${filename}`
-				: `library/summaries/${variant}/${filename}`;
-		importedFiles.push({
-			variant,
-			path,
-			content,
-			contentHash: await sha256(content),
-			byteCount: new TextEncoder().encode(content).byteLength
-		});
-	}
-	await mapWithConcurrency(importedFiles, async (file) => {
-		await saveRecord(await fileRecordName(file.path), 'BrieflyLibraryFile', {
-			path: { value: file.path },
-			contentHash: { value: file.contentHash },
-			byteCount: { value: file.byteCount },
-			content: { value: new Blob([file.content], { type: 'text/markdown;charset=utf-8' }) }
-		});
-	});
-	const now = new Date().toISOString();
-	const nextProjection: LibraryProjection = {
-		schemaVersion: 3,
-		generatedAt: now,
-		files: [
-			...projection.files,
-			...importedFiles.map(({ path, contentHash, byteCount }) => ({
-				path,
-				contentHash,
-				byteCount
-			}))
-		].sort((left, right) => left.path.localeCompare(right.path)),
-		entries: [
-			...projection.entries,
-			{
-				id: `personal:${captureID}`,
-				captureID,
-				title: source.metadata.title || base.replaceAll('-', ' '),
-				excerpt: source.metadata.excerpt || '',
-				topicIDs: source.metadata.topicIDs ?? [],
-				topicNames: source.metadata.topicNames ?? [],
-				tags: source.metadata.tags ?? [],
-				sourceURL: source.metadata.sourceURL,
-				createdAt: source.metadata.createdAt,
-				updatedAt: now,
-				origin: 'personal',
-				texts: importedFiles.map((file) => ({
-					variant: file.variant,
-					path: file.path,
-					contentHash: file.contentHash,
-					wordCount: file.content.trim() ? file.content.trim().split(/\s+/).length : 0
-				}))
-			}
-		]
-	};
-	await saveRecord(indexRecordName, 'BrieflyLibraryIndex', {
-		schemaVersion: { value: nextProjection.schemaVersion },
-		generatedAt: { value: Date.now() },
-		payload: {
-			value: new Blob([JSON.stringify(nextProjection)], { type: 'application/json' })
-		}
-	}, state.changeTag);
-	return { saved: true, path: `library/${filename}`, captureID };
 }
 
 export function exposeICloudBridge(): void {

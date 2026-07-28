@@ -1,17 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
-	import BookmarkIcon from '@lucide/svelte/icons/bookmark';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
 	import DepthControl from '../../../Shared/DepthControl.svelte';
 	import MarkdownText from '../../../Shared/MarkdownView.svelte';
-	import {
-		importPublicShare,
-		loadPublicShare,
-		type PublicShareDocument
-	} from '$lib/share-links.js';
+	import { loadPublicShare, type PublicShareDocument } from '$lib/share-links.js';
 	import {
 		libraryVariants,
 		shouldRenderSourceAsPlainText,
@@ -25,8 +20,6 @@
 	let loading = $state(true);
 	let preparing = $state(false);
 	let errorMessage = $state('');
-	let importBusy = $state(false);
-	let saved = $state(false);
 
 	let availableVariants = $derived(
 		libraryVariants.filter((variant) =>
@@ -63,9 +56,6 @@
 						: result.texts[0]?.variant ?? 'source';
 					loading = false;
 					preparing = false;
-					if (new URL(window.location.href).searchParams.get('import') === '1') {
-						void addToLibrary();
-					}
 					return;
 				}
 				if (result.status === 'failed') {
@@ -91,25 +81,6 @@
 
 	function selectVariant(variant: LibraryVariant): void {
 		selectedVariant = variant;
-	}
-
-	async function addToLibrary(): Promise<void> {
-		if (importBusy || saved) return;
-		importBusy = true;
-		errorMessage = '';
-		try {
-			await importPublicShare(token);
-			saved = true;
-			const url = new URL(window.location.href);
-			url.searchParams.delete('import');
-			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-		} catch (error) {
-			if (error instanceof Error && error.message.startsWith('Opening ')) return;
-			errorMessage =
-				error instanceof Error ? error.message : 'The document could not be added.';
-		} finally {
-			importBusy = false;
-		}
 	}
 </script>
 
@@ -151,52 +122,31 @@
 			</article>
 		</main>
 
-		<footer class="native-document-footer public-share-action-bar" aria-label="Document actions">
-			<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
+		{#if availableVariants.some((variant) => variant !== 'source')}
+			<footer class="native-document-footer public-share-action-bar" aria-label="Document actions">
+				<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
 
-			<DepthControl
-				variants={availableVariants}
-				selected={selectedVariant}
-				onselect={selectVariant}
-			/>
+				<DepthControl
+					variants={availableVariants}
+					selected={selectedVariant}
+					onselect={selectVariant}
+				/>
 
-			<div class="native-footer-actions">
-				{#if document.sourceURL}
-					<a
-						class="native-icon-button"
-						href={document.sourceURL}
-						target="_blank"
-						rel="noreferrer"
-						aria-label="Open original source"
-						title="Open original source"
-					>
-						<ArrowUpRightIcon />
-					</a>
-				{/if}
-
-				<button
-					class="native-icon-button"
-					class:active={saved}
-					disabled={importBusy || saved}
-					aria-label={importBusy
-						? 'Adding to Library'
-						: saved
-							? 'Added to Library'
-							: 'Add to Library'}
-					title={saved ? 'Added to Library' : 'Add to Library'}
-					onclick={addToLibrary}
-				>
-					{#if importBusy}
-						<LoaderCircleIcon class="spin" />
-					{:else}
-						<BookmarkIcon />
+				<div class="native-footer-actions">
+					{#if document.sourceURL}
+						<a
+							class="native-icon-button"
+							href={document.sourceURL}
+							target="_blank"
+							rel="noreferrer"
+							aria-label="Open original source"
+							title="Open original source"
+						>
+							<ArrowUpRightIcon />
+						</a>
 					{/if}
-				</button>
-			</div>
-		</footer>
-
-		{#if errorMessage}
-			<div class="public-share-toast border-destructive! bg-destructive/10! bg-none! text-destructive! rounded-xl! border shadow-sm!" role="alert">{errorMessage}</div>
+				</div>
+			</footer>
 		{/if}
 	{/if}
 </div>

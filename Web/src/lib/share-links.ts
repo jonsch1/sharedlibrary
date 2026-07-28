@@ -1,9 +1,4 @@
 import type { LibraryVariant } from '$lib/library.js';
-import {
-	iCloudIdentity,
-	importICloudShare,
-	type ICloudShareImport
-} from '$lib/icloud.js';
 
 export interface ShareLinkStatus {
 	shared: boolean;
@@ -169,45 +164,4 @@ export async function loadPublicShare(
 		throw new Error(await responseError(response, 'This share link is unavailable.'));
 	}
 	return (await response.json()) as PublicShareDocument;
-}
-
-export async function importPublicShare(token: string): Promise<{
-	saved: boolean;
-	path: string;
-	captureID: string;
-}> {
-	const response = await fetch(`/api/public/shares/${encodeURIComponent(token)}/import`, {
-		method: 'POST',
-		headers: {
-			Accept: 'application/json',
-			Origin: window.location.origin
-		}
-	});
-	if (response.status === 401) {
-		const returnTo = `/?shared=${encodeURIComponent(token)}&import=1`;
-		window.location.assign(
-			`/signin-with-chatgpt?return_to=${encodeURIComponent(returnTo)}`
-		);
-		throw new Error('Opening sign in…');
-	}
-	if (!response.ok) {
-		throw new Error(await responseError(response, 'Could not add this document to your library.'));
-	}
-	const result = (await response.json()) as {
-		saved: boolean;
-		path: string;
-		captureID: string;
-		provider?: 'icloud';
-		source?: ICloudShareImport;
-	};
-	if (result.provider !== 'icloud' || !result.source) return result;
-	if (!(await iCloudIdentity().catch(() => null))?.userRecordName) {
-		const returnTo = new URL(window.location.href);
-		returnTo.searchParams.set('import', '1');
-		window.location.assign(
-			`/icloud?return_to=${encodeURIComponent(`${returnTo.pathname}${returnTo.search}${returnTo.hash}`)}`
-		);
-		throw new Error('Opening iCloud…');
-	}
-	return importICloudShare(result.source);
 }

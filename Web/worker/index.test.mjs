@@ -1739,48 +1739,15 @@ test('iCloud clients publish the selected document without routing private files
 	assert.equal(JSON.stringify(document).includes('Private source.'), true);
 });
 
-test('iCloud recipients receive an authenticated import package instead of a Drive write', async () => {
-	const database = new MockDatabase();
-	database.syncPreferences.set('reader@example.com', 'icloud');
-	const token = 'I'.repeat(32);
-	database.shareLinks.set(token, {
-		token,
-		owner_email: 'owner@example.com',
-		capture_id: 'capture-shared',
-		generation: 'generation-icloud',
-		revision: 3,
-		status: 'ready',
-		metadata_json: JSON.stringify({
-			title: 'Shared through iCloud',
-			excerpt: 'A shared document.'
-		}),
-		source_filename: 'shared-through-icloud.md',
-		voice: 'eve',
-		error_message: null,
-		created_at: '2026-07-27T10:00:00Z',
-		updated_at: '2026-07-27T10:00:00Z'
-	});
-	database.shareTexts.push({
-		share_token: token,
-		generation: 'generation-icloud',
-		variant: 'source',
-		markdown: '---\nid: \"capture-shared\"\n---\n\nShared source.',
-		word_count: 2
-	});
-
+test('public share imports are no longer exposed', async () => {
 	const response = await worker.fetch(
-		authenticatedRequest(`/api/public/shares/${token}/import`, {
+		authenticatedRequest(`/api/public/shares/${'I'.repeat(32)}/import`, {
 			method: 'POST',
 			headers: { Origin: 'https://library.example' }
 		}),
-		entitledEnvironment(database)
+		entitledEnvironment()
 	);
-	assert.equal(response.status, 200);
-	const imported = await response.json();
-	assert.equal(imported.provider, 'icloud');
-	assert.equal(imported.source.filename, 'shared-through-icloud.md');
-	assert.equal(imported.source.revision, 3);
-	assert.equal(imported.source.texts[0].markdown.includes('Shared source.'), true);
+	assert.equal(response.status, 404);
 });
 
 test('owners can list and revoke their published links from the account', async () => {
@@ -2048,11 +2015,8 @@ test('share mutations reject cross-origin requests', async () => {
 		{
 			path: '/api/share-links',
 			body: { captureID: 'capture-1' }
-		},
-		{
-			path: `/api/public/shares/${'A'.repeat(32)}/import`
 		}
-		];
+	];
 	for (const mutation of mutations) {
 		const body = mutation.body ? JSON.stringify(mutation.body) : undefined;
 		const response = await worker.fetch(
