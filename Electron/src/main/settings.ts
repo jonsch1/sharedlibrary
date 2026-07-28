@@ -7,6 +7,8 @@ export interface DesktopSettings {
   saveCapturedAudio?: boolean;
   processingPrompt?: string;
   podcastPrompt?: string;
+  processingCommand?: string;
+  agentCommand?: string;
 }
 
 export class SettingsStore {

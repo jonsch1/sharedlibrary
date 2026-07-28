@@ -9,6 +9,8 @@ const openRouterModelVoices = new Map(
 const knownVoices = [...new Set([...openRouterModelVoices.values()].flat())];
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const maximumSpeechInputLength = 14_000;
+const managedAIModel = 'deepseek/deepseek-v4-flash';
+const maximumManagedAIPromptLength = 600_000;
 const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const ttsRequestIDPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,6 +64,30 @@ const pricingTiers = [
 		priceEnvironmentKey: 'STRIPE_PRICE_STANDARD'
 	}
 ];
+const managedAIJSONSchema = {
+	name: 'briefly_processing',
+	strict: true,
+	schema: {
+		type: 'object',
+		additionalProperties: false,
+		properties: {
+			short_filename: { type: 'string' },
+			summaries: {
+				type: 'object',
+				additionalProperties: false,
+				properties: {
+					comprehensive: { type: 'string' },
+					detailed: { type: 'string' },
+					concise: { type: 'string' },
+					brief: { type: 'string' }
+				},
+				required: ['comprehensive', 'detailed', 'concise', 'brief']
+			},
+			topic_name: { type: 'string' }
+		},
+		required: ['short_filename', 'summaries', 'topic_name']
+	}
+};
 
 function stripeCredentials(env) {
 	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
@@ -562,6 +588,16 @@ async function ensureSchema(database) {
 		database.prepare(
 			`CREATE INDEX IF NOT EXISTS tts_usage_account_created_idx
 			 ON tts_usage (account_id, created_at)`
+		),
+		database.prepare(
+			`CREATE TABLE IF NOT EXISTS managed_ai_usage (
+				account_id TEXT NOT NULL,
+				usage_month TEXT NOT NULL,
+				spent_micros INTEGER NOT NULL DEFAULT 0,
+				reserved_micros INTEGER NOT NULL DEFAULT 0,
+				updated_at INTEGER NOT NULL,
+				PRIMARY KEY (account_id, usage_month)
+			)`
 		),
 		database.prepare(
 			`CREATE TABLE IF NOT EXISTS share_links (
@@ -2263,6 +2299,214 @@ async function billingStatus(request, env) {
 		subscription,
 		tiers: await pricingAvailability(env)
 	});
+}
+
+function managedAIAllowanceMicros(tier) {
+	return tier.amount * 5_000;
+}
+
+async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros) {
+	const now = Date.now();
+	await env.DB.prepare(
+		`INSERT OR IGNORE INTO managed_ai_usage (
+			account_id, usage_month, spent_micros, reserved_micros, updated_at
+		) VALUES (?, ?, 0, 0, ?)`
+	)
+		.bind(accountID, usageMonth, now)
+		.run();
+	const result = await env.DB.prepare(
+		`UPDATE managed_ai_usage
+		 SET reserved_micros = ? - spent_micros, updated_at = ?
+		 WHERE account_id = ? AND usage_month = ?
+		   AND reserved_micros = 0 AND spent_micros < ?`
+	)
+		.bind(allowanceMicros, now, accountID, usageMonth, allowanceMicros)
+		.run();
+	const usage = await env.DB.prepare(
+		`SELECT spent_micros, reserved_micros
+		 FROM managed_ai_usage
+		 WHERE account_id = ? AND usage_month = ?`
+	)
+		.bind(accountID, usageMonth)
+		.first();
+	return {
+		reserved: databaseChanges(result) > 0,
+		spentMicros: Number(usage?.spent_micros ?? 0),
+		reservedMicros: Number(usage?.reserved_micros ?? 0)
+	};
+}
+
+async function releaseManagedAIUsage(env, accountID, usageMonth) {
+	await env.DB.prepare(
+		`UPDATE managed_ai_usage SET reserved_micros = 0, updated_at = ?
+		 WHERE account_id = ? AND usage_month = ?`
+	)
+		.bind(Date.now(), accountID, usageMonth)
+		.run();
+}
+
+async function settleManagedAIUsage(
+	env,
+	accountID,
+	usageMonth,
+	costMicros,
+	allowanceMicros
+) {
+	await env.DB.prepare(
+		`UPDATE managed_ai_usage
+		 SET spent_micros = MIN(?, spent_micros + ?),
+		     reserved_micros = 0,
+		     updated_at = ?
+		 WHERE account_id = ? AND usage_month = ?`
+	)
+		.bind(allowanceMicros, costMicros, Date.now(), accountID, usageMonth)
+		.run();
+}
+
+async function processWithManagedAI(request, env) {
+	if (!requireSameOrigin(request)) {
+		return json({ error: 'Invalid request origin.' }, { status: 403 });
+	}
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return json(
+			{ error: 'Sign in before using Briefly AI.', code: 'authentication_required' },
+			{ status: 401 }
+		);
+	}
+	const apiKey = managedTTSKey(env);
+	if (!apiKey) {
+		return json({ error: 'Briefly AI is unavailable.' }, { status: 503 });
+	}
+	await ensureSchema(env.DB);
+	const complimentary = hasComplimentaryPlusAccess(email);
+	const config = stripeConfig(env);
+	let customer = await billingCustomer(env, email);
+	const tier = complimentary
+		? pricingTiers.at(-1)
+		: configuredTierForRecord(customer, config);
+	if (!complimentary && (!config || !subscriptionIsEntitled(customer, config, env))) {
+		return json(
+			{
+				error: config
+					? 'An active Briefly membership is required for Briefly AI.'
+					: 'Briefly billing is temporarily unavailable.',
+				code: config ? 'subscription_required' : 'billing_unavailable'
+			},
+			{ status: config ? 402 : 503 }
+		);
+	}
+	customer ??= await ensureBillingCustomer(env, email);
+
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid AI request.' }, { status: 400 });
+	}
+	const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : '';
+	const format = value.format === 'json' || value.format === 'text' ? value.format : null;
+	if (!prompt || prompt.length > maximumManagedAIPromptLength || !format) {
+		return json({ error: 'Invalid AI prompt or output format.' }, { status: 400 });
+	}
+
+	const allowanceMicros = managedAIAllowanceMicros(tier);
+	const usageMonth = new Date().toISOString().slice(0, 7);
+	const reservation = await reserveManagedAIUsage(
+		env,
+		customer.account_id,
+		usageMonth,
+		allowanceMicros
+	);
+	if (!reservation.reserved) {
+		return json(
+			{
+				error: reservation.reservedMicros
+					? 'Another Briefly AI request is already running.'
+					: 'Your Briefly AI allowance resets next month.',
+				code: reservation.reservedMicros ? 'request_in_progress' : 'monthly_limit_reached'
+			},
+			{ status: 429 }
+		);
+	}
+
+	let response;
+	try {
+		response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json',
+				'HTTP-Referer': 'https://www.readbriefly.fyi',
+				'X-Title': 'Briefly'
+			},
+			body: JSON.stringify({
+				model: managedAIModel,
+				messages: [{ role: 'user', content: prompt }],
+				max_tokens: format === 'json' ? 32_000 : 16_000,
+				provider: { zdr: true },
+				...(format === 'json'
+					? {
+							response_format: {
+								type: 'json_schema',
+								json_schema: managedAIJSONSchema
+							}
+						}
+					: {})
+			})
+		});
+	} catch {
+		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
+		return json({ error: 'Briefly AI could not reach OpenRouter.' }, { status: 502 });
+	}
+	if (!response.ok) {
+		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
+		return json(
+			{
+				error: await openRouterError(
+					response,
+					`OpenRouter processing failed (${response.status}).`
+				)
+			},
+			{ status: response.status }
+		);
+	}
+
+	let result;
+	try {
+		result = await response.json();
+	} catch {
+		await settleManagedAIUsage(
+			env,
+			customer.account_id,
+			usageMonth,
+			reservation.reservedMicros,
+			allowanceMicros
+		);
+		return json({ error: 'OpenRouter returned an invalid response.' }, { status: 502 });
+	}
+	const reportedCost = Number(result?.usage?.cost);
+	const costMicros =
+		Number.isFinite(reportedCost) && reportedCost >= 0
+			? Math.ceil(reportedCost * 1_000_000)
+			: reservation.reservedMicros;
+	await settleManagedAIUsage(
+		env,
+		customer.account_id,
+		usageMonth,
+		costMicros,
+		allowanceMicros
+	);
+	const remainingMicros = Math.max(
+		0,
+		allowanceMicros -
+			Math.min(allowanceMicros, reservation.spentMicros + costMicros)
+	);
+	const output = result?.choices?.[0]?.message?.content;
+	if (typeof output !== 'string' || !output.trim()) {
+		return json({ error: 'OpenRouter returned no output.' }, { status: 502 });
+	}
+	return json({ output, model: managedAIModel, remainingMicros });
 }
 
 function publicTTSPrices() {
@@ -5744,6 +5988,9 @@ const worker = {
 		}
 		if (url.pathname === '/api/extraction/firecrawl' && request.method === 'POST') {
 			return scrapeWithFirecrawl(request, env);
+		}
+		if (url.pathname === '/api/ai/process' && request.method === 'POST') {
+			return processWithManagedAI(request, env);
 		}
 		if (url.pathname === '/api/library' && request.method === 'GET') {
 			const denied = await paidAccessResponse(request, env);

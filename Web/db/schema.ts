@@ -195,6 +195,18 @@ export const ttsUsage = sqliteTable(
 	(table) => [index('tts_usage_account_created_idx').on(table.accountID, table.createdAt)]
 );
 
+export const managedAIUsage = sqliteTable(
+	'managed_ai_usage',
+	{
+		accountID: text('account_id').notNull(),
+		usageMonth: text('usage_month').notNull(),
+		spentMicros: integer('spent_micros').notNull().default(0),
+		reservedMicros: integer('reserved_micros').notNull().default(0),
+		updatedAt: integer('updated_at').notNull()
+	},
+	(table) => [primaryKey({ columns: [table.accountID, table.usageMonth] })]
+);
+
 export const shareLinks = sqliteTable(
 	'share_links',
 	{

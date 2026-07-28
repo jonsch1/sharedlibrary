@@ -1,5 +1,4 @@
-import { constants } from 'node:fs';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -8,31 +7,79 @@ import {
   type ProcessingSuggestion
 } from './library.js';
 
-const schema = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    short_filename: { type: 'string' },
-    summaries: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        comprehensive: { type: 'string' },
-        detailed: { type: 'string' },
-        concise: { type: 'string' },
-        brief: { type: 'string' }
-      },
-      required: ['comprehensive', 'detailed', 'concise', 'brief']
-    },
-    topic_name: { type: 'string' }
-  },
-  required: ['short_filename', 'summaries', 'topic_name']
-};
 const processingTimeoutMilliseconds = 5 * 60 * 1000;
+const maximumOutputCharacters = 10_000_000;
+
+export const managedAICommand =
+  'briefly://openrouter/deepseek/deepseek-v4-flash';
+const codexProcessingCommand =
+  'codex exec --ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check --color never -';
+export const defaultProcessingCommand = managedAICommand;
+const agentWorkspacePrefix =
+  process.platform === 'win32' ? 'cd /d {{workspace}}' : 'cd {{workspace}}';
+export const defaultAgentCommand = `${agentWorkspacePrefix} && codex`;
+
+export interface CommandPreset {
+  label: string;
+  command: string;
+}
+
+export const processingCommandPresets: CommandPreset[] = [
+  { label: 'Codex', command: codexProcessingCommand },
+  {
+    label: 'Claude',
+    command: 'claude -p --tools "" --strict-mcp-config --no-session-persistence'
+  },
+  {
+    label: 'Pi',
+    command:
+      'pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills'
+  },
+  {
+    label: 'OpenCode',
+    command:
+      process.platform === 'win32'
+        ? 'opencode run --pure'
+        : 'opencode run --pure "$(cat)"'
+  }
+];
+
+export const agentCommandPresets: CommandPreset[] = [
+  { label: 'Codex', command: defaultAgentCommand },
+  { label: 'Claude', command: `${agentWorkspacePrefix} && claude` },
+  { label: 'Pi', command: `${agentWorkspacePrefix} && pi` },
+  { label: 'OpenCode', command: `${agentWorkspacePrefix} && opencode` }
+];
+
+export function ensureAgentWorkspacePlaceholder(command: string): string {
+  const normalized = command.trim();
+  return normalized.includes('{{workspace}}')
+    ? normalized
+    : `${agentWorkspacePrefix} && ${normalized}`;
+}
+
+export function renderAgentCommand(
+  command: string,
+  workspacePath: string
+): string {
+  const workspace =
+    process.platform === 'win32'
+      ? `"${workspacePath.replaceAll('"', '""')}"`
+      : `'${workspacePath.replaceAll("'", "'\"'\"'")}'`;
+  return ensureAgentWorkspacePlaceholder(command).replaceAll(
+    '{{workspace}}',
+    workspace
+  );
+}
+
+export type ManagedAIRunner = (
+  prompt: string,
+  format: 'json' | 'text'
+) => Promise<string>;
 
 export const defaultProcessingPrompt = `You are preparing one captured source for a local knowledge library.
 
-Return only the JSON object required by the supplied schema.
+Return only one JSON object with the required fields below.
 
 Requirements:
 - short_filename: a clear 2-6 word lowercase kebab-case filename without an extension, at most 64 characters.
@@ -56,7 +103,10 @@ Source:
 export class ProcessingService {
   constructor(
     private readonly promptTemplate: () => Promise<string> = async () =>
-      defaultProcessingPrompt
+      defaultProcessingPrompt,
+    private readonly command: () => Promise<string> = async () =>
+      defaultProcessingCommand,
+    private readonly managedAIRunner?: ManagedAIRunner
   ) {}
 
   async process(
@@ -66,7 +116,11 @@ export class ProcessingService {
   ): Promise<string> {
     const input = await library.processingInput(entryID);
     const prompt = renderProcessingPrompt(await this.promptTemplate(), input);
-    const value = await runCodexJSON(prompt);
+    const value = await runAIJSON(
+      prompt,
+      await this.command(),
+      this.managedAIRunner
+    );
     const suggestion = normalizeSuggestion(value);
     return library.applyProcessingSuggestion(entryID, suggestion, topicIDOverride);
   }
@@ -99,60 +153,58 @@ export function renderProcessingPrompt(
     .replaceAll('{{source}}', source);
 }
 
-export async function runCodexText(prompt: string): Promise<string> {
-  return (await runCodex(prompt)).trim();
-}
-
-async function runCodexJSON(prompt: string): Promise<unknown> {
-  return JSON.parse(await runCodex(prompt, schema)) as unknown;
-}
-
-async function runCodex(
+export async function runAIText(
   prompt: string,
-  outputSchema?: Record<string, unknown>
+  command = defaultProcessingCommand,
+  managedAIRunner?: ManagedAIRunner
 ): Promise<string> {
+  return (await runAI(prompt, command, 'text', managedAIRunner)).trim();
+}
+
+async function runAIJSON(
+  prompt: string,
+  command: string,
+  managedAIRunner?: ManagedAIRunner
+): Promise<unknown> {
+  const output = await runAI(prompt, command, 'json', managedAIRunner);
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(output.trim());
+  return JSON.parse(fenced?.[1] ?? output) as unknown;
+}
+
+async function runAI(
+  prompt: string,
+  command: string,
+  format: 'json' | 'text',
+  managedAIRunner?: ManagedAIRunner
+): Promise<string> {
+  const normalizedCommand = command.trim();
+  if (!normalizedCommand) throw new Error('The AI command cannot be empty.');
+  if (normalizedCommand === managedAICommand) {
+    if (!managedAIRunner) throw new Error('Briefly AI is unavailable.');
+    return managedAIRunner(prompt, format);
+  }
   const directory = await mkdtemp(join(tmpdir(), 'shared-library-process-'));
   try {
-    const schemaPath = join(directory, 'schema.json');
-    const outputPath = join(directory, 'output.json');
-    if (outputSchema) {
-      await writeFile(schemaPath, JSON.stringify(outputSchema), 'utf8');
-    }
-    const executable = await codexExecutable();
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(
-        executable,
-        [
-          'exec',
-          '--ephemeral',
-          '--ignore-user-config',
-          '--model',
-          'gpt-5.6-terra',
-          '--config',
-          'model_reasoning_effort="medium"',
-          '--sandbox',
-          'read-only',
-          '--skip-git-repo-check',
-          '--color',
-          'never',
-          ...(outputSchema ? ['--output-schema', schemaPath] : []),
-          '--output-last-message',
-          outputPath,
-          '-C',
-          directory,
-          '-'
-        ],
-        {
-          cwd: directory,
-          env: withExecutablePath(process.env),
-          stdio: ['pipe', 'ignore', 'pipe']
-        }
-      );
+    return await new Promise<string>((resolve, reject) => {
+      const child = spawn(normalizedCommand, {
+        cwd: directory,
+        env: withExecutablePath(process.env),
+        shell: true,
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      let output = '';
       let error = '';
       const timeout = setTimeout(() => {
         child.kill();
-        reject(new Error('Codex processing timed out after 5 minutes.'));
+        reject(new Error('AI processing timed out after 5 minutes.'));
       }, processingTimeoutMilliseconds);
+      child.stdout.on('data', (chunk) => {
+        output += String(chunk);
+        if (output.length > maximumOutputCharacters) {
+          child.kill();
+          reject(new Error('The AI command returned too much output.'));
+        }
+      });
       child.stderr.on('data', (chunk) => {
         error += String(chunk);
         if (error.length > 100_000) error = error.slice(-100_000);
@@ -163,12 +215,12 @@ async function runCodex(
       });
       child.on('close', (code) => {
         clearTimeout(timeout);
-        if (code === 0) resolve();
+        if (code === 0 && output.trim()) resolve(output);
+        else if (code === 0) reject(new Error('The AI command returned no output.'));
         else reject(new Error(conciseError(error)));
       });
       child.stdin.end(prompt);
     });
-    return readFile(outputPath, 'utf8');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -200,28 +252,6 @@ function normalizeSuggestion(value: unknown): ProcessingSuggestion {
   };
 }
 
-async function codexExecutable(): Promise<string> {
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-  const pathDirectories = (process.env.PATH ?? '').split(':').filter(Boolean);
-  const candidates = [
-    process.env.CODEX_BINARY,
-    ...pathDirectories.map((directory) => join(directory, process.platform === 'win32' ? 'codex.exe' : 'codex')),
-    '/opt/homebrew/bin/codex',
-    '/usr/local/bin/codex',
-    home ? join(home, '.local', 'bin', 'codex') : undefined,
-    home ? join(home, '.npm-global', 'bin', 'codex') : undefined
-  ].filter((value): value is string => Boolean(value));
-  for (const candidate of candidates) {
-    try {
-      await access(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // Continue searching.
-    }
-  }
-  throw new Error('Codex CLI was not found. Install or sign in to Codex to process captures.');
-}
-
 function withExecutablePath(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const home = environment.HOME ?? environment.USERPROFILE ?? '';
   const separator = process.platform === 'win32' ? ';' : ':';
@@ -246,6 +276,8 @@ function conciseError(value: string): string {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const message = lines.at(-1)?.replace(/^ERROR:\s*/, '') || 'Codex could not process this capture.';
+  const message =
+    lines.at(-1)?.replace(/^ERROR:\s*/, '') ||
+    'The AI command could not process this capture.';
   return message.length > 320 ? `${message.slice(0, 319).trim()}…` : message;
 }

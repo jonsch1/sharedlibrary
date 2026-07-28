@@ -113,6 +113,24 @@ export interface ProcessingPreferencesUpdate {
   prompt: string;
 }
 
+export interface AICommandPreset {
+  label: string;
+  command: string;
+}
+
+export interface AICommandPreferences {
+  defaultProcessingCommand: string;
+  processingCommand: string;
+  agentCommand: string;
+  processingPresets: AICommandPreset[];
+  agentPresets: AICommandPreset[];
+}
+
+export interface AICommandPreferencesUpdate {
+  processingCommand: string;
+  agentCommand: string;
+}
+
 export const promptIDs = ['summarization', 'podcast'] as const;
 
 export type PromptID = (typeof promptIDs)[number];
@@ -201,6 +219,11 @@ export interface SharedLibraryDesktopAPI {
   updatePromptPreference(
     preference: PromptPreferenceUpdate
   ): Promise<PromptPreferences>;
+  getAICommandPreferences(): Promise<AICommandPreferences>;
+  updateAICommandPreferences(
+    preferences: AICommandPreferencesUpdate
+  ): Promise<AICommandPreferences>;
+  testAIProcessingCommand(command: string): Promise<void>;
   getPodcasts(): Promise<PodcastSnapshot>;
   savePodcast(podcast: PodcastDraft): Promise<PodcastSnapshot>;
   removePodcast(id: string): Promise<PodcastSnapshot>;

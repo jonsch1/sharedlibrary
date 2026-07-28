@@ -18,7 +18,11 @@ import type {
 } from './extraction.js';
 import { ExtractionService } from './extraction.js';
 import { LibraryService, parseMarkdown } from './library.js';
-import { runCodexText } from './processing.js';
+import {
+  defaultProcessingCommand,
+  runAIText,
+  type ManagedAIRunner
+} from './processing.js';
 
 const maximumPodcasts = 20;
 const maximumSourcesPerPodcast = 200;
@@ -102,7 +106,10 @@ export class PodcastService {
     private readonly onOperationMessage: (message: string, entryID?: string) => void,
     private readonly onIngestionStarted: () => FinishIngestion,
     private readonly promptTemplate: () => Promise<string> = async () =>
-      defaultPodcastPrompt
+      defaultPodcastPrompt,
+    private readonly processingCommand: () => Promise<string> = async () =>
+      defaultProcessingCommand,
+    private readonly managedAIRunner?: ManagedAIRunner
   ) {}
 
   start(): void {
@@ -389,10 +396,12 @@ export class PodcastService {
         selected.push(candidate);
       }
       if (!selected.length) throw new Error('The new source items are unavailable.');
-      const script = await runCodexText(
-        renderPodcastPrompt(await this.promptTemplate(), podcast, packets)
+      const script = await runAIText(
+        renderPodcastPrompt(await this.promptTemplate(), podcast, packets),
+        await this.processingCommand(),
+        this.managedAIRunner
       );
-      if (!script) throw new Error('Codex returned an empty podcast episode.');
+      if (!script) throw new Error('The AI command returned an empty podcast episode.');
       const title =
         /^#\s+(.+)$/m.exec(script)?.[1]?.trim() ||
         `${podcast.title} — ${new Date().toLocaleDateString('en-CA')}`;

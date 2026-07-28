@@ -87,6 +87,22 @@ export class BackendClient {
     return this.json(response, 'Could not read the Briefly account.');
   }
 
+  async runManagedAI(prompt: string, format: 'json' | 'text'): Promise<string> {
+    const response = await this.fetch('/api/ai/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, format })
+    });
+    const value = await this.json<{ output?: unknown }>(
+      response,
+      'Briefly AI could not process this request.'
+    );
+    if (typeof value.output !== 'string' || !value.output.trim()) {
+      throw new Error('Briefly AI returned no output.');
+    }
+    return value.output;
+  }
+
   async generatePodcastAudio(text: string): Promise<Uint8Array> {
     const [cookie] = await session.defaultSession.cookies.get({
       url: backendOrigin,

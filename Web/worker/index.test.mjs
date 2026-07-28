@@ -146,6 +146,13 @@ class MockStatement {
 			if (this.sql.includes('FROM tts_accounts')) {
 				return this.database.ttsAccounts.get(this.arguments[0]) ?? null;
 			}
+			if (this.sql.includes('FROM managed_ai_usage')) {
+				return (
+					this.database.managedAIUsage.get(
+						`${this.arguments[0]}:${this.arguments[1]}`
+					) ?? null
+				);
+			}
 			if (this.sql.includes('FROM share_audio_segments')) {
 				return (
 					this.database.shareAudioSegments.find(
@@ -389,6 +396,70 @@ class MockStatement {
 						created_at: createdAt,
 						updated_at: updatedAt
 					});
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT OR IGNORE INTO managed_ai_usage')) {
+				const [accountID, usageMonth, updatedAt] = this.arguments;
+				const key = `${accountID}:${usageMonth}`;
+				if (!this.database.managedAIUsage.has(key)) {
+					this.database.managedAIUsage.set(key, {
+						account_id: accountID,
+						usage_month: usageMonth,
+						spent_micros: 0,
+						reserved_micros: 0,
+						updated_at: updatedAt
+					});
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE managed_ai_usage') &&
+				this.sql.includes('reserved_micros = ? - spent_micros')
+			) {
+				const [allowanceMicros, updatedAt, accountID, usageMonth] = this.arguments;
+				const record = this.database.managedAIUsage.get(
+					`${accountID}:${usageMonth}`
+				);
+				if (
+					record &&
+					record.reserved_micros === 0 &&
+					record.spent_micros < allowanceMicros
+				) {
+					record.reserved_micros = allowanceMicros - record.spent_micros;
+					record.updated_at = updatedAt;
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE managed_ai_usage') &&
+				this.sql.includes('spent_micros = MIN')
+			) {
+				const [allowanceMicros, costMicros, updatedAt, accountID, usageMonth] =
+					this.arguments;
+				const record = this.database.managedAIUsage.get(
+					`${accountID}:${usageMonth}`
+				);
+				if (record) {
+					record.spent_micros = Math.min(
+						allowanceMicros,
+						record.spent_micros + costMicros
+					);
+					record.reserved_micros = 0;
+					record.updated_at = updatedAt;
+					changes = 1;
+				}
+			}
+			if (
+				this.sql.includes('UPDATE managed_ai_usage SET reserved_micros = 0')
+			) {
+				const [updatedAt, accountID, usageMonth] = this.arguments;
+				const record = this.database.managedAIUsage.get(
+					`${accountID}:${usageMonth}`
+				);
+				if (record) {
+					record.reserved_micros = 0;
+					record.updated_at = updatedAt;
 					changes = 1;
 				}
 			}
@@ -838,6 +909,7 @@ class MockDatabase {
 	ttsMonthlyCredits = new Map();
 	ttsTopUps = new Map();
 	ttsUsage = new Map();
+	managedAIUsage = new Map();
 	feedbackItems = new Map();
 	feedbackUpvotes = new Map();
 
@@ -1251,6 +1323,47 @@ test('the owner account has complimentary membership access without Stripe', asy
 	const library = await worker.fetch(authenticatedRequest('/api/library'), env);
 	assert.equal(library.status, 401);
 	assert.equal((await library.json()).error, 'Connect Google Drive first.');
+});
+
+test('managed AI spends at most half of the monthly subscription price', async (context) => {
+	const database = new MockDatabase();
+	const env = entitledEnvironment(database);
+	const originalFetch = globalThis.fetch;
+	let openRouterCalls = 0;
+	globalThis.fetch = async (input, init = {}) => {
+		assert.equal(String(input), 'https://openrouter.ai/api/v1/chat/completions');
+		assert.equal(init.headers.Authorization, 'Bearer sk-or-managed');
+		assert.deepEqual(JSON.parse(init.body).provider, { zdr: true });
+		openRouterCalls += 1;
+		return Response.json({
+			choices: [{ message: { content: 'Briefly is ready.' } }],
+			usage: { cost: 1.995 }
+		});
+	};
+	context.after(() => {
+		globalThis.fetch = originalFetch;
+	});
+	const request = () =>
+		authenticatedRequest('/api/ai/process', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ prompt: 'Test the managed model.', format: 'text' })
+		});
+
+	const first = await worker.fetch(request(), env);
+	assert.equal(first.status, 200);
+	assert.deepEqual(await first.json(), {
+		output: 'Briefly is ready.',
+		model: 'deepseek/deepseek-v4-flash',
+		remainingMicros: 0
+	});
+	const second = await worker.fetch(request(), env);
+	assert.equal(second.status, 429);
+	assert.equal((await second.json()).code, 'monthly_limit_reached');
+	assert.equal(openRouterCalls, 1);
 });
 
 test('configured Stripe checkout requires an authenticated Briefly account', async () => {

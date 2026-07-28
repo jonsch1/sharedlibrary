@@ -4,6 +4,7 @@ import type {
   DesktopIngestionStatus,
   DesktopOperationResult,
   DesktopSyncStatus,
+  AICommandPreferencesUpdate,
   LibraryVariant,
   PodcastDraft,
   PodcastSnapshot,
@@ -47,6 +48,11 @@ const api: SharedLibraryDesktopAPI = {
   getPromptPreferences: () => ipcRenderer.invoke('prompts:get'),
   updatePromptPreference: (preference: PromptPreferenceUpdate) =>
     ipcRenderer.invoke('prompts:update', preference),
+  getAICommandPreferences: () => ipcRenderer.invoke('ai-commands:get'),
+  updateAICommandPreferences: (preferences: AICommandPreferencesUpdate) =>
+    ipcRenderer.invoke('ai-commands:update', preferences),
+  testAIProcessingCommand: (command: string) =>
+    ipcRenderer.invoke('ai-commands:test-processing', command),
   getPodcasts: () => ipcRenderer.invoke('podcasts:get'),
   savePodcast: (podcast: PodcastDraft) =>
     ipcRenderer.invoke('podcasts:save', podcast),

@@ -21,6 +21,8 @@ import { Readable } from 'node:stream';
 import electronUpdater from 'electron-updater';
 import {
   promptIDs,
+  type AICommandPreferences,
+  type AICommandPreferencesUpdate,
   type PromptID,
   type PromptPreferences,
   type PromptPreferenceUpdate,
@@ -48,8 +50,15 @@ import {
 } from './extraction.js';
 import { LibraryService } from './library.js';
 import {
+  agentCommandPresets,
+  defaultAgentCommand,
+  defaultProcessingCommand,
   defaultProcessingPrompt,
-  ProcessingService
+  ensureAgentWorkspacePlaceholder,
+  ProcessingService,
+  processingCommandPresets,
+  renderAgentCommand,
+  runAIText
 } from './processing.js';
 import {
   defaultPodcastPrompt,
@@ -295,6 +304,42 @@ async function promptPreferences(): Promise<PromptPreferences> {
         ]
       }
     ]
+  };
+}
+
+async function aiCommandPreferences(): Promise<AICommandPreferences> {
+  const saved = await settings.load();
+  return {
+    defaultProcessingCommand,
+    processingCommand: saved.processingCommand ?? defaultProcessingCommand,
+    agentCommand: ensureAgentWorkspacePlaceholder(
+      saved.agentCommand?.trim() || defaultAgentCommand
+    ),
+    processingPresets: processingCommandPresets,
+    agentPresets: agentCommandPresets
+  };
+}
+
+function normalizeAICommandPreferences(value: unknown): AICommandPreferencesUpdate {
+  if (!value || typeof value !== 'object') {
+    throw new Error('AI command settings are invalid.');
+  }
+  const candidate = value as Partial<AICommandPreferencesUpdate>;
+  const processingCommand =
+    typeof candidate.processingCommand === 'string'
+      ? candidate.processingCommand.trim()
+      : '';
+  const agentCommand =
+    typeof candidate.agentCommand === 'string' ? candidate.agentCommand.trim() : '';
+  if (!processingCommand || !agentCommand) {
+    throw new Error('AI commands cannot be empty.');
+  }
+  if (processingCommand.length > 4_000 || agentCommand.length > 4_000) {
+    throw new Error('AI commands must be 4,000 characters or fewer.');
+  }
+  return {
+    processingCommand,
+    agentCommand: ensureAgentWorkspacePlaceholder(agentCommand)
   };
 }
 
@@ -569,6 +614,25 @@ function registerIPC(): void {
     await settings.update({ [key[next.id]]: next.prompt });
     return promptPreferences();
   });
+  ipcMain.handle('ai-commands:get', () => aiCommandPreferences());
+  ipcMain.handle('ai-commands:update', async (_event, value: unknown) => {
+    const next = normalizeAICommandPreferences(value);
+    await settings.update(next);
+    return aiCommandPreferences();
+  });
+  ipcMain.handle('ai-commands:test-processing', async (_event, value: unknown) => {
+    if (typeof value !== 'string' || !value.trim() || value.length > 4_000) {
+      throw new Error('The AI command is invalid.');
+    }
+    const output = await runAIText(
+      'Reply with exactly: Briefly is ready.',
+      value,
+      (prompt, format) => backend.runManagedAI(prompt, format)
+    );
+    if (!/Briefly is ready/i.test(output)) {
+      throw new Error('The command ran, but returned an unexpected response.');
+    }
+  });
   ipcMain.handle('podcasts:get', () => podcasts.snapshot());
   ipcMain.handle('podcasts:save', (_event, value) => podcasts.save(value));
   ipcMain.handle('podcasts:remove', (_event, id: string) => podcasts.remove(id));
@@ -636,9 +700,19 @@ function registerIPC(): void {
 
 async function openAgentWorkspace(): Promise<void> {
   const workspacePath = library.getWorkspacePath();
+  const command = renderAgentCommand(
+    (await settings.load()).agentCommand?.trim() || defaultAgentCommand,
+    workspacePath
+  );
   if (process.platform === 'darwin') {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn('/usr/bin/open', ['-a', 'ChatGPT', workspacePath], {
+      const script = [
+        'tell application "Terminal"',
+        'activate',
+        `do script ${JSON.stringify(command)}`,
+        'end tell'
+      ].join('\n');
+      const child = spawn('/usr/bin/osascript', ['-e', script], {
         detached: true,
         stdio: 'ignore'
       });
@@ -650,8 +724,25 @@ async function openAgentWorkspace(): Promise<void> {
     });
     return;
   }
-  const error = await shell.openPath(workspacePath);
-  if (error) throw new Error(error);
+  const child =
+    process.platform === 'win32'
+      ? spawn(
+          'cmd.exe',
+          ['/c', 'start', 'Briefly agent', 'cmd.exe', '/k', command],
+          { cwd: workspacePath, detached: true, stdio: 'ignore' }
+        )
+      : spawn(
+          process.env.TERMINAL || 'x-terminal-emulator',
+          ['-e', 'sh', '-lc', command],
+          { cwd: workspacePath, detached: true, stdio: 'ignore' }
+        );
+  await new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 async function trashEntriesFromContextMenu(
@@ -934,10 +1025,15 @@ app.whenReady().then(async () => {
     () => backend.transcriptCredentials(),
     () => backend.firecrawlCredentials()
   );
-  processing = new ProcessingService(async () => {
-    const current = await settings.load();
-    return current.processingPrompt ?? defaultProcessingPrompt;
-  });
+  processing = new ProcessingService(
+    async () => {
+      const current = await settings.load();
+      return current.processingPrompt ?? defaultProcessingPrompt;
+    },
+    async () =>
+      (await settings.load()).processingCommand ?? defaultProcessingCommand,
+    (prompt, format) => backend.runManagedAI(prompt, format)
+  );
   podcasts = new PodcastService(
     () => library.getWorkspacePath(),
     library,
@@ -951,7 +1047,10 @@ app.whenReady().then(async () => {
     (reason) => sync.request(reason),
     sendOperationMessage,
     beginIngestion,
-    async () => (await settings.load()).podcastPrompt ?? defaultPodcastPrompt
+    async () => (await settings.load()).podcastPrompt ?? defaultPodcastPrompt,
+    async () =>
+      (await settings.load()).processingCommand ?? defaultProcessingCommand,
+    (prompt, format) => backend.runManagedAI(prompt, format)
   );
   sync = new SyncCoordinator(
     backend,

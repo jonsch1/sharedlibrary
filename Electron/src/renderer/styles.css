@@ -1840,6 +1840,10 @@ button:disabled {
   margin-top: 14px;
 }
 
+.settings-card.processing-choice-selected {
+  border-color: var(--primary) !important;
+}
+
 .settings-card-heading {
   display: flex;
   align-items: flex-start;

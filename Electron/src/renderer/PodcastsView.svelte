@@ -231,9 +231,9 @@
   async function openAgent(): Promise<void> {
     try {
       await window.sharedLibrary.openAgent();
-      onmessage('Opened this library workspace in Codex.');
+      onmessage('Opened the agent in this library workspace.');
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'Codex could not be opened.');
+      onmessage(error instanceof Error ? error.message : 'The agent could not be opened.');
     }
   }
 

@@ -35,6 +35,7 @@
   } from '../../../Shared/library';
   import type {
     AccountProvider,
+    AICommandPreferences,
     DesktopAudioPreferences,
     DesktopLibraryEntry,
     DesktopLibrarySnapshot,
@@ -65,6 +66,7 @@
   } from '../../../Shared/themes';
   type SettingsTab =
     | 'general'
+    | 'agents'
     | 'topics'
     | 'prompt-summarization'
     | 'prompt-podcast'
@@ -95,6 +97,10 @@
   });
   let shareBusy = $state(false);
   let processingTopicsDraft = $state<TopicDefinition[]>([]);
+  let aiCommandPreferences = $state<AICommandPreferences | null>(null);
+  let processingCommandDraft = $state('');
+  let agentCommandDraft = $state('');
+  let testingAICommand = $state(false);
   let promptPreferences = $state<PromptPreferences | null>(null);
   let promptDrafts = $state<Record<PromptID, string>>({
     summarization: '',
@@ -175,9 +181,31 @@
   let selectedPrompt = $derived(
     promptPreferences?.prompts.find(({ id }) => id === selectedPromptID) ?? null
   );
+  let draftUsesBrieflyAI = $derived(
+    processingCommandDraft === aiCommandPreferences?.defaultProcessingCommand
+  );
+  let usesBrieflyAI = $derived(
+    Boolean(
+      aiCommandPreferences &&
+        aiCommandPreferences.processingCommand ===
+          aiCommandPreferences.defaultProcessingCommand
+    )
+  );
+  let selectedProcessingPreset = $derived(
+    aiCommandPreferences?.processingPresets.find(
+      ({ command }) => command === processingCommandDraft
+    )?.command ?? (draftUsesBrieflyAI ? '' : 'custom')
+  );
+  let selectedAgentPreset = $derived(
+    aiCommandPreferences?.agentPresets.find(
+      ({ command }) => command === agentCommandDraft
+    )?.command ?? 'custom'
+  );
   let settingsTitle = $derived(
     settingsTab === 'general'
       ? 'General'
+      : settingsTab === 'agents'
+        ? 'AI agents'
       : settingsTab === 'topics'
         ? 'Topics'
         : settingsTab === 'podcasts'
@@ -234,6 +262,9 @@
         await window.sharedLibrary.getProcessingPreferences()
       );
       applyPromptPreferences(await window.sharedLibrary.getPromptPreferences());
+      applyAICommandPreferences(
+        await window.sharedLibrary.getAICommandPreferences()
+      );
       shortcutPreferences = await window.sharedLibrary.getShortcutPreferences();
       audioPreferences = await window.sharedLibrary.getAudioPreferences();
       ingestion = await window.sharedLibrary.getIngestionStatus();
@@ -482,9 +513,9 @@
   async function launchAgent(): Promise<void> {
     try {
       await window.sharedLibrary.openAgent();
-      message = 'Opened this library workspace in Codex.';
+      message = 'Opened the agent in this library workspace.';
     } catch (error) {
-      message = error instanceof Error ? error.message : 'Codex could not be opened.';
+      message = error instanceof Error ? error.message : 'The agent could not be opened.';
     }
   }
 
@@ -592,6 +623,43 @@
   function applyPromptPreferences(next: PromptPreferences): void {
     promptPreferences = next;
     for (const prompt of next.prompts) promptDrafts[prompt.id] = prompt.prompt;
+  }
+
+  function applyAICommandPreferences(next: AICommandPreferences): void {
+    aiCommandPreferences = next;
+    processingCommandDraft = next.processingCommand;
+    agentCommandDraft = next.agentCommand;
+  }
+
+  async function saveAICommands(savedMessage: string): Promise<void> {
+    await run(async () => {
+      applyAICommandPreferences(
+        await window.sharedLibrary.updateAICommandPreferences({
+          processingCommand: processingCommandDraft,
+          agentCommand: agentCommandDraft
+        })
+      );
+      message = savedMessage;
+    });
+  }
+
+  async function useBrieflyAI(): Promise<void> {
+    if (!aiCommandPreferences) return;
+    processingCommandDraft = aiCommandPreferences.defaultProcessingCommand;
+    await saveAICommands('Briefly AI will process and summarize your library.');
+  }
+
+  async function testAICommand(): Promise<void> {
+    if (testingAICommand) return;
+    testingAICommand = true;
+    try {
+      await window.sharedLibrary.testAIProcessingCommand(processingCommandDraft);
+      message = 'Processing command works.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'The command test failed.';
+    } finally {
+      testingAICommand = false;
+    }
   }
 
   function addProcessingTopic(): void {
@@ -1092,6 +1160,7 @@
       <p class="settings-label text-muted-foreground!">Settings</p>
       <nav class="settings-tabs" aria-label="Settings categories">
         <button class:active={settingsTab === 'general'} onclick={() => (settingsTab = 'general')}>General</button>
+        <button class:active={settingsTab === 'agents'} onclick={() => (settingsTab = 'agents')}>AI agents</button>
         <button class:active={settingsTab === 'topics'} onclick={() => (settingsTab = 'topics')}>Topics</button>
         <button
           class:active={Boolean(selectedPromptID)}
@@ -1285,6 +1354,177 @@
         </div>
       </section>
 
+      {:else if settingsTab === 'agents'}
+      <section
+        class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
+        class:processing-choice-selected={usesBrieflyAI}
+      >
+        <div class="settings-card-heading">
+          <div class="flex flex-1 items-start justify-between gap-3">
+            <div>
+              <h3>Briefly AI</h3>
+              <p>Included with your membership. Briefly uses a cost-efficient hosted model under a zero data retention agreement.</p>
+            </div>
+            {#if usesBrieflyAI}
+              <span class="text-primary! inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold">
+                <span class="border-primary! bg-primary! size-3 rounded-full border-[3px]"></span>
+                In use
+              </span>
+            {:else}
+              <span class="text-muted-foreground! inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold">
+                <span class="border-muted-foreground/50! size-3 rounded-full border"></span>
+                Not in use
+              </span>
+            {/if}
+          </div>
+        </div>
+        {#if !usesBrieflyAI}
+          <div class="panel-actions processing-actions">
+            <span></span>
+            <button
+              class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+              type="button"
+              disabled={busy}
+              onclick={useBrieflyAI}
+            >
+              Use Briefly AI
+            </button>
+          </div>
+        {/if}
+      </section>
+
+      <section
+        class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
+        class:processing-choice-selected={Boolean(aiCommandPreferences && !usesBrieflyAI)}
+      >
+        <div class="settings-card-heading">
+          <div class="flex flex-1 items-start justify-between gap-3">
+            <div>
+              <h3>Use your own AI</h3>
+              <p>Choose an agent or enter your own command.</p>
+            </div>
+            {#if aiCommandPreferences && !usesBrieflyAI}
+              <span class="text-primary! inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold">
+                <span class="border-primary! bg-primary! size-3 rounded-full border-[3px]"></span>
+                In use
+              </span>
+            {:else}
+              <span class="text-muted-foreground! inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold">
+                <span class="border-muted-foreground/50! size-3 rounded-full border"></span>
+                Not in use
+              </span>
+            {/if}
+          </div>
+        </div>
+        <div class="grid gap-3">
+          <label class="theme-field grid gap-1.5">
+            <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Agent</span>
+            <select
+              class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={selectedProcessingPreset}
+              onchange={(event) => {
+                const command = (event.currentTarget as HTMLSelectElement).value;
+                if (command === 'custom') {
+                  if (draftUsesBrieflyAI) processingCommandDraft = '';
+                } else {
+                  processingCommandDraft = command;
+                }
+              }}
+            >
+              <option value="" disabled>Choose an agent</option>
+              {#each aiCommandPreferences?.processingPresets ?? [] as preset (preset.command)}
+                <option value={preset.command}>{preset.label}</option>
+              {/each}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          {#if !draftUsesBrieflyAI}
+            <label class="theme-field grid gap-1.5">
+              <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Command</span>
+              <input
+                class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! font-mono! text-xs focus:border-ring focus:ring-2 focus:ring-ring/20"
+                value={processingCommandDraft}
+                oninput={(event) => {
+                  processingCommandDraft =
+                    (event.currentTarget as HTMLInputElement).value;
+                }}
+                spellcheck="false"
+              />
+            </label>
+          {/if}
+        </div>
+        {#if !draftUsesBrieflyAI}
+          <div class="panel-actions processing-actions">
+            <button
+              class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+              type="button"
+              disabled={busy || testingAICommand}
+              onclick={testAICommand}
+            >
+              {#if testingAICommand}<LoaderCircle class="spin" />{/if}
+              Test command
+            </button>
+            <button
+              class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+              type="button"
+              disabled={busy || testingAICommand}
+              onclick={() => saveAICommands('Processing preference saved.')}
+            >
+              Save command
+            </button>
+          </div>
+        {/if}
+      </section>
+
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="settings-card-heading">
+          <div>
+            <h3>Open agent</h3>
+            <p>Run an interactive agent in a new terminal at your library workspace.</p>
+          </div>
+        </div>
+        <div class="grid gap-3">
+          <label class="theme-field grid gap-1.5">
+            <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Default</span>
+            <select
+              class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={selectedAgentPreset}
+              onchange={(event) => {
+                const command = (event.currentTarget as HTMLSelectElement).value;
+                if (command !== 'custom') agentCommandDraft = command;
+              }}
+            >
+              {#each aiCommandPreferences?.agentPresets ?? [] as preset (preset.command)}
+                <option value={preset.command}>{preset.label}</option>
+              {/each}
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label class="theme-field grid gap-1.5">
+            <span class="text-muted-foreground! text-[10px] font-semibold uppercase tracking-[0.06em]">Command</span>
+            <input
+              class="border-input! bg-background! bg-none! text-foreground! h-9 w-full rounded-lg! border px-2.5 outline-none shadow-sm! font-mono! text-xs focus:border-ring focus:ring-2 focus:ring-ring/20"
+              value={agentCommandDraft}
+              oninput={(event) => {
+                agentCommandDraft =
+                  (event.currentTarget as HTMLInputElement).value;
+              }}
+              spellcheck="false"
+            />
+          </label>
+        </div>
+        <div class="panel-actions processing-actions">
+          <span></span>
+          <button
+            class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+            type="button"
+            disabled={busy || testingAICommand}
+            onclick={() => saveAICommands('Agent preference saved.')}
+          >
+            Save command
+          </button>
+        </div>
+      </section>
       {:else if settingsTab === 'topics'}
       <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="processing-field-heading [&_small]:text-muted-foreground! [&_span]:text-card-foreground!">
@@ -1329,7 +1569,7 @@
             </div>
           {/each}
           {#if processingTopicsDraft.length === 0}
-            <p class="processing-empty border-border! bg-muted! bg-none! text-muted-foreground! rounded-lg! border">No topics yet. Codex can create one during processing.</p>
+            <p class="processing-empty border-border! bg-muted! bg-none! text-muted-foreground! rounded-lg! border">No topics yet. The processing agent can create one.</p>
           {/if}
         </div>
         <div class="panel-actions processing-actions">
