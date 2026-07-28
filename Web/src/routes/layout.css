@@ -3089,11 +3089,13 @@ html {
 		position: static;
 		min-width: 0;
 		flex: 1;
+		align-self: center;
 		width: auto;
 		transform: none;
 	}
 
-	.native-reader-audio .audio-player {
+	.native-mobile-reader-bar .native-reader-audio .audio-player {
+		box-sizing: border-box;
 		height: 40px;
 		grid-template-columns: auto minmax(0, 1fr);
 		gap: 6px;
@@ -3102,7 +3104,7 @@ html {
 		border-radius: 12px !important;
 	}
 
-	.native-reader-audio .play {
+	.native-mobile-reader-bar .native-reader-audio .play {
 		width: 32px;
 		min-width: 32px;
 		height: 32px;
