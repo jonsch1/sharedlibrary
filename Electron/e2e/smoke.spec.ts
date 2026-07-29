@@ -218,14 +218,38 @@ test(
         .toEqual({ saveCapturedAudio: false });
       await expect(page.getByRole('button', { name: 'Feedback' })).toBeVisible();
       await page.getByRole('button', { name: 'Podcasts', exact: true }).click();
-      await expect(page.getByRole('heading', { name: 'Create with an agent' })).toBeVisible();
-      await page.getByRole('button', { name: 'Examples' }).click();
-      await expect(page.getByRole('heading', { name: 'AI Research Weekly' })).toBeVisible();
-      await page.getByRole('button', { name: 'Next' }).click();
-      await expect(page.getByRole('heading', { name: 'Startup Signals' })).toBeVisible();
-      await page.getByRole('button', { name: 'Use' }).click();
-      await expect(page.getByRole('heading', { name: 'Name' })).toBeVisible();
-      await expect(page.locator('.podcast-form-card input')).toHaveCount(1);
+      const podcastSettings = page.locator('.podcast-document-workspace');
+      await expect(
+        podcastSettings.getByRole('button', { name: 'Smoke podcast' })
+      ).toBeVisible();
+      await expect(podcastSettings.getByLabel('Podcast title')).toHaveValue(
+        'Smoke podcast'
+      );
+      const podcastPrompt = podcastSettings.getByLabel('Podcast prompt');
+      await expect(podcastPrompt).toHaveValue('Keep the episode practical.');
+      await expect(podcastSettings.getByLabel('Podcast sources')).toHaveValue(
+        'https://example.invalid/feed.xml'
+      );
+      await expect(podcastSettings.getByText('weekly MON 08:00')).toHaveCount(0);
+      await expect(podcastSettings.getByText('15 minutes')).toHaveCount(0);
+      await podcastPrompt.fill('Explain why each update matters.');
+      await expect
+        .poll(() =>
+          page!.evaluate(async () =>
+            (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]
+              ?.prompt
+          )
+        )
+        .toBe('Explain why each update matters.');
+      await podcastSettings.getByRole('button', { name: 'Show episodes' }).click();
+      await expect(page.locator('.settings-screen')).toHaveCount(0);
+      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toHaveAttribute(
+        'aria-selected',
+        'true'
+      );
+      await expect(
+        page.locator('.topic-strip').getByRole('button', { name: 'Smoke podcast' })
+      ).toHaveClass(/active/);
       expect(rendererErrors).toEqual([]);
     } catch (error) {
       if (page) {
@@ -263,6 +287,7 @@ async function createFixture(
     recursive: true
   });
   await mkdir(join(workspacePath, 'library', 'audio'), { recursive: true });
+  await mkdir(join(workspacePath, 'podcasts'), { recursive: true });
   await mkdir(userDataPath, { recursive: true });
 
   await Promise.all([
@@ -314,6 +339,20 @@ Second smoke body.
     writeFile(
       join(workspacePath, 'library', 'summaries', 'brief', 'fixture.md'),
       'Brief smoke summary.\n',
+      'utf8'
+    ),
+    writeFile(
+      join(workspacePath, 'podcasts', 'smoke-podcast.md'),
+      `---
+name: "Smoke podcast"
+schedule: "weekly MON 08:00"
+sources:
+  - "https://example.invalid/feed.xml"
+length: "15 minutes"
+---
+
+Keep the episode practical.
+`,
       'utf8'
     )
   ]);

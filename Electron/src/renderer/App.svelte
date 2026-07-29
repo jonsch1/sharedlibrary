@@ -734,11 +734,10 @@
     }
   }
 
-  function openPodcastEpisode(entryID: string): void {
-    activeView = 'podcasts';
+  function showPodcastEpisodes(podcastID: string): void {
+    selectView('podcasts');
+    selectPodcast(podcastID);
     settingsOpen = false;
-    const entry = entries.find((candidate) => candidate.id === entryID);
-    if (entry) selectEntry(entry);
   }
 
 </script>
@@ -1178,14 +1177,16 @@
         <button class:active={settingsTab === 'podcasts'} onclick={() => (settingsTab = 'podcasts')}>Podcasts</button>
       </nav>
     </aside>
-    <div class="settings-main">
-      <header class="settings-header">
-        <p class="settings-breadcrumb text-muted-foreground!">
-          Briefly <span>›</span> Settings <span>›</span>
-          {settingsTitle}
-        </p>
-        <h2>{settingsTitle}</h2>
-      </header>
+    <div class="settings-main" class:podcasts-tab={settingsTab === 'podcasts'}>
+      {#if settingsTab !== 'podcasts'}
+        <header class="settings-header">
+          <p class="settings-breadcrumb text-muted-foreground!">
+            Briefly <span>›</span> Settings <span>›</span>
+            {settingsTitle}
+          </p>
+          <h2>{settingsTitle}</h2>
+        </header>
+      {/if}
       <main class="settings-content" class:podcasts-tab={settingsTab === 'podcasts'}>
       {#if settingsTab === 'general'}
       <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
@@ -1630,9 +1631,7 @@
         </section>
       {:else}
         <PodcastsView
-          embedded
-          onlibrary={() => (settingsOpen = false)}
-          onopenepisode={openPodcastEpisode}
+          onshowepisodes={showPodcastEpisodes}
           onmessage={(value) => (message = value)}
         />
       {/if}
