@@ -24,6 +24,7 @@
     Share2,
     Sparkles,
     Trash2,
+    Volume2,
     X
   } from '@lucide/svelte';
   import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
@@ -96,6 +97,9 @@
   let settingsTab = $state<SettingsTab>('general');
   let promptsExpanded = $state(true);
   let mobileReaderVisible = $state(false);
+  let audioExpanded = $state(false);
+  let audioPlaying = $state(false);
+  let audioVolume = $state(1);
   let connections = $state<DesktopConnectionStatus | null>(null);
   let syncStatus = $state<DesktopSyncStatus>({
     phase: 'idle',
@@ -1247,7 +1251,6 @@
 
       <main
         class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
-        class:has-reader-audio={Boolean(selectedAudioURL)}
       >
         {#if activeView === 'channels' && selectedChannelSource === 'new' && !selectedEntry}
           <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
@@ -1405,10 +1408,19 @@
             </button>
           </div>
 
-          {#if selectedAudioURL}
-            <div class="native-reader-audio">
-              <AudioPlayer src={selectedAudioURL} title={selectedEntry.title} />
-            </div>
+          {#if selectedAudioURL && audioPlaying}
+            <label class="native-reader-volume border-border! bg-popover! text-popover-foreground! rounded-xl! border shadow-sm!">
+              <Volume2 aria-hidden="true" />
+              <input
+                aria-label="Volume"
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                bind:value={audioVolume}
+                style={`--played: ${audioVolume * 100}%`}
+              />
+            </label>
           {/if}
 
           <div class="native-document-scroll">
@@ -1418,6 +1430,10 @@
               oncontextmenu={(event) =>
                 showEntryContextMenu(event, selectedEntry!, selectedVariant)}
             >
+              <div class="native-document-meta text-muted-foreground!">
+                {wordCount.toLocaleString()} words
+              </div>
+
               {#if loadingText}
                 <div class="document-skeleton" aria-label="Loading document">
                   <span class="skeleton-heading"></span>
@@ -1439,9 +1455,25 @@
 
           <footer
             class="native-document-footer"
+            class:audio-expanded={Boolean(selectedAudioURL && audioExpanded)}
             aria-label="Document actions"
           >
-            <div class="footer-stat">{wordCount.toLocaleString()} words</div>
+            {#if selectedAudioURL}
+              <div
+                id="reader-audio-player"
+                class="native-reader-audio"
+                class:collapsed={!audioExpanded}
+              >
+                <AudioPlayer
+                  src={selectedAudioURL}
+                  title={selectedEntry.title}
+                  bind:playing={audioPlaying}
+                  bind:volume={audioVolume}
+                  showVolume={false}
+                  presentation="apple"
+                />
+              </div>
+            {/if}
 
             <DepthControl
               variants={availableVariants}
@@ -1450,6 +1482,20 @@
             />
 
             <div class="native-footer-actions">
+              {#if selectedAudioURL}
+                <button
+                  class="native-icon-button"
+                  class:active={audioExpanded}
+                  aria-label={audioExpanded ? 'Collapse audio player' : 'Expand audio player'}
+                  aria-controls="reader-audio-player"
+                  aria-expanded={audioExpanded}
+                  title={audioExpanded ? 'Collapse audio player' : 'Expand audio player'}
+                  onclick={() => (audioExpanded = !audioExpanded)}
+                >
+                  <Headphones />
+                </button>
+              {/if}
+
               {#if selectedEntry.sourceURL}
                 <button
                   class="native-icon-button"

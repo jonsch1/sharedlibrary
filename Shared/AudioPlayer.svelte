@@ -5,12 +5,24 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
 
-  let { src, title }: { src: string; title: string } = $props();
+  let {
+    src,
+    title,
+    volume = $bindable(1),
+    playing = $bindable(false),
+    showVolume = true,
+    presentation = 'standard'
+  }: {
+    src: string;
+    title: string;
+    volume?: number;
+    playing?: boolean;
+    showVolume?: boolean;
+    presentation?: 'standard' | 'apple';
+  } = $props();
   let audio: HTMLAudioElement;
   let currentTime = $state(0);
   let duration = $state(0);
-  let playing = $state(false);
-  let volume = $state(1);
   let rate = $state(1);
   let error = $state('');
   let played = $derived(duration ? (currentTime / duration) * 100 : 0);
@@ -101,8 +113,15 @@
   function formatTime(seconds: number): string {
     if (!Number.isFinite(seconds)) return '–:––';
     const whole = Math.max(0, Math.floor(seconds));
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+    const hours = Math.floor(whole / 3600);
+    const minutes = Math.floor((whole % 3600) / 60);
+    const clock = `${minutes}:${String(whole % 60).padStart(2, '0')}`;
+    return hours ? `${hours}:${clock.padStart(5, '0')}` : clock;
   }
+
+  $effect(() => {
+    if (audio) audio.volume = volume;
+  });
 
   onDestroy(() => {
     if (activeAudio === audio) activeAudio = null;
@@ -113,6 +132,7 @@
 
 <div
   class="audio-player border-border! bg-muted! bg-none! text-foreground! rounded-xl! border shadow-sm!"
+  class:apple={presentation === 'apple'}
   role="group"
   aria-label={`${title} audio player`}
 >
@@ -129,55 +149,111 @@
     onerror={() => (error = 'Audio could not be loaded.')}
   ></audio>
 
-  <div class="transport">
-    <button aria-label="Back 15 seconds" title="Back 15 seconds" onclick={() => skip(-15)}>−15</button>
-    <button class="play bg-primary! text-primary-foreground!" aria-label={playing ? 'Pause' : 'Play'} onclick={toggle}>
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        {#if playing}
-          <path d="M8 5v14M16 5v14" />
-        {:else}
-          <path d="m8 5 11 7-11 7Z" />
-        {/if}
-      </svg>
+  {#if presentation === 'apple'}
+    <div class="apple-timeline">
+      <input
+        aria-label="Seek"
+        type="range"
+        min="0"
+        max={duration}
+        step="0.1"
+        value={currentTime}
+        disabled={!duration}
+        style={`--played: ${played}%`}
+        oninput={seek}
+      />
+      <div class="apple-times">
+        <span>{formatTime(currentTime)}</span>
+        <span>−{duration ? formatTime(duration - currentTime) : '–:––'}</span>
+      </div>
+    </div>
+
+    <div class="apple-controls">
+      <button class="apple-rate" aria-label="Change playback speed" title="Playback speed" onclick={cycleRate}>
+        {rate}×
+      </button>
+      <button aria-label="Back 15 seconds" title="Back 15 seconds" onclick={() => skip(-15)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4V1L8 5l4 4V6a7 7 0 1 1-6.4 4.2" />
+          <text x="12" y="16" text-anchor="middle">15</text>
+        </svg>
+      </button>
+      <button class="apple-play" class:playing aria-label={playing ? 'Pause' : 'Play'} onclick={toggle}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          {#if playing}
+            <path d="M8 4v16M16 4v16" />
+          {:else}
+            <path d="m7 3 14 9-14 9Z" />
+          {/if}
+        </svg>
+      </button>
+      <button aria-label="Forward 30 seconds" title="Forward 30 seconds" onclick={() => skip(30)}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4V1l4 4-4 4V6a7 7 0 1 0 6.4 4.2" />
+          <text x="12" y="16" text-anchor="middle">30</text>
+        </svg>
+      </button>
+      <button aria-label="Sleep timer unavailable" title="Sleep timer" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15.5 3.5a7.5 7.5 0 1 0 5 12 8 8 0 0 1-5-12Z" />
+          <text x="18" y="7" text-anchor="middle">z</text>
+          <text x="21" y="4" text-anchor="middle">z</text>
+        </svg>
+      </button>
+    </div>
+  {:else}
+    <div class="transport">
+      <button aria-label="Back 15 seconds" title="Back 15 seconds" onclick={() => skip(-15)}>−15</button>
+      <button class="play bg-primary! text-primary-foreground!" aria-label={playing ? 'Pause' : 'Play'} onclick={toggle}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          {#if playing}
+            <path d="M8 5v14M16 5v14" />
+          {:else}
+            <path d="m8 5 11 7-11 7Z" />
+          {/if}
+        </svg>
+      </button>
+      <button aria-label="Forward 15 seconds" title="Forward 15 seconds" onclick={() => skip(15)}>+15</button>
+    </div>
+
+    <div class="timeline">
+      <span>{formatTime(currentTime)}</span>
+      <input
+        aria-label="Seek"
+        type="range"
+        min="0"
+        max={duration}
+        step="0.1"
+        value={currentTime}
+        disabled={!duration}
+        style={`--played: ${played}%`}
+        oninput={seek}
+      />
+      <span>{duration ? formatTime(duration) : '–:––'}</span>
+    </div>
+
+    <button class="rate border-border! bg-secondary! text-secondary-foreground!" aria-label="Change playback speed" title="Playback speed" onclick={cycleRate}>
+      {rate}×
     </button>
-    <button aria-label="Forward 15 seconds" title="Forward 15 seconds" onclick={() => skip(15)}>+15</button>
-  </div>
 
-  <div class="timeline">
-    <span>{formatTime(currentTime)}</span>
-    <input
-      aria-label="Seek"
-      type="range"
-      min="0"
-      max={duration}
-      step="0.1"
-      value={currentTime}
-      disabled={!duration}
-      style={`--played: ${played}%`}
-      oninput={seek}
-    />
-    <span>{duration ? formatTime(duration) : '–:––'}</span>
-  </div>
-
-  <button class="rate border-border! bg-secondary! text-secondary-foreground!" aria-label="Change playback speed" title="Playback speed" onclick={cycleRate}>
-    {rate}×
-  </button>
-
-  <label class="volume text-muted-foreground!">
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M11 5 6 9H2v6h4l5 4ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
-    </svg>
-    <input
-      aria-label="Volume"
-      type="range"
-      min="0"
-      max="1"
-      step="0.05"
-      value={volume}
-      style={`--played: ${volume * 100}%`}
-      oninput={setVolume}
-    />
-  </label>
+    {#if showVolume}
+      <label class="volume text-muted-foreground!">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M11 5 6 9H2v6h4l5 4ZM15 9a4 4 0 0 1 0 6M18 6a8 8 0 0 1 0 12" />
+        </svg>
+        <input
+          aria-label="Volume"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={volume}
+          style={`--played: ${volume * 100}%`}
+          oninput={setVolume}
+        />
+      </label>
+    {/if}
+  {/if}
 
   {#if error}<span class="error text-destructive!" role="alert">{error}</span>{/if}
 </div>
@@ -195,6 +271,81 @@
     width: 100%;
     padding: 10px 12px;
     font-family: var(--theme-font-sans);
+  }
+
+  .audio-player.apple {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+
+  .apple-timeline {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+  }
+
+  .apple-timeline input {
+    width: 100%;
+  }
+
+  .apple-times {
+    display: flex;
+    justify-content: space-between;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .apple-controls {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: center;
+  }
+
+  .apple-controls button {
+    width: 42px;
+    height: 42px;
+    min-width: 0;
+    justify-self: center;
+    color: var(--foreground);
+  }
+
+  .apple-controls svg {
+    width: 34px;
+    height: 34px;
+    stroke-width: 2.2;
+  }
+
+  .apple-controls text {
+    fill: currentColor;
+    stroke: none;
+    font-size: 6px;
+    font-weight: 700;
+  }
+
+  .apple-controls .apple-rate {
+    color: var(--muted-foreground);
+    font-size: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .apple-controls .apple-play {
+    width: 58px;
+    height: 58px;
+  }
+
+  .apple-play svg {
+    width: 44px;
+    height: 44px;
+    fill: currentColor;
+    stroke: none;
+  }
+
+  .apple-play.playing svg {
+    fill: none;
+    stroke: currentColor;
   }
 
   .transport,
@@ -321,7 +472,7 @@
   }
 
   @media (max-width: 700px) {
-    .audio-player {
+    .audio-player:not(.apple) {
       grid-template-columns: auto minmax(100px, 1fr) auto;
     }
 

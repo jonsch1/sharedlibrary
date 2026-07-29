@@ -69,10 +69,31 @@ test(
         'Brief smoke summary.'
       );
       const audio = page.locator('audio');
+      const actionBar = page.getByLabel('Document actions');
+      const audioPlayer = page.locator('.native-reader-audio');
       await expect(audio).toHaveCount(1);
-      await expect(page.locator('.native-reader-audio')).toBeVisible();
-      await page.getByRole('slider', { name: 'Volume' }).fill('0.4');
+      await expect(audioPlayer).toBeHidden();
+      await page.getByRole('button', { name: 'Expand audio player' }).click();
+      await expect(audioPlayer).toBeVisible();
+      await expect(actionBar).toHaveCSS('height', '190px');
+      await expect(audioPlayer.getByRole('button', { name: 'Back 15 seconds' })).toBeVisible();
+      await expect(audioPlayer.getByRole('button', { name: 'Forward 30 seconds' })).toBeVisible();
+      await expect(
+        audioPlayer.getByRole('button', { name: 'Sleep timer unavailable' })
+      ).toBeDisabled();
+      await expect(page.getByRole('slider', { name: 'Volume' })).toHaveCount(0);
+      await audio.evaluate((element: HTMLAudioElement) => element.play());
+      const volume = page.getByRole('slider', { name: 'Volume' });
+      await expect(volume).toBeVisible();
+      await volume.fill('0.4');
       expect(await audio.evaluate((element: HTMLAudioElement) => element.volume)).toBe(0.4);
+      await audio.evaluate((element: HTMLAudioElement) => element.pause());
+      await expect(volume).toHaveCount(0);
+      await page.getByRole('button', { name: 'Collapse audio player' }).click();
+      await expect(audioPlayer).toBeHidden();
+      await expect(actionBar).toHaveCSS('height', '50px');
+      await expect(page.locator('.native-document-meta')).toContainText('3 words');
+      await expect(actionBar).not.toContainText('words');
 
       const snapshot = await page.evaluate(() =>
         (window as ElectronWindow).sharedLibrary.getSnapshot()
@@ -115,7 +136,6 @@ test(
       await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
       await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
 
-      const actionBar = page.getByLabel('Document actions');
       await expect(actionBar.getByRole('radio')).toHaveCount(
         snapshot.entries[0].availableVariants.length
       );
@@ -127,17 +147,23 @@ test(
       expect(
         await actionBar.evaluate((element) => element.getBoundingClientRect().width)
       ).toBe(actionBarWidth);
-      expect(actionBarWidth).toBe(500);
       await expect(actionBar).toHaveCSS('height', '50px');
-      await expect(actionBar).toHaveCSS('column-gap', '8px');
+      await expect(actionBar).toHaveCSS('column-gap', '0px');
       await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '2px');
+      const barBox = await actionBar.boundingBox();
+      const depthBox = await actionBar.getByRole('radiogroup').boundingBox();
+      const actionsBox = await actionBar.locator('.native-footer-actions').boundingBox();
+      expect(actionsBox!.x - depthBox!.x - depthBox!.width).toBe(76);
+      expect(depthBox!.x - barBox!.x).toBeLessThanOrEqual(10);
+      expect(barBox!.x + barBox!.width - actionsBox!.x - actionsBox!.width)
+        .toBeLessThanOrEqual(10);
       await expect(actionBar.getByRole('button', { name: 'Settings' })).toHaveCount(0);
       const viewTabs = page.getByRole('tablist', { name: 'Library view' });
-      await expect(viewTabs.getByRole('tab', { name: 'Main' })).toHaveAttribute(
+      await expect(viewTabs.getByRole('tab', { name: 'Item' })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toBeVisible();
+      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toBeVisible();
       const sidebarActions = page.locator('.native-sidebar-footer');
       await expect(sidebarActions.getByRole('button', { name: 'AI' })).toBeVisible();
       await expect(sidebarActions.getByRole('button', { name: 'Settings' })).toBeVisible();
@@ -188,8 +214,8 @@ test(
         )
         .toBeGreaterThanOrEqual(0.49);
 
-      await viewTabs.getByRole('tab', { name: 'Pod' }).click();
-      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toHaveAttribute(
+      await viewTabs.getByRole('tab', { name: 'Brief' }).click();
+      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toHaveAttribute(
         'aria-selected',
         'true'
       );
@@ -248,7 +274,7 @@ test(
         .toBe('Explain why each update matters.');
       await podcastSettings.getByRole('button', { name: 'Show episodes' }).click();
       await expect(page.locator('.settings-screen')).toHaveCount(0);
-      await expect(viewTabs.getByRole('tab', { name: 'Pod' })).toHaveAttribute(
+      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toHaveAttribute(
         'aria-selected',
         'true'
       );
