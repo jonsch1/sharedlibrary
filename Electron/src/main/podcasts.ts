@@ -27,6 +27,8 @@ import {
 
 const maximumPodcasts = 20;
 const maximumSourcesPerPodcast = 200;
+const defaultChannelRetrievalCount = 5;
+const maximumChannelRetrievalCount = 100;
 const sourceCheckIntervalMilliseconds = 30 * 60 * 1000;
 const schedulerIntervalMilliseconds = 60 * 1000;
 const maximumEpisodeInputCharacters = 120_000;
@@ -69,6 +71,8 @@ interface SourceState {
   kind?: DiscoveredSource['kind'];
   lastCheckedAt?: string;
   error?: string;
+  retrievalCount?: number;
+  canLoadMore?: boolean;
   seen: string[];
   items: WatchedItem[];
 }
@@ -194,7 +198,11 @@ export class PodcastService {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
       const state = await this.readState();
-      state.sources[source] ??= { seen: [], items: [] };
+      state.sources[source] ??= {
+        retrievalCount: defaultChannelRetrievalCount,
+        seen: [],
+        items: []
+      };
       await this.saveState(state);
       this.onSyncRequested('added channel');
       return this.notify();
@@ -216,6 +224,56 @@ export class PodcastService {
         state,
         true,
         Boolean(owner)
+      );
+      await this.saveState(state);
+      return this.notify();
+    });
+  }
+
+  updateChannel(
+    sourceValue: string,
+    retrievalCountValue: number
+  ): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const source = normalizeChannelSource(sourceValue);
+      const state = await this.readState();
+      const exists =
+        state.sources[source] ||
+        (await this.readDefinitions()).some((podcast) =>
+          podcast.sources.includes(source)
+        );
+      if (!exists) throw new Error('The selected channel no longer exists.');
+      const current = state.sources[source] ??= { seen: [], items: [] };
+      current.retrievalCount = normalizeChannelRetrievalCount(retrievalCountValue);
+      await this.saveState(state);
+      this.onSyncRequested('channel settings');
+      return this.notify();
+    });
+  }
+
+  loadMoreChannel(sourceValue: string): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const source = normalizeChannelSource(sourceValue);
+      const state = await this.readState();
+      const owner = (await this.readDefinitions()).find((podcast) =>
+        podcast.sources.includes(source)
+      );
+      const current = state.sources[source];
+      if (!owner && !current) {
+        throw new Error('The selected channel no longer exists.');
+      }
+      const retrievalCount =
+        current?.retrievalCount ?? defaultChannelRetrievalCount;
+      // ponytail: widen the recent window to 100; add provider cursors for deeper history.
+      await this.checkSources(
+        { id: owner?.id ?? '', sources: [source] },
+        state,
+        true,
+        Boolean(owner),
+        Math.min(
+          maximumChannelRetrievalCount,
+          (current?.items.length ?? 0) + retrievalCount
+        )
       );
       await this.saveState(state);
       return this.notify();
@@ -437,7 +495,8 @@ export class PodcastService {
     podcast: Pick<ParsedPodcast, 'id' | 'sources'>,
     state: PodcastState,
     force: boolean,
-    updateRun = true
+    updateRun = true,
+    retrievalLimit?: number
   ): Promise<boolean> {
     let changed = false;
     for (const source of podcast.sources) {
@@ -461,9 +520,17 @@ export class PodcastService {
       }
       try {
         changed = true;
-        const discovered = await this.channels.enumerate(source);
+        const limit =
+          retrievalLimit ??
+          current.retrievalCount ??
+          defaultChannelRetrievalCount;
+        const discovered = await this.channels.enumerate(source, limit);
+        const discoveredItems = discovered.items.slice(0, limit);
+        current.canLoadMore =
+          discoveredItems.length >= limit &&
+          limit < maximumChannelRetrievalCount;
         const seen = new Set(current.seen);
-        const unseen = discovered.items.filter((item) => !seen.has(item.id));
+        const unseen = discoveredItems.filter((item) => !seen.has(item.id));
         const selected = unseen;
         let finishIngestion: FinishIngestion | null = null;
         if (selected.length) finishIngestion = this.onIngestionStarted();
@@ -742,6 +809,9 @@ export class PodcastService {
           lastCheckedAt: channel?.lastCheckedAt,
           itemCount: channel?.items.length ?? 0,
           error: channel?.error,
+          retrievalCount:
+            channel?.retrievalCount ?? defaultChannelRetrievalCount,
+          canLoadMore: channel?.canLoadMore ?? true,
           entryIDs: channel?.items.map((item) => item.entryID) ?? [],
           briefIDs: owners.map((podcast) => podcast.id),
           briefTitles: owners.map((podcast) => podcast.title)
@@ -1048,6 +1118,19 @@ function normalizeChannelSource(value: string): string {
     throw new Error(`Invalid channel: ${source}`);
   }
   return source;
+}
+
+function normalizeChannelRetrievalCount(value: number): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > maximumChannelRetrievalCount
+  ) {
+    throw new Error(
+      `Items per check must be between 1 and ${maximumChannelRetrievalCount}.`
+    );
+  }
+  return value;
 }
 
 function serializePodcast(value: PodcastDraft & { id: string }): string {

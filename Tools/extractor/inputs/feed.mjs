@@ -6,6 +6,9 @@ import { fetchText, isHTTPURL } from "./http.mjs";
 const maximumItems = 100;
 
 export async function discoverSource(rawSource, context = {}) {
+  const maximumItems = Number.isSafeInteger(context.maximumItems)
+    ? Math.max(1, Math.min(context.maximumItems, 100))
+    : undefined;
   const sourceURL = normalizeSource(rawSource);
   const fetched = await fetchText(sourceURL, {
     ...context,
@@ -14,12 +17,12 @@ export async function discoverSource(rawSource, context = {}) {
   const direct = parseFeed(fetched.text, fetched.finalURL);
   if (direct) {
     return {
-      ...applyChannelPolicy(direct, fetched.finalURL),
+      ...applyChannelPolicy(direct, fetched.finalURL, maximumItems),
       source: rawSource,
       sourceURL: fetched.finalURL
     };
   }
-  const hackerNews = parseHackerNews(fetched.text, fetched.finalURL);
+  const hackerNews = parseHackerNews(fetched.text, fetched.finalURL, maximumItems);
   if (hackerNews) {
     return { ...hackerNews, source: rawSource, sourceURL: fetched.finalURL };
   }
@@ -34,7 +37,7 @@ export async function discoverSource(rawSource, context = {}) {
       const feed = parseFeed(response.text, response.finalURL);
       if (feed) {
         return {
-          ...applyChannelPolicy(feed, fetched.finalURL),
+          ...applyChannelPolicy(feed, fetched.finalURL, maximumItems),
           source: rawSource,
           sourceURL: fetched.finalURL,
           feedURL: response.finalURL
@@ -66,7 +69,19 @@ export async function discoverSource(rawSource, context = {}) {
   };
 }
 
-export function applyChannelPolicy(discovered, rawChannelURL) {
+export function applyChannelPolicy(discovered, rawChannelURL, maximumItems) {
+  if (maximumItems) {
+    const items = discovered.items
+      .map((item, index) => ({ item, index, time: Date.parse(item.publishedAt ?? "") }))
+      .sort((left, right) =>
+        Number.isFinite(left.time) && Number.isFinite(right.time)
+          ? right.time - left.time
+          : left.index - right.index
+      )
+      .slice(0, maximumItems)
+      .map(({ item }) => item);
+    return { ...discovered, items };
+  }
   const url = new URL(rawChannelURL);
   const latestOnly =
     discovered.kind === "podcast" ||
@@ -83,7 +98,7 @@ export function applyChannelPolicy(discovered, rawChannelURL) {
   return { ...discovered, items: [latest] };
 }
 
-export function parseHackerNews(html, rawURL) {
+export function parseHackerNews(html, rawURL, maximumItems = 5) {
   const url = new URL(rawURL);
   if (url.hostname !== "news.ycombinator.com" || url.pathname !== "/front") {
     return null;
@@ -102,7 +117,7 @@ export function parseHackerNews(html, rawURL) {
           }]
         : [];
     })
-    .slice(0, 5);
+    .slice(0, maximumItems);
   return items.length
     ? { title: "Hacker News front page", kind: "feed", items }
     : null;

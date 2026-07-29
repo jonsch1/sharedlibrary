@@ -77,6 +77,25 @@ test("a podcast page channel returns only its latest episode", async () => {
   assert.equal(source.items[0].url, "https://example.com/latest");
 });
 
+test("a channel item limit returns the requested latest items", async () => {
+  const feedURL = "https://example.com/podcast.xml";
+  const source = await discoverSource(feedURL, {
+    maximumItems: 2,
+    fetchImpl: fixtureFetch({
+      [feedURL]: `<rss><channel><title>Podcast</title>
+        <item><guid>older</guid><title>Older</title><link>https://example.com/older</link>
+          <pubDate>Mon, 27 Jul 2026 10:00:00 GMT</pubDate></item>
+        <item><guid>latest</guid><title>Latest</title><link>https://example.com/latest</link>
+          <pubDate>Tue, 28 Jul 2026 10:00:00 GMT</pubDate></item>
+        <item><guid>oldest</guid><title>Oldest</title><link>https://example.com/oldest</link>
+          <pubDate>Sun, 26 Jul 2026 10:00:00 GMT</pubDate></item>
+      </channel></rss>`
+    })
+  });
+
+  assert.deepEqual(source.items.map(({ id }) => id), ["latest", "older"]);
+});
+
 test("a YouTube channel returns only its latest video", async () => {
   const pageURL = "https://www.youtube.com/@matt-ari";
   const feedURL =

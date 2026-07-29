@@ -165,7 +165,7 @@ export class ExtractionService {
     };
   }
 
-  async discoverSource(value: string): Promise<DiscoveredSource> {
+  async discoverSource(value: string, maximumItems?: number): Promise<DiscoveredSource> {
     const helper = this.helperPath('watch.mjs');
     if (!helper) {
       throw new Error(
@@ -174,7 +174,7 @@ export class ExtractionService {
     }
     const discovered = await runHelper<DiscoveredSource>(
       helper,
-      [value],
+      maximumItems ? [value, '--limit', String(maximumItems)] : [value],
       'The source could not be checked.'
     );
     if (

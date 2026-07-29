@@ -145,6 +145,8 @@
       kind: channel.kind,
       lastCheckedAt: channel.lastCheckedAt,
       error: channel.error,
+      retrievalCount: channel.retrievalCount,
+      canLoadMore: channel.canLoadMore,
       briefs: channel.briefTitles,
       items: channel.entryIDs
         .map((entryID) => entriesByID.get(entryID))
@@ -785,6 +787,38 @@
     });
   }
 
+  async function updateSelectedChannel(event: Event): Promise<void> {
+    if (!selectedChannel) return;
+    const retrievalCount = (event.currentTarget as HTMLInputElement).valueAsNumber;
+    try {
+      podcastSnapshot = await window.sharedLibrary.updateChannel(
+        selectedChannel.source,
+        retrievalCount
+      );
+      message = 'Channel settings saved.';
+    } catch (error) {
+      message = error instanceof Error ? error.message : 'The channel could not be updated.';
+    }
+  }
+
+  async function loadMoreFromSelectedChannel(): Promise<void> {
+    if (!selectedChannel) return;
+    const source = selectedChannel.source;
+    const previousCount = selectedChannel.items.length;
+    await run(async () => {
+      podcastSnapshot = await window.sharedLibrary.loadMoreChannel(source);
+      const nextCount =
+        podcastSnapshot.channels.find((channel) => channel.source === source)
+          ?.itemCount ?? previousCount;
+      message =
+        nextCount > previousCount
+          ? `${nextCount - previousCount} more ${
+              nextCount - previousCount === 1 ? 'item' : 'items'
+            } loaded.`
+          : 'No more items are available.';
+    });
+  }
+
   async function addNewChannel(): Promise<void> {
     const source = newChannelURL.trim();
     if (!source) return;
@@ -1292,6 +1326,21 @@
                     <dt class="text-muted-foreground!">Used by</dt>
                     <dd>{selectedChannel.briefs.join(', ') || 'No audio briefs'}</dd>
                   </div>
+                  <div>
+                    <dt class="text-muted-foreground!">Items per check</dt>
+                    <dd>
+                      <input
+                        class="channel-retrieval-input border-input! bg-background! text-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={selectedChannel.retrievalCount}
+                        aria-label="Items retrieved per channel check"
+                        disabled={busy}
+                        onchange={updateSelectedChannel}
+                      />
+                    </dd>
+                  </div>
                 </dl>
               </section>
 
@@ -1303,6 +1352,11 @@
                 >
                   <RefreshCw class={busy ? 'spin' : ''} /> Check channel
                 </button>
+                <button
+                  class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+                  disabled={busy || !selectedChannel.canLoadMore}
+                  onclick={loadMoreFromSelectedChannel}
+                ><Plus /> Load more</button>
                 {#if /^https?:\/\//iu.test(selectedChannel.source)}
                   <button
                     class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"

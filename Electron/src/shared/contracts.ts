@@ -85,6 +85,8 @@ export interface ChannelDefinition {
   kind?: 'feed' | 'podcast' | 'page';
   lastCheckedAt?: string;
   itemCount: number;
+  retrievalCount: number;
+  canLoadMore: boolean;
   error?: string;
   entryIDs: string[];
   briefIDs: string[];
@@ -273,6 +275,8 @@ export interface SharedLibraryDesktopAPI {
   revealPodcast(id: string): Promise<void>;
   addChannel(source: string): Promise<PodcastSnapshot>;
   checkChannel(source: string): Promise<PodcastSnapshot>;
+  updateChannel(source: string, retrievalCount: number): Promise<PodcastSnapshot>;
+  loadMoreChannel(source: string): Promise<PodcastSnapshot>;
   removeChannel(source: string): Promise<PodcastSnapshot>;
   loginChannel(url: string): Promise<void>;
   getShareLink(entryID: string): Promise<ShareLinkStatus>;

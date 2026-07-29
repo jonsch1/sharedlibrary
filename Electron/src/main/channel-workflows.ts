@@ -55,10 +55,11 @@ export class ChannelWorkflowService {
     await window.loadURL(url);
   }
 
-  async enumerate(value: string): Promise<DiscoveredSource> {
+  async enumerate(value: string, maximumItems = 5): Promise<DiscoveredSource> {
+    maximumItems = Math.max(1, Math.min(maximumItems, 100));
     const profileURL = xProfileURL(value);
-    if (profileURL) return this.enumerateXProfile(profileURL);
-    const redditFeedURL = redditCommunityFeedURL(value);
+    if (profileURL) return this.enumerateXProfile(profileURL, maximumItems);
+    const redditFeedURL = redditCommunityFeedURL(value, maximumItems);
     if (redditFeedURL) {
       const response = await net.fetch(redditFeedURL, {
         headers: { Accept: 'application/atom+xml' }
@@ -69,10 +70,11 @@ export class ChannelWorkflowService {
       return redditChannelFromAtom(
         await response.text(),
         value,
-        response.url || redditFeedURL
+        response.url || redditFeedURL,
+        maximumItems
       );
     }
-    return this.extractor.discoverSource(value);
+    return this.extractor.discoverSource(value, maximumItems);
   }
 
   async capture(item: DiscoveredSourceItem): Promise<ExtractedContent> {
@@ -119,7 +121,10 @@ export class ChannelWorkflowService {
     return this.extractor.extractURL(url);
   }
 
-  private async enumerateXProfile(url: string): Promise<DiscoveredSource> {
+  private async enumerateXProfile(
+    url: string,
+    maximumItems: number
+  ): Promise<DiscoveredSource> {
     const window = headlessWindow();
     try {
       await window.loadURL(url);
@@ -136,7 +141,7 @@ export class ChannelWorkflowService {
                 .map(link => link.href)
                 .find(href => /\\/status\\/\\d+/u.test(href))
             ).filter(Boolean));
-            if (urls.size >= 5 || unchanged >= 3) break;
+            if (urls.size >= ${maximumItems} || unchanged >= 3) break;
             unchanged = urls.size === previous ? unchanged + 1 : 0;
             previous = urls.size;
             posts.at(-1)?.scrollIntoView({ block: 'end' });
@@ -168,7 +173,7 @@ export class ChannelWorkflowService {
         pinned: boolean;
       }>;
       const handle = new URL(url).pathname.slice(1);
-      const items = xChannelItems(posts, handle);
+      const items = xChannelItems(posts, handle, maximumItems);
       if (!items.length) {
         throw new Error(
           'X returned no posts. Use “Sign in to a channel”, sign in to X, then try again.'

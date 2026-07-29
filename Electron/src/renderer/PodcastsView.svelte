@@ -6,10 +6,10 @@
     LoaderCircle,
     Radio,
     Sparkles,
-    Timer,
     Trash2
   } from '@lucide/svelte';
   import {
+    type ChannelDefinition,
     type PodcastDefinition,
     type PodcastDraft,
     type PodcastSnapshot
@@ -39,6 +39,21 @@
     snapshot?.podcasts.find((podcast) => podcast.id === selectedID) ?? null
   );
   let channels = $derived(snapshot?.channels ?? []);
+  let channelDomains = $derived.by(() => {
+    const groups = new Map<string, ChannelDefinition[]>();
+    for (const channel of channels) {
+      const domain = channelDomain(channel.source);
+      groups.set(domain, [...(groups.get(domain) ?? []), channel]);
+    }
+    return [...groups]
+      .map(([domain, items]) => ({
+        domain,
+        items: items.toSorted((left, right) =>
+          (left.title ?? left.source).localeCompare(right.title ?? right.source)
+        )
+      }))
+      .sort((left, right) => left.domain.localeCompare(right.domain));
+  });
   let saveStatus = $derived(
     dirty ? (busy ? 'Saving…' : 'Unsaved changes') : 'Saved'
   );
@@ -88,7 +103,7 @@
       title: podcast.title,
       prompt: podcast.prompt,
       schedule: podcast.schedule,
-      length: podcast.length,
+      length: '',
       sources: [...podcast.sources]
     };
     dirty = false;
@@ -170,6 +185,15 @@
       return `${url.hostname.replace(/^www\./u, '')}${url.pathname === '/' ? '' : url.pathname}`;
     } catch {
       return source;
+    }
+  }
+
+  function channelDomain(source: string): string {
+    if (source.toLowerCase().startsWith('arxiv:')) return 'arxiv.org';
+    try {
+      return new URL(source).hostname.replace(/^www\./u, '') || 'Other';
+    } catch {
+      return 'Other';
     }
   }
 
@@ -260,28 +284,48 @@
         </header>
 
         {#if channels.length}
-          <div class="brief-channel-grid">
-            {#each channels as channel (channel.source)}
-              <button
-                type="button"
-                class="brief-channel-option border-border! bg-card! text-card-foreground! hover:bg-accent! hover:text-accent-foreground!"
-                class:selected={draft.sources.includes(channel.source)}
-                aria-pressed={draft.sources.includes(channel.source)}
-                onclick={() => toggleChannel(channel.source)}
-              >
-                <span class="brief-channel-icon"><Radio /></span>
-                <span class="brief-channel-copy">
-                  <strong>{channel.title ?? channelSubtitle(channel.source)}</strong>
-                  <small class="text-muted-foreground!">{channelSubtitle(channel.source)}</small>
-                  <small class="text-muted-foreground!">
-                    {channel.itemCount} {channel.itemCount === 1 ? 'item' : 'items'}
-                  </small>
-                </span>
-                <span class="brief-channel-check" aria-hidden="true">
-                  {#if draft.sources.includes(channel.source)}<Check />{/if}
-                </span>
-              </button>
-            {/each}
+          <div class="brief-channel-table-wrap border-border! rounded-lg! border">
+            <table class="brief-channel-table">
+              <thead class="bg-muted! text-muted-foreground!">
+                <tr>
+                  <th>Channel</th>
+                  <th>Source</th>
+                  <th>Items</th>
+                </tr>
+              </thead>
+              {#each channelDomains as group (group.domain)}
+                <tbody>
+                  <tr class="brief-channel-domain bg-muted/50!">
+                    <th colspan="3">{group.domain}</th>
+                  </tr>
+                  {#each group.items as channel (channel.source)}
+                    <tr
+                      class="brief-channel-row text-card-foreground! hover:bg-accent!"
+                      class:selected={draft.sources.includes(channel.source)}
+                      role="button"
+                      tabindex="0"
+                      aria-pressed={draft.sources.includes(channel.source)}
+                      onclick={() => toggleChannel(channel.source)}
+                      onkeydown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          toggleChannel(channel.source);
+                        }
+                      }}
+                    >
+                      <td>
+                        <span class="brief-channel-icon"><Radio /></span>
+                        <strong>{channel.title ?? channelSubtitle(channel.source)}</strong>
+                      </td>
+                      <td class="text-muted-foreground!">
+                        {channelSubtitle(channel.source)}
+                      </td>
+                      <td class="text-muted-foreground!">{channel.itemCount}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              {/each}
+            </table>
           </div>
         {:else}
           <div class="brief-channel-empty border-border! bg-muted! text-muted-foreground!">
@@ -299,15 +343,6 @@
             bind:value={draft.schedule}
             oninput={markDirty}
             placeholder="manual"
-          />
-        </label>
-        <label>
-          <span><Timer /> Length</span>
-          <input
-            class="border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
-            bind:value={draft.length}
-            oninput={markDirty}
-            placeholder="Natural length"
           />
         </label>
       </section>

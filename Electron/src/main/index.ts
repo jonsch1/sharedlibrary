@@ -673,6 +673,12 @@ function registerIPC(): void {
   handle('channels:check', (_event, source: string) =>
     podcasts.checkChannel(source)
   );
+  handle('channels:update', (_event, source: string, retrievalCount: number) =>
+    podcasts.updateChannel(source, retrievalCount)
+  );
+  handle('channels:load-more', (_event, source: string) =>
+    podcasts.loadMoreChannel(source)
+  );
   handle('channels:remove', (_event, source: string) =>
     podcasts.removeChannel(source)
   );

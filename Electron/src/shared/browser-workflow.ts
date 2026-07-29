@@ -38,7 +38,7 @@ export interface XProfilePost {
   pinned?: boolean;
 }
 
-export function xChannelItems(posts: XProfilePost[], handle: string) {
+export function xChannelItems(posts: XProfilePost[], handle: string, maximumItems = 5) {
   const seen = new Set<string>();
   const unique = posts.filter((post) => {
     if (post.pinned || seen.has(post.id)) return false;
@@ -53,7 +53,7 @@ export function xChannelItems(posts: XProfilePost[], handle: string) {
           Date.parse(right.publishedAt ?? '') - Date.parse(left.publishedAt ?? '')
       )
     : unique;
-  const selected = ordered.slice(0, 5);
+  const selected = ordered.slice(0, maximumItems);
   const cleaned = cleanRepeatedItems(selected.map(({ text }) => text));
   return selected.map((post, index) => ({
     id: post.id,
@@ -65,7 +65,7 @@ export function xChannelItems(posts: XProfilePost[], handle: string) {
   }));
 }
 
-export function redditCommunityFeedURL(value: string): string | null {
+export function redditCommunityFeedURL(value: string, maximumItems = 5): string | null {
   try {
     const url = new URL(value);
     const match =
@@ -74,7 +74,7 @@ export function redditCommunityFeedURL(value: string): string | null {
       ) &&
       /^\/r\/([A-Za-z0-9_]+)(?:\/(hot|new|top))?\/?$/u.exec(url.pathname);
     return match
-      ? `https://www.reddit.com/r/${match[1]}/${match[2] ?? 'hot'}/.rss?limit=5`
+      ? `https://www.reddit.com/r/${match[1]}/${match[2] ?? 'hot'}/.rss?limit=${maximumItems}`
       : null;
   } catch {
     return null;
@@ -84,12 +84,13 @@ export function redditCommunityFeedURL(value: string): string | null {
 export function redditChannelFromAtom(
   xml: string,
   source: string,
-  feedURL: string
+  feedURL: string,
+  maximumItems = 5
 ) {
   const community =
     /^\/r\/([^/]+)/u.exec(new URL(source).pathname)?.[1] ?? 'Reddit';
   const items = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/giu)]
-    .slice(0, 5)
+    .slice(0, maximumItems)
     .flatMap(([, entry]) => {
       const id = xmlText(entry, 'id');
       const title = xmlText(entry, 'title');

@@ -205,7 +205,7 @@ Explain why each update matters.
   }
 });
 
-test('channel checks capture every unseen item once', async () => {
+test('channel checks use a configurable batch and can load older items', async () => {
   const root = await mkdtemp(join(tmpdir(), 'briefly-open-podcast-'));
   try {
     await mkdir(join(root, 'podcasts'), { recursive: true });
@@ -264,23 +264,35 @@ Summarize every new item.
     );
     assert.equal(checks, 0);
     const snapshot = await service.check('file:open.md');
-    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.itemCount, 31);
-    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.items.length, 31);
+    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.itemCount, 5);
+    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.items.length, 5);
+    assert.equal(snapshot.channels[0]?.retrievalCount, 5);
+    assert.equal(snapshot.channels[0]?.canLoadMore, true);
     assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.items[0]?.pending, true);
     assert.match(
       snapshot.podcasts[0]?.sourceStatuses[0]?.items[0]?.excerpt ?? '',
       /Content for/
     );
     assert.equal(checks, 1);
-    assert.equal(captures, 31);
+    assert.equal(captures, 5);
+    await assert.rejects(
+      service.updateChannel('https://example.com/feed.xml', 0),
+      /between 1 and 100/
+    );
+    await service.updateChannel('https://example.com/feed.xml', 3);
     await service.checkChannel('https://example.com/feed.xml');
     assert.equal(checks, 2);
-    assert.equal(captures, 31);
+    assert.equal(captures, 5);
+    const loaded = await service.loadMoreChannel('https://example.com/feed.xml');
+    assert.equal(loaded.channels[0]?.itemCount, 8);
+    assert.equal(loaded.channels[0]?.retrievalCount, 3);
+    assert.equal(checks, 3);
+    assert.equal(captures, 8);
     items[0] = { ...items[0], id: 'refreshed-item' };
     const refreshed = await service.checkChannel('https://example.com/feed.xml');
-    assert.equal(refreshed.channels[0]?.itemCount, 31);
-    assert.equal(checks, 3);
-    assert.equal(captures, 32);
+    assert.equal(refreshed.channels[0]?.itemCount, 8);
+    assert.equal(checks, 4);
+    assert.equal(captures, 9);
     const afterRemoval = await service.removeChannel(
       'https://example.com/feed.xml'
     );
@@ -289,15 +301,16 @@ Summarize every new item.
       (await library.snapshot()).entries.filter(
         ({ entryType }) => entryType === 'podcast_source'
       ).length,
-      32
+      9
     );
     const added = await service.addChannel('https://example.com/standalone');
     assert.deepEqual(added.channels[0]?.briefIDs, []);
     const checked = await service.checkChannel('https://example.com/standalone');
     assert.equal(checked.channels[0]?.title, 'Standalone');
     assert.ok(checked.channels[0]?.lastCheckedAt);
-    assert.equal(checks, 4);
-    assert.equal(captures, 32);
+    assert.equal(checked.channels[0]?.canLoadMore, false);
+    assert.equal(checks, 5);
+    assert.equal(captures, 9);
     assert.equal(
       (await service.removeChannel('https://example.com/standalone')).channels.length,
       0

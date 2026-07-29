@@ -35,6 +35,11 @@ test('an X profile channel returns its latest five unique non-pinned posts', () 
     'Post 4',
     'Post 3'
   ]);
+  assert.deepEqual(xChannelItems([
+    post(3),
+    post(2),
+    post(1)
+  ], 'example', 2).map(({ id }) => id), ['3', '2']);
 });
 
 test('a Reddit community channel returns five hot posts without scraping HTML', () => {
@@ -42,6 +47,10 @@ test('a Reddit community channel returns five hot posts without scraping HTML', 
   assert.equal(
     redditCommunityFeedURL(source),
     'https://www.reddit.com/r/technology/hot/.rss?limit=5'
+  );
+  assert.equal(
+    redditCommunityFeedURL(source, 12),
+    'https://www.reddit.com/r/technology/hot/.rss?limit=12'
   );
   const entry = (index: number) => `<entry>
     <author><name>/u/person${index}</name></author>

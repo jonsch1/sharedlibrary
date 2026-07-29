@@ -62,6 +62,10 @@ const api: SharedLibraryDesktopAPI = {
   revealPodcast: (id: string) => ipcRenderer.invoke('podcasts:reveal', id),
   addChannel: (source: string) => ipcRenderer.invoke('channels:add', source),
   checkChannel: (source: string) => ipcRenderer.invoke('channels:check', source),
+  updateChannel: (source: string, retrievalCount: number) =>
+    ipcRenderer.invoke('channels:update', source, retrievalCount),
+  loadMoreChannel: (source: string) =>
+    ipcRenderer.invoke('channels:load-more', source),
   removeChannel: (source: string) => ipcRenderer.invoke('channels:remove', source),
   loginChannel: (url: string) => ipcRenderer.invoke('channels:login', url),
   getShareLink: (entryID: string) => ipcRenderer.invoke('sharing:get', entryID),
