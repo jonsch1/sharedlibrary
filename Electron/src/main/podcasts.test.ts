@@ -117,6 +117,7 @@ test('identifies social posts and canonical web URLs consistently', () => {
     sourceIdentity('https://example.com/report?utm_source=test&id=4#section'),
     'https://example.com/report?id=4'
   );
+  assert.equal(sourceIdentity('not a url'), 'not a url');
 });
 
 test('agent episodes reuse social posts and queue audio once', async () => {

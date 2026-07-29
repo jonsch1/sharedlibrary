@@ -1007,7 +1007,12 @@ function normalizeAgentEpisodeSources(values: AgentEpisodeSource[]): AgentEpisod
 }
 
 export function sourceIdentity(value: string): string {
-  const url = new URL(value);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value.trim();
+  }
   url.hash = '';
   const host = url.hostname.toLowerCase().replace(/^www\./u, '');
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
