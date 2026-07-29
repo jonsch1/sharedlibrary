@@ -414,7 +414,7 @@ export class LibraryService {
   async attachPodcastAudio(entryID: string, audio: Uint8Array): Promise<void> {
     const indexed = await this.requireEntry(entryID);
     if (indexed.entry.entryType !== 'podcast_episode') {
-      throw new Error('Audio can only be attached to a podcast episode.');
+      throw new Error('Audio can only be attached to an audio brief episode.');
     }
     const parsed = parseMarkdown(await readFile(indexed.sourcePath, 'utf8'));
     const audioRelativePath = `audio/${indexed.entry.captureID}.wav`;
@@ -449,7 +449,7 @@ export class LibraryService {
 
   async podcastAudioPath(entryID: string): Promise<string> {
     const path = (await this.requireEntry(entryID)).audioPath;
-    if (!path) throw new Error('That podcast episode has no audio.');
+    if (!path) throw new Error('That audio brief episode has no audio.');
     return path;
   }
 

@@ -108,7 +108,7 @@ export class BackendClient {
       url: backendOrigin,
       name: 'shared_library_session'
     });
-    if (!cookie?.value) throw new Error('Sign in to Briefly to generate podcast audio.');
+    if (!cookie?.value) throw new Error('Sign in to Briefly to generate audio briefs.');
     const response = await session.defaultSession.fetch(podcastSpeechEndpoint, {
       method: 'POST',
       headers: {
@@ -120,7 +120,7 @@ export class BackendClient {
     });
     if (!response.ok) {
       throw new Error(
-        await this.errorMessage(response, 'Podcast audio could not be generated.')
+        await this.errorMessage(response, 'Audio brief narration could not be generated.')
       );
     }
     const audio = new Uint8Array(await response.arrayBuffer());
@@ -129,7 +129,7 @@ export class BackendClient {
       new TextDecoder().decode(audio.subarray(0, 4)) !== 'RIFF' ||
       new TextDecoder().decode(audio.subarray(8, 12)) !== 'WAVE'
     ) {
-      throw new Error('Podcast audio service returned an invalid WAV file.');
+      throw new Error('The audio brief service returned an invalid WAV file.');
     }
     return audio;
   }

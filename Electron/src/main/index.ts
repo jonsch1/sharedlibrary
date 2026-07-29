@@ -45,6 +45,7 @@ import {
   type BundledAgentSkill
 } from './agent-api.js';
 import { BackendClient } from './backend.js';
+import { ChannelWorkflowService } from './channel-workflows.js';
 import {
   ExtractionService,
   type ExtractedContent
@@ -108,6 +109,7 @@ let library: LibraryService;
 let settings: SettingsStore;
 let backend: BackendClient;
 let extraction: ExtractionService;
+let channelWorkflows: ChannelWorkflowService;
 let processing: ProcessingService;
 let podcasts: PodcastService;
 let sync: SyncCoordinator;
@@ -301,8 +303,8 @@ async function promptPreferences(): Promise<PromptPreferences> {
       },
       {
         id: 'podcast',
-        title: 'Podcast',
-        description: 'Turns new podcast source notes into an episode script.',
+        title: 'Audio brief',
+        description: 'Turns new channel items into an audio brief script.',
         prompt: saved.podcastPrompt ?? defaultPodcastPrompt,
         defaultPrompt: defaultPodcastPrompt,
         requiredPlaceholders: [
@@ -665,6 +667,18 @@ function registerIPC(): void {
   handle('podcasts:reveal', async (_event, id: string) => {
     shell.showItemInFolder(await podcasts.filePath(id));
   });
+  handle('channels:add', (_event, source: string) =>
+    podcasts.addChannel(source)
+  );
+  handle('channels:check', (_event, source: string) =>
+    podcasts.checkChannel(source)
+  );
+  handle('channels:remove', (_event, source: string) =>
+    podcasts.removeChannel(source)
+  );
+  handle('channels:login', (_event, url: string) =>
+    channelWorkflows.login(mainWindow, url)
+  );
   handle('sharing:get', async (_event, entryID: string) => {
     const entry = await entryForID(entryID);
     return backend.shareStatus(entry.captureID);
@@ -1074,10 +1088,11 @@ app.whenReady().then(async () => {
       (await settings.load()).processingCommand ?? defaultProcessingCommand,
     (prompt, format) => backend.runManagedAI(prompt, format)
   );
+  channelWorkflows = new ChannelWorkflowService(extraction);
   podcasts = new PodcastService(
     () => library.getWorkspacePath(),
     library,
-    extraction,
+    channelWorkflows,
     (text) => backend.generatePodcastAudio(text),
     (path) => shell.trashItem(path),
     (snapshot) => mainWindow?.webContents.send('podcasts:changed', snapshot),

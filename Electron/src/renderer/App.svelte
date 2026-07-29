@@ -10,17 +10,20 @@
     FileText,
     Folder,
     FolderOpen,
+    Globe2,
     Headphones,
     Keyboard,
     LoaderCircle,
     LogIn,
     Palette,
     Plus,
+    Radio,
     RefreshCw,
     RotateCcw,
     Search,
     Share2,
     Sparkles,
+    Trash2,
     X
   } from '@lucide/svelte';
   import AudioPlayer from '../../../Shared/AudioPlayer.svelte';
@@ -69,19 +72,22 @@
     | 'agents'
     | 'topics'
     | 'prompt-summarization'
-    | 'prompt-podcast'
-    | 'podcasts';
+    | 'prompt-podcast';
+  type ActiveView = 'items' | 'channels' | 'briefs';
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let podcastSnapshot = $state<PodcastSnapshot | null>(null);
-  let activeView = $state<'library' | 'podcasts'>('library');
+  let activeView = $state<ActiveView>('items');
   let selectedID = $state('');
   let selectedIDs = $state<string[]>([]);
   let selectedVariant = $state<LibraryVariant>('concise');
   let selectedText = $state('');
   let query = $state('');
   let selectedTopic = $state('all');
-  let selectedPodcastID = $state('all');
-  let expandedEpisodeIDs = $state<string[]>([]);
+  let selectedPodcastID = $state('');
+  let selectedChannelSource = $state('');
+  let newChannelURL = $state('');
+  let expandedBriefIDs = $state<string[]>([]);
+  let expandedChannelSources = $state<string[]>([]);
   let loading = $state(true);
   let loadingText = $state(false);
   let busy = $state(false);
@@ -120,10 +126,7 @@
   });
 
   let entries = $derived(snapshot?.entries ?? []);
-  let podcastNoteEntries = $derived(
-    entries.filter((entry) => entry.entryType !== 'podcast_episode')
-  );
-  let noteEntries = $derived(podcastNoteEntries.filter(isMainLibraryEntry));
+  let noteEntries = $derived(entries.filter(isMainLibraryEntry));
   let selectedEntry = $derived(
     entries.find((entry) => entry.id === selectedID) ?? null
   );
@@ -134,30 +137,47 @@
       return matchesLibraryEntry(entry, normalizedQuery);
     })
   );
-  let podcastGroups = $derived.by(() =>
-    (podcastSnapshot?.podcasts ?? [])
-      .filter((podcast) =>
-        selectedPodcastID === 'all' || podcast.id === selectedPodcastID)
-      .flatMap((podcast) =>
-        podcast.episodes
-          .map((episode) => {
-            const sourceIDs = new Set(episode.sourceIDs ?? []);
-            const sourceURLs = new Set(episode.sourceURLs ?? []);
-            const notes = podcastNoteEntries.filter(
-              (entry) =>
-                sourceIDs.has(entry.id) ||
-                Boolean(entry.sourceURL && sourceURLs.has(entry.sourceURL))
-            );
-            return { podcast, episode, notes };
-          })
-          .filter(({ podcast: owner, episode, notes }) =>
-            !normalizedQuery ||
-            [owner.title, episode.title, episode.excerpt, ...notes.map((note) => note.title)]
-              .join(' ')
-              .toLowerCase()
-              .includes(normalizedQuery)
-          )
-      )
+  let allChannelGroups = $derived.by(() => {
+    const entriesByID = new Map(entries.map((entry) => [entry.id, entry]));
+    return (podcastSnapshot?.channels ?? []).map((channel) => ({
+      source: channel.source,
+      title: channel.title ?? channel.source,
+      kind: channel.kind,
+      lastCheckedAt: channel.lastCheckedAt,
+      error: channel.error,
+      briefs: channel.briefTitles,
+      items: channel.entryIDs
+        .map((entryID) => entriesByID.get(entryID))
+        .filter((entry): entry is DesktopLibraryEntry => Boolean(entry))
+    })).sort((left, right) =>
+      left.title.localeCompare(right.title)
+    );
+  });
+  let channelGroups = $derived(
+    allChannelGroups.filter((group) =>
+      !normalizedQuery ||
+      [
+        group.title,
+        group.source,
+        ...group.briefs,
+        ...group.items.flatMap((item) => [item.title, item.excerpt])
+      ].join(' ').toLowerCase().includes(normalizedQuery)
+    )
+  );
+  let briefGroups = $derived(
+    (podcastSnapshot?.podcasts ?? []).filter((brief) =>
+      !normalizedQuery ||
+      [brief.title, brief.message, ...brief.episodes.map((episode) => episode.title)]
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery)
+    )
+  );
+  let selectedChannel = $derived(
+    allChannelGroups.find(({ source }) => source === selectedChannelSource) ?? null
+  );
+  let selectedBrief = $derived(
+    podcastSnapshot?.podcasts.find(({ id }) => id === selectedPodcastID) ?? null
   );
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
   let renderSelectedTextAsPlain = $derived(
@@ -210,9 +230,7 @@
         ? 'AI agents'
       : settingsTab === 'topics'
         ? 'Topics'
-        : settingsTab === 'podcasts'
-          ? 'Podcasts'
-          : (selectedPrompt?.title ?? 'Prompts')
+        : (selectedPrompt?.title ?? 'Prompts')
   );
 
   onMount(initializeTheme);
@@ -243,7 +261,7 @@
 
   $effect(() => {
     if (
-      activeView === 'library' &&
+      activeView === 'items' &&
       selectedEntry &&
       !noteEntries.some((entry) => entry.id === selectedEntry?.id)
     ) {
@@ -296,10 +314,11 @@
         window.sharedLibrary.onPodcastsChanged((next) => {
           podcastSnapshot = next;
           if (
-            selectedPodcastID !== 'all' &&
+            selectedPodcastID &&
+            selectedPodcastID !== 'new' &&
             !next.podcasts.some((podcast) => podcast.id === selectedPodcastID)
           ) {
-            selectedPodcastID = 'all';
+            selectedPodcastID = '';
           }
         });
       window.addEventListener(
@@ -326,10 +345,11 @@
     snapshot = next;
     const previousEntry = next.entries.find((entry) => entry.id === previousSelection);
     selectedID =
-      previousEntry &&
-      (activeView === 'podcasts' || previousEntry.entryType !== 'podcast_episode')
+      previousEntry
         ? previousSelection
-        : (next.entries.find((entry) => entry.entryType !== 'podcast_episode')?.id ?? '');
+        : activeView === 'items'
+          ? (next.entries.find(isMainLibraryEntry)?.id ?? '')
+          : '';
     selectedIDs = selectedIDs.filter((id) =>
       next.entries.some((entry) => entry.id === id)
     );
@@ -398,38 +418,59 @@
     window.localStorage.setItem('shared-library-selected-topic', topic);
   }
 
-  function selectView(view: 'library' | 'podcasts'): void {
+  function selectView(view: ActiveView): void {
     activeView = view;
     query = '';
-    if (view === 'library') {
-      if (selectedEntry?.entryType === 'podcast_episode') {
+    if (view === 'items') {
+      if (!selectedEntry || !noteEntries.some(({ id }) => id === selectedEntry?.id)) {
         selectedID = noteEntries[0]?.id ?? '';
       }
-    } else if (!podcastGroups.some(
-      ({ episode, notes }) =>
-        episode.id === selectedID || notes.some((note) => note.id === selectedID)
-    )) {
-      selectedID = podcastGroups[0]?.episode.id ?? '';
+    } else {
+      selectedID = '';
+      if (view === 'channels') {
+        selectedChannelSource ||= allChannelGroups[0]?.source ?? '';
+      } else {
+        selectedPodcastID ||=
+          podcastSnapshot?.podcasts[0]?.id ?? '';
+      }
     }
     selectedIDs = selectedID ? [selectedID] : [];
     mobileReaderVisible = false;
   }
 
-  function selectPodcast(podcastID: string): void {
-    selectedPodcastID = podcastID;
-    const podcast = podcastSnapshot?.podcasts.find(({ id }) => id === podcastID);
-    selectedID =
-      (podcastID === 'all'
-        ? podcastSnapshot?.podcasts.flatMap(({ episodes }) => episodes)[0]?.id
-        : podcast?.episodes[0]?.id) ?? '';
-    selectedIDs = selectedID ? [selectedID] : [];
-    mobileReaderVisible = false;
+  function selectChannel(source: string): void {
+    selectedChannelSource = source;
+    selectedID = '';
+    selectedIDs = [];
+    expandedChannelSources = expandedChannelSources.includes(source)
+      ? expandedChannelSources.filter((candidate) => candidate !== source)
+      : [...expandedChannelSources, source];
+    mobileReaderVisible = true;
   }
 
-  function togglePodcastEpisode(entry: DesktopLibraryEntry): void {
-    expandedEpisodeIDs = expandedEpisodeIDs.includes(entry.id)
-      ? expandedEpisodeIDs.filter((id) => id !== entry.id)
-      : [...expandedEpisodeIDs, entry.id];
+  function createChannel(): void {
+    selectedChannelSource = 'new';
+    selectedID = '';
+    selectedIDs = [];
+    newChannelURL = '';
+    mobileReaderVisible = true;
+  }
+
+  function selectBrief(podcastID: string): void {
+    selectedPodcastID = podcastID;
+    selectedID = '';
+    selectedIDs = [];
+    expandedBriefIDs = expandedBriefIDs.includes(podcastID)
+      ? expandedBriefIDs.filter((id) => id !== podcastID)
+      : [...expandedBriefIDs, podcastID];
+    mobileReaderVisible = true;
+  }
+
+  function createBrief(): void {
+    selectedPodcastID = 'new';
+    selectedID = '';
+    selectedIDs = [];
+    mobileReaderVisible = true;
   }
 
   function openSettings(tab: SettingsTab = 'general'): void {
@@ -734,10 +775,67 @@
     }
   }
 
-  function showPodcastEpisodes(podcastID: string): void {
-    selectView('podcasts');
-    selectPodcast(podcastID);
-    settingsOpen = false;
+  async function checkSelectedChannel(): Promise<void> {
+    if (!selectedChannel) return;
+    await run(async () => {
+      podcastSnapshot = await window.sharedLibrary.checkChannel(selectedChannel.source);
+      message =
+        allChannelGroups.find(({ source }) => source === selectedChannel.source)?.error ??
+        'Channel checked.';
+    });
+  }
+
+  async function addNewChannel(): Promise<void> {
+    const source = newChannelURL.trim();
+    if (!source) return;
+    await run(async () => {
+      podcastSnapshot = await window.sharedLibrary.addChannel(source);
+      selectedChannelSource = source;
+      expandedChannelSources = [
+        ...new Set([...expandedChannelSources, source])
+      ];
+      message = 'Channel added. Check it when you are ready to gather content.';
+    });
+  }
+
+  async function removeSelectedChannel(): Promise<void> {
+    if (
+      !selectedChannel ||
+      !window.confirm(
+        `Delete “${selectedChannel.title}” as a channel? Its captured items will remain in the library.`
+      )
+    ) return;
+    const source = selectedChannel.source;
+    await run(async () => {
+      podcastSnapshot = await window.sharedLibrary.removeChannel(source);
+      selectedChannelSource = allChannelGroups.find(
+        (channel) => channel.source !== source
+      )?.source ?? '';
+      selectedID = '';
+      message = 'Channel deleted. Captured items remain in the library.';
+    });
+  }
+
+  async function loginToSelectedChannel(): Promise<void> {
+    if (!selectedChannel || !/^https?:\/\//iu.test(selectedChannel.source)) return;
+    try {
+      await window.sharedLibrary.loginChannel(selectedChannel.source);
+      message = 'Opened the sign-in browser. Close it when you are signed in.';
+    } catch (error) {
+      message =
+        error instanceof Error ? error.message : 'The sign-in browser could not be opened.';
+    }
+  }
+
+  function handleBriefSelected(podcastID: string): void {
+    selectedPodcastID =
+      podcastID ||
+      podcastSnapshot?.podcasts.find(({ id }) => id !== selectedPodcastID)?.id ||
+      '';
+    selectedID = '';
+    if (podcastID && !expandedBriefIDs.includes(podcastID)) {
+      expandedBriefIDs = [...expandedBriefIDs, podcastID];
+    }
   }
 
 </script>
@@ -819,7 +917,7 @@
         </div>
       </section>
     </main>
-  {:else if activeView === 'library' && noteEntries.length === 0}
+  {:else if activeView === 'items' && noteEntries.length === 0}
     <main class="center-stage text-foreground!">
       <section class="empty-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="empty-illustration bg-muted! bg-none! text-muted-foreground!">
@@ -838,8 +936,8 @@
           <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={chooseWorkspace}>
             <FolderOpen /> Choose folder
           </button>
-          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => selectView('podcasts')}>
-            <Headphones /> Podcasts
+          <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => selectView('briefs')}>
+            <Headphones /> Audio briefs
           </button>
         </div>
       </section>
@@ -851,22 +949,31 @@
           <div class="library-primary-controls">
             <div class="library-view-tabs" role="tablist" aria-label="Library view">
               <button
-                class:active={activeView === 'library'}
+                class:active={activeView === 'items'}
                 role="tab"
-                aria-selected={activeView === 'library'}
-                onclick={() => selectView('library')}
+                aria-selected={activeView === 'items'}
+                onclick={() => selectView('items')}
               >
                 <FileText />
-                <span>Main</span>
+                <span>Item</span>
               </button>
               <button
-                class:active={activeView === 'podcasts'}
+                class:active={activeView === 'channels'}
                 role="tab"
-                aria-selected={activeView === 'podcasts'}
-                onclick={() => selectView('podcasts')}
+                aria-selected={activeView === 'channels'}
+                onclick={() => selectView('channels')}
+              >
+                <Radio />
+                <span>Channel</span>
+              </button>
+              <button
+                class:active={activeView === 'briefs'}
+                role="tab"
+                aria-selected={activeView === 'briefs'}
+                onclick={() => selectView('briefs')}
               >
                 <Headphones />
-                <span>Pod</span>
+                <span>Brief</span>
               </button>
             </div>
 
@@ -874,8 +981,16 @@
               <Search aria-hidden="true" />
               <input
                 bind:value={query}
-                aria-label={activeView === 'podcasts' ? 'Search podcasts' : 'Search library'}
-                placeholder={activeView === 'podcasts' ? 'Search podcasts' : 'Search'}
+                aria-label={activeView === 'channels'
+                  ? 'Search channels'
+                  : activeView === 'briefs'
+                    ? 'Search audio briefs'
+                    : 'Search items'}
+                placeholder={activeView === 'channels'
+                  ? 'Search channels'
+                  : activeView === 'briefs'
+                    ? 'Search audio briefs'
+                    : 'Search items'}
               />
               {#if query}
                 <button class="clear-search" aria-label="Clear search" onclick={() => (query = '')}>
@@ -885,21 +1000,13 @@
             </div>
           </div>
 
-          <div class="topic-strip" aria-label={activeView === 'podcasts' ? 'Podcast filter' : 'Topic filter'}>
-            <button
-              class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-              class:active={activeView === 'podcasts' ? selectedPodcastID === 'all' : selectedTopic === 'all'}
-              onclick={() => activeView === 'podcasts' ? selectPodcast('all') : selectTopic('all')}
-            >All</button>
-            {#if activeView === 'podcasts'}
-              {#each podcastSnapshot?.podcasts ?? [] as podcast (podcast.id)}
-                <button
-                  class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-                  class:active={selectedPodcastID === podcast.id}
-                  onclick={() => selectPodcast(podcast.id)}
-                >{podcast.title}</button>
-              {/each}
-            {:else}
+          {#if activeView === 'items'}
+            <div class="topic-strip" aria-label="Topic filter">
+              <button
+                class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
+                class:active={selectedTopic === 'all'}
+                onclick={() => selectTopic('all')}
+              >All</button>
               {#each snapshot?.topics ?? [] as topic}
                 <button
                   class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
@@ -907,69 +1014,126 @@
                   onclick={() => selectTopic(topic)}
                 >{topic}</button>
               {/each}
-            {/if}
-          </div>
+            </div>
+          {/if}
         </div>
 
         <div class="native-entry-list" aria-label="Library items">
-          {#if activeView === 'podcasts'}
-            {#if podcastGroups.length === 0}
+          {#if activeView === 'channels'}
+            <button
+              class="native-entry-row native-create-row text-primary! rounded-lg! hover:bg-sidebar-accent/60!"
+              class:selected={selectedChannelSource === 'new'}
+              onclick={createChannel}
+            >
+              <Plus />
+              <span>Add channel</span>
+            </button>
+            {#if channelGroups.length === 0}
               <div class="native-no-results text-muted-foreground!">
-                <Headphones />
-                <p>No podcast episodes</p>
-                <button class="text-primary!" onclick={() => openSettings('podcasts')}>Manage podcasts</button>
+                <Radio />
+                <p>No channels yet</p>
               </div>
             {:else}
-              {#each podcastGroups as group (group.episode.id)}
+              {#each channelGroups as group (group.source)}
                 <div class="podcast-episode-group">
                   <button
                     class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                    class:selected={selectedIDs.includes(group.episode.id)}
-                    aria-pressed={selectedIDs.includes(group.episode.id)}
-                    aria-expanded={expandedEpisodeIDs.includes(group.episode.id)}
-                    onpointerdown={(event) => {
-                      if (event.button === 0) selectSidebarEntry(event, group.episode);
-                    }}
-                    onpointerenter={(event) => extendSidebarSelection(event, group.episode)}
-                    onclick={(event) => {
-                      if (event.detail === 0) selectSidebarEntry(event, group.episode);
-                      togglePodcastEpisode(group.episode);
-                    }}
-                    oncontextmenu={(event) => showEntryContextMenu(event, group.episode)}
+                    class:selected={selectedChannelSource === group.source && !selectedEntry}
+                    aria-pressed={selectedChannelSource === group.source && !selectedEntry}
+                    aria-expanded={expandedChannelSources.includes(group.source)}
+                    onclick={() => selectChannel(group.source)}
                   >
-                    {#if expandedEpisodeIDs.includes(group.episode.id)}
+                    {#if expandedChannelSources.includes(group.source)}
                       <FolderOpen class="text-sidebar-foreground/70!" aria-hidden="true" />
                     {:else}
                       <Folder class="text-sidebar-foreground/70!" aria-hidden="true" />
                     {/if}
-                    <span>{group.episode.title}</span>
+                    <span>{group.title}</span>
                   </button>
-                  {#if group.notes.length && expandedEpisodeIDs.includes(group.episode.id)}
+                  {#if group.items.length && expandedChannelSources.includes(group.source)}
                     <div class="podcast-note-list">
-                      {#each group.notes as note (note.id)}
+                      {#each group.items as item (item.id)}
                         <button
                           class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                          class:selected={selectedIDs.includes(note.id)}
-                          aria-pressed={selectedIDs.includes(note.id)}
+                          class:selected={selectedIDs.includes(item.id)}
+                          aria-pressed={selectedIDs.includes(item.id)}
                           onpointerdown={(event) => {
-                            if (event.button === 0) selectSidebarEntry(event, note);
+                            if (event.button === 0) selectSidebarEntry(event, item);
                           }}
-                          onpointerenter={(event) => extendSidebarSelection(event, note)}
+                          onpointerenter={(event) => extendSidebarSelection(event, item)}
                           onclick={(event) => {
-                            if (event.detail === 0) selectSidebarEntry(event, note);
+                            if (event.detail === 0) selectSidebarEntry(event, item);
                           }}
-                          oncontextmenu={(event) => showEntryContextMenu(event, note)}
+                          oncontextmenu={(event) => showEntryContextMenu(event, item)}
                         >
-                          {#if note.faviconFile}
+                          {#if item.faviconFile}
                             <img
-                              src={`briefly-favicon://icon/${note.faviconFile}`}
+                              src={`briefly-favicon://icon/${item.faviconFile}`}
                               alt=""
                               aria-hidden="true"
                             />
                           {:else}
                             <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
                           {/if}
-                          <span>{note.title}</span>
+                          <span>{item.title}</span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          {:else if activeView === 'briefs'}
+            <button
+              class="native-entry-row native-create-row text-primary! rounded-lg! hover:bg-sidebar-accent/60!"
+              class:selected={selectedPodcastID === 'new'}
+              disabled={Boolean(podcastSnapshot &&
+                podcastSnapshot.podcasts.length >= podcastSnapshot.maximumPodcasts)}
+              onclick={createBrief}
+            >
+              <Plus />
+              <span>New audio brief</span>
+            </button>
+            {#if briefGroups.length === 0 && selectedPodcastID !== 'new'}
+              <div class="native-no-results text-muted-foreground!">
+                <Headphones />
+                <p>No audio briefs</p>
+              </div>
+            {:else}
+              {#each briefGroups as brief (brief.id)}
+                <div class="podcast-episode-group">
+                  <button
+                    class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                    class:selected={selectedPodcastID === brief.id && !selectedEntry}
+                    aria-pressed={selectedPodcastID === brief.id && !selectedEntry}
+                    aria-expanded={expandedBriefIDs.includes(brief.id)}
+                    onclick={() => selectBrief(brief.id)}
+                  >
+                    {#if expandedBriefIDs.includes(brief.id)}
+                      <FolderOpen class="text-sidebar-foreground/70!" aria-hidden="true" />
+                    {:else}
+                      <Folder class="text-sidebar-foreground/70!" aria-hidden="true" />
+                    {/if}
+                    <span>{brief.title}</span>
+                  </button>
+                  {#if brief.episodes.length && expandedBriefIDs.includes(brief.id)}
+                    <div class="podcast-note-list">
+                      {#each brief.episodes as episode (episode.id)}
+                        <button
+                          class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                          class:selected={selectedIDs.includes(episode.id)}
+                          aria-pressed={selectedIDs.includes(episode.id)}
+                          onpointerdown={(event) => {
+                            if (event.button === 0) selectSidebarEntry(event, episode);
+                          }}
+                          onpointerenter={(event) => extendSidebarSelection(event, episode)}
+                          onclick={(event) => {
+                            if (event.detail === 0) selectSidebarEntry(event, episode);
+                          }}
+                          oncontextmenu={(event) => showEntryContextMenu(event, episode)}
+                        >
+                          <FileText class="text-sidebar-foreground/70!" aria-hidden="true" />
+                          <span>{episode.title}</span>
                         </button>
                       {/each}
                     </div>
@@ -1028,7 +1192,7 @@
             class="agent-button sidebar-settings-button"
             aria-label="Settings"
             title="Settings"
-            onclick={() => openSettings(activeView === 'podcasts' ? 'podcasts' : 'general')}
+            onclick={() => openSettings('general')}
           >
             <Cog />
           </button>
@@ -1039,7 +1203,135 @@
         class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
         class:has-reader-audio={Boolean(selectedAudioURL)}
       >
-        {#if selectedEntry}
+        {#if activeView === 'channels' && selectedChannelSource === 'new' && !selectedEntry}
+          <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
+            <button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
+              <ChevronLeft />
+              <span>Channels</span>
+            </button>
+          </div>
+          <div class="native-document-scroll">
+            <section class="library-folder-config">
+              <header>
+                <span class="library-folder-eyebrow text-muted-foreground!"><Radio /> Channel</span>
+                <h1>Add channel</h1>
+                <p class="library-folder-intro text-muted-foreground!">
+                  Add a profile, publication, feed, podcast, or video channel. Sign-in and gathering stay here in the Channel library.
+                </p>
+              </header>
+              <form class="library-channel-form" onsubmit={(event) => {
+                event.preventDefault();
+                void addNewChannel();
+              }}>
+                <label for="new-channel-url">Channel URL</label>
+                <input
+                  id="new-channel-url"
+                  class="border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+                  bind:value={newChannelURL}
+                  placeholder="https://youtube.com/@channel"
+                  spellcheck="false"
+                />
+                <small class="text-muted-foreground!">
+                  Web pages, RSS feeds, YouTube, X, Reddit, Hacker News, and Apple Podcasts are supported.
+                </small>
+                <button
+                  type="submit"
+                  class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+                  disabled={busy || !newChannelURL.trim()}
+                >
+                  {#if busy}<LoaderCircle class="spin" />{:else}<Plus />{/if}
+                  Add channel
+                </button>
+              </form>
+            </section>
+          </div>
+        {:else if activeView === 'channels' && selectedChannel && !selectedEntry}
+          <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
+            <button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
+              <ChevronLeft />
+              <span>Channels</span>
+            </button>
+          </div>
+          <div class="native-document-scroll">
+            <section class="library-folder-config">
+              <header>
+                <span class="library-folder-eyebrow text-muted-foreground!"><Radio /> Channel</span>
+                <h1>{selectedChannel.title}</h1>
+                <code class="border-border! bg-muted! text-muted-foreground!">{selectedChannel.source}</code>
+              </header>
+
+              <div class="library-folder-status border-border!">
+                <div>
+                  <span class="text-muted-foreground!">Status</span>
+                  <strong class:text-destructive={Boolean(selectedChannel.error)}>
+                    {selectedChannel.error ?? 'Healthy'}
+                  </strong>
+                </div>
+                <div>
+                  <span class="text-muted-foreground!">Last checked</span>
+                  <strong>
+                    {selectedChannel.lastCheckedAt
+                      ? new Date(selectedChannel.lastCheckedAt).toLocaleString()
+                      : 'Not checked yet'}
+                  </strong>
+                </div>
+                <div>
+                  <span class="text-muted-foreground!">Captured items</span>
+                  <strong>{selectedChannel.items.length}</strong>
+                </div>
+              </div>
+
+              <section class="library-folder-section">
+                <h2>Configuration</h2>
+                <dl>
+                  <div>
+                    <dt class="text-muted-foreground!">Type</dt>
+                    <dd>{selectedChannel.kind ?? 'Page'}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-muted-foreground!">Used by</dt>
+                    <dd>{selectedChannel.briefs.join(', ') || 'No audio briefs'}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <div class="library-folder-actions border-border!">
+                <button
+                  class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+                  disabled={busy}
+                  onclick={checkSelectedChannel}
+                >
+                  <RefreshCw class={busy ? 'spin' : ''} /> Check channel
+                </button>
+                {#if /^https?:\/\//iu.test(selectedChannel.source)}
+                  <button
+                    class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+                    onclick={loginToSelectedChannel}
+                  ><Globe2 /> Sign in</button>
+                  <button
+                    class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+                    onclick={() => window.sharedLibrary.openExternal(selectedChannel!.source)}
+                  ><ArrowUpRight /> Open channel</button>
+                {/if}
+                <button
+                  class="library-folder-delete text-destructive!"
+                  disabled={busy}
+                  onclick={removeSelectedChannel}
+                ><Trash2 /> Delete channel</button>
+              </div>
+            </section>
+          </div>
+        {:else if activeView === 'briefs' && !selectedEntry &&
+        (selectedBrief || selectedPodcastID === 'new')}
+          {#key selectedPodcastID}
+            <PodcastsView
+              podcastid={selectedPodcastID === 'new' ? '' : selectedPodcastID}
+              creating={selectedPodcastID === 'new'}
+              onselected={handleBriefSelected}
+              onmessage={(value) => (message = value)}
+            />
+          {/key}
+        {:else if selectedEntry}
           <div class="native-mobile-reader-bar border-border! bg-card! bg-none! text-card-foreground!">
             <button class="text-card-foreground! hover:bg-accent! hover:text-accent-foreground!" onclick={() => (mobileReaderVisible = false)}>
               <ChevronLeft />
@@ -1174,20 +1466,17 @@
             {/each}
           </div>
         {/if}
-        <button class:active={settingsTab === 'podcasts'} onclick={() => (settingsTab = 'podcasts')}>Podcasts</button>
       </nav>
     </aside>
-    <div class="settings-main" class:podcasts-tab={settingsTab === 'podcasts'}>
-      {#if settingsTab !== 'podcasts'}
-        <header class="settings-header">
-          <p class="settings-breadcrumb text-muted-foreground!">
-            Briefly <span>›</span> Settings <span>›</span>
-            {settingsTitle}
-          </p>
-          <h2>{settingsTitle}</h2>
-        </header>
-      {/if}
-      <main class="settings-content" class:podcasts-tab={settingsTab === 'podcasts'}>
+    <div class="settings-main">
+      <header class="settings-header">
+        <p class="settings-breadcrumb text-muted-foreground!">
+          Briefly <span>›</span> Settings <span>›</span>
+          {settingsTitle}
+        </p>
+        <h2>{settingsTitle}</h2>
+      </header>
+      <main class="settings-content">
       {#if settingsTab === 'general'}
       <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
         <div class="settings-card-heading">
@@ -1247,7 +1536,7 @@
           <span>
             Save audio from manually captured YouTube videos
             <small class="text-muted-foreground! block">
-              Podcasts stay remote. Watched and agent-imported sources remain text-only. Generated podcast episodes keep their audio.
+              Captured podcast audio stays remote. Channel and agent-imported items remain text-only. Generated audio brief episodes keep their audio.
             </small>
           </span>
         </label>
@@ -1629,11 +1918,6 @@
             </button>
           </div>
         </section>
-      {:else}
-        <PodcastsView
-          onshowepisodes={showPodcastEpisodes}
-          onmessage={(value) => (message = value)}
-        />
       {/if}
       </main>
     </div>

@@ -73,6 +73,7 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       podcastSnapshot: async () => ({
         generatedAt: new Date().toISOString(),
         maximumPodcasts: 20,
+        channels: [],
         podcasts: [
           {
             id: 'file:daily-ai.md',

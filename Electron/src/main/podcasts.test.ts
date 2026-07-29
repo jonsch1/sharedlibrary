@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import type { ExtractionService } from './extraction.js';
+import {
+  cleanRepeatedItems,
+  xProfileURL
+} from '../shared/browser-workflow.js';
+import type { ChannelWorkflowService } from './channel-workflows.js';
 import { LibraryService } from './library.js';
 import {
   defaultPodcastPrompt,
@@ -16,7 +20,7 @@ import {
   sourceIdentity
 } from './podcasts.js';
 
-test('podcasts are editable Markdown files with a plain source list', () => {
+test('audio briefs are editable Markdown files with a plain channel list', () => {
   const podcast = parsePodcast(
     `---
 name: "AI Daily"
@@ -40,7 +44,19 @@ Connect the updates into one practical story.
   ]);
 });
 
-test('calculates daily and weekly runs in the podcast timezone', () => {
+test('channel workflows clean repeated chrome and recognize X profiles', () => {
+  assert.deepEqual(
+    cleanRepeatedItems([
+      'Alice\nFirst update\nReply\nShare',
+      'Bob\nSecond update\nReply\nShare'
+    ]),
+    ['Alice\nFirst update', 'Bob\nSecond update']
+  );
+  assert.equal(xProfileURL('https://x.com/mitsuhiko'), 'https://x.com/mitsuhiko');
+  assert.equal(xProfileURL('https://x.com/mitsuhiko/status/123'), null);
+});
+
+test('calculates daily and weekly audio brief runs in the device timezone', () => {
   assert.equal(
     nextPodcastRun(
       'daily 07:30',
@@ -60,7 +76,7 @@ test('calculates daily and weekly runs in the podcast timezone', () => {
   assert.equal(nextPodcastRun('manual', 'UTC', new Date()), null);
 });
 
-test('renders the editable podcast prompt', () => {
+test('renders the editable audio brief prompt', () => {
   const prompt = renderPodcastPrompt(
     defaultPodcastPrompt,
     {
@@ -70,14 +86,14 @@ test('renders the editable podcast prompt', () => {
     },
     ['SOURCE_ID: 1\nCONTENT:\nNews']
   );
-  assert.match(prompt, /Podcast: "AI Daily"/);
-  assert.match(prompt, /Podcast-specific instructions:\nFocus on practical consequences\./);
+  assert.match(prompt, /Audio brief: "AI Daily"/);
+  assert.match(prompt, /Audio-brief-specific instructions:\nFocus on practical consequences\./);
   assert.match(prompt, /Requested length: "12 minutes"/);
   assert.match(prompt, /<source>[\s\S]*News[\s\S]*<\/source>/);
   assert.doesNotMatch(prompt, /\{\{(?:podcast_title|requested_length|source_packets)\}\}/);
 });
 
-test('uses a complete per-podcast prompt as the template', () => {
+test('uses complete per-brief instructions as the template', () => {
   const prompt = renderPodcastPrompt(
     defaultPodcastPrompt,
     {
@@ -91,7 +107,7 @@ test('uses a complete per-podcast prompt as the template', () => {
     ['SOURCE_ID: 1\nCONTENT:\nNews']
   );
   assert.match(prompt, /Be skeptical, concise, and useful/);
-  assert.doesNotMatch(prompt, /Podcast-specific instructions/);
+  assert.doesNotMatch(prompt, /Audio-brief-specific instructions/);
   assert.doesNotMatch(prompt, /\{\{(?:podcast_title|requested_length|source_packets)\}\}/);
 });
 
@@ -141,7 +157,7 @@ Explain why each update matters.
     const service = new PodcastService(
       () => root,
       library,
-      {} as ExtractionService,
+      {} as ChannelWorkflowService,
       async () => {
         audioRuns += 1;
         return new Uint8Array([1, 2, 3]);
@@ -189,7 +205,7 @@ Explain why each update matters.
   }
 });
 
-test('source checks ingest every unseen item', async () => {
+test('channel checks capture every unseen item once', async () => {
   const root = await mkdtemp(join(tmpdir(), 'briefly-open-podcast-'));
   try {
     await mkdir(join(root, 'podcasts'), { recursive: true });
@@ -210,19 +226,29 @@ Summarize every new item.
       title: `Item ${index}`,
       url: `https://example.com/items/${index}`
     }));
-    const extraction = {
-      discoverSource: async () => ({ title: 'Feed', kind: 'feed', items }),
-      extractURL: async (url: string) => ({
-        title: url.split('/').at(-1),
-        content: `Content for ${url}`,
-        sourceURL: url
-      })
-    } as unknown as ExtractionService;
+    let checks = 0;
+    let captures = 0;
+    const channels = {
+      enumerate: async (source: string) => {
+        checks += 1;
+        return source.endsWith('/standalone')
+          ? { title: 'Standalone', kind: 'page', items: [] }
+          : { title: 'Feed', kind: 'feed', items };
+      },
+      capture: async (item: { url: string }) => {
+        captures += 1;
+        return {
+          title: item.url.split('/').at(-1),
+          content: `Content for ${item.url}`,
+          sourceURL: item.url
+        };
+      }
+    } as unknown as ChannelWorkflowService;
     const library = new LibraryService(root, 'linux', async () => {});
     const service = new PodcastService(
       () => root,
       library,
-      extraction,
+      channels,
       async () => new Uint8Array(),
       async () => {},
       () => {},
@@ -232,8 +258,45 @@ Summarize every new item.
       () => () => {}
     );
 
+    await assert.rejects(
+      service.run('file:open.md'),
+      /Check the channels before generating/
+    );
+    assert.equal(checks, 0);
     const snapshot = await service.check('file:open.md');
     assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.itemCount, 31);
+    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.items.length, 31);
+    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.items[0]?.pending, true);
+    assert.match(
+      snapshot.podcasts[0]?.sourceStatuses[0]?.items[0]?.excerpt ?? '',
+      /Content for/
+    );
+    assert.equal(checks, 1);
+    assert.equal(captures, 31);
+    await service.checkChannel('https://example.com/feed.xml');
+    assert.equal(checks, 2);
+    assert.equal(captures, 31);
+    const afterRemoval = await service.removeChannel(
+      'https://example.com/feed.xml'
+    );
+    assert.deepEqual(afterRemoval.podcasts[0]?.sources, []);
+    assert.equal(
+      (await library.snapshot()).entries.filter(
+        ({ entryType }) => entryType === 'podcast_source'
+      ).length,
+      31
+    );
+    const added = await service.addChannel('https://example.com/standalone');
+    assert.deepEqual(added.channels[0]?.briefIDs, []);
+    const checked = await service.checkChannel('https://example.com/standalone');
+    assert.equal(checked.channels[0]?.title, 'Standalone');
+    assert.ok(checked.channels[0]?.lastCheckedAt);
+    assert.equal(checks, 3);
+    assert.equal(captures, 31);
+    assert.equal(
+      (await service.removeChannel('https://example.com/standalone')).channels.length,
+      0
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

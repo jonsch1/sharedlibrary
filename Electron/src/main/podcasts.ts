@@ -17,7 +17,7 @@ import type {
   DiscoveredSource,
   DiscoveredSourceItem
 } from './extraction.js';
-import { ExtractionService } from './extraction.js';
+import type { ChannelWorkflowService } from './channel-workflows.js';
 import { LibraryService, parseMarkdown } from './library.js';
 import {
   defaultProcessingCommand,
@@ -119,7 +119,7 @@ export class PodcastService {
   constructor(
     private readonly workspacePath: () => string,
     private readonly library: LibraryService,
-    private readonly extraction: ExtractionService,
+    private readonly channels: ChannelWorkflowService,
     private readonly generateAudio: (text: string) => Promise<Uint8Array>,
     private readonly trash: (path: string) => Promise<void>,
     private readonly onChanged: (snapshot: PodcastSnapshot) => void,
@@ -162,7 +162,7 @@ export class PodcastService {
         ? podcasts.find((podcast) => podcast.id === value.id)
         : undefined;
       if (!existing && podcasts.length >= maximumPodcasts) {
-        throw new Error(`A workspace can contain up to ${maximumPodcasts} podcasts.`);
+        throw new Error(`A workspace can contain up to ${maximumPodcasts} audio briefs.`);
       }
       const filename =
         existing?.filename ??
@@ -173,7 +173,7 @@ export class PodcastService {
       const id = existing?.id ?? `file:${filename}`;
       const path = join(this.workspacePath(), 'podcasts', filename);
       await atomicWrite(path, serializePodcast({ ...draft, id }));
-      this.onSyncRequested('podcast settings');
+      this.onSyncRequested('audio brief settings');
       return this.notify();
     });
   }
@@ -185,7 +185,73 @@ export class PodcastService {
       const state = await this.readState();
       delete state.podcasts[id];
       await this.saveState(state);
-      this.onSyncRequested('deleted podcast settings');
+      this.onSyncRequested('deleted audio brief settings');
+      return this.notify();
+    });
+  }
+
+  addChannel(sourceValue: string): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const source = normalizeChannelSource(sourceValue);
+      const state = await this.readState();
+      state.sources[source] ??= { seen: [], items: [] };
+      await this.saveState(state);
+      this.onSyncRequested('added channel');
+      return this.notify();
+    });
+  }
+
+  checkChannel(sourceValue: string): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const source = normalizeChannelSource(sourceValue);
+      const state = await this.readState();
+      const owner = (await this.readDefinitions()).find((podcast) =>
+        podcast.sources.includes(source)
+      );
+      if (!owner && !state.sources[source]) {
+        throw new Error('The selected channel no longer exists.');
+      }
+      await this.checkSources(
+        { id: owner?.id ?? '', sources: [source] },
+        state,
+        true,
+        Boolean(owner)
+      );
+      await this.saveState(state);
+      return this.notify();
+    });
+  }
+
+  removeChannel(sourceValue: string): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const source = normalizeChannelSource(sourceValue);
+      const podcasts = await this.readDefinitions();
+      const owners = podcasts.filter((podcast) => podcast.sources.includes(source));
+      const state = await this.readState();
+      if (!owners.length && !state.sources[source]) {
+        throw new Error('The selected channel no longer exists.');
+      }
+      await Promise.all(
+        owners.map((podcast) =>
+          atomicWrite(
+            join(this.workspacePath(), 'podcasts', podcast.filename),
+            serializePodcast({
+              ...podcast,
+              sources: podcast.sources.filter((candidate) => candidate !== source)
+            })
+          )
+        )
+      );
+      const channelKeys = new Set(
+        (state.sources[source]?.items ?? []).map((item) => itemKey(source, item.id))
+      );
+      delete state.sources[source];
+      for (const run of Object.values(state.podcasts)) {
+        run.consumed = run.consumed.filter((key) => !channelKeys.has(key));
+      }
+      await this.saveState(state);
+      await this.onLibraryChanged();
+      this.onSyncRequested('deleted channel');
       return this.notify();
     });
   }
@@ -204,7 +270,11 @@ export class PodcastService {
     return this.enqueue(async () => {
       const podcast = await this.requirePodcast(id);
       const state = await this.readState();
-      await this.checkSources(podcast, state, true);
+      if (
+        !podcast.sources.every((source) => state.sources[source]?.lastCheckedAt)
+      ) {
+        throw new Error('Check the channels before generating this audio brief.');
+      }
       await this.generateEpisode(podcast, state);
       await this.saveState(state);
       return this.notify();
@@ -219,7 +289,7 @@ export class PodcastService {
     const script = scriptValue.trim();
     if (!script || script.length > maximumAgentScriptCharacters) {
       throw new Error(
-        `Podcast scripts must contain 1–${maximumAgentScriptCharacters.toLocaleString()} characters.`
+        `Audio brief scripts must contain 1–${maximumAgentScriptCharacters.toLocaleString()} characters.`
       );
     }
     const sources = normalizeAgentEpisodeSources(sourceValues);
@@ -270,7 +340,12 @@ export class PodcastService {
               content: source.content,
               sourceURL: source.url
             }
-          : await this.extraction.extractURL(source.url);
+          : await this.channels.capture({
+              id: sourceIdentity(source.url),
+              title: source.title || source.url,
+              url: source.url,
+              publishedAt: null
+            });
         const { audio: _audio, ...stored } = extracted;
         const captureID = await this.library.captureText(source.url, {
           ...stored,
@@ -335,7 +410,7 @@ export class PodcastService {
         if (!run.lastRunAt) {
           run.lastRunAt = now.toISOString();
           run.status = 'idle';
-          run.message = 'Scheduled. Use Generate now for the first episode.';
+          run.message = 'Scheduled. Generate the first audio brief when ready.';
           state.podcasts[podcast.id] = run;
           changed = true;
           continue;
@@ -359,9 +434,10 @@ export class PodcastService {
   }
 
   private async checkSources(
-    podcast: ParsedPodcast,
+    podcast: Pick<ParsedPodcast, 'id' | 'sources'>,
     state: PodcastState,
-    force: boolean
+    force: boolean,
+    updateRun = true
   ): Promise<boolean> {
     let changed = false;
     for (const source of podcast.sources) {
@@ -376,14 +452,16 @@ export class PodcastService {
       }
       const run = state.podcasts[podcast.id] ?? { consumed: [] };
       state.sources[source] = current;
-      run.status = 'checking';
-      run.message = `Checking ${source}`;
-      state.podcasts[podcast.id] = run;
-      await this.saveState(state);
-      this.onChanged(await this.buildSnapshot(state));
+      if (updateRun) {
+        run.status = 'checking';
+        run.message = `Checking ${source}`;
+        state.podcasts[podcast.id] = run;
+        await this.saveState(state);
+        this.onChanged(await this.buildSnapshot(state));
+      }
       try {
         changed = true;
-        const discovered = await this.extraction.discoverSource(source);
+        const discovered = await this.channels.enumerate(source);
         const seen = new Set(current.seen);
         const unseen = discovered.items.filter((item) => !seen.has(item.id));
         const selected = unseen;
@@ -406,21 +484,32 @@ export class PodcastService {
         current.lastCheckedAt = new Date().toISOString();
       } catch (error) {
         current.error =
-          error instanceof Error ? error.message : 'The source could not be checked.';
+          error instanceof Error ? error.message : 'The channel could not be checked.';
         current.lastCheckedAt = new Date().toISOString();
       }
       state.sources[source] = current;
     }
-    const run = state.podcasts[podcast.id] ?? { consumed: [] };
-    if (run.status === 'checking') {
-      const errors = podcast.sources
-        .map((source) => state.sources[source]?.error)
-        .filter(Boolean);
-      run.status = errors.length ? 'error' : 'idle';
-      run.message = errors.length
-        ? `${errors.length} ${errors.length === 1 ? 'source needs' : 'sources need'} attention.`
-        : 'Sources are up to date.';
-      state.podcasts[podcast.id] = run;
+    if (updateRun) {
+      const run = state.podcasts[podcast.id] ?? { consumed: [] };
+      if (run.status === 'checking') {
+        const errors = podcast.sources
+          .map((source) => state.sources[source]?.error)
+          .filter(Boolean);
+        run.status = errors.length ? 'error' : 'idle';
+        const ready = podcast.sources
+          .flatMap((source) =>
+            (state.sources[source]?.items ?? []).map((item) =>
+              itemKey(source, item.id)
+            )
+          )
+          .filter((key) => !run.consumed.includes(key)).length;
+        run.message = errors.length
+          ? `${errors.length} ${errors.length === 1 ? 'channel needs' : 'channels need'} attention.`
+          : ready
+            ? `${ready} gathered ${ready === 1 ? 'item is' : 'items are'} ready to review.`
+            : 'Channels checked. No new items to review.';
+        state.podcasts[podcast.id] = run;
+      }
     }
     if (changed) {
       await this.onLibraryChanged();
@@ -430,7 +519,7 @@ export class PodcastService {
   }
 
   private async ingestItem(item: DiscoveredSourceItem): Promise<WatchedItem> {
-    const extracted = await this.extraction.extractURL(item.url);
+    const extracted = await this.channels.capture(item);
     const { audio: _audio, ...stored } = extracted;
     const captureID = await this.library.captureText(item.url, {
       ...stored,
@@ -476,7 +565,7 @@ export class PodcastService {
         }.`;
         await this.onLibraryChanged();
         this.onSyncRequested('agent podcast episode audio');
-        this.onOperationMessage('An agent-created podcast episode is ready.', entryID);
+        this.onOperationMessage('An agent-created audio brief is ready.', entryID);
       } catch (error) {
         run.status = 'error';
         run.message = `Episode saved without audio: ${
@@ -512,7 +601,7 @@ export class PodcastService {
     run.lastRunAt = new Date().toISOString();
     if (!pending.length) {
       run.status = 'idle';
-      run.message = 'No new source items; the episode was skipped.';
+      run.message = 'No new channel items; the episode was skipped.';
       state.podcasts[podcast.id] = run;
       return;
     }
@@ -563,7 +652,7 @@ export class PodcastService {
         await this.processingCommand(),
         this.managedAIRunner
       );
-      if (!script) throw new Error('The AI command returned an empty podcast episode.');
+      if (!script) throw new Error('The AI command returned an empty audio brief.');
       const title =
         /^#\s+(.+)$/m.exec(script)?.[1]?.trim() ||
         `${podcast.title} — ${new Date().toLocaleDateString('en-CA')}`;
@@ -605,11 +694,11 @@ export class PodcastService {
       }.`;
       await this.onLibraryChanged();
       this.onSyncRequested('podcast episode audio');
-      this.onOperationMessage('A scheduled podcast episode is ready.', entryID);
+      this.onOperationMessage('A scheduled audio brief is ready.', entryID);
     } catch (error) {
       run.status = 'error';
       run.message =
-        error instanceof Error ? error.message : 'The podcast episode could not be written.';
+        error instanceof Error ? error.message : 'The audio brief could not be written.';
     }
     state.podcasts[podcast.id] = run;
   }
@@ -628,9 +717,33 @@ export class PodcastService {
       )
     );
     const now = new Date();
+    const entries = new Map(library.entries.map((entry) => [entry.id, entry]));
+    const channelSources = [
+      ...new Set([
+        ...Object.keys(state.sources),
+        ...podcasts.flatMap((podcast) => podcast.sources)
+      ])
+    ];
     return {
       generatedAt: now.toISOString(),
       maximumPodcasts,
+      channels: channelSources.map((source) => {
+        const channel = state.sources[source];
+        const owners = podcasts.filter((podcast) =>
+          podcast.sources.includes(source)
+        );
+        return {
+          source,
+          title: channel?.title,
+          kind: channel?.kind,
+          lastCheckedAt: channel?.lastCheckedAt,
+          itemCount: channel?.items.length ?? 0,
+          error: channel?.error,
+          entryIDs: channel?.items.map((item) => item.entryID) ?? [],
+          briefIDs: owners.map((podcast) => podcast.id),
+          briefTitles: owners.map((podcast) => podcast.title)
+        };
+      }),
       podcasts: podcasts.map((podcast) => {
         const run = state.podcasts[podcast.id] ?? { consumed: [] };
         const checks = podcast.sources
@@ -668,7 +781,15 @@ export class PodcastService {
             kind: state.sources[source]?.kind,
             lastCheckedAt: state.sources[source]?.lastCheckedAt,
             itemCount: state.sources[source]?.items.length ?? 0,
-            error: state.sources[source]?.error
+            error: state.sources[source]?.error,
+            items: (state.sources[source]?.items ?? []).map((item) => ({
+              entryID: item.entryID,
+              title: item.title,
+              url: item.url,
+              publishedAt: item.publishedAt,
+              excerpt: entries.get(item.entryID)?.excerpt ?? '',
+              pending: !run.consumed.includes(itemKey(source, item.id))
+            }))
           }))
         };
       })
@@ -685,7 +806,7 @@ export class PodcastService {
     const podcast = (await this.readDefinitions()).find(
       (candidate) => candidate.id === id
     );
-    if (!podcast) throw new Error('The selected podcast no longer exists.');
+    if (!podcast) throw new Error('The selected audio brief no longer exists.');
     if (podcast.error) throw new Error(podcast.error);
     return podcast;
   }
@@ -723,7 +844,7 @@ export class PodcastService {
             length: '',
             sources: [],
             error:
-              error instanceof Error ? error.message : 'This podcast file is invalid.'
+              error instanceof Error ? error.message : 'This audio brief file is invalid.'
           };
         }
       })
@@ -873,7 +994,7 @@ function parseSchedule(value: string):
 function normalizeDraft(value: PodcastDraft): PodcastDraft {
   const title = value.title.trim().replace(/\s+/g, ' ');
   if (!title || title.length > 120) {
-    throw new Error('Podcast titles must contain 1–120 characters.');
+    throw new Error('Audio brief titles must contain 1–120 characters.');
   }
   const schedule = value.schedule.trim() || 'manual';
   parseSchedule(schedule);
@@ -881,11 +1002,18 @@ function normalizeDraft(value: PodcastDraft): PodcastDraft {
   if (length.length > 120) {
     throw new Error('The length instruction must be 120 characters or fewer.');
   }
-  const sources = [...new Set(value.sources.map((source) => source.trim()).filter(Boolean))];
+  const sources = [
+    ...new Set(
+      value.sources
+        .map((source) => source.trim())
+        .filter(Boolean)
+        .map(normalizeChannelSource)
+    )
+  ];
   const prompt = value.prompt.trim();
-  if (!prompt) throw new Error('The podcast prompt cannot be empty.');
+  if (!prompt) throw new Error('The audio brief prompt cannot be empty.');
   if (prompt.length > 50_000) {
-    throw new Error('The podcast prompt must be 50,000 characters or fewer.');
+    throw new Error('The audio brief prompt must be 50,000 characters or fewer.');
   }
   const presentPlaceholders = podcastPromptPlaceholders.filter((placeholder) =>
     prompt.includes(placeholder)
@@ -894,17 +1022,10 @@ function normalizeDraft(value: PodcastDraft): PodcastDraft {
     (placeholder) => !prompt.includes(placeholder)
   );
   if (presentPlaceholders.length && missingPlaceholder) {
-    throw new Error(`The podcast prompt must include ${missingPlaceholder}.`);
+    throw new Error(`The audio brief prompt must include ${missingPlaceholder}.`);
   }
-  if (!sources.length) throw new Error('Add at least one podcast source.');
   if (sources.length > maximumSourcesPerPodcast) {
-    throw new Error(`A podcast can watch up to ${maximumSourcesPerPodcast} sources.`);
-  }
-  for (const source of sources) {
-    if (source.length > 2_048) throw new Error('Podcast source URLs are too long.');
-    if (!/^https?:\/\//iu.test(source) && !/^arxiv:\S/iu.test(source)) {
-      throw new Error(`Invalid podcast source: ${source}`);
-    }
+    throw new Error(`An audio brief can watch up to ${maximumSourcesPerPodcast} channels.`);
   }
   return {
     id: value.id,
@@ -914,6 +1035,16 @@ function normalizeDraft(value: PodcastDraft): PodcastDraft {
     length,
     sources
   };
+}
+
+function normalizeChannelSource(value: string): string {
+  const source = value.trim();
+  if (!source) throw new Error('Enter a channel URL.');
+  if (source.length > 2_048) throw new Error('Channel URLs are too long.');
+  if (!/^https?:\/\//iu.test(source) && !/^arxiv:\S/iu.test(source)) {
+    throw new Error(`Invalid channel: ${source}`);
+  }
+  return source;
 }
 
 function serializePodcast(value: PodcastDraft & { id: string }): string {
@@ -954,7 +1085,7 @@ export function renderPodcastPrompt(
   const missing = podcastPromptPlaceholders.find(
     (placeholder) => !selectedTemplate.includes(placeholder)
   );
-  if (missing) throw new Error(`The podcast prompt must include ${missing}.`);
+  if (missing) throw new Error(`The audio brief prompt must include ${missing}.`);
   const rendered = selectedTemplate
     .trim()
     .replaceAll('{{podcast_title}}', JSON.stringify(podcast.title))
@@ -969,7 +1100,7 @@ export function renderPodcastPrompt(
       packets.map((packet) => `\n<source>\n${packet}\n</source>`).join('\n')
     );
   return specific && !usesSpecificTemplate
-    ? `Podcast-specific instructions:\n${specific}\n\n${rendered}`
+    ? `Audio-brief-specific instructions:\n${specific}\n\n${rendered}`
     : rendered;
 }
 
@@ -1096,16 +1227,16 @@ async function atomicWrite(path: string, text: string): Promise<void> {
   await rename(temporary, path);
 }
 
-const podcastReadme = `# Scheduled podcasts
+const podcastReadme = `# Audio briefs
 
-Each other Markdown file in this folder defines one podcast. Briefly and your
+Each other Markdown file in this folder defines one audio brief. Briefly and your
 agents can edit the files directly. Add or remove lines under \`sources:\` to
-change what a podcast watches. The Markdown body is the podcast-specific prompt.
+change which channels it watches. The Markdown body contains its editorial
+instructions.
 
-Recommended: use Codex or another coding agent to set up the podcast. Keep the
-schedule \`manual\` when the agent owns the cadence. Briefly extracts feeds and
-public pages; the agent can discover exact post links through your signed-in
-browser on sites such as Reddit and X.
+Keep the schedule \`manual\` when an agent owns the cadence. Briefly gathers
+channels headlessly and uses the visible browser only to establish a signed-in
+session when needed.
 
 \`\`\`markdown
 ---

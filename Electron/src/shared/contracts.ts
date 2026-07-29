@@ -59,6 +59,14 @@ export interface PodcastDefinition {
     lastCheckedAt?: string;
     itemCount: number;
     error?: string;
+    items: Array<{
+      entryID: string;
+      title: string;
+      url: string;
+      publishedAt: string | null;
+      excerpt: string;
+      pending: boolean;
+    }>;
   }>;
 }
 
@@ -71,11 +79,23 @@ export interface PodcastDraft {
   sources: string[];
 }
 
-export const defaultPodcastPrompt = `Write one private podcast episode in natural spoken Markdown.
+export interface ChannelDefinition {
+  source: string;
+  title?: string;
+  kind?: 'feed' | 'podcast' | 'page';
+  lastCheckedAt?: string;
+  itemCount: number;
+  error?: string;
+  entryIDs: string[];
+  briefIDs: string[];
+  briefTitles: string[];
+}
+
+export const defaultPodcastPrompt = `Write one private audio brief in natural spoken Markdown.
 
 Return Markdown only. Start with one # title. Do not add a Sources section; Briefly adds it.
 
-Podcast: {{podcast_title}}
+Audio brief: {{podcast_title}}
 Requested length: {{requested_length}}
 
 Requirements:
@@ -92,6 +112,7 @@ Source packets:
 export interface PodcastSnapshot {
   generatedAt: string;
   podcasts: PodcastDefinition[];
+  channels: ChannelDefinition[];
   maximumPodcasts: number;
 }
 
@@ -250,6 +271,10 @@ export interface SharedLibraryDesktopAPI {
   checkPodcast(id: string): Promise<PodcastSnapshot>;
   runPodcast(id: string): Promise<PodcastSnapshot>;
   revealPodcast(id: string): Promise<void>;
+  addChannel(source: string): Promise<PodcastSnapshot>;
+  checkChannel(source: string): Promise<PodcastSnapshot>;
+  removeChannel(source: string): Promise<PodcastSnapshot>;
+  loginChannel(url: string): Promise<void>;
   getShareLink(entryID: string): Promise<ShareLinkStatus>;
   publishShareLink(entryID: string): Promise<ShareLinkStatus>;
   revokeShareLink(token: string): Promise<void>;

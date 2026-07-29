@@ -1,32 +1,35 @@
 <script lang="ts">
   import {
+    CalendarDays,
     Check,
     FileText,
-    Headphones,
     LoaderCircle,
-    Plus,
+    Radio,
     Sparkles,
+    Timer,
     Trash2
   } from '@lucide/svelte';
   import {
-    defaultPodcastPrompt,
     type PodcastDefinition,
     type PodcastDraft,
     type PodcastSnapshot
   } from '../shared/contracts';
 
   let {
-    onshowepisodes,
+    podcastid,
+    creating = false,
+    onselected,
     onmessage
   }: {
-    onshowepisodes: (podcastID: string) => void;
+    podcastid: string;
+    creating?: boolean;
+    onselected: (podcastID: string) => void;
     onmessage: (message: string) => void;
   } = $props();
 
   let snapshot = $state<PodcastSnapshot | null>(null);
   let selectedID = $state('');
   let draft = $state<PodcastDraft>(emptyDraft());
-  let sourcesText = $state('');
   let busy = $state(false);
   let dirty = $state(false);
   let revision = $state(0);
@@ -35,14 +38,27 @@
   let selected = $derived(
     snapshot?.podcasts.find((podcast) => podcast.id === selectedID) ?? null
   );
+  let channels = $derived(snapshot?.channels ?? []);
   let saveStatus = $derived(
     dirty ? (busy ? 'Saving…' : 'Unsaved changes') : 'Saved'
+  );
+  let gatheredItems = $derived(
+    selected?.sourceStatuses.flatMap((status) =>
+      status.items
+        .filter((item) => item.pending)
+        .map((item) => ({
+          ...item,
+          channel: status.title ?? status.source
+        }))
+    ) ?? []
   );
 
   void initialize();
 
   async function initialize(): Promise<void> {
     try {
+      selectedID = podcastid;
+      dirty = creating;
       applySnapshot(await window.sharedLibrary.getPodcasts());
       const remove = window.sharedLibrary.onPodcastsChanged((next) => {
         applySnapshot(next, !dirty);
@@ -56,22 +72,14 @@
         { once: true }
       );
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'Podcasts could not be loaded.');
+      onmessage(error instanceof Error ? error.message : 'Audio briefs could not be loaded.');
     }
   }
 
   function applySnapshot(next: PodcastSnapshot, refreshDraft = true): void {
     snapshot = next;
-    if (
-      selectedID &&
-      !next.podcasts.some((podcast) => podcast.id === selectedID)
-    ) {
-      selectedID = next.podcasts[0]?.id ?? '';
-    }
-    if (!selectedID && next.podcasts.length) selectedID = next.podcasts[0].id;
     const podcast = next.podcasts.find((candidate) => candidate.id === selectedID);
     if (refreshDraft && podcast) loadDraft(podcast);
-    if (!next.podcasts.length && !dirty) void createPodcast();
   }
 
   function loadDraft(podcast: PodcastDefinition): void {
@@ -83,26 +91,7 @@
       length: podcast.length,
       sources: [...podcast.sources]
     };
-    sourcesText = podcast.sources.join('\n');
     dirty = false;
-  }
-
-  async function selectPodcast(podcast: PodcastDefinition): Promise<void> {
-    if (dirty && selectedID) await save();
-    if (dirty && selectedID) return;
-    selectedID = podcast.id;
-    loadDraft(podcast);
-  }
-
-  async function createPodcast(): Promise<void> {
-    if (dirty && selectedID) await save();
-    if (dirty && selectedID) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    selectedID = '';
-    draft = emptyDraft();
-    sourcesText = '';
-    dirty = true;
-    revision += 1;
   }
 
   function markDirty(): void {
@@ -121,11 +110,7 @@
     if (saveTimer) clearTimeout(saveTimer);
     const title = draft.title.trim();
     const prompt = draft.prompt.trim();
-    const sources = sourcesText
-      .split(/\r?\n/)
-      .map((source) => source.trim().replace(/^[-*]\s+/, ''))
-      .filter(Boolean);
-    if (!title || !prompt || !sources.length) return;
+    if (!title || !prompt) return;
 
     const savingRevision = revision;
     const knownIDs = new Set(snapshot?.podcasts.map((podcast) => podcast.id) ?? []);
@@ -135,7 +120,7 @@
         ...draft,
         title,
         prompt,
-        sources
+        sources: [...draft.sources]
       });
       snapshot = next;
       const saved =
@@ -144,10 +129,11 @@
         next.podcasts.find((podcast) => podcast.title === title);
       if (saved) {
         selectedID = saved.id;
+        onselected(saved.id);
         if (revision === savingRevision) loadDraft(saved);
       }
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The podcast could not be saved.');
+      onmessage(error instanceof Error ? error.message : 'The audio brief could not be saved.');
     } finally {
       busy = false;
       if (dirty && revision !== savingRevision) scheduleSave();
@@ -162,21 +148,28 @@
       applySnapshot(await window.sharedLibrary.runPodcast(selected.id));
       onmessage(
         snapshot?.podcasts.find((podcast) => podcast.id === selected.id)?.message ??
-          'Podcast run finished.'
+          'Audio brief generation finished.'
       );
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The podcast could not be generated.');
+      onmessage(error instanceof Error ? error.message : 'The audio brief could not be generated.');
     } finally {
       busy = false;
     }
   }
 
-  async function openAgent(): Promise<void> {
+  function toggleChannel(source: string): void {
+    draft.sources = draft.sources.includes(source)
+      ? draft.sources.filter((candidate) => candidate !== source)
+      : [...draft.sources, source];
+    markDirty();
+  }
+
+  function channelSubtitle(source: string): string {
     try {
-      await window.sharedLibrary.openAgent();
-      onmessage('Opened a coding agent in this workspace.');
-    } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The coding agent could not be opened.');
+      const url = new URL(source);
+      return `${url.hostname.replace(/^www\./u, '')}${url.pathname === '/' ? '' : url.pathname}`;
+    } catch {
+      return source;
     }
   }
 
@@ -185,9 +178,10 @@
     busy = true;
     try {
       applySnapshot(await window.sharedLibrary.removePodcast(selected.id));
-      onmessage('Podcast definition moved to Trash.');
+      onselected('');
+      onmessage('Audio brief moved to Trash.');
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The podcast could not be removed.');
+      onmessage(error instanceof Error ? error.message : 'The audio brief could not be removed.');
     } finally {
       busy = false;
     }
@@ -195,8 +189,8 @@
 
   function emptyDraft(): PodcastDraft {
     return {
-      title: 'New podcast',
-      prompt: defaultPodcastPrompt,
+      title: 'New audio brief',
+      prompt: 'Connect the most important updates into one concise, conversational briefing.',
       schedule: 'manual',
       length: '',
       sources: []
@@ -206,22 +200,6 @@
 
 <div class="podcast-document-workspace bg-background! bg-none! text-foreground! font-sans!">
   <header class="podcast-document-toolbar border-border!">
-    <div class="topic-strip podcast-document-switcher" aria-label="Podcasts">
-      {#each snapshot?.podcasts ?? [] as podcast (podcast.id)}
-        <button
-          class="topic-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-          class:active={selectedID === podcast.id}
-          onclick={() => void selectPodcast(podcast)}
-        >{podcast.title}</button>
-      {/each}
-      <button
-        class="topic-chip podcast-new-chip border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80! [&.active]:border-primary! [&.active]:bg-primary! [&.active]:text-primary-foreground!"
-        class:active={!selectedID}
-        disabled={Boolean(snapshot && snapshot.podcasts.length >= snapshot.maximumPodcasts)}
-        onclick={() => void createPodcast()}
-      ><Plus /> New podcast</button>
-    </div>
-
     <div class="podcast-document-actions">
       <span class="podcast-save-status text-muted-foreground!">
         {#if !dirty}<Check />{/if}{saveStatus}
@@ -229,68 +207,110 @@
       {#if selected}
         <button
           class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
-          onclick={() => onshowepisodes(selected!.id)}
-        ><Headphones /> Show episodes</button>
-        <button
-          class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
           onclick={() => window.sharedLibrary.revealPodcast(selected!.id)}
         ><FileText /> File</button>
       {/if}
       <button
         class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
-        disabled={busy || !selected}
+        disabled={busy || !selected || !gatheredItems.length}
         onclick={generateNow}
       >
         {#if busy}<LoaderCircle class="spin" />{:else}<Sparkles />{/if}
-        Generate now
+        Generate audio brief
       </button>
     </div>
   </header>
 
   <div class="podcast-document-scroll">
-    <aside class="podcast-agent-callout border-border! bg-muted!">
-      <div>
-        <strong>Recommended: set up with a coding agent</strong>
-        <p class="text-muted-foreground!">
-          Briefly extracts feeds and public pages. Codex can also discover updates
-          through your signed-in browser on Reddit, X, and other social sites.
-        </p>
-      </div>
-      <button
-        class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
-        onclick={openAgent}
-      ><Sparkles /> Open coding agent</button>
-    </aside>
     <section class="podcast-document">
       <input
         class="podcast-document-title text-foreground! placeholder:text-muted-foreground!"
-        aria-label="Podcast title"
+        aria-label="Audio brief title"
         bind:value={draft.title}
         oninput={markDirty}
-        placeholder="Podcast title"
+        placeholder="Audio brief title"
       />
-      <textarea
-        class="podcast-prompt text-foreground! placeholder:text-muted-foreground!"
-        aria-label="Podcast prompt"
-        bind:value={draft.prompt}
-        oninput={markDirty}
-        placeholder="Describe the podcast you want Briefly to make."
-      ></textarea>
-
-      <label class="podcast-sources-field">
-        <span>Sources</span>
+      <section class="brief-editor-section" aria-labelledby="brief-direction-title">
+        <header>
+          <h2 id="brief-direction-title">Editorial direction</h2>
+          <p class="text-muted-foreground!">
+            Tell Briefly what to prioritize, connect, or leave out.
+          </p>
+        </header>
         <textarea
-          class="podcast-sources border-input! bg-background! bg-none! text-foreground! placeholder:text-muted-foreground! rounded-lg! border font-mono! focus:border-ring focus:ring-2 focus:ring-ring/20"
-          aria-label="Podcast sources"
-          bind:value={sourcesText}
+          class="podcast-prompt border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+          aria-label="Audio brief instructions"
+          bind:value={draft.prompt}
           oninput={markDirty}
-          placeholder={"https://example.com/feed.xml\nhttps://youtube.com/@channel\narxiv:AI agents"}
-          spellcheck="false"
+          placeholder="Describe the audio brief you want Briefly to make."
         ></textarea>
-        <small class="text-muted-foreground!">
-          One source per line. Keep agent-managed podcasts on Manual.
-        </small>
-      </label>
+      </section>
+
+      <section class="brief-editor-section" aria-labelledby="brief-channels-title">
+        <header class="brief-section-heading">
+          <div>
+            <h2 id="brief-channels-title">Channels</h2>
+            <p class="text-muted-foreground!">
+              Choose from your configured Channel library.
+            </p>
+          </div>
+          <span class="brief-selection-count text-muted-foreground!">
+            {draft.sources.length} selected
+          </span>
+        </header>
+
+        {#if channels.length}
+          <div class="brief-channel-grid">
+            {#each channels as channel (channel.source)}
+              <button
+                type="button"
+                class="brief-channel-option border-border! bg-card! text-card-foreground! hover:bg-accent! hover:text-accent-foreground!"
+                class:selected={draft.sources.includes(channel.source)}
+                aria-pressed={draft.sources.includes(channel.source)}
+                onclick={() => toggleChannel(channel.source)}
+              >
+                <span class="brief-channel-icon"><Radio /></span>
+                <span class="brief-channel-copy">
+                  <strong>{channel.title ?? channelSubtitle(channel.source)}</strong>
+                  <small class="text-muted-foreground!">{channelSubtitle(channel.source)}</small>
+                  <small class="text-muted-foreground!">
+                    {channel.itemCount} {channel.itemCount === 1 ? 'item' : 'items'}
+                  </small>
+                </span>
+                <span class="brief-channel-check" aria-hidden="true">
+                  {#if draft.sources.includes(channel.source)}<Check />{/if}
+                </span>
+              </button>
+            {/each}
+          </div>
+        {:else}
+          <div class="brief-channel-empty border-border! bg-muted! text-muted-foreground!">
+            <Radio />
+            <span>Add channels in the Channel tab, then choose them here.</span>
+          </div>
+        {/if}
+      </section>
+
+      <section class="brief-compact-settings" aria-label="Audio brief timing">
+        <label>
+          <span><CalendarDays /> Schedule</span>
+          <input
+            class="border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+            bind:value={draft.schedule}
+            oninput={markDirty}
+            placeholder="manual"
+          />
+        </label>
+        <label>
+          <span><Timer /> Length</span>
+          <input
+            class="border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+            bind:value={draft.length}
+            oninput={markDirty}
+            placeholder="Natural length"
+          />
+        </label>
+      </section>
 
       {#if selected}
         <footer class="podcast-document-footer border-border!">
@@ -298,7 +318,7 @@
             class="podcast-delete text-destructive!"
             onclick={remove}
             disabled={busy}
-          ><Trash2 /> Delete podcast</button>
+          ><Trash2 /> Delete audio brief</button>
         </footer>
       {/if}
     </section>

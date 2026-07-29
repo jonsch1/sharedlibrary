@@ -12,7 +12,17 @@ export async function discoverSource(rawSource, context = {}) {
     maximumBytes: 20_000_000
   });
   const direct = parseFeed(fetched.text, fetched.finalURL);
-  if (direct) return { ...direct, source: rawSource, sourceURL: fetched.finalURL };
+  if (direct) {
+    return {
+      ...applyChannelPolicy(direct, fetched.finalURL),
+      source: rawSource,
+      sourceURL: fetched.finalURL
+    };
+  }
+  const hackerNews = parseHackerNews(fetched.text, fetched.finalURL);
+  if (hackerNews) {
+    return { ...hackerNews, source: rawSource, sourceURL: fetched.finalURL };
+  }
 
   const candidates = await feedCandidates(fetched.text, fetched.finalURL, context);
   for (const candidate of candidates) {
@@ -24,7 +34,7 @@ export async function discoverSource(rawSource, context = {}) {
       const feed = parseFeed(response.text, response.finalURL);
       if (feed) {
         return {
-          ...feed,
+          ...applyChannelPolicy(feed, fetched.finalURL),
           source: rawSource,
           sourceURL: fetched.finalURL,
           feedURL: response.finalURL
@@ -54,6 +64,48 @@ export async function discoverSource(rawSource, context = {}) {
       }
     ]
   };
+}
+
+export function applyChannelPolicy(discovered, rawChannelURL) {
+  const url = new URL(rawChannelURL);
+  const latestOnly =
+    discovered.kind === "podcast" ||
+    url.hostname === "podcasts.apple.com" ||
+    url.hostname.endsWith("youtube.com");
+  if (!latestOnly || discovered.items.length < 2) return discovered;
+  const latest = discovered.items
+    .map((item, index) => ({ item, index, time: Date.parse(item.publishedAt ?? "") }))
+    .sort((left, right) =>
+      Number.isFinite(left.time) && Number.isFinite(right.time)
+        ? right.time - left.time
+        : left.index - right.index
+    )[0].item;
+  return { ...discovered, items: [latest] };
+}
+
+export function parseHackerNews(html, rawURL) {
+  const url = new URL(rawURL);
+  if (url.hostname !== "news.ycombinator.com" || url.pathname !== "/front") {
+    return null;
+  }
+  const document = parseHTML(html).document;
+  const items = [...document.querySelectorAll("tr.athing")]
+    .flatMap((row) => {
+      const link = row.querySelector(".titleline > a");
+      const itemURL = absoluteHTTPURL(link?.getAttribute("href"), rawURL);
+      return itemURL
+        ? [{
+            id: row.getAttribute("id") || itemURL,
+            title: link.textContent?.trim() || itemURL,
+            url: itemURL,
+            publishedAt: null
+          }]
+        : [];
+    })
+    .slice(0, 5);
+  return items.length
+    ? { title: "Hacker News front page", kind: "feed", items }
+    : null;
 }
 
 export function normalizeSource(value) {
