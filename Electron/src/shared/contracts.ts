@@ -43,6 +43,7 @@ export interface PodcastDefinition {
   filename: string;
   title: string;
   prompt: string;
+  prioritizeForMe: boolean;
   schedule: string;
   length: string;
   sources: string[];
@@ -74,6 +75,7 @@ export interface PodcastDraft {
   id?: string;
   title: string;
   prompt: string;
+  prioritizeForMe: boolean;
   schedule: string;
   length: string;
   sources: string[];
@@ -253,6 +255,8 @@ export interface SharedLibraryDesktopAPI {
   setCaptureShortcut(accelerator: string): Promise<DesktopShortcutPreferences>;
   getAudioPreferences(): Promise<DesktopAudioPreferences>;
   setSaveCapturedAudio(enabled: boolean): Promise<DesktopAudioPreferences>;
+  getAboutYou(): Promise<string>;
+  setAboutYou(value: string): Promise<string>;
   getIngestionStatus(): Promise<DesktopIngestionStatus>;
   getProcessingPreferences(): Promise<ProcessingPreferences>;
   updateProcessingPreferences(

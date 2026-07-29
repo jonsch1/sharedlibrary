@@ -25,6 +25,7 @@ test('audio briefs are editable Markdown files with a plain channel list', () =>
     `---
 name: "AI Daily"
 schedule: "weekly mon 07:30"
+prioritize_for_me: true
 sources:
   - "https://example.com/feed.xml"
   - "arxiv:agent alignment"
@@ -38,6 +39,7 @@ Connect the updates into one practical story.
   assert.equal(podcast.title, 'AI Daily');
   assert.equal(podcast.length, '');
   assert.equal(podcast.prompt, 'Connect the updates into one practical story.');
+  assert.equal(podcast.prioritizeForMe, true);
   assert.deepEqual(podcast.sources, [
     'https://example.com/feed.xml',
     'arxiv:agent alignment'
@@ -82,10 +84,14 @@ test('renders the editable audio brief prompt', () => {
     {
       title: 'AI Daily',
       length: '12 minutes',
-      prompt: 'Focus on practical consequences.'
+      prompt: 'Focus on practical consequences.',
+      prioritizeForMe: true
     },
-    ['SOURCE_ID: 1\nCONTENT:\nNews']
+    ['SOURCE_ID: 1\nCONTENT:\nNews'],
+    'I build developer tools and care about practical adoption.'
   );
+  assert.match(prompt, /Personal context for relevance/);
+  assert.match(prompt, /I build developer tools/);
   assert.match(prompt, /Audio brief: "AI Daily"/);
   assert.match(prompt, /Audio-brief-specific instructions:\nFocus on practical consequences\./);
   assert.match(prompt, /Requested length: "12 minutes"/);

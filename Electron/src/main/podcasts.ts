@@ -95,6 +95,7 @@ interface ParsedPodcast {
   filename: string;
   title: string;
   prompt: string;
+  prioritizeForMe: boolean;
   schedule: string;
   timezone: string;
   length: string;
@@ -135,7 +136,8 @@ export class PodcastService {
       defaultPodcastPrompt,
     private readonly processingCommand: () => Promise<string> = async () =>
       defaultProcessingCommand,
-    private readonly managedAIRunner?: ManagedAIRunner
+    private readonly managedAIRunner?: ManagedAIRunner,
+    private readonly personalContext?: () => Promise<string>
   ) {}
 
   start(): void {
@@ -718,7 +720,12 @@ export class PodcastService {
       }
       if (!selected.length) throw new Error('The new source items are unavailable.');
       const script = await runAIText(
-        renderPodcastPrompt(await this.promptTemplate(), podcast, packets),
+        renderPodcastPrompt(
+          await this.promptTemplate(),
+          podcast,
+          packets,
+          podcast.prioritizeForMe ? (await this.personalContext?.()) ?? '' : ''
+        ),
         await this.processingCommand(),
         this.managedAIRunner
       );
@@ -828,6 +835,7 @@ export class PodcastService {
           filename: podcast.filename,
           title: podcast.title,
           prompt: podcast.prompt,
+          prioritizeForMe: podcast.prioritizeForMe,
           schedule: podcast.schedule,
           length: podcast.length,
           sources: podcast.sources,
@@ -912,6 +920,7 @@ export class PodcastService {
             filename,
             title: basename(filename, '.md').replaceAll('-', ' '),
             prompt: defaultPodcastPrompt,
+            prioritizeForMe: false,
             schedule: 'manual',
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             length: '',
@@ -977,6 +986,8 @@ export function parsePodcast(text: string, filename = 'podcast.md'): ParsedPodca
       id,
       title,
       prompt: parsed.body.trim() || defaultPodcastPrompt,
+      prioritizeForMe:
+        stringValue(metadata.prioritize_for_me).toLowerCase() === 'true',
       schedule: stringValue(metadata.schedule) || 'manual',
       length: stringValue(metadata.length),
       sources: arrayValue(metadata.sources)
@@ -1104,6 +1115,7 @@ function normalizeDraft(value: PodcastDraft): PodcastDraft {
     id: value.id,
     title,
     prompt,
+    prioritizeForMe: value.prioritizeForMe === true,
     schedule,
     length,
     sources
@@ -1139,6 +1151,7 @@ function serializePodcast(value: PodcastDraft & { id: string }): string {
     ...(value.id.startsWith('file:') ? [] : [`id: ${JSON.stringify(value.id)}`]),
     `name: ${JSON.stringify(value.title)}`,
     `schedule: ${JSON.stringify(value.schedule)}`,
+    ...(value.prioritizeForMe ? ['prioritize_for_me: true'] : []),
     'sources:',
     ...value.sources.map((source) => `  - ${JSON.stringify(source)}`),
     ...(value.length ? [`length: ${JSON.stringify(value.length)}`] : []),
@@ -1160,8 +1173,14 @@ function availablePodcastFilename(base: string, used: Set<string>): string {
 
 export function renderPodcastPrompt(
   template: string,
-  podcast: { title: string; length: string; prompt?: string },
-  packets: string[]
+  podcast: {
+    title: string;
+    length: string;
+    prompt?: string;
+    prioritizeForMe?: boolean;
+  },
+  packets: string[],
+  personalContext = ''
 ): string {
   const specific = podcast.prompt?.trim() ?? '';
   const usesSpecificTemplate = podcastPromptPlaceholders.some((placeholder) =>
@@ -1185,9 +1204,20 @@ export function renderPodcastPrompt(
       '{{source_packets}}',
       packets.map((packet) => `\n<source>\n${packet}\n</source>`).join('\n')
     );
-  return specific && !usesSpecificTemplate
+  const prompt = specific && !usesSpecificTemplate
     ? `Audio-brief-specific instructions:\n${specific}\n\n${rendered}`
     : rendered;
+  const context = personalContext.trim();
+  return podcast.prioritizeForMe && context
+    ? `Personal context for relevance:
+<personal_context>
+${context}
+</personal_context>
+
+Use this context only to prioritize and emphasize source updates that fit the person. You may omit lower-value updates, but still include materially important or urgent developments. Never use the personal context as a factual source.
+
+${prompt}`
+    : prompt;
 }
 
 function normalizeAgentEpisodeSources(values: AgentEpisodeSource[]): AgentEpisodeSource[] {
@@ -1328,6 +1358,7 @@ session when needed.
 ---
 name: "AI Daily"
 schedule: "daily 07:30"
+prioritize_for_me: true
 sources:
   - "https://example.com/feed.xml"
   - "https://www.youtube.com/@example"
@@ -1343,4 +1374,5 @@ matter instead of reading the source summaries one after another.
 Schedules can be \`manual\`, \`hourly :MM\`, \`daily HH:MM\`, or
 \`weekly MON HH:MM\`. Times use the device timezone automatically. The
 \`length\` line is optional and is a free-form instruction, not a limit.
+\`prioritize_for_me: true\` uses the personal context saved in Briefly settings.
 `;

@@ -114,6 +114,8 @@
   });
   let shortcutPreferences = $state<DesktopShortcutPreferences | null>(null);
   let audioPreferences = $state<DesktopAudioPreferences | null>(null);
+  let aboutYou = $state('');
+  let aboutYouDraft = $state('');
   let shortcutRecording = $state(false);
   let shortcutSaving = $state(false);
   let audioPreferenceSaving = $state(false);
@@ -289,6 +291,8 @@
       );
       shortcutPreferences = await window.sharedLibrary.getShortcutPreferences();
       audioPreferences = await window.sharedLibrary.getAudioPreferences();
+      aboutYou = await window.sharedLibrary.getAboutYou();
+      aboutYouDraft = aboutYou;
       ingestion = await window.sharedLibrary.getIngestionStatus();
       const savedTopic = window.localStorage.getItem('shared-library-selected-topic');
       if (savedTopic && snapshot?.topics.includes(savedTopic)) selectedTopic = savedTopic;
@@ -659,6 +663,14 @@
     } finally {
       audioPreferenceSaving = false;
     }
+  }
+
+  async function saveAboutYou(): Promise<void> {
+    await run(async () => {
+      aboutYou = await window.sharedLibrary.setAboutYou(aboutYouDraft);
+      aboutYouDraft = aboutYou;
+      message = 'Personal context saved.';
+    });
   }
 
   function applyProcessingPreferences(next: ProcessingPreferences): void {
@@ -1567,6 +1579,34 @@
               {/each}
             </select>
           </label>
+        </div>
+      </section>
+
+      <section class="settings-card border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!">
+        <div class="settings-card-heading">
+          <div class="provider-mark bg-muted! bg-none! text-foreground! rounded-lg!"><Sparkles /></div>
+          <div>
+            <h3>About you</h3>
+            <p>Describe your work, current goals, interests, and what usually matters less.</p>
+          </div>
+        </div>
+        <textarea
+          class="about-you-field border-input! bg-background! bg-none! text-foreground! placeholder:text-muted-foreground! rounded-lg! border shadow-sm! focus:border-ring focus:ring-2 focus:ring-ring/20"
+          aria-label="About you"
+          bind:value={aboutYouDraft}
+          maxlength="10000"
+          placeholder="For example: I lead a small product team, I’m currently improving onboarding, and I care most about practical AI tools and customer research."
+        ></textarea>
+        <div class="panel-actions about-you-actions">
+          <button
+            class="primary-button border-primary! bg-primary! bg-none! text-primary-foreground! rounded-lg! border shadow-sm! hover:bg-primary/80!"
+            type="button"
+            disabled={busy || aboutYouDraft === aboutYou}
+            onclick={saveAboutYou}
+          >
+            {#if busy}<LoaderCircle class="spin" />{:else}<Check />{/if}
+            Save
+          </button>
         </div>
       </section>
 

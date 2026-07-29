@@ -102,6 +102,7 @@
       id: podcast.id,
       title: podcast.title,
       prompt: podcast.prompt,
+      prioritizeForMe: podcast.prioritizeForMe,
       schedule: podcast.schedule,
       length: '',
       sources: [...podcast.sources]
@@ -215,6 +216,7 @@
     return {
       title: 'New audio brief',
       prompt: 'Connect the most important updates into one concise, conversational briefing.',
+      prioritizeForMe: false,
       schedule: 'manual',
       length: '',
       sources: []
@@ -268,6 +270,32 @@
           oninput={markDirty}
           placeholder="Describe the audio brief you want Briefly to make."
         ></textarea>
+      </section>
+
+      <section class="brief-editor-section" aria-labelledby="brief-personalization-title">
+        <header>
+          <h2 id="brief-personalization-title">Personalization</h2>
+          <p class="text-muted-foreground!">
+            Use your personal context to decide which updates deserve the most attention.
+          </p>
+        </header>
+        <label class="brief-personalization border-border! bg-muted/40! rounded-lg! border">
+          <input
+            type="checkbox"
+            checked={draft.prioritizeForMe}
+            onchange={(event) => {
+              draft.prioritizeForMe =
+                (event.currentTarget as HTMLInputElement).checked;
+              markDirty();
+            }}
+          />
+          <span>
+            <strong>Prioritize for me</strong>
+            <small class="text-muted-foreground!">
+              Uses “About you” from Settings while retaining materially important updates.
+            </small>
+          </span>
+        </label>
       </section>
 
       <section class="brief-editor-section" aria-labelledby="brief-channels-title">

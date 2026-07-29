@@ -5,6 +5,7 @@ export interface DesktopSettings {
   workspacePath?: string;
   captureShortcut?: string;
   saveCapturedAudio?: boolean;
+  aboutYou?: string;
   processingPrompt?: string;
   podcastPrompt?: string;
   processingCommand?: string;

@@ -80,6 +80,7 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
             filename: 'daily-ai.md',
             title: 'Daily AI',
             prompt: 'Focus on practical changes.',
+            prioritizeForMe: false,
             schedule: 'manual',
             length: '',
             sources: ['https://x.com/openai'],

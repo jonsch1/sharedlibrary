@@ -617,6 +617,19 @@ function registerIPC(): void {
     await settings.update({ saveCapturedAudio: value });
     return audioPreferences();
   });
+  handle('personalization:get-about-you', async () => {
+    const value = (await settings.load()).aboutYou;
+    return typeof value === 'string' ? value : '';
+  });
+  handle('personalization:set-about-you', async (_event, value: unknown) => {
+    if (typeof value !== 'string') throw new Error('Personal context is invalid.');
+    const aboutYou = value.trim();
+    if (aboutYou.length > 10_000) {
+      throw new Error('Personal context must be 10,000 characters or fewer.');
+    }
+    await settings.update({ aboutYou });
+    return aboutYou;
+  });
   handle('ingestion:get-status', () => ingestionStatus());
   handle('processing:get-preferences', () => processingPreferences());
   handle(
@@ -1111,7 +1124,11 @@ app.whenReady().then(async () => {
     async () => (await settings.load()).podcastPrompt ?? defaultPodcastPrompt,
     async () =>
       (await settings.load()).processingCommand ?? defaultProcessingCommand,
-    (prompt, format) => backend.runManagedAI(prompt, format)
+    (prompt, format) => backend.runManagedAI(prompt, format),
+    async () => {
+      const value = (await settings.load()).aboutYou;
+      return typeof value === 'string' ? value : '';
+    }
   );
   sync = new SyncCoordinator(
     backend,

@@ -2116,6 +2116,31 @@ button:disabled {
   font-size: 21px;
 }
 
+.brief-personalization {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+}
+
+.brief-personalization input {
+  margin-top: 2px;
+}
+
+.brief-personalization span {
+  display: grid;
+  gap: 3px;
+}
+
+.brief-personalization strong {
+  font-size: 12px;
+}
+
+.brief-personalization small {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .brief-editor-section header p {
   margin-top: 4px;
   font-size: 12px;
@@ -2375,6 +2400,21 @@ button:disabled {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.about-you-field {
+  width: 100%;
+  min-height: 112px;
+  padding: 11px;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.about-you-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .connection-status {

@@ -41,6 +41,9 @@ const api: SharedLibraryDesktopAPI = {
   getAudioPreferences: () => ipcRenderer.invoke('audio:get-preferences'),
   setSaveCapturedAudio: (enabled: boolean) =>
     ipcRenderer.invoke('audio:set-save-captured', enabled),
+  getAboutYou: () => ipcRenderer.invoke('personalization:get-about-you'),
+  setAboutYou: (value: string) =>
+    ipcRenderer.invoke('personalization:set-about-you', value),
   getIngestionStatus: () => ipcRenderer.invoke('ingestion:get-status'),
   getProcessingPreferences: () => ipcRenderer.invoke('processing:get-preferences'),
   updateProcessingPreferences: (preferences: ProcessingPreferencesUpdate) =>
