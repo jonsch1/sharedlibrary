@@ -276,6 +276,11 @@ Summarize every new item.
     await service.checkChannel('https://example.com/feed.xml');
     assert.equal(checks, 2);
     assert.equal(captures, 31);
+    items[0] = { ...items[0], id: 'refreshed-item' };
+    const refreshed = await service.checkChannel('https://example.com/feed.xml');
+    assert.equal(refreshed.channels[0]?.itemCount, 31);
+    assert.equal(checks, 3);
+    assert.equal(captures, 32);
     const afterRemoval = await service.removeChannel(
       'https://example.com/feed.xml'
     );
@@ -284,15 +289,15 @@ Summarize every new item.
       (await library.snapshot()).entries.filter(
         ({ entryType }) => entryType === 'podcast_source'
       ).length,
-      31
+      32
     );
     const added = await service.addChannel('https://example.com/standalone');
     assert.deepEqual(added.channels[0]?.briefIDs, []);
     const checked = await service.checkChannel('https://example.com/standalone');
     assert.equal(checked.channels[0]?.title, 'Standalone');
     assert.ok(checked.channels[0]?.lastCheckedAt);
-    assert.equal(checks, 3);
-    assert.equal(captures, 31);
+    assert.equal(checks, 4);
+    assert.equal(captures, 32);
     assert.equal(
       (await service.removeChannel('https://example.com/standalone')).channels.length,
       0

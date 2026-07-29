@@ -64,3 +64,100 @@ export function xChannelItems(posts: XProfilePost[], handle: string) {
     publishedAt: post.publishedAt
   }));
 }
+
+export function redditCommunityFeedURL(value: string): string | null {
+  try {
+    const url = new URL(value);
+    const match =
+      ['reddit.com', 'www.reddit.com', 'old.reddit.com'].includes(
+        url.hostname.toLowerCase()
+      ) &&
+      /^\/r\/([A-Za-z0-9_]+)(?:\/(hot|new|top))?\/?$/u.exec(url.pathname);
+    return match
+      ? `https://www.reddit.com/r/${match[1]}/${match[2] ?? 'hot'}/.rss?limit=5`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function redditChannelFromAtom(
+  xml: string,
+  source: string,
+  feedURL: string
+) {
+  const community =
+    /^\/r\/([^/]+)/u.exec(new URL(source).pathname)?.[1] ?? 'Reddit';
+  const items = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/giu)]
+    .slice(0, 5)
+    .flatMap(([, entry]) => {
+      const id = xmlText(entry, 'id');
+      const title = xmlText(entry, 'title');
+      const url = decodeXML(
+        /<link\b[^>]*\bhref="([^"]+)"/iu.exec(entry)?.[1] ?? ''
+      );
+      if (!id || !title || !url) return [];
+      const html = decodeXML(xmlText(entry, 'content'));
+      const linkedURL = [...html.matchAll(/\bhref="([^"]+)"/giu)]
+        .map((match) => decodeXML(match[1]))
+        .find((candidate) => {
+          try {
+            return !new URL(candidate).hostname.endsWith('reddit.com');
+          } catch {
+            return false;
+          }
+        });
+      const author = xmlText(entry, 'name');
+      return [{
+        id: `${id}:headless-2`,
+        title,
+        url,
+        publishedAt: validDate(xmlText(entry, 'published')),
+        linkedURL,
+        content: [
+          `Reddit post in r/${community}`,
+          author ? `Posted by ${author}` : '',
+          linkedURL ? `Linked article: ${linkedURL}` : '',
+          `Discussion: ${url}`
+        ].filter(Boolean).join('\n\n')
+      }];
+    });
+  if (!items.length) throw new Error('Reddit returned no readable posts.');
+  return {
+    source,
+    sourceURL: source,
+    feedURL,
+    title: `r/${community}`,
+    kind: 'feed' as const,
+    items
+  };
+}
+
+function xmlText(value: string, tag: string): string {
+  return decodeXML(
+    new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'iu')
+      .exec(value)?.[1] ?? ''
+  ).replace(/\s+/gu, ' ').trim();
+}
+
+function decodeXML(value: string): string {
+  return value.replace(
+    /&(#x[\da-f]+|#\d+|amp|apos|gt|lt|quot);/giu,
+    (_, entity: string) => {
+      const normalized = entity.toLowerCase();
+      if (normalized.startsWith('#x')) {
+        return String.fromCodePoint(Number.parseInt(normalized.slice(2), 16));
+      }
+      if (normalized.startsWith('#')) {
+        return String.fromCodePoint(Number.parseInt(normalized.slice(1), 10));
+      }
+      return { amp: '&', apos: "'", gt: '>', lt: '<', quot: '"' }[normalized] ?? '';
+    }
+  );
+}
+
+function validDate(value: string): string | null {
+  return value && Number.isFinite(Date.parse(value))
+    ? new Date(value).toISOString()
+    : null;
+}

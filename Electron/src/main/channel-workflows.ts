@@ -1,6 +1,8 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, net } from 'electron';
 import {
   cleanRepeatedItems,
+  redditChannelFromAtom,
+  redditCommunityFeedURL,
   xChannelItems,
   xProfileURL
 } from '../shared/browser-workflow.js';
@@ -55,14 +57,42 @@ export class ChannelWorkflowService {
 
   async enumerate(value: string): Promise<DiscoveredSource> {
     const profileURL = xProfileURL(value);
-    return profileURL
-      ? this.enumerateXProfile(profileURL)
-      : this.extractor.discoverSource(value);
+    if (profileURL) return this.enumerateXProfile(profileURL);
+    const redditFeedURL = redditCommunityFeedURL(value);
+    if (redditFeedURL) {
+      const response = await net.fetch(redditFeedURL, {
+        headers: { Accept: 'application/atom+xml' }
+      });
+      if (!response.ok) {
+        throw new Error(`Reddit returned ${response.status} ${response.statusText}.`);
+      }
+      return redditChannelFromAtom(
+        await response.text(),
+        value,
+        response.url || redditFeedURL
+      );
+    }
+    return this.extractor.discoverSource(value);
   }
 
   async capture(item: DiscoveredSourceItem): Promise<ExtractedContent> {
     const url = httpURL(item.url);
     if (!url) throw new Error('Podcast items must be HTTP(S) URLs.');
+    if (redditPostID(url)) {
+      const window = headlessWindow();
+      try {
+        return {
+          title: item.title,
+          content: await expandRedditPost(window, item, url),
+          sourceURL: url
+        };
+      } finally {
+        window.destroy();
+      }
+    }
+    if (item.content?.trim()) {
+      return { title: item.title, content: item.content.trim(), sourceURL: url };
+    }
     const status = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\/([^/]+)\/status\/(\d+)/iu.exec(
       url
     );
@@ -175,6 +205,108 @@ function httpURL(value: string): string | null {
   } catch {
     return null;
   }
+}
+
+function redditPostID(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.hostname.toLowerCase().endsWith('reddit.com')
+      ? /\/comments\/([a-z0-9]+)(?:\/|$)/iu.exec(url.pathname)?.[1] ?? null
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function expandRedditPost(
+  window: BrowserWindow,
+  item: DiscoveredSourceItem,
+  discussionURL: string
+): Promise<string> {
+  const article = item.linkedURL
+    ? await readArticle(window, item.linkedURL).catch(() => '')
+    : '';
+  let discussion = { post: '', comments: [] as string[] };
+  try {
+    const oldRedditURL = new URL(discussionURL);
+    oldRedditURL.hostname = 'old.reddit.com';
+    await window.loadURL(oldRedditURL.toString());
+    discussion = await window.webContents.executeJavaScript(`
+      (() => {
+        const post =
+          document.querySelector('.thing.link .usertext-body .md')?.innerText?.trim() || '';
+        const comments = [...document.querySelectorAll('.commentarea .thing.comment')]
+          .slice(0, 10)
+          .flatMap(comment => {
+            const entry = comment.querySelector(':scope > .entry');
+            const author = entry?.querySelector('.author')?.textContent?.trim() || '';
+            const body = entry?.querySelector('.usertext-body .md')?.innerText?.trim() || '';
+            return author && body ? ['u/' + author + '\\n' + body] : [];
+          });
+        return { post, comments };
+      })()
+    `) as { post: string; comments: string[] };
+  } catch {
+    // The signed-in browser can be opened from Channel when Reddit blocks the page.
+  }
+  const comments = cleanRepeatedItems(discussion.comments);
+  if (!(article || discussion.post) || !comments.length) {
+    throw new Error(
+      'Reddit did not expose the article or post text and its discussion. Sign in to Reddit from this channel, then check it again.'
+    );
+  }
+  return [
+    item.content?.trim(),
+    article ? `## Article\n\n${article}` : '',
+    discussion.post ? `## Post\n\n${discussion.post}` : '',
+    `## Discussion\n\n${comments
+      .map((comment, index) => `### Comment ${index + 1}\n\n${comment}`)
+      .join('\n\n')}`
+  ].filter(Boolean).join('\n\n');
+}
+
+async function readArticle(window: BrowserWindow, url: string): Promise<string> {
+  await window.loadURL(url);
+  const rejectedConsent = await window.webContents.executeJavaScript(`
+    (() => {
+      const controls = [...document.querySelectorAll('button, input[type="submit"]')];
+      const reject = controls.find(control =>
+        /^(reject all|decline all|alles weigeren|alle ablehnen|tout refuser|rifiuta tutto|rechazar todo)$/iu.test(
+          (control.innerText || control.value || '').trim()
+        )
+      );
+      reject?.click();
+      return Boolean(reject);
+    })()
+  `) as boolean;
+  if (rejectedConsent) {
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+  }
+  return window.webContents.executeJavaScript(`
+    new Promise(async resolve => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        window.scrollBy(0, Math.max(500, window.innerHeight * 0.8));
+        await new Promise(done => setTimeout(done, 500));
+      }
+      const articles = [...document.querySelectorAll('article')]
+        .filter(element => (element.innerText || '').trim().length > 200);
+      const candidates = articles.length ? articles :
+        [...document.querySelectorAll('main, [role="main"]')]
+          .filter(element => (element.innerText || '').trim().length > 200);
+      const root = candidates.sort(
+        (left, right) => (right.innerText || '').length - (left.innerText || '').length
+      )[0] || document.body;
+      const clone = root?.cloneNode(true);
+      clone?.querySelectorAll(
+        'script, style, noscript, nav, footer, aside, form, button, dialog, [aria-hidden="true"]'
+      ).forEach(element => element.remove());
+      const lines = (clone?.innerText || '').split(/\\n+/u)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .filter((line, index, values) => line !== values[index - 1]);
+      resolve(lines.join('\\n\\n').slice(0, 60000));
+    })
+  `) as Promise<string>;
 }
 
 async function expandXPost(

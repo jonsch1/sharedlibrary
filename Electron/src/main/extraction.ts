@@ -26,6 +26,8 @@ export interface DiscoveredSourceItem {
   title: string;
   url: string;
   publishedAt: string | null;
+  content?: string;
+  linkedURL?: string;
 }
 
 export interface DiscoveredSource {

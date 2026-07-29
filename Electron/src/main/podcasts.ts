@@ -470,6 +470,9 @@ export class PodcastService {
         try {
           for (const item of selected.reverse()) {
             const ingested = await this.ingestItem(item);
+            current.items = current.items.filter(
+              (existing) => existing.url !== ingested.url
+            );
             current.items.unshift(ingested);
             current.seen.unshift(item.id);
             current.seen = [...new Set(current.seen)];
