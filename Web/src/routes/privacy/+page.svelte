@@ -6,6 +6,7 @@
 	active="privacy"
 	title="Privacy notice"
 	description="How Briefly processes personal data, the choices you control, and your rights under the GDPR."
+	updated="29 July 2026"
 >
 	<section>
 		<h2>1. Who is responsible</h2>
@@ -86,9 +87,15 @@
 				</tr>
 				<tr>
 					<td>Public share links</td>
-					<td>Your account email, document text and metadata, optional audio, source URL, share token, and timestamps.</td>
-					<td>Publish the specific document you deliberately select at a forwardable public link.</td>
+					<td>Your account email, document summaries and metadata, source URL, share token, and timestamps. Captured original text and its narration are not published.</td>
+					<td>Publish the summaries for the specific document you deliberately select at a forwardable public link.</td>
 					<td>Performance of your sharing request.</td>
+				</tr>
+				<tr>
+					<td>Illegal-content reports</td>
+					<td>The reported share and version, allegation, good-faith confirmation, reporter name and email except where law permits an anonymous child-safety report, and our decision.</td>
+					<td>Review alleged illegal content, communicate with affected people, prevent abuse, and document compliance.</td>
+					<td>Legal obligations and legitimate interests in operating a lawful service and defending claims.</td>
 				</tr>
 				<tr>
 					<td>Optional product analytics</td>
@@ -245,8 +252,12 @@
 					<td>Until you revoke or replace the share. Revocation deletes its text from Briefly's active systems; provider backups may age out later.</td>
 				</tr>
 				<tr>
+					<td>Illegal-content reports</td>
+					<td>Normally up to 2 years after the decision, longer only where needed for a legal obligation, appeal, dispute, or claim.</td>
+				</tr>
+				<tr>
 					<td>Transcription and voice inputs</td>
-					<td>Kept only for the active processing job by Briefly's Modal workloads, then deleted from temporary job storage. Generated audio is saved only to the library or share destination you request.</td>
+					<td>Kept only for the active processing job by Briefly's Modal workloads, then deleted from temporary job storage. Generated audio is saved only to your private library destination.</td>
 				</tr>
 				<tr>
 					<td>AI processing inputs</td>

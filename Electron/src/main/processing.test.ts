@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  agentCommandPresets,
   defaultAgentCommand,
   defaultProcessingCommand,
   defaultProcessingPrompt,
@@ -8,7 +9,9 @@ import {
   managedAICommand,
   processingCommandPresets,
   renderAgentCommand,
+  renderAgentURL,
   renderProcessingPrompt,
+  resolveAgentCommand,
   runAIText
 } from './processing.js';
 
@@ -28,9 +31,22 @@ test('agent commands expose and substitute the workspace placeholder', () => {
       : 'cd {{workspace}} && claude'
   );
   assert.match(defaultAgentCommand, /\{\{workspace\}\}/);
+  if (process.platform === 'darwin') {
+    assert.equal(defaultAgentCommand, '/usr/bin/open -a ChatGPT {{workspace}}');
+    assert.equal(agentCommandPresets[0]?.label, 'ChatGPT app');
+    assert.equal(resolveAgentCommand('codex'), defaultAgentCommand);
+  }
+  assert.equal(agentCommandPresets.some(({ label }) => label === 'Claude app'), true);
   assert.doesNotMatch(
     renderAgentCommand(defaultAgentCommand, "/tmp/Briefly user's library"),
     /\{\{workspace\}\}/
+  );
+  assert.equal(
+    renderAgentURL(
+      'claude://code/new?folder={{workspace}}',
+      '/tmp/Briefly user/library'
+    ),
+    'claude://code/new?folder=%2Ftmp%2FBriefly%20user%2Flibrary'
   );
 });
 

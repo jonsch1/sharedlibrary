@@ -10,6 +10,21 @@
 		custom: boolean;
 	};
 	type Account = { email: string; services: Service[] };
+	type ContentReport = {
+		id: string;
+		shareTitle: string;
+		reportedURL: string;
+		variant?: string;
+		category: string;
+		ownerEmail: string;
+		reporterName?: string;
+		reporterEmail?: string;
+		workDescription?: string;
+		explanation: string;
+		status: 'open' | 'removed' | 'no-action';
+		createdAt: number;
+		resolvedAt?: number;
+	};
 
 	const serviceNames: Record<string, string> = {
 		transcription: 'Transcription',
@@ -26,6 +41,7 @@
 
 	let emails = $state<Access[]>([]);
 	let accounts = $state<Account[]>([]);
+	let reports = $state<ContentReport[]>([]);
 	let email = $state('');
 	let loading = $state(true);
 	let busy = $state('');
@@ -58,18 +74,62 @@
 		});
 	}
 
+	async function reportsRequest(
+		method: 'GET' | 'PATCH',
+		value?: { id: string; decision: 'removed' | 'no-action' }
+	): Promise<Response> {
+		return fetch('/api/admin/content-reports', {
+			method,
+			headers: value ? { 'Content-Type': 'application/json' } : undefined,
+			body: value ? JSON.stringify(value) : undefined,
+			cache: 'no-store'
+		});
+	}
+
 	async function load(): Promise<void> {
-		const [accessResponse, usageResponse] = await Promise.all([
+		const [accessResponse, usageResponse, reportsResponse] = await Promise.all([
 			accessRequest('GET'),
-			usageRequest('GET')
+			usageRequest('GET'),
+			reportsRequest('GET')
 		]);
-		if (accessResponse.status === 401 || usageResponse.status === 401) denied = 'signed-out';
-		else if (accessResponse.status === 403 || usageResponse.status === 403) denied = 'forbidden';
-		else if (accessResponse.ok && usageResponse.ok) {
+		if ([accessResponse, usageResponse, reportsResponse].some((response) => response.status === 401))
+			denied = 'signed-out';
+		else if (
+			[accessResponse, usageResponse, reportsResponse].some((response) => response.status === 403)
+		)
+			denied = 'forbidden';
+		else if (accessResponse.ok && usageResponse.ok && reportsResponse.ok) {
 			emails = ((await accessResponse.json()) as { emails: Access[] }).emails;
 			accounts = ((await usageResponse.json()) as { accounts: Account[] }).accounts;
+			reports = ((await reportsResponse.json()) as { reports: ContentReport[] }).reports;
 		} else error = 'The admin dashboard could not be loaded.';
 		loading = false;
+	}
+
+	async function decideReport(
+		report: ContentReport,
+		decision: 'removed' | 'no-action'
+	): Promise<void> {
+		if (busy) return;
+		busy = report.id;
+		error = '';
+		const response = await reportsRequest('PATCH', { id: report.id, decision });
+		const result = (await response.json()) as { error?: string; resolvedAt?: number };
+		if (!response.ok) error = result.error ?? 'The report decision could not be saved.';
+		else {
+			report.status = decision;
+			report.resolvedAt = result.resolvedAt ?? Date.now();
+		}
+		busy = '';
+	}
+
+	function replyURL(email: string, report: ContentReport, recipient: 'reporter' | 'owner'): string {
+		const subject = `Briefly content report ${report.id}`;
+		const body =
+			recipient === 'reporter'
+				? `Hello,\n\nWe are reviewing your report concerning “${report.shareTitle}”.\n\nReference: ${report.id}\nReported URL: ${report.reportedURL}\n`
+				: `Hello,\n\nA report concerns your public share “${report.shareTitle}”.\n\nReference: ${report.id}\nReported URL: ${report.reportedURL}\n`;
+		return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 	}
 
 	async function add(event: SubmitEvent): Promise<void> {
@@ -182,6 +242,73 @@
 	{:else}
 		<div class="dashboard">
 			{#if error}<p class="error" role="alert">{error}</p>{/if}
+			<section class="reports-panel">
+				<h2>Content reports</h2>
+				<p class="intro">Review open notices promptly, then contact the reporter and share owner.</p>
+				<div class="reports">
+					{#each reports as report (report.id)}
+						<article class:resolved={report.status !== 'open'}>
+							<header>
+								<div>
+									<strong>{report.shareTitle}</strong>
+									<small>
+										{report.category} · {new Date(report.createdAt).toLocaleString()}
+										{#if report.variant} · {report.variant}{/if}
+									</small>
+								</div>
+								<span>{report.status}</span>
+							</header>
+							{#if report.workDescription}
+								<p><b>Copyrighted work:</b> {report.workDescription}</p>
+							{/if}
+							<p>{report.explanation}</p>
+							<div class="report-links">
+								<a href={report.reportedURL} target="_blank" rel="noreferrer">Open share</a>
+								<a href={replyURL(report.ownerEmail, report, 'owner')}>Email owner</a>
+								{#if report.reporterEmail}
+									<a href={replyURL(report.reporterEmail, report, 'reporter')}>
+										Email reporter{report.reporterName ? ` (${report.reporterName})` : ''}
+									</a>
+								{/if}
+							</div>
+							{#if report.status === 'open'}
+								<footer>
+									<button
+										type="button"
+										class="remove"
+										disabled={Boolean(busy)}
+										onclick={() => decideReport(report, 'removed')}
+									>
+										{busy === report.id ? 'Saving…' : 'Remove share'}
+									</button>
+									<button
+										type="button"
+										class="secondary"
+										disabled={Boolean(busy)}
+										onclick={() => decideReport(report, 'no-action')}
+									>
+										No action
+									</button>
+								</footer>
+							{:else if report.status === 'removed'}
+								<footer>
+									<button
+										type="button"
+										class="secondary"
+										disabled={Boolean(busy)}
+										onclick={() => decideReport(report, 'no-action')}
+									>
+										{busy === report.id ? 'Saving…' : 'Allow republishing'}
+									</button>
+								</footer>
+							{/if}
+						</article>
+					{:else}
+						<p class="empty">No content reports.</p>
+					{/each}
+				</div>
+			</section>
+
 			<section class="usage-panel">
 				<h2>User usage &amp; limits</h2>
 				<p class="intro">Today and month-to-date usage use UTC. Changes apply immediately.</p>
@@ -387,6 +514,76 @@
 	.accounts {
 		display: grid;
 		gap: 12px;
+	}
+
+	.reports {
+		display: grid;
+		gap: 12px;
+	}
+
+	.reports article {
+		display: grid;
+		gap: 13px;
+		padding: 18px;
+		border: 1px solid rgb(21 21 18 / 12%);
+		border-radius: 16px;
+		background: rgb(255 255 255 / 52%);
+	}
+
+	.reports article.resolved {
+		opacity: 0.65;
+	}
+
+	.reports article header {
+		display: flex;
+		align-items: start;
+		justify-content: space-between;
+		gap: 16px;
+		margin: 0;
+	}
+
+	.reports article header div {
+		display: grid;
+		gap: 4px;
+	}
+
+	.reports article header small,
+	.reports article header > span {
+		color: #77746a;
+		font-size: 11px;
+	}
+
+	.reports article header > span {
+		padding: 4px 8px;
+		border-radius: 999px;
+		background: rgb(21 21 18 / 7%);
+	}
+
+	.reports article p {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.5;
+		white-space: pre-wrap;
+	}
+
+	.report-links,
+	.reports article footer {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	.report-links a {
+		color: #234fc7;
+		font-size: 12px;
+	}
+
+	.reports article footer {
+		justify-content: end;
+	}
+
+	.reports article footer button {
+		min-height: 36px;
 	}
 
 	details {

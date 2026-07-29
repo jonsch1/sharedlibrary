@@ -17,7 +17,17 @@ const codexProcessingCommand =
 export const defaultProcessingCommand = managedAICommand;
 const agentWorkspacePrefix =
   process.platform === 'win32' ? 'cd /d {{workspace}}' : 'cd {{workspace}}';
-export const defaultAgentCommand = `${agentWorkspacePrefix} && codex`;
+export const defaultAgentCommand =
+  process.platform === 'darwin'
+    ? '/usr/bin/open -a ChatGPT {{workspace}}'
+    : `${agentWorkspacePrefix} && codex`;
+
+export function resolveAgentCommand(command?: string): string {
+  const saved = command?.trim();
+  return process.platform === 'darwin' && saved === 'codex'
+    ? defaultAgentCommand
+    : saved || defaultAgentCommand;
+}
 
 export interface CommandPreset {
   label: string;
@@ -45,8 +55,15 @@ export const processingCommandPresets: CommandPreset[] = [
 ];
 
 export const agentCommandPresets: CommandPreset[] = [
-  { label: 'Codex', command: defaultAgentCommand },
-  { label: 'Claude', command: `${agentWorkspacePrefix} && claude` },
+  ...(process.platform === 'darwin'
+    ? [{ label: 'ChatGPT app', command: defaultAgentCommand }]
+    : []),
+  {
+    label: 'Claude app',
+    command: 'claude://code/new?folder={{workspace}}'
+  },
+  { label: 'Codex', command: `${agentWorkspacePrefix} && codex` },
+  { label: 'Claude Code (terminal)', command: `${agentWorkspacePrefix} && claude` },
   { label: 'Pi', command: `${agentWorkspacePrefix} && pi` },
   { label: 'OpenCode', command: `${agentWorkspacePrefix} && opencode` }
 ];
@@ -70,6 +87,15 @@ export function renderAgentCommand(
     '{{workspace}}',
     workspace
   );
+}
+
+export function renderAgentURL(
+  command: string,
+  workspacePath: string
+): string | undefined {
+  return command.startsWith('claude://')
+    ? command.replaceAll('{{workspace}}', encodeURIComponent(workspacePath))
+    : undefined;
 }
 
 export type ManagedAIRunner = (

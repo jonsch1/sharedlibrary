@@ -21,10 +21,16 @@ import { dirname, join } from 'node:path';
 import {
   libraryVariants,
   type LibraryVariant,
+  type PodcastSnapshot,
   type TopicDefinition
 } from '../shared/contracts.js';
 import type { ExtractedContent } from './extraction.js';
 import { LibraryService } from './library.js';
+import {
+  sourceIdentity,
+  type AgentEpisodeResult,
+  type AgentEpisodeSource
+} from './podcasts.js';
 
 const apiVersion = 1;
 const maximumBodyBytes = 256 * 1024;
@@ -73,6 +79,12 @@ export interface AgentApiDependencies {
   library: LibraryService;
   extractURL(url: string): Promise<ExtractedContent | undefined>;
   processEntry(entryID: string, topicID: string): Promise<string>;
+  podcastSnapshot(): Promise<PodcastSnapshot>;
+  createPodcastEpisode(
+    podcastID: string,
+    script: string,
+    sources: AgentEpisodeSource[]
+  ): Promise<AgentEpisodeResult>;
   onLibraryChanged(): Promise<void>;
   onSyncRequested(reason: string): void;
   onOperationMessage?(message: string, entryID?: string): void;
@@ -259,6 +271,68 @@ export class AgentApiServer {
         this.send(response, 200, {
           topics: await this.dependencies.library.topicDefinitions()
         });
+        return;
+      }
+
+      if (method === 'GET' && url.pathname === '/v1/podcasts') {
+        const snapshot = await this.dependencies.podcastSnapshot();
+        this.send(response, 200, {
+          podcasts: snapshot.podcasts.map((podcast) => {
+            const usedSourceURLs = [
+              ...new Set(podcast.episodes.flatMap((episode) => episode.sourceURLs ?? []))
+            ];
+            return {
+              id: podcast.id,
+              title: podcast.title,
+              prompt: podcast.prompt,
+              sources: podcast.sources,
+              usedSourceURLs,
+              usedItemKeys: usedSourceURLs.map(sourceIdentity),
+              episodes: podcast.episodes.map((episode) => ({
+                entryID: episode.id,
+                title: episode.title,
+                createdAt: episode.createdAt,
+                hasAudio: episode.hasAudio,
+                sourceURLs: episode.sourceURLs ?? []
+              }))
+            };
+          })
+        });
+        return;
+      }
+
+      if (method === 'POST' && url.pathname === '/v1/extract') {
+        const body = await readJSONBody(request);
+        const [sourceURL] = normalizeURLs([body.url]);
+        const extracted = await this.dependencies.extractURL(sourceURL);
+        if (!extracted) {
+          throw new ApiError(422, 'extraction_failed', 'The URL returned no readable content.');
+        }
+        this.send(response, 200, {
+          item: {
+            itemKey: sourceIdentity(extracted.sourceURL || sourceURL),
+            url: extracted.sourceURL || sourceURL,
+            title: extracted.title,
+            content: extracted.content,
+            mediaURL: extracted.mediaURL
+          }
+        });
+        return;
+      }
+
+      const episodeMatch = /^\/v1\/podcasts\/([^/]+)\/episodes$/.exec(url.pathname);
+      if (method === 'POST' && episodeMatch) {
+        const body = await readJSONBody(request);
+        const script = stringProperty(body, 'script');
+        if (script.length > 60_000) {
+          throw new ApiError(400, 'script_too_long', 'script must be 60,000 characters or fewer.');
+        }
+        const result = await this.dependencies.createPodcastEpisode(
+          decodeURIComponent(episodeMatch[1]),
+          script,
+          normalizeEpisodeSources(body.sources)
+        );
+        this.send(response, result.duplicate ? 200 : 201, { episode: result });
         return;
       }
 
@@ -580,6 +654,52 @@ function normalizeURLs(value: unknown): string[] {
     }
   });
   return [...new Set(urls)];
+}
+
+function normalizeEpisodeSources(value: unknown): AgentEpisodeSource[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new ApiError(400, 'invalid_sources', 'sources must be a non-empty array.');
+  }
+  if (value.length > maximumURLsPerJob) {
+    throw new ApiError(
+      400,
+      'too_many_sources',
+      `At most ${maximumURLsPerJob} sources can be used in one episode.`
+    );
+  }
+  const sources = value.map((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new ApiError(400, 'invalid_source', 'Every source must be an object.');
+    }
+    const source = candidate as Record<string, unknown>;
+    const [url] = normalizeURLs([source.url]);
+    const title = optionalString(source.title, 'title', 500);
+    const content = optionalString(
+      source.content,
+      'content',
+      120_000
+    );
+    return {
+      url,
+      ...(title ? { title } : {}),
+      ...(content ? { content } : {})
+    };
+  });
+  return [
+    ...new Map(sources.map((source) => [sourceIdentity(source.url), source])).values()
+  ];
+}
+
+function optionalString(value: unknown, name: string, maximum: number): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string' || value.length > maximum) {
+    throw new ApiError(
+      400,
+      'invalid_source',
+      `${name} must be a string of at most ${maximum.toLocaleString()} characters.`
+    );
+  }
+  return value.trim() || undefined;
 }
 
 function normalizeVariant(value: string | null): LibraryVariant {

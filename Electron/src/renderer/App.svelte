@@ -1477,7 +1477,7 @@
         <div class="settings-card-heading">
           <div>
             <h3>Open agent</h3>
-            <p>Run an interactive agent in a new terminal at your library workspace.</p>
+            <p>Open ChatGPT or run another agent at your library workspace.</p>
           </div>
         </div>
         <div class="grid gap-3">

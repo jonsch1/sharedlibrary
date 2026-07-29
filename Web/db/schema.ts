@@ -286,6 +286,36 @@ export const shareAudioSegments = sqliteTable(
 	]
 );
 
+export const shareMediaDeletions = sqliteTable('share_media_deletions', {
+	r2Key: text('r2_key').primaryKey(),
+	createdAt: integer('created_at').notNull()
+});
+
+export const contentReports = sqliteTable(
+	'content_reports',
+	{
+		id: text('id').primaryKey(),
+		shareToken: text('share_token').notNull(),
+		ownerEmail: text('owner_email').notNull(),
+		captureID: text('capture_id').notNull(),
+		shareTitle: text('share_title').notNull(),
+		reportedURL: text('reported_url').notNull(),
+		variant: text('variant'),
+		category: text('category').notNull(),
+		reporterName: text('reporter_name'),
+		reporterEmail: text('reporter_email'),
+		workDescription: text('work_description'),
+		explanation: text('explanation').notNull(),
+		status: text('status').notNull().default('open'),
+		createdAt: integer('created_at').notNull(),
+		resolvedAt: integer('resolved_at')
+	},
+	(table) => [
+		index('content_reports_status_created_idx').on(table.status, table.createdAt),
+		index('content_reports_owner_capture_idx').on(table.ownerEmail, table.captureID)
+	]
+);
+
 export const feedbackItems = sqliteTable('feedback_items', {
 	id: text('id').primaryKey(),
 	userEmail: text('user_email').notNull(),

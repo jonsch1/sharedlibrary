@@ -6,6 +6,7 @@
 	active="terms"
 	title="Terms of service"
 	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
+	updated="29 July 2026"
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -87,6 +88,11 @@
 			material, or content you may not republish before sharing. You can revoke a link in Briefly;
 			people may already have saved copies outside our control.
 		</p>
+		<p>
+			Public readers contain generated or user-edited summaries and, where available, a link to
+			the source. Briefly does not publish the captured original text or its narration through a
+			public share.
+		</p>
 	</section>
 
 	<section>
@@ -105,6 +111,28 @@
 			necessary to stop harm, comply with law, protect the Service, or investigate a material
 			breach. Where appropriate, we will give notice and a chance to respond.
 		</p>
+
+		<h3>Notice, action, and appeals</h3>
+		<p>
+			Anyone can use <strong>Report illegal content</strong> on a public share to identify the
+			exact content, explain the alleged illegality, and submit the contact and good-faith
+			information requested by the form. We acknowledge reports electronically and review them
+			in a timely, diligent, objective, and non-arbitrary way. Content-moderation decisions are
+			made by a person, not solely by an automated system.
+		</p>
+		<p>
+			We may leave content available, disable the share, or restrict an account depending on the
+			report, applicable law, and these Terms. We provide the affected account with the reason
+			for a restriction and an appeal route where we know its contact details. Reporters receive
+			the decision where contact details are provided. Appeals, copyright counter-notices, and
+			questions may be sent to
+			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>.
+		</p>
+		<p>
+			We reasonably implement a policy of terminating accounts that repeatedly use Briefly to
+			infringe copyright. A valid counter-notice may lead to restoration where applicable law
+			permits and no timely court action prevents it.
+		</p>
 	</section>
 
 	<section>
@@ -122,8 +150,8 @@
 			The membership includes high but finite processing and storage allowances so one account
 			cannot exhaust shared infrastructure. Current limits include 8 hours of transcription per
 			day and 50 hours per month; 250,000 voice-generation characters per day and 2 million per
-			month; up to 100 active public links, 100 MB of public share text, and 2 GB of public
-			share audio; and a conservative Firecrawl extraction allowance. Individual transcription
+			month; up to 100 active public links and 100 MB of public share text; and a conservative
+			Firecrawl extraction allowance. Individual transcription
 			inputs must be no larger than 250 MB or four hours, and individual voice requests no
 			longer than 60,000 characters.
 		</p>

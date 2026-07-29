@@ -19,20 +19,18 @@ This directory contains the cross-platform Briefly desktop application.
   summaries and assigns a topic in the background. The app shows persistent ingest
   status and mirrors active work on the dock/taskbar progress indicator; macOS also
   shows the number of active ingests as a dock badge.
-- A bearer-authenticated agent API on `127.0.0.1` supports explicit topic creation,
-  approved batch URL ingestion, job polling, and summary retrieval. Its bundled
-  deep-research and input-extension skills are installed into the selected workspace
-  automatically.
+- A bearer-authenticated agent API on `127.0.0.1` supports research ingestion and
+  agent-created audio briefings. Its bundled skills are installed into the selected
+  workspace automatically.
 - Versioned workspace input packages in `.briefly/inputs/` can override extraction
   for narrowly matched sites. They are hot-discovered and execute in restricted,
   secret-free child processes with optional built-in fallback.
-- Scheduled podcasts are plain Markdown files in `podcasts/`. Each file contains
-  only a name, schedule, sources, and optional length; the device timezone is
-  automatic. While Briefly is running, it watches sources, ingests updates, and
-  writes episode drafts back into the library; missed schedules are caught up
-  after launch or wake.
-- Share links publish all text levels through the same D1/R2 sharing service as
-  the web reader.
+- Podcasts are plain Markdown files in `podcasts/`. Briefly can watch public feeds
+  itself, while the bundled audio-briefing skill lets Codex discover signed-in
+  Reddit/X updates, avoid used sources, submit a linked script, and leave TTS and
+  playback to Briefly.
+- Share links publish summaries and source metadata, never captured source text
+  or narration, through the same D1 sharing service as the web reader.
 
 Google credentials remain in the hosted account service; CloudKit access stays
 in an authenticated Apple web context. Account and sync settings open in an

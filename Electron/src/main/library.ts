@@ -377,7 +377,7 @@ export class LibraryService {
     body: string;
     sources: string[];
     sourceIDs: string[];
-    audio: Uint8Array;
+    audio?: Uint8Array;
   }): Promise<string> {
     await this.ensureWorkspace();
     const captureID = randomUUID().toUpperCase();
@@ -385,7 +385,7 @@ export class LibraryService {
     const filename = await this.availableFilename(
       slug(`${value.podcastTitle}-${now.slice(0, 10)}`)
     );
-    const audioPath = `audio/${captureID}.wav`;
+    const audioPath = value.audio ? `audio/${captureID}.wav` : undefined;
     const metadata = {
       id: captureID,
       type: 'podcast_episode',
@@ -396,20 +396,38 @@ export class LibraryService {
       topics: [],
       podcast_id: value.podcastID,
       podcast_title: value.podcastTitle,
-      audio_path: audioPath,
+      ...(audioPath ? { audio_path: audioPath } : {}),
       source_ids: [...new Set(value.sourceIDs)],
       source_urls: [...new Set(value.sources)]
     };
     await atomicWrite(
-      join(this.workspacePath, 'library', audioPath),
-      value.audio
-    );
-    await atomicWrite(
       join(this.workspacePath, 'library', filename),
       `${serializeFrontmatter(metadata)}\n\n${value.body.trim()}\n`
     );
+    if (audioPath && value.audio) {
+      await atomicWrite(join(this.workspacePath, 'library', audioPath), value.audio);
+    }
     this.indexedEntries.clear();
     return `personal:${captureID}`;
+  }
+
+  async attachPodcastAudio(entryID: string, audio: Uint8Array): Promise<void> {
+    const indexed = await this.requireEntry(entryID);
+    if (indexed.entry.entryType !== 'podcast_episode') {
+      throw new Error('Audio can only be attached to a podcast episode.');
+    }
+    const parsed = parseMarkdown(await readFile(indexed.sourcePath, 'utf8'));
+    const audioRelativePath = `audio/${indexed.entry.captureID}.wav`;
+    await atomicWrite(join(this.workspacePath, 'library', audioRelativePath), audio);
+    await atomicWrite(
+      indexed.sourcePath,
+      `${serializeFrontmatter({
+        ...parsed.metadata,
+        updated_at: new Date().toISOString(),
+        audio_path: audioRelativePath
+      })}\n\n${parsed.body.trim()}\n`
+    );
+    this.indexedEntries.clear();
   }
 
   async markPodcastSources(entryIDs: string[]): Promise<DesktopLibrarySnapshot> {

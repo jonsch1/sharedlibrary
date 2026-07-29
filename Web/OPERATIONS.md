@@ -52,9 +52,9 @@ Until self-service erasure exists, requests go to `hello@readbriefly.fyi`.
    the same sign-in address. Record the request and statutory response deadline.
 2. Ask whether the user also wants the Stripe subscription cancelled. Account
    erasure must not silently leave a renewing subscription.
-3. List the account's `share_audio_segments.r2_key` values, delete those R2
-   objects, then delete its `share_audio_segments`, `share_texts`, and
-   `share_links` rows.
+3. Delete its `share_texts` and `share_links` rows. If legacy
+   `share_audio_segments` remain, queue their `r2_key` values in
+   `share_media_deletions`, delete the rows, and run the media-deletion cleanup.
 4. Revoke the Google refresh token with Google when possible, then delete
    `google_drive_connections`, OAuth states, `sync_preferences`,
    `app_sessions`, `auth_identities`, feedback rows/upvotes, and legacy
@@ -84,7 +84,8 @@ Desktop release automation creates a draft release. Publish it only after:
   captured.
 - Live Whisper and Kokoro jobs succeed, quota errors are understandable, and
   `PAID_PROCESSING_ENABLED=false` stops new jobs.
-- A text-and-audio share can be opened anonymously and disappears after revoke.
+- A share exposes summaries and its source link, never captured source text or
+  narration, and disappears after revoke.
 - macOS, Windows, Microsoft Store, and Linux artifacts install; signed update
   feeds work from the draft release.
 - The account-erasure runbook has been rehearsed against a disposable account.

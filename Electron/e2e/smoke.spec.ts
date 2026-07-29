@@ -222,6 +222,11 @@ test(
       await expect(
         podcastSettings.getByRole('button', { name: 'Smoke podcast' })
       ).toBeVisible();
+      await expect(
+        podcastSettings.getByText('Recommended: set up with a coding agent')
+      ).toBeVisible();
+      await expect(podcastSettings.getByRole('button', { name: 'Open coding agent' }))
+        .toBeVisible();
       await expect(podcastSettings.getByLabel('Podcast title')).toHaveValue(
         'Smoke podcast'
       );

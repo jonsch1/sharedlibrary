@@ -19,13 +19,11 @@ D1 stores one current record for each published capture:
 - a random 192-bit URL token;
 - revision, publication status, and timestamps;
 - title, excerpt, topics, tags, and source metadata;
-- every available Markdown variant: brief, concise, detailed, comprehensive, and
-  original.
+- every available summary variant: brief, concise, detailed, and comprehensive.
 
-R2 stores only complete narration segment sets that already existed when the owner
-published or updated the link. Audio remains content-addressed in each user's
-selected private provider, while the shared R2 keys are scoped by token and
-publication generation.
+Captured original text and narration remain in the user's private library. Public
+shares include the source URL when one is available, but do not copy either form
+to Briefly's sharing storage.
 
 The public response exposes neither the owner's email nor private provider record
 IDs. Authentication credentials and provider tokens never enter D1, R2, or the
@@ -36,8 +34,7 @@ public document payload.
 1. The owner selects **Share** in the Mac or web app.
 2. The web app immediately creates or reuses the capture's stable capability URL.
 3. In the background, the worker reads the synchronized personal Drive copy, or an
-   iCloud-authorized client sends only the selected Markdown variants. Complete
-   existing narration is copied from the selected provider when available.
+   iCloud-authorized client sends only the selected summary variants.
 4. **Update link** creates a new atomic generation while keeping the URL stable.
 5. **Stop sharing** deletes the D1 record, text variants, and corresponding R2
    objects, making the link unavailable.
@@ -47,16 +44,8 @@ as the background publication completes.
 
 ## Recipient experience
 
-The public reader works without an account and provides the same conciseness
-selector as the personal library. If published audio exists, it plays those
-segments; otherwise the reader may use device speech without persisting it.
-
-**Add to my library** requires the recipient to sign in and authorize their selected
-iCloud or Google Drive provider. It creates an independent capture with a new
-capture ID, writes the source and summaries into the recipient's normal `library/`
-structure, and copies published narration into the recipient's private provider.
-Later updates or revocation of the share do not change an already imported
-personal copy.
+The public reader works without an account, provides the summary conciseness
+selector, and links back to the original source.
 
 ## Security properties
 

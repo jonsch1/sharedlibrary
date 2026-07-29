@@ -50,14 +50,12 @@
 	import {
 		emptyICloudLibraryMessage,
 		fetchICloudLibraryFile,
-		fetchICloudLibraryMediaURL,
 		iCloudIdentity,
 		syncICloudLibrary,
 		type SyncProvider
 	} from '$lib/icloud.js';
 	import {
 		loadShareLinkStatus,
-		publishShareAudio,
 		publishShareLink,
 		revokeShareLink,
 		type ShareLinkSource,
@@ -550,12 +548,6 @@
 				syncProvider === 'icloud' ? await shareSourceFromICloud(target) : undefined;
 			const result = await publishShareLink(captureID, source);
 			shareLink = result;
-			try {
-				await publishSharedAudio(target, result);
-			} catch (error) {
-				shareError =
-					error instanceof Error ? error.message : 'Could not include the document audio.';
-			}
 			if (result.url) {
 				posthog.capture('share_link_created', { provider: syncProvider });
 				connectionMessage = 'Share link created. The document is being prepared.';
@@ -574,7 +566,7 @@
 			target.texts
 				.filter(
 					(reference): reference is typeof reference & { variant: LibraryVariant } =>
-						libraryVariants.includes(reference.variant)
+						libraryVariants.includes(reference.variant) && reference.variant !== 'source'
 				)
 				.map(async (reference) => ({
 					variant: reference.variant,
@@ -598,33 +590,6 @@
 			updatedAt: target.updatedAt,
 			texts
 		};
-	}
-
-	async function publishSharedAudio(
-		target: LibraryEntry,
-		share: ShareLinkStatus
-	): Promise<void> {
-		const audioURL = target.audio
-			? syncProvider === 'icloud'
-				? await fetchICloudLibraryMediaURL(target.audio)
-				: null
-			: target.mediaURL;
-		if (!audioURL) return;
-		const response = await fetch(audioURL);
-		if (!response.ok) throw new Error('Could not read the document audio.');
-		const bytes = await response.arrayBuffer();
-		const hash =
-			target.audio?.contentHash ??
-			Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
-				byte.toString(16).padStart(2, '0')
-			).join('');
-		await publishShareAudio(
-			share,
-			hash,
-			new Blob([bytes], {
-				type: response.headers.get('Content-Type') ?? target.audio?.contentType ?? 'audio/mpeg'
-			})
-		);
 	}
 
 	async function watchShareLink(captureID: string): Promise<void> {
@@ -1330,7 +1295,7 @@
 					<div class="share-empty text-muted-foreground!">
 						<Share2Icon />
 						<p>Publish this document as an unguessable, forwardable link.</p>
-						<span>The reader includes every available summary level.</span>
+						<span>The reader includes summaries and a link to the original source.</span>
 					</div>
 				{/if}
 			</div>

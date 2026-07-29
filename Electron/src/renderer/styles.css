@@ -1921,10 +1921,33 @@ button:disabled {
   overflow-y: auto;
 }
 
+.podcast-agent-callout {
+  display: flex;
+  width: min(832px, calc(100% - 68px));
+  margin: 28px auto 0;
+  padding: 14px 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.podcast-agent-callout p {
+  max-width: 620px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.podcast-agent-callout button {
+  flex: 0 0 auto;
+}
+
 .podcast-document {
   width: min(900px, 100%);
   margin: 0 auto;
-  padding: clamp(42px, 7vh, 76px) 34px 48px;
+  padding: clamp(30px, 5vh, 58px) 34px 48px;
 }
 
 .podcast-document-title,
@@ -1999,6 +2022,12 @@ button:disabled {
 
   .podcast-document-actions {
     overflow-x: auto;
+  }
+
+  .podcast-agent-callout {
+    width: calc(100% - 48px);
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .podcast-document {

@@ -56,12 +56,13 @@ and the original source. **Reorganize** regenerates summaries and re-evaluates t
 topic. Moving a content item to Trash moves the source and every companion summary
 together.
 
-## Agent research API
+## Agent API
 
 While the desktop app is running it exposes an authenticated, loopback-only API for
-deep-research agents. The app installs the `briefly-deep-research` skill into
-the selected workspace at `.agents/skills/` and writes the ephemeral connection to
-`.shared-library/agent-api.json`. Neither file is included in the Drive mirror.
+coding agents. The app installs its research, input-extension, and audio-briefing
+skills into the selected workspace at `.agents/skills/` and writes the ephemeral
+connection to `.shared-library/agent-api.json`. Neither file is included in the
+Drive mirror.
 
 The skill makes the approval boundary explicit: the agent first proposes an exact URL
 list, waits for the user to approve it, then creates or reuses a topic and submits the
@@ -72,6 +73,12 @@ to the agent. Failed or replacement sources require a new approval cycle.
 The API includes topic listing/creation, approved batch URL ingestion, asynchronous
 job polling, and topic-item reads at any summary depth. Requests use a per-launch
 bearer token from the connection file and are accepted only on `127.0.0.1`.
+
+For audio briefings, the agent reads podcast definitions and used-source keys,
+uses Briefly's extractor for known URLs, and uses the signed-in browser only for
+discovery or extraction fallbacks on sites such as Reddit and X. It submits exact
+source permalinks with the finished script; Briefly stores the linked episode,
+deduplicates repeated source sets, and generates its audio.
 
 ## Workspace input extensions
 
@@ -93,12 +100,12 @@ library mirror.
 
 The Share button opens the web reader for the selected capture. Publishing creates
 a stable, 192-bit capability link that is intentionally forwardable and impractical
-to guess. The public reader includes every available conciseness level.
+to guess. The public reader includes every available summary level and a source
+link, but never the captured original text or its narration.
 
 Share metadata and Markdown live in D1. Updating a link replaces its current
-revision. Stopping sharing deletes its records. A recipient can read without an account or sign in and choose
-**Add to my library**, which creates an independent capture in their personal
-Google Drive.
+revision. Stopping sharing deletes its records. A recipient can read without an
+account.
 
 ## Cloud synchronization
 

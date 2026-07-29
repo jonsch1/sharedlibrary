@@ -195,6 +195,19 @@ class MockStatement {
 					) ?? null
 				);
 			}
+			if (this.sql.includes('FROM content_reports')) {
+				if (this.sql.includes('owner_email = ? AND capture_id = ?')) {
+					return (
+						[...this.database.contentReports.values()].find(
+							(record) =>
+								record.owner_email === this.arguments[0] &&
+								record.capture_id === this.arguments[1] &&
+								record.status === 'removed'
+						) ?? null
+					);
+				}
+				return this.database.contentReports.get(this.arguments[0]) ?? null;
+			}
 		if (this.sql.includes('FROM share_links')) {
 			if (this.sql.includes('owner_email = ? AND capture_id = ?')) {
 				return (
@@ -302,6 +315,22 @@ class MockStatement {
 					)
 			};
 		}
+		if (this.sql.includes('FROM content_reports')) {
+			return {
+				results: [...this.database.contentReports.values()].sort(
+					(left, right) =>
+						Number(left.status !== 'open') - Number(right.status !== 'open') ||
+						right.created_at - left.created_at
+				)
+			};
+		}
+		if (this.sql.includes('FROM share_media_deletions')) {
+			return {
+				results: [...this.database.shareMediaDeletions.values()]
+					.sort((left, right) => left.created_at - right.created_at)
+					.slice(0, 1000)
+			};
+		}
 		if (this.sql.includes('FROM tts_usage')) {
 			return {
 				results: [...this.database.ttsUsage.values()]
@@ -347,6 +376,67 @@ class MockStatement {
 
 	async run() {
 		let changes = 0;
+			if (this.sql.includes('INSERT INTO content_reports')) {
+				const [
+					id,
+					shareToken,
+					ownerEmail,
+					captureID,
+					shareTitle,
+					reportedURL,
+					variant,
+					category,
+					reporterName,
+					reporterEmail,
+					workDescription,
+					explanation,
+					createdAt
+				] = this.arguments;
+				this.database.contentReports.set(id, {
+					id,
+					share_token: shareToken,
+					owner_email: ownerEmail,
+					capture_id: captureID,
+					share_title: shareTitle,
+					reported_url: reportedURL,
+					variant,
+					category,
+					reporter_name: reporterName,
+					reporter_email: reporterEmail,
+					work_description: workDescription,
+					explanation,
+					status: 'open',
+					created_at: createdAt,
+					resolved_at: null
+				});
+				changes = 1;
+			}
+			if (this.sql.includes('UPDATE content_reports')) {
+				const report = this.database.contentReports.get(this.arguments[1]);
+				if (report) {
+					report.status = this.sql.includes("'removed'") ? 'removed' : 'no-action';
+					report.resolved_at = this.arguments[0];
+					changes = 1;
+				}
+			}
+			if (this.sql.includes('INSERT OR IGNORE INTO share_media_deletions')) {
+				const [createdAt, shareToken] = this.arguments;
+				for (const segment of this.database.shareAudioSegments) {
+					if (
+						shareToken === undefined ||
+						segment.share_token === shareToken
+					) {
+						this.database.shareMediaDeletions.set(segment.r2_key, {
+							r2_key: segment.r2_key,
+							created_at: createdAt
+						});
+						changes += 1;
+					}
+				}
+			}
+			if (this.sql.includes('DELETE FROM share_media_deletions')) {
+				changes = Number(this.database.shareMediaDeletions.delete(this.arguments[0]));
+			}
 			if (this.sql.includes('INSERT INTO feedback_items')) {
 				const [id, userEmail, title, details, createdAt] = this.arguments;
 				const total = [...this.database.feedbackItems.values()].filter(
@@ -899,12 +989,39 @@ class MockStatement {
 		}
 		if (this.sql.includes("SET status = 'failed'")) {
 			const record = this.database.shareLinks.get(this.arguments[2]);
-			if (record && record.generation === this.arguments[3]) {
+			if (
+				record &&
+				(this.arguments.length === 3 || record.generation === this.arguments[3])
+			) {
 				record.status = 'failed';
 				record.error_message = this.arguments[0];
 				record.updated_at = this.arguments[1];
 				changes = 1;
 			}
+		}
+		if (this.sql.includes('DELETE FROM share_audio_segments')) {
+			const before = this.database.shareAudioSegments.length;
+			this.database.shareAudioSegments = this.database.shareAudioSegments.filter(
+				(row) =>
+					row.share_token !== this.arguments[0] ||
+					(this.sql.includes('generation <> ?') &&
+						row.generation === this.arguments[1]) ||
+					(this.sql.includes('generation = ?') &&
+						row.generation !== this.arguments[1])
+			);
+			changes = before - this.database.shareAudioSegments.length;
+		}
+		if (this.sql.includes('DELETE FROM share_texts')) {
+			const before = this.database.shareTexts.length;
+			this.database.shareTexts = this.database.shareTexts.filter(
+				(row) =>
+					row.share_token !== this.arguments[0] ||
+					(this.sql.includes('generation <> ?') &&
+						row.generation === this.arguments[1]) ||
+					(this.sql.includes('generation = ?') &&
+						row.generation !== this.arguments[1])
+			);
+			changes = before - this.database.shareTexts.length;
 		}
 			if (this.sql.includes('INSERT OR IGNORE INTO billing_customers')) {
 				const [userEmail, accountID, createdAt, updatedAt] = this.arguments;
@@ -1099,6 +1216,8 @@ class MockDatabase {
 	shareLinks = new Map();
 	shareTexts = [];
 	shareAudioSegments = [];
+	shareMediaDeletions = new Map();
+	contentReports = new Map();
 	stripeWebhookEvents = new Map();
 	billingCustomers = new Map();
 	billingSubscriptions = new Map();
@@ -2266,9 +2385,9 @@ test('iCloud clients publish the selected document without routing private files
 	assert.equal(document.title, 'iCloud note');
 	assert.deepEqual(
 		document.texts.map((text) => text.variant),
-		['concise', 'source']
+		['concise']
 	);
-	assert.equal(JSON.stringify(document).includes('Private source.'), true);
+	assert.equal(JSON.stringify(document).includes('Private source.'), false);
 });
 
 test('public share imports are no longer exposed', async () => {
@@ -2379,7 +2498,7 @@ test('an account can update at 100 active links but cannot publish a 101st', asy
 	await backgroundTask;
 });
 
-test('a ready share document is readable anonymously at all stored conciseness levels', async () => {
+test('a ready share exposes summaries but not stored source text or narration', async () => {
 	const database = new MockDatabase();
 	const token = 'A'.repeat(32);
 	database.shareLinks.set(token, {
@@ -2444,28 +2563,133 @@ test('a ready share document is readable anonymously at all stored conciseness l
 	assert.equal(document.revision, 2);
 	assert.deepEqual(
 		document.texts.map((text) => [text.variant, text.markdown]),
-		[
-			['brief', 'Brief text'],
-			['source', 'Original text']
-		]
+		[['brief', 'Brief text']]
 	);
-	assert.deepEqual(document.audio, [
-		{
-			variant: 'source',
-			index: 0,
-			contentType: 'audio/mpeg',
-			byteCount: 3,
-			url: `/api/public/shares/${token}/audio/source/0`
-		}
-	]);
+	assert.equal('audio' in document, false);
 
 	const audio = await worker.fetch(
 		new Request(`https://library.example/api/public/shares/${token}/audio/source/0`),
 		env
 	);
-	assert.equal(audio.status, 200);
-	assert.equal(audio.headers.get('Content-Type'), 'audio/mpeg');
-	assert.deepEqual([...new Uint8Array(await audio.arrayBuffer())], [1, 2, 3]);
+	assert.equal(audio.status, 404);
+});
+
+test('public content reports are acknowledged, reviewable, and can remove a share', async () => {
+	const database = new MockDatabase();
+	const token = 'R'.repeat(32);
+	database.shareLinks.set(token, {
+		token,
+		owner_email: 'reader@example.com',
+		capture_id: 'capture-reported',
+		generation: 'generation-1',
+		revision: 1,
+		status: 'ready',
+		metadata_json: JSON.stringify({ title: 'Reported research' }),
+		source_filename: 'reported.md',
+		voice: 'eve',
+		error_message: null,
+		created_at: '2026-07-29T10:00:00Z',
+		updated_at: '2026-07-29T10:00:00Z'
+	});
+	database.shareTexts = [
+		{
+			share_token: token,
+			generation: 'generation-1',
+			variant: 'concise',
+			markdown: 'Reported summary',
+			word_count: 2
+		}
+	];
+	database.shareAudioSegments = [
+		{
+			share_token: token,
+			generation: 'generation-1',
+			variant: 'source',
+			segment_index: 0,
+			r2_key: 'shares/reported-source.mp3',
+			content_type: 'audio/mpeg',
+			byte_count: 3
+		}
+	];
+	const deleted = [];
+	const env = environment(database);
+	env.SHARE_MEDIA = {
+		async delete(key) {
+			deleted.push(key);
+		}
+	};
+
+	const submitted = await worker.fetch(
+		new Request(`https://library.example/api/public/shares/${token}/reports`, {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				category: 'copyright',
+				variant: 'concise',
+				reporterName: 'Rights Holder',
+				reporterEmail: 'rights@example.com',
+				workDescription: 'The original article at https://publisher.example/work',
+				explanation: 'The summary reproduces protected expression without permission.',
+				goodFaith: true
+			})
+		}),
+		env
+	);
+	assert.equal(submitted.status, 201);
+	const receipt = await submitted.json();
+	assert.match(receipt.id, /^[0-9a-f-]{36}$/);
+	assert.equal(database.contentReports.get(receipt.id).status, 'open');
+
+	database.sessionEmail = 'schauljonathan@gmail.com';
+	const listed = await worker.fetch(
+		authenticatedRequest('/api/admin/content-reports'),
+		env
+	);
+	assert.equal(listed.status, 200);
+	assert.equal((await listed.json()).reports[0].reporterEmail, 'rights@example.com');
+
+	let cleanup;
+	const removed = await worker.fetch(
+		authenticatedRequest('/api/admin/content-reports', {
+			method: 'PATCH',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ id: receipt.id, decision: 'removed' })
+		}),
+		env,
+		{
+			waitUntil(task) {
+				cleanup = task;
+			}
+		}
+	);
+	assert.equal(removed.status, 200);
+	await cleanup;
+	assert.equal(database.contentReports.get(receipt.id).status, 'removed');
+	assert.equal(database.shareLinks.get(token).status, 'failed');
+	assert.equal(database.shareTexts.length, 0);
+	assert.equal(database.shareAudioSegments.length, 0);
+	assert.deepEqual(deleted, ['shares/reported-source.mp3']);
+
+	database.sessionEmail = 'reader@example.com';
+	const republish = await worker.fetch(
+		authenticatedRequest('/api/share-links', {
+			method: 'POST',
+			headers: {
+				Origin: 'https://library.example',
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({ captureID: 'capture-reported' })
+		}),
+		entitledEnvironment(database)
+	);
+	assert.equal(republish.status, 403);
+	assert.match((await republish.json()).error, /content report/);
 });
 
 test('Google authorization uses the central web client with each user account', async () => {

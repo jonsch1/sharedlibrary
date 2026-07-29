@@ -1,0 +1,4 @@
+interface:
+  display_name: "Briefly Audio Briefing"
+  short_description: "Create source-linked private audio briefings"
+  default_prompt: "Use $briefly-audio-briefing to create an audio briefing from new source updates."

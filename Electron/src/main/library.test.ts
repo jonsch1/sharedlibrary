@@ -44,10 +44,12 @@ test('stores and indexes podcast WAV audio with its episode', async () => {
       title: 'Daily AI — today',
       body: 'Episode script.',
       sources: ['https://example.com/feed'],
-      sourceIDs: ['personal:source-1'],
-      audio: wav
+      sourceIDs: ['personal:source-1']
     });
-    const entry = (await service.snapshot()).entries.find(({ id }) => id === entryID);
+    let entry = (await service.snapshot()).entries.find(({ id }) => id === entryID);
+    assert.equal(entry?.hasAudio, false);
+    await service.attachPodcastAudio(entryID, wav);
+    entry = (await service.snapshot()).entries.find(({ id }) => id === entryID);
     assert.equal(entry?.hasAudio, true);
     assert.deepEqual(entry?.sourceIDs, ['personal:source-1']);
     assert.deepEqual(entry?.sourceURLs, ['https://example.com/feed']);

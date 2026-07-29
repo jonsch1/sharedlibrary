@@ -171,6 +171,15 @@
     }
   }
 
+  async function openAgent(): Promise<void> {
+    try {
+      await window.sharedLibrary.openAgent();
+      onmessage('Opened a coding agent in this workspace.');
+    } catch (error) {
+      onmessage(error instanceof Error ? error.message : 'The coding agent could not be opened.');
+    }
+  }
+
   async function remove(): Promise<void> {
     if (!selected || !window.confirm(`Move “${selected.title}” to Trash?`)) return;
     busy = true;
@@ -239,6 +248,19 @@
   </header>
 
   <div class="podcast-document-scroll">
+    <aside class="podcast-agent-callout border-border! bg-muted!">
+      <div>
+        <strong>Recommended: set up with a coding agent</strong>
+        <p class="text-muted-foreground!">
+          Briefly extracts feeds and public pages. Codex can also discover updates
+          through your signed-in browser on Reddit, X, and other social sites.
+        </p>
+      </div>
+      <button
+        class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
+        onclick={openAgent}
+      ><Sparkles /> Open coding agent</button>
+    </aside>
     <section class="podcast-document">
       <input
         class="podcast-document-title text-foreground! placeholder:text-muted-foreground!"
@@ -265,7 +287,9 @@
           placeholder={"https://example.com/feed.xml\nhttps://youtube.com/@channel\narxiv:AI agents"}
           spellcheck="false"
         ></textarea>
-        <small class="text-muted-foreground!">One source per line</small>
+        <small class="text-muted-foreground!">
+          One source per line. Keep agent-managed podcasts on Manual.
+        </small>
       </label>
 
       {#if selected}

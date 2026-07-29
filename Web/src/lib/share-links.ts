@@ -40,14 +40,6 @@ export interface PublicShareText {
 	wordCount: number;
 }
 
-export interface PublicShareAudio {
-	variant: LibraryVariant;
-	index: number;
-	contentType: string;
-	byteCount: number;
-	url: string;
-}
-
 export interface PublicShareDocument {
 	status: 'ready';
 	token: string;
@@ -62,12 +54,23 @@ export interface PublicShareDocument {
 	createdAt?: string;
 	updatedAt?: string;
 	texts: PublicShareText[];
-	audio: PublicShareAudio[];
 }
 
 export interface PendingPublicShare {
 	status: 'preparing' | 'failed';
 	error?: string;
+}
+
+export type ContentReportCategory = 'copyright' | 'privacy' | 'child-safety' | 'other';
+
+export interface ContentReport {
+	category: ContentReportCategory;
+	variant?: LibraryVariant;
+	reporterName?: string;
+	reporterEmail?: string;
+	workDescription?: string;
+	explanation: string;
+	goodFaith: boolean;
 }
 
 async function responseError(response: Response, fallback: string): Promise<string> {
@@ -121,25 +124,6 @@ export async function publishShareLink(
 	return (await response.json()) as ShareLinkStatus;
 }
 
-export async function publishShareAudio(
-	share: Pick<ShareLinkStatus, 'token' | 'generation'>,
-	hash: string,
-	audio: Blob
-): Promise<void> {
-	if (!share.token || !share.generation) return;
-	const response = await fetch(
-		`/api/share-links/${encodeURIComponent(share.token)}/audio/${encodeURIComponent(share.generation)}/source/0/${hash}`,
-		{
-			method: 'PUT',
-			headers: { 'Content-Type': audio.type || 'audio/mpeg' },
-			body: audio
-		}
-	);
-	if (!response.ok) {
-		throw new Error(await responseError(response, 'Could not include the document audio.'));
-	}
-}
-
 export async function revokeShareLink(token: string): Promise<void> {
 	const response = await fetch(`/api/share-links/${encodeURIComponent(token)}`, {
 		method: 'DELETE',
@@ -164,4 +148,19 @@ export async function loadPublicShare(
 		throw new Error(await responseError(response, 'This share link is unavailable.'));
 	}
 	return (await response.json()) as PublicShareDocument;
+}
+
+export async function submitContentReport(
+	token: string,
+	report: ContentReport
+): Promise<{ id: string; receivedAt: string }> {
+	const response = await fetch(`/api/public/shares/${encodeURIComponent(token)}/reports`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+		body: JSON.stringify(report)
+	});
+	if (!response.ok) {
+		throw new Error(await responseError(response, 'The report could not be submitted.'));
+	}
+	return (await response.json()) as { id: string; receivedAt: string };
 }

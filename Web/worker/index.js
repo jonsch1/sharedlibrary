@@ -24,7 +24,9 @@ const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
 const maximumActiveShareLinks = 100;
 const maximumFeedbackItemsPerAccount = 10;
 const maximumFeedbackItemsPerDay = 3;
+const maximumContentReportsPerSharePerDay = 20;
 const emailAddressPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const contentReportCategories = new Set(['copyright', 'privacy', 'child-safety', 'other']);
 const serviceUsageLimits = {
 	transcription: {
 		dailyUnits: 8 * 60 * 60,
@@ -3971,13 +3973,11 @@ function mediaExtension(contentType) {
 	}[contentType] || 'bin';
 }
 
-const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive', 'source'];
-const maximumShareSpeechSegmentLength = 360;
+const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive'];
+const shareInputVariants = [...shareVariants, 'source'];
 const maximumShareDocumentBytes = 1_000_000;
 const maximumSharePayloadBytes = 3_000_000;
 const maximumShareTextBytesPerAccount = 100_000_000;
-const maximumShareAudioBytes = 100_000_000;
-const maximumShareAudioBytesPerAccount = 2_000_000_000;
 
 function validShareToken(value) {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
@@ -4018,7 +4018,7 @@ function directShareSource(value, captureID) {
 		!/^[^/\\]{1,255}\.md$/i.test(value.filename) ||
 		!Array.isArray(value.texts) ||
 		value.texts.length < 1 ||
-		value.texts.length > shareVariants.length
+		value.texts.length > shareInputVariants.length
 	) {
 		throw new Error('The selected document is invalid.');
 	}
@@ -4031,29 +4031,29 @@ function directShareSource(value, captureID) {
 		if (
 			typeof document !== 'object' ||
 			document === null ||
-			!shareVariants.includes(document.variant) ||
+			!shareInputVariants.includes(document.variant) ||
 			variants.has(document.variant) ||
 			typeof document.markdown !== 'string'
 		) {
 			throw new Error('The selected document is invalid.');
 		}
 		const byteCount = new TextEncoder().encode(document.markdown).byteLength;
-		totalBytes += byteCount;
-		if (byteCount > maximumShareDocumentBytes || totalBytes > maximumSharePayloadBytes) {
+		if (byteCount > maximumShareDocumentBytes) {
 			throw new Error('The selected document is too large to share.');
 		}
 		variants.add(document.variant);
+		if (document.variant === 'source') continue;
+		totalBytes += byteCount;
+		if (totalBytes > maximumSharePayloadBytes) {
+			throw new Error('The selected document is too large to share.');
+		}
 		documents.push({
 			variant: document.variant,
 			markdown: document.markdown,
-			wordCount: wordCount(
-				document.variant === 'source'
-					? parsedMarkdownDocument(document.markdown, title).body
-					: document.markdown
-			)
+			wordCount: wordCount(document.markdown)
 		});
 	}
-	if (!variants.has('source')) throw new Error('The selected document has no source text.');
+	if (!documents.length) throw new Error('The selected document has no summary to share.');
 	return {
 		entry: {
 			captureID,
@@ -4089,18 +4089,6 @@ async function ownerShareTextBytes(env, email, excludedToken) {
 		 FROM share_texts text
 		 JOIN share_links link ON link.token = text.share_token
 		 WHERE link.owner_email = ? AND text.share_token <> ?`
-	)
-		.bind(email, excludedToken)
-		.first();
-	return Number(row?.byte_count ?? 0);
-}
-
-async function ownerShareAudioBytes(env, email, excludedToken) {
-	const row = await env.DB.prepare(
-		`SELECT COALESCE(SUM(audio.byte_count), 0) AS byte_count
-		 FROM share_audio_segments audio
-		 JOIN share_links link ON link.token = audio.share_token
-		 WHERE link.owner_email = ? AND audio.share_token <> ?`
 	)
 		.bind(email, excludedToken)
 		.first();
@@ -4162,94 +4150,6 @@ function shareLinkResponse(request, record) {
 		voice: record.voice,
 		updatedAt: record.updated_at
 	};
-}
-
-function shareSpokenText(markdown) {
-	return String(markdown ?? '')
-		.replace(/^---[\s\S]*?---\s*/m, '')
-		.replace(/```[\s\S]*?```/g, ' ')
-		.replace(/`([^`]+)`/g, '$1')
-		.replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
-		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-		.replace(/^#{1,6}\s+/gm, '')
-		.replace(/^>\s?/gm, '')
-		.replace(/^[*-]\s+/gm, '')
-		.replace(/^\d+\.\s+/gm, '')
-		.replace(/[*_~]/g, '')
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-function shareSpeechChunks(text) {
-	const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [text];
-	const chunks = [];
-	let current = '';
-	const flush = () => {
-		if (current.trim()) chunks.push(current.trim());
-		current = '';
-	};
-	for (const sentence of sentences) {
-		const trimmed = sentence.trim();
-		if (!trimmed) continue;
-		if (trimmed.length > maximumShareSpeechSegmentLength) {
-			flush();
-			let remaining = trimmed;
-			while (remaining.length > maximumShareSpeechSegmentLength) {
-				const candidate = remaining.slice(0, maximumShareSpeechSegmentLength + 1);
-				const wordBoundary = candidate.lastIndexOf(' ');
-				const splitAt =
-					wordBoundary >= Math.floor(maximumShareSpeechSegmentLength * 0.6)
-						? wordBoundary
-						: maximumShareSpeechSegmentLength;
-				chunks.push(remaining.slice(0, splitAt).trim());
-				remaining = remaining.slice(splitAt).trim();
-			}
-			if (remaining) current = remaining;
-		} else if (
-			current &&
-			current.length + trimmed.length + 1 > maximumShareSpeechSegmentLength
-		) {
-			flush();
-			current = trimmed;
-		} else {
-			current = current ? `${current} ${trimmed}` : trimmed;
-		}
-	}
-	flush();
-	return chunks;
-}
-
-async function shareAudioFingerprint(text, voice, model) {
-	return sha256Hex(`${model}\n${voice}\n${text}`);
-}
-
-async function driveAudioFilesByHash(env, email) {
-	const files = new Map();
-	let pageToken;
-	do {
-		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set(
-			'q',
-			"appProperties has { key='sharedLibraryKind' and value='audio' } and trashed=false"
-		);
-		url.searchParams.set(
-			'fields',
-			'nextPageToken,files(id,mimeType,size,appProperties)'
-		);
-		url.searchParams.set('pageSize', '1000');
-		if (pageToken) url.searchParams.set('pageToken', pageToken);
-		const response = await googleDriveRequest(env, email, url);
-		if (!response.ok) {
-			throw new Error(`Google Drive narration could not be listed (${response.status}).`);
-		}
-		const value = await response.json();
-		for (const file of value.files ?? []) {
-			const hash = file.appProperties?.sharedLibraryHash;
-			if (/^[a-f0-9]{64}$/.test(hash || '')) files.set(hash, file);
-		}
-		pageToken = value.nextPageToken;
-	} while (pageToken);
-	return files;
 }
 
 async function loadPersonalShareAfterDriveSync(env, email, captureID) {
@@ -4339,17 +4239,11 @@ async function prepareShareLink(
 				documents.push({
 					variant: reference.variant,
 					markdown,
-					wordCount: wordCount(
-						reference.variant === 'source'
-							? parsedMarkdownDocument(markdown, personal.entry.title).body
-							: markdown
-					)
+					wordCount: wordCount(markdown)
 				});
 			}
 		}
-		if (!documents.some((document) => document.variant === 'source')) {
-			throw new Error('The source document is unavailable.');
-		}
+		if (!documents.length) throw new Error('No summary is available to share.');
 		const textBytes = validateShareDocuments(documents);
 		if (
 			(await ownerShareTextBytes(env, email, token)) + textBytes >
@@ -4372,47 +4266,6 @@ async function prepareShareLink(
 					document.wordCount
 				)
 				.run();
-		}
-
-		if (!directSource && personal.entry.audio?.kind === 'audio' && env.SHARE_MEDIA) {
-			const hash = personal.entry.audio.contentHash;
-			const found = await findDriveMedia(env, email, { kind: 'audio', hash });
-			if (found.response) throw new Error('The document audio could not be read.');
-			if (found.file) {
-				const bytes = await downloadDriveFile(env, email, found.file.id);
-				if (
-					!bytes.byteLength ||
-					bytes.byteLength > maximumShareAudioBytes ||
-					(await ownerShareAudioBytes(env, email, token)) + bytes.byteLength >
-						maximumShareAudioBytesPerAccount
-				) {
-					throw new Error('This account has reached its public audio storage limit.');
-				}
-				if ((await sha256Hex(bytes)) !== hash) {
-					throw new Error('The document audio did not match the library index.');
-				}
-				const contentType = found.file.mimeType || personal.entry.audio.contentType;
-				const r2Key = `shares/${token}/${generation}/source/0-${hash}.mp3`;
-				await env.SHARE_MEDIA.put(r2Key, bytes, { httpMetadata: { contentType } });
-				await env.DB.prepare(
-					`INSERT OR REPLACE INTO share_audio_segments (
-						share_token, generation, variant, segment_index, audio_hash,
-						r2_key, content_type, byte_count, voice
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-				)
-					.bind(
-						token,
-						generation,
-						'source',
-						0,
-						hash,
-						r2Key,
-						contentType,
-						bytes.byteLength,
-						'source'
-					)
-					.run();
-			}
 		}
 
 		const metadata = {
@@ -4458,71 +4311,6 @@ async function prepareShareLink(
 	}
 }
 
-async function uploadShareAudio(request, env, token, generation, variant, index, hash) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	if (
-		!/^[a-f0-9-]{36}$/.test(generation) ||
-		variant !== 'source' ||
-		index !== 0 ||
-		!/^[a-f0-9]{64}$/.test(hash)
-	) {
-		return json({ error: 'Invalid narration segment.' }, { status: 400 });
-	}
-	const record = await shareLinkByToken(env, token);
-	if (!record || record.owner_email !== email) {
-		return json({ error: 'Share link not found.' }, { status: 404 });
-	}
-	if (record.generation !== generation) {
-		return json({ error: 'This share link has been updated.' }, { status: 409 });
-	}
-	if (!env.SHARE_MEDIA) {
-		return json({ error: 'Shared narration storage is unavailable.' }, { status: 503 });
-	}
-	const contentType = request.headers.get('Content-Type') || 'audio/mpeg';
-	if (!contentType.startsWith('audio/')) {
-		return json({ error: 'Only audio narration can be shared.' }, { status: 400 });
-	}
-	const bytes = await request.arrayBuffer();
-	if (!bytes.byteLength || bytes.byteLength > maximumShareAudioBytes) {
-		return json({ error: 'Shared audio must be between 1 byte and 100 MB.' }, { status: 413 });
-	}
-	if (
-		(await ownerShareAudioBytes(env, email, token)) + bytes.byteLength >
-		maximumShareAudioBytesPerAccount
-	) {
-		return json(
-			{ error: 'This account has reached its public audio storage limit.' },
-			{ status: 413 }
-		);
-	}
-	if ((await sha256Hex(bytes)) !== hash) {
-		return json({ error: 'The shared audio hash does not match its content.' }, { status: 400 });
-	}
-	const r2Key = `shares/${token}/${generation}/${variant}/${index}-${hash}.mp3`;
-	await env.SHARE_MEDIA.put(r2Key, bytes, { httpMetadata: { contentType } });
-	await env.DB.prepare(
-		`INSERT OR REPLACE INTO share_audio_segments (
-			share_token, generation, variant, segment_index, audio_hash,
-			r2_key, content_type, byte_count, voice
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	)
-		.bind(
-			token,
-			generation,
-			variant,
-			index,
-			hash,
-			r2Key,
-			contentType,
-			bytes.byteLength,
-			'source'
-		)
-		.run();
-	return json({ saved: true });
-}
-
 async function ownerShareLinkStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
@@ -4543,6 +4331,201 @@ async function ownerShareLinkStatus(request, env) {
 	return json(shareLinkResponse(request, await shareLinkForOwner(env, email, captureID)));
 }
 
+function contentReportString(value, maximumLength, required = false) {
+	if (value === undefined || value === null) {
+		if (required) throw new Error('Complete every required report field.');
+		return undefined;
+	}
+	if (typeof value !== 'string') throw new Error('The report contains invalid text.');
+	const result = value.trim();
+	if ((required && !result) || result.length > maximumLength) {
+		throw new Error('The report contains invalid text.');
+	}
+	return result || undefined;
+}
+
+async function publicContentReport(request, env, token) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const share = await shareLinkByToken(env, token);
+	if (!share) return json({ error: 'This share link is no longer available.' }, { status: 404 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid content report.' }, { status: 400 });
+	}
+	try {
+		const category = contentReportString(value?.category, 32, true);
+		if (!contentReportCategories.has(category)) throw new Error('Choose a valid report reason.');
+		const childSafety = category === 'child-safety';
+		const reporterName = contentReportString(value?.reporterName, 200, !childSafety);
+		const reporterEmail = contentReportString(value?.reporterEmail, 254, !childSafety);
+		if (reporterEmail && !emailAddressPattern.test(reporterEmail)) {
+			throw new Error('Enter a valid email address.');
+		}
+		const workDescription = contentReportString(
+			value?.workDescription,
+			2_000,
+			category === 'copyright'
+		);
+		const explanation = contentReportString(value?.explanation, 5_000, true);
+		const variant = value?.variant;
+		if (variant !== undefined && !shareVariants.includes(variant)) {
+			throw new Error('Choose a valid document version.');
+		}
+		if (value?.goodFaith !== true) {
+			throw new Error('Confirm that the report is accurate and complete.');
+		}
+		let metadata = {};
+		try {
+			metadata = JSON.parse(share.metadata_json ?? '{}');
+		} catch {
+			metadata = {};
+		}
+		const id = crypto.randomUUID();
+		const createdAt = Date.now();
+		const inserted = await env.DB.prepare(
+			`INSERT INTO content_reports (
+				id, share_token, owner_email, capture_id, share_title, reported_url,
+				variant, category, reporter_name, reporter_email, work_description,
+				explanation, status, created_at
+			)
+			SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?
+			WHERE (
+				SELECT COUNT(*) FROM content_reports
+				WHERE share_token = ? AND created_at >= ?
+			) < ?`
+		)
+			.bind(
+				id,
+				token,
+				share.owner_email,
+				share.capture_id,
+				String(metadata.title ?? 'Shared document').slice(0, 500),
+				shareLinkURL(request, token),
+				variant ?? null,
+				category,
+				reporterName ?? null,
+				reporterEmail ?? null,
+				workDescription ?? null,
+				explanation,
+				createdAt,
+				token,
+				createdAt - 24 * 60 * 60 * 1000,
+				maximumContentReportsPerSharePerDay
+			)
+			.run();
+		if (databaseChanges(inserted) !== 1) {
+			return json(
+				{ error: 'This share has received many recent reports. Email hello@readbriefly.fyi.' },
+				{ status: 429 }
+			);
+		}
+		return json({ id, receivedAt: new Date(createdAt).toISOString() }, { status: 201 });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'Invalid content report.' },
+			{ status: 400 }
+		);
+	}
+}
+
+async function cleanShareMediaDeletions(env) {
+	if (!env.SHARE_MEDIA) return;
+	const result = await env.DB.prepare(
+		'SELECT r2_key FROM share_media_deletions ORDER BY created_at LIMIT 1000'
+	).all();
+	for (const entry of result.results ?? []) {
+		await env.SHARE_MEDIA.delete(entry.r2_key);
+		await env.DB.prepare('DELETE FROM share_media_deletions WHERE r2_key = ?')
+			.bind(entry.r2_key)
+			.run();
+	}
+}
+
+async function adminContentReports(request, env, context) {
+	const administrator = await administratorRequest(request, env);
+	if (administrator.response) return administrator.response;
+	if (request.method === 'GET') {
+		const result = await env.DB.prepare(
+			`SELECT id, share_token, owner_email, capture_id, share_title, reported_url,
+			        variant, category, reporter_name, reporter_email, work_description,
+			        explanation, status, created_at, resolved_at
+			 FROM content_reports
+			 ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, created_at DESC
+			 LIMIT 100`
+		).all();
+		return json({
+			reports: (result.results ?? []).map((report) => ({
+				id: report.id,
+				shareToken: report.share_token,
+				ownerEmail: report.owner_email,
+				captureID: report.capture_id,
+				shareTitle: report.share_title,
+				reportedURL: report.reported_url,
+				variant: report.variant ?? undefined,
+				category: report.category,
+				reporterName: report.reporter_name ?? undefined,
+				reporterEmail: report.reporter_email ?? undefined,
+				workDescription: report.work_description ?? undefined,
+				explanation: report.explanation,
+				status: report.status,
+				createdAt: Number(report.created_at),
+				resolvedAt: report.resolved_at === null ? undefined : Number(report.resolved_at)
+			}))
+		});
+	}
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid report decision.' }, { status: 400 });
+	}
+	if (!ttsRequestIDPattern.test(value?.id ?? '') || !['removed', 'no-action'].includes(value?.decision)) {
+		return json({ error: 'Invalid report decision.' }, { status: 400 });
+	}
+	const report = await env.DB.prepare(
+		`SELECT id, share_token, owner_email, capture_id
+		 FROM content_reports WHERE id = ?`
+	)
+		.bind(value.id)
+		.first();
+	if (!report) return json({ error: 'Content report not found.' }, { status: 404 });
+	const resolvedAt = Date.now();
+	if (value.decision === 'removed') {
+		const message = `This public share was removed after content report ${report.id}. Email hello@readbriefly.fyi to appeal.`;
+		await env.DB.batch([
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO share_media_deletions (r2_key, created_at)
+				 SELECT r2_key, ? FROM share_audio_segments WHERE share_token = ?`
+			).bind(resolvedAt, report.share_token),
+			env.DB.prepare('DELETE FROM share_audio_segments WHERE share_token = ?').bind(
+				report.share_token
+			),
+			env.DB.prepare('DELETE FROM share_texts WHERE share_token = ?').bind(report.share_token),
+			env.DB.prepare(
+				`UPDATE share_links
+				 SET status = 'failed', error_message = ?, updated_at = ?
+				 WHERE token = ?`
+			).bind(message, new Date(resolvedAt).toISOString(), report.share_token),
+			env.DB.prepare(
+				`UPDATE content_reports
+				 SET status = 'removed', resolved_at = ? WHERE id = ?`
+			).bind(resolvedAt, report.id)
+		]);
+		scheduleSharingOperation(context, cleanShareMediaDeletions(env));
+	} else {
+		await env.DB.prepare(
+			`UPDATE content_reports
+			 SET status = 'no-action', resolved_at = ? WHERE id = ?`
+		)
+			.bind(resolvedAt, report.id)
+			.run();
+	}
+	return json({ id: report.id, status: value.decision, resolvedAt });
+}
+
 async function publishShareLink(request, env, context) {
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
@@ -4556,6 +4539,21 @@ async function publishShareLink(request, env, context) {
 	const captureID = value?.captureID;
 	if (!validCaptureIdentifier(captureID)) {
 		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
+	}
+	const removed = await env.DB.prepare(
+		`SELECT id FROM content_reports
+		 WHERE owner_email = ? AND capture_id = ? AND status = 'removed'
+		 LIMIT 1`
+	)
+		.bind(email, captureID)
+		.first();
+	if (removed) {
+		return json(
+			{
+				error: `This document was removed after content report ${removed.id}. Email hello@readbriefly.fyi to appeal.`
+			},
+			{ status: 403 }
+		);
 	}
 	let source;
 	try {
@@ -4659,22 +4657,12 @@ async function publicShareDocument(request, env, token) {
 			{ status: record.status === 'preparing' ? 202 : 409 }
 		);
 	}
-	const [textResult, audioResult] = await Promise.all([
-		env.DB.prepare(
-			`SELECT variant, markdown, word_count FROM share_texts
-			 WHERE share_token = ? AND generation = ?`
-		)
-			.bind(token, record.generation)
-			.all(),
-		env.DB.prepare(
-			`SELECT variant, segment_index, content_type, byte_count
-			 FROM share_audio_segments
-			 WHERE share_token = ? AND generation = ?
-			 ORDER BY variant, segment_index`
-		)
-			.bind(token, record.generation)
-			.all()
-	]);
+	const textResult = await env.DB.prepare(
+		`SELECT variant, markdown, word_count FROM share_texts
+		 WHERE share_token = ? AND generation = ? AND variant <> 'source'`
+	)
+		.bind(token, record.generation)
+		.all();
 	let metadata = {};
 	try {
 		metadata = JSON.parse(record.metadata_json ?? '{}');
@@ -4682,59 +4670,22 @@ async function publicShareDocument(request, env, token) {
 		metadata = {};
 	}
 	const texts = (textResult.results ?? [])
+		.filter((document) => shareVariants.includes(document.variant))
 		.map((document) => ({
 			variant: document.variant,
-			markdown:
-				document.variant === 'source'
-					? parsedMarkdownDocument(document.markdown, metadata.title ?? 'Shared document').body
-					: document.markdown,
+			markdown: document.markdown,
 			wordCount: Number(document.word_count ?? 0)
 		}))
 		.sort(
 			(a, b) => shareVariants.indexOf(a.variant) - shareVariants.indexOf(b.variant)
 		);
-	const audio = (audioResult.results ?? []).map((segment) => ({
-		variant: segment.variant,
-		index: Number(segment.segment_index),
-		contentType: segment.content_type,
-		byteCount: Number(segment.byte_count),
-		url: `/api/public/shares/${token}/audio/${segment.variant}/${segment.segment_index}`
-	}));
 	return json({
 		status: 'ready',
 		token,
 		revision: Number(record.revision ?? 1),
 		...metadata,
 		texts,
-		audio,
 		updatedAt: record.updated_at
-	});
-}
-
-async function publicShareAudio(request, env, token, variant, index) {
-	const record = await shareLinkByToken(env, token);
-	if (!record || record.status !== 'ready') {
-		return json({ error: 'This narration is no longer available.' }, { status: 404 });
-	}
-	const segment = await env.DB.prepare(
-		`SELECT r2_key, content_type, byte_count FROM share_audio_segments
-		 WHERE share_token = ? AND generation = ? AND variant = ? AND segment_index = ?`
-	)
-		.bind(token, record.generation, variant, index)
-		.first();
-	if (!segment || !env.SHARE_MEDIA) {
-		return json({ error: 'This narration is not available.' }, { status: 404 });
-	}
-	const object = await env.SHARE_MEDIA.get(segment.r2_key);
-	if (!object) return json({ error: 'This narration is not available.' }, { status: 404 });
-	const headers = new Headers({
-		'Content-Type': segment.content_type || 'audio/mpeg',
-		'Cache-Control': 'private, max-age=3600'
-	});
-	const contentLength = Number(segment.byte_count || object.size || 0);
-	if (contentLength > 0) headers.set('Content-Length', String(contentLength));
-	return new Response(object.body, {
-		headers
 	});
 }
 
@@ -6142,39 +6093,17 @@ const routeWorker = {
 			url.hostname = 'www.readbriefly.fyi';
 			return Response.redirect(url.toString(), 308);
 		}
+		const publicReport = url.pathname.match(
+			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/reports$/
+		);
+		if (publicReport && request.method === 'POST') {
+			return publicContentReport(request, env, publicReport[1]);
+		}
 		const publicShare = url.pathname.match(
 			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})$/
 		);
 		if (publicShare && request.method === 'GET') {
 			return publicShareDocument(request, env, publicShare[1]);
-		}
-		const publicShareAudioMatch = url.pathname.match(
-			/^\/api\/public\/shares\/([A-Za-z0-9_-]{32})\/audio\/(source)\/(0)$/
-		);
-		if (publicShareAudioMatch && request.method === 'GET') {
-			return publicShareAudio(
-				request,
-				env,
-				publicShareAudioMatch[1],
-				publicShareAudioMatch[2],
-				Number(publicShareAudioMatch[3])
-			);
-		}
-		const ownerShareAudio = url.pathname.match(
-			/^\/api\/share-links\/([A-Za-z0-9_-]{32})\/audio\/([a-f0-9-]{36})\/(source)\/(0)\/([a-f0-9]{64})$/
-		);
-		if (ownerShareAudio && request.method === 'PUT') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return uploadShareAudio(
-				request,
-				env,
-				ownerShareAudio[1],
-				ownerShareAudio[2],
-				ownerShareAudio[3],
-				Number(ownerShareAudio[4]),
-				ownerShareAudio[5]
-			);
 		}
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
 			return accountStatus(request, env);
@@ -6205,6 +6134,12 @@ const routeWorker = {
 			['GET', 'PUT', 'DELETE'].includes(request.method)
 		) {
 			return adminUsage(request, env);
+		}
+		if (
+			url.pathname === '/api/admin/content-reports' &&
+			['GET', 'PATCH'].includes(request.method)
+		) {
+			return adminContentReports(request, env, context);
 		}
 		if (url.pathname === '/api/feedback' && request.method === 'GET') {
 			return feedbackBoard(request, env);
@@ -6315,7 +6250,8 @@ const routeWorker = {
 			Promise.all([
 				reconcileStripeSubscriptions(env),
 				releaseStaleTTSReservations(env),
-				cleanServiceUsage(env)
+				cleanServiceUsage(env),
+				cleanShareMediaDeletions(env)
 			])
 		);
 	}

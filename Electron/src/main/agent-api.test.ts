@@ -23,8 +23,10 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
   const workspace = join(root, 'workspace');
   const researchSkillSource = join(root, 'research-skill-source');
   const inputSkillSource = join(root, 'input-skill-source');
+  const audioSkillSource = join(root, 'audio-skill-source');
   await mkdir(researchSkillSource, { recursive: true });
   await mkdir(inputSkillSource, { recursive: true });
+  await mkdir(audioSkillSource, { recursive: true });
   await writeFile(
     join(researchSkillSource, 'SKILL.md'),
     '---\nname: test\n---\n'
@@ -32,6 +34,10 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
   await writeFile(
     join(inputSkillSource, 'SKILL.md'),
     '---\nname: input-test\n---\n'
+  );
+  await writeFile(
+    join(audioSkillSource, 'SKILL.md'),
+    '---\nname: audio-test\n---\n'
   );
   const legacySkillPath = join(
     workspace,
@@ -47,6 +53,7 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
     (path) => rm(path, { force: true })
   );
   const syncReasons: string[] = [];
+  const createdEpisodes: Array<Record<string, unknown>> = [];
   let activeIngestions = 0;
   let completedIngestions = 0;
   const server = new AgentApiServer(
@@ -63,6 +70,50 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       }),
       processEntry: (entryID, topicID) =>
         library.applyProcessingSuggestion(entryID, fakeSuggestion, topicID),
+      podcastSnapshot: async () => ({
+        generatedAt: new Date().toISOString(),
+        maximumPodcasts: 20,
+        podcasts: [
+          {
+            id: 'file:daily-ai.md',
+            filename: 'daily-ai.md',
+            title: 'Daily AI',
+            prompt: 'Focus on practical changes.',
+            schedule: 'manual',
+            length: '',
+            sources: ['https://x.com/openai'],
+            status: 'idle',
+            message: 'Ready.',
+            episodes: [
+              {
+                id: 'personal:episode-1',
+                captureID: 'episode-1',
+                entryType: 'podcast_episode',
+                podcastID: 'file:daily-ai.md',
+                filename: 'daily-ai-episode.md',
+                title: 'Daily AI episode',
+                excerpt: 'Episode.',
+                topicIDs: [],
+                topicNames: [],
+                tags: ['podcast'],
+                sourceURLs: ['https://x.com/openai/status/123'],
+                createdAt: '2026-07-29T08:00:00.000Z',
+                hasAudio: true,
+                availableVariants: ['source']
+              }
+            ],
+            sourceStatuses: []
+          }
+        ]
+      }),
+      createPodcastEpisode: async (podcastID, script, sources) => {
+        createdEpisodes.push({ podcastID, script, sources });
+        return {
+          entryID: 'personal:agent-episode',
+          duplicate: false,
+          audioPending: true
+        };
+      },
       onLibraryChanged: async () => {
         await library.snapshot();
       },
@@ -83,6 +134,10 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
       {
         name: 'briefly-input-extension',
         sourcePath: inputSkillSource
+      },
+      {
+        name: 'briefly-audio-briefing',
+        sourcePath: audioSkillSource
       }
     ]
   );
@@ -122,6 +177,19 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
         'utf8'
       ),
       /name: input-test/
+    );
+    assert.match(
+      await readFile(
+        join(
+          workspace,
+          '.agents',
+          'skills',
+          'briefly-audio-briefing',
+          'SKILL.md'
+        ),
+        'utf8'
+      ),
+      /name: audio-test/
     );
     await assert.rejects(stat(legacySkillPath));
 
@@ -189,6 +257,35 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
     assert.ok(syncReasons.includes('agent summaries'));
     assert.equal(activeIngestions, 0);
     assert.equal(completedIngestions, 2);
+
+    const podcasts = await api(connection, 'GET', '/v1/podcasts');
+    assert.equal(podcasts.value.podcasts[0].id, 'file:daily-ai.md');
+    assert.deepEqual(podcasts.value.podcasts[0].usedItemKeys, ['x:status:123']);
+
+    const extracted = await api(connection, 'POST', '/v1/extract', {
+      url: 'https://example.com/update'
+    });
+    assert.equal(extracted.value.item.url, 'https://example.com/update');
+    assert.match(extracted.value.item.content, /Extracted content/);
+
+    const episode = await api(
+      connection,
+      'POST',
+      '/v1/podcasts/file%3Adaily-ai.md/episodes',
+      {
+        script: '# Agent episode\n\nA useful update.',
+        sources: [
+          {
+            url: 'https://x.com/openai/status/456?utm_source=test',
+            title: 'OpenAI update',
+            content: 'Browser-captured post.'
+          }
+        ]
+      }
+    );
+    assert.equal(episode.response.status, 201);
+    assert.equal(episode.value.episode.audioPending, true);
+    assert.equal(createdEpisodes.length, 1);
 
     const duplicate = await api(
       connection,

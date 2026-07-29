@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
+import type { ExtractionService } from './extraction.js';
+import { LibraryService } from './library.js';
 import {
   defaultPodcastPrompt,
   nextPodcastRun,
   parsePodcast,
+  PodcastService,
   podcastAudioRange,
-  renderPodcastPrompt
+  renderPodcastPrompt,
+  sourceIdentity
 } from './podcasts.js';
 
 test('podcasts are editable Markdown files with a plain source list', () => {
@@ -95,4 +102,138 @@ test('maps podcast audio byte ranges', () => {
   assert.deepEqual(podcastAudioRange('bytes=-10', 100), { start: 90, end: 99 });
   assert.equal(podcastAudioRange('bytes=100-', 100), null);
   assert.equal(podcastAudioRange('bytes=0-1,4-5', 100), null);
+});
+
+test('identifies social posts and canonical web URLs consistently', () => {
+  assert.equal(
+    sourceIdentity('https://twitter.com/openai/status/123?utm_source=test'),
+    'x:status:123'
+  );
+  assert.equal(
+    sourceIdentity('https://www.reddit.com/r/test/comments/AbC/title/?utm_medium=social'),
+    'reddit:post:abc'
+  );
+  assert.equal(
+    sourceIdentity('https://example.com/report?utm_source=test&id=4#section'),
+    'https://example.com/report?id=4'
+  );
+});
+
+test('agent episodes reuse social posts and queue audio once', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'briefly-agent-podcast-'));
+  try {
+    await mkdir(join(root, 'podcasts'), { recursive: true });
+    await writeFile(
+      join(root, 'podcasts', 'social.md'),
+      `---
+name: "Social brief"
+schedule: "manual"
+sources:
+  - "https://x.com/openai"
+---
+
+Explain why each update matters.
+`
+    );
+    const library = new LibraryService(root, 'linux', async () => {});
+    let audioRuns = 0;
+    const service = new PodcastService(
+      () => root,
+      library,
+      {} as ExtractionService,
+      async () => {
+        audioRuns += 1;
+        return new Uint8Array([1, 2, 3]);
+      },
+      async () => {},
+      () => {},
+      async () => {},
+      () => {},
+      () => {},
+      () => () => {}
+    );
+    const first = await service.createAgentEpisode(
+      'file:social.md',
+      '# Today in AI\n\nOne useful update.',
+      [
+        {
+          url: 'https://twitter.com/openai/status/123?utm_source=timeline',
+          title: 'OpenAI update',
+          content: 'The update text.'
+        }
+      ]
+    );
+    await service.snapshot();
+    const second = await service.createAgentEpisode(
+      'file:social.md',
+      '# Duplicate attempt',
+      [{ url: 'https://x.com/openai/status/123', content: 'The same update.' }]
+    );
+    const entries = (await library.snapshot()).entries;
+
+    assert.equal(first.duplicate, false);
+    assert.equal(second.duplicate, true);
+    assert.equal(audioRuns, 1);
+    assert.equal(
+      entries.filter(({ entryType }) => entryType === 'podcast_episode').length,
+      1
+    );
+    assert.equal(
+      entries.filter(({ entryType }) => entryType === 'podcast_source').length,
+      1
+    );
+    assert.equal(entries.find(({ id }) => id === first.entryID)?.hasAudio, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('source checks ingest every unseen item', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'briefly-open-podcast-'));
+  try {
+    await mkdir(join(root, 'podcasts'), { recursive: true });
+    await writeFile(
+      join(root, 'podcasts', 'open.md'),
+      `---
+name: "Open brief"
+schedule: "manual"
+sources:
+  - "https://example.com/feed.xml"
+---
+
+Summarize every new item.
+`
+    );
+    const items = Array.from({ length: 31 }, (_, index) => ({
+      id: String(index),
+      title: `Item ${index}`,
+      url: `https://example.com/items/${index}`
+    }));
+    const extraction = {
+      discoverSource: async () => ({ title: 'Feed', kind: 'feed', items }),
+      extractURL: async (url: string) => ({
+        title: url.split('/').at(-1),
+        content: `Content for ${url}`,
+        sourceURL: url
+      })
+    } as unknown as ExtractionService;
+    const library = new LibraryService(root, 'linux', async () => {});
+    const service = new PodcastService(
+      () => root,
+      library,
+      extraction,
+      async () => new Uint8Array(),
+      async () => {},
+      () => {},
+      async () => {},
+      () => {},
+      () => {},
+      () => () => {}
+    );
+
+    const snapshot = await service.check('file:open.md');
+    assert.equal(snapshot.podcasts[0]?.sourceStatuses[0]?.itemCount, 31);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

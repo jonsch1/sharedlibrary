@@ -59,6 +59,8 @@ import {
   ProcessingService,
   processingCommandPresets,
   renderAgentCommand,
+  renderAgentURL,
+  resolveAgentCommand,
   runAIText
 } from './processing.js';
 import {
@@ -141,6 +143,10 @@ function bundledAgentSkills(): BundledAgentSkill[] {
     {
       name: 'briefly-input-extension',
       sourcePath: join(root, 'briefly-input-extension')
+    },
+    {
+      name: 'briefly-audio-briefing',
+      sourcePath: join(root, 'briefly-audio-briefing')
     }
   ];
 }
@@ -315,7 +321,7 @@ async function aiCommandPreferences(): Promise<AICommandPreferences> {
     defaultProcessingCommand,
     processingCommand: saved.processingCommand ?? defaultProcessingCommand,
     agentCommand: ensureAgentWorkspacePlaceholder(
-      saved.agentCommand?.trim() || defaultAgentCommand
+      resolveAgentCommand(saved.agentCommand)
     ),
     processingPresets: processingCommandPresets,
     agentPresets: agentCommandPresets
@@ -689,6 +695,7 @@ function registerIPC(): void {
                 createdAt: entry.createdAt,
                 updatedAt: entry.updatedAt,
                 texts: indexed.texts.flatMap((text) => {
+                  if (text.variant === 'source') return [];
                   const markdown = files.get(text.path);
                   return markdown === undefined ? [] : [{ variant: text.variant, markdown }];
                 })
@@ -718,22 +725,36 @@ function registerIPC(): void {
 
 async function openAgentWorkspace(): Promise<void> {
   const workspacePath = library.getWorkspacePath();
-  const command = renderAgentCommand(
-    (await settings.load()).agentCommand?.trim() || defaultAgentCommand,
-    workspacePath
-  );
+  const agentCommand = resolveAgentCommand((await settings.load()).agentCommand);
+  const agentURL = renderAgentURL(agentCommand, workspacePath);
+  if (agentURL) {
+    await shell.openExternal(agentURL);
+    return;
+  }
   if (process.platform === 'darwin') {
     await new Promise<void>((resolve, reject) => {
-      const script = [
-        'tell application "Terminal"',
-        'activate',
-        `do script ${JSON.stringify(command)}`,
-        'end tell'
-      ].join('\n');
-      const child = spawn('/usr/bin/osascript', ['-e', script], {
-        detached: true,
-        stdio: 'ignore'
-      });
+      const directChatGPTLaunch = agentCommand === defaultAgentCommand;
+      const child = directChatGPTLaunch
+        ? spawn('/usr/bin/open', ['-a', 'ChatGPT', workspacePath], {
+            detached: true,
+            stdio: 'ignore'
+          })
+        : spawn(
+            '/usr/bin/osascript',
+            [
+              '-e',
+              [
+                'tell application "Terminal"',
+                'activate',
+                `do script ${JSON.stringify(renderAgentCommand(agentCommand, workspacePath))}`,
+                'end tell'
+              ].join('\n')
+            ],
+            {
+              detached: true,
+              stdio: 'ignore'
+            }
+          );
       child.once('error', reject);
       child.once('spawn', () => {
         child.unref();
@@ -742,6 +763,7 @@ async function openAgentWorkspace(): Promise<void> {
     });
     return;
   }
+  const command = renderAgentCommand(agentCommand, workspacePath);
   const child =
     process.platform === 'win32'
       ? spawn(
@@ -1085,6 +1107,9 @@ app.whenReady().then(async () => {
       extractURL: (url) => extraction.extractURL(url),
       processEntry: (entryID, topicID) =>
         processing.process(entryID, library, topicID),
+      podcastSnapshot: () => podcasts.snapshot(),
+      createPodcastEpisode: (podcastID, script, sources) =>
+        podcasts.createAgentEpisode(podcastID, script, sources),
       onLibraryChanged: async () => {
         await snapshotAndNotify();
       },
