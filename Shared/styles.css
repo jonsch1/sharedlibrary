@@ -1197,57 +1197,54 @@ button:disabled {
   right: 0;
   bottom: 44px;
   width: min(320px, 100%);
-  height: 150px;
+  height: 130px;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-right: 0;
-  border-radius: 16px 0 0 16px;
+  border-radius: 16px;
   background: var(--popover);
   box-shadow: var(--theme-shadow-sm);
   backdrop-filter: blur(22px) saturate(112%);
+  cursor: grab;
   pointer-events: auto;
+  user-select: none;
 }
 
-.native-reader-audio.positioned {
-  border-right: 1px solid var(--border);
-  border-radius: 16px;
+.native-reader-audio:active {
+  cursor: grabbing;
+}
+
+.native-reader-audio.connected-left {
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.native-reader-audio.connected-top {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.native-reader-audio.connected-right {
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.native-reader-audio.connected-bottom {
+  border-bottom: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 .native-reader-audio.collapsed {
   display: none;
 }
 
-.native-reader-audio-drag {
-  display: grid;
-  width: 100%;
-  height: 20px;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  cursor: grab;
-  touch-action: none;
-}
-
-.native-reader-audio-drag:active {
-  cursor: grabbing;
-}
-
-.native-reader-audio-drag:hover {
-  background: var(--accent);
-}
-
-.native-reader-audio-drag:focus-visible {
+.native-reader-audio:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
-}
-
-.native-reader-audio-drag span {
-  width: 28px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--muted-foreground);
-  opacity: 0.5;
 }
 
 .native-reader-audio .audio-player {

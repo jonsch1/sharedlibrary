@@ -89,7 +89,9 @@
     | 'prompt-summarization'
     | 'prompt-voice-brief';
   type ActiveView = 'items' | 'channels' | 'briefs';
-  type AudioPosition = { x: number; y: number };
+  type Point = { x: number; y: number };
+  type AudioEdge = 'left' | 'top' | 'right' | 'bottom';
+  type AudioPosition = Point & { edge: AudioEdge };
   const audioPositionKey = 'briefly:reader-audio-position';
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let voiceBriefSnapshot = $state<VoiceBriefSnapshot | null>(null);
@@ -117,7 +119,7 @@
   let audioPlaying = $state(false);
   let audioVolume = $state(1);
   let audioPosition = $state<AudioPosition | null>(null);
-  let audioDragOffset: AudioPosition | null = null;
+  let audioDragOffset: Point | null = null;
   let readerPane = $state<HTMLElement>();
   let audioPanel = $state<HTMLDivElement>();
   let connections = $state<DesktopConnectionStatus | null>(null);
@@ -278,7 +280,11 @@
     try {
       const saved = JSON.parse(window.localStorage.getItem(audioPositionKey) ?? 'null');
       if (Number.isFinite(saved?.x) && Number.isFinite(saved?.y)) {
-        audioPosition = { x: saved.x, y: saved.y };
+        audioPosition = {
+          x: saved.x,
+          y: saved.y,
+          edge: ['left', 'top', 'right', 'bottom'].includes(saved.edge) ? saved.edge : 'right'
+        };
       }
     } catch {
       window.localStorage.removeItem(audioPositionKey);
@@ -540,17 +546,28 @@
     selectedVariant = variant;
   }
 
-  function constrainAudioPosition(x: number, y: number): AudioPosition {
-    if (!readerPane || !audioPanel) return { x, y };
+  function dockAudioPosition(x: number, y: number, edge?: AudioEdge): AudioPosition {
+    if (!readerPane || !audioPanel) return { x, y, edge: edge ?? 'right' };
+    const maxX = Math.max(0, readerPane.clientWidth - audioPanel.offsetWidth);
+    const maxY = Math.max(0, readerPane.clientHeight - audioPanel.offsetHeight);
+    const clampedX = Math.max(0, Math.min(x, maxX));
+    const clampedY = Math.max(0, Math.min(y, maxY));
+    const selectedEdge = edge ?? [
+      { edge: 'left' as const, distance: clampedX },
+      { edge: 'top' as const, distance: clampedY },
+      { edge: 'right' as const, distance: maxX - clampedX },
+      { edge: 'bottom' as const, distance: maxY - clampedY }
+    ].sort((left, right) => left.distance - right.distance)[0].edge;
     return {
-      x: Math.round(Math.max(0, Math.min(x, readerPane.clientWidth - audioPanel.offsetWidth))),
-      y: Math.round(Math.max(0, Math.min(y, readerPane.clientHeight - audioPanel.offsetHeight - 44)))
+      x: Math.round(selectedEdge === 'left' ? 0 : selectedEdge === 'right' ? maxX : clampedX),
+      y: Math.round(selectedEdge === 'top' ? 0 : selectedEdge === 'bottom' ? maxY : clampedY),
+      edge: selectedEdge
     };
   }
 
   function constrainSavedAudioPosition(): void {
     if (!audioExpanded || !audioPosition) return;
-    const next = constrainAudioPosition(audioPosition.x, audioPosition.y);
+    const next = dockAudioPosition(audioPosition.x, audioPosition.y, audioPosition.edge);
     if (next.x === audioPosition.x && next.y === audioPosition.y) return;
     audioPosition = next;
     window.localStorage.setItem(audioPositionKey, JSON.stringify(next));
@@ -558,19 +575,24 @@
 
   function startAudioDrag(event: PointerEvent): void {
     if (!readerPane || !audioPanel) return;
+    if ((event.target as Element).closest('button, input, a, select, textarea')) return;
     event.preventDefault();
     const panelBounds = audioPanel.getBoundingClientRect();
     audioDragOffset = {
       x: event.clientX - panelBounds.left,
       y: event.clientY - panelBounds.top
     };
-    audioPosition = constrainAudioPosition(audioPanel.offsetLeft, audioPanel.offsetTop);
+    audioPosition = dockAudioPosition(
+      audioPanel.offsetLeft,
+      audioPanel.offsetTop,
+      audioPosition?.edge ?? 'right'
+    );
   }
 
   function dragAudio(event: PointerEvent): void {
     if (!readerPane || !audioDragOffset) return;
     const readerBounds = readerPane.getBoundingClientRect();
-    audioPosition = constrainAudioPosition(
+    audioPosition = dockAudioPosition(
       event.clientX - readerBounds.left - audioDragOffset.x,
       event.clientY - readerBounds.top - audioDragOffset.y
     );
@@ -582,24 +604,21 @@
   }
 
   function moveAudioWithKeyboard(event: KeyboardEvent): void {
-    if (!audioPanel) return;
-    const distance = event.shiftKey ? 40 : 10;
-    const movement =
-      event.key === 'ArrowLeft' ? [-distance, 0] :
-      event.key === 'ArrowRight' ? [distance, 0] :
-      event.key === 'ArrowUp' ? [0, -distance] :
-      event.key === 'ArrowDown' ? [0, distance] :
+    if (!audioPanel || event.target !== event.currentTarget) return;
+    const edge =
+      event.key === 'ArrowLeft' ? 'left' :
+      event.key === 'ArrowRight' ? 'right' :
+      event.key === 'ArrowUp' ? 'top' :
+      event.key === 'ArrowDown' ? 'bottom' :
       null;
-    if (!movement) return;
+    if (!edge) return;
     event.preventDefault();
     const current = audioPosition ?? {
       x: audioPanel.offsetLeft,
-      y: audioPanel.offsetTop
+      y: audioPanel.offsetTop,
+      edge: 'right'
     };
-    audioPosition = constrainAudioPosition(
-      current.x + movement[0],
-      current.y + movement[1]
-    );
+    audioPosition = dockAudioPosition(current.x, current.y, edge);
     window.localStorage.setItem(audioPositionKey, JSON.stringify(audioPosition));
   }
 
@@ -1733,21 +1752,25 @@
                 id="reader-audio-player"
                 class="native-reader-audio"
                 class:collapsed={!audioExpanded}
-                class:positioned={Boolean(audioPosition)}
+                class:connected-left={audioPosition?.x === 0}
+                class:connected-top={audioPosition?.y === 0}
+                class:connected-right={!audioPosition ||
+                  (readerPane &&
+                    audioPanel &&
+                    audioPosition.x === readerPane.clientWidth - audioPanel.offsetWidth)}
+                class:connected-bottom={audioPosition &&
+                  readerPane &&
+                  audioPanel &&
+                  audioPosition.y === readerPane.clientHeight - audioPanel.offsetHeight}
+                tabindex="0"
+                role="toolbar"
+                aria-label="Movable audio controls"
                 style={audioPosition
                   ? `left:${audioPosition.x}px;top:${audioPosition.y}px;right:auto;bottom:auto`
                   : undefined}
+                onpointerdown={startAudioDrag}
+                onkeydown={moveAudioWithKeyboard}
               >
-                <button
-                  type="button"
-                  class="native-reader-audio-drag"
-                  aria-label="Move audio controls with drag or arrow keys"
-                  title="Drag to move. Use arrow keys for precise movement."
-                  onpointerdown={startAudioDrag}
-                  onkeydown={moveAudioWithKeyboard}
-                >
-                  <span aria-hidden="true"></span>
-                </button>
                 <AudioPlayer
                   src={selectedAudioURL}
                   title={selectedEntry.title}

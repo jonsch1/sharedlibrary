@@ -69,22 +69,25 @@ test('the production app reads, edits, plays, and configures a library', async (
     await audio.evaluate((element: HTMLAudioElement) => element.pause());
 
     const audioPanel = page.locator('.native-reader-audio');
-    const dragHandle = page.getByRole('button', {
-      name: 'Move audio controls with drag or arrow keys'
-    });
-    const handleBounds = await dragHandle.boundingBox();
-    expect(handleBounds).not.toBeNull();
+    const panelBounds = await audioPanel.boundingBox();
+    const readerBounds = await page.locator('.native-reader-pane').boundingBox();
+    expect(panelBounds).not.toBeNull();
+    expect(readerBounds).not.toBeNull();
     await page.mouse.move(
-      handleBounds!.x + handleBounds!.width / 2,
-      handleBounds!.y + handleBounds!.height / 2
+      panelBounds!.x + panelBounds!.width - 12,
+      panelBounds!.y + panelBounds!.height / 2
     );
     await page.mouse.down();
-    await page.mouse.move(handleBounds!.x - 80, handleBounds!.y - 60);
+    await page.mouse.move(
+      readerBounds!.x + readerBounds!.width / 2,
+      readerBounds!.y + readerBounds!.height - 8
+    );
     await page.mouse.up();
     const savedAudioPosition = await page.evaluate(() =>
       window.localStorage.getItem('briefly:reader-audio-position')
     );
     expect(savedAudioPosition).toBeTruthy();
+    expect(JSON.parse(savedAudioPosition!).edge).toBe('bottom');
     const movedPosition = await audioPanel.evaluate((element) => ({
       left: element.style.left,
       top: element.style.top
