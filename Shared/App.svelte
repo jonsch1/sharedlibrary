@@ -156,7 +156,12 @@
   });
 
   let entries = $derived(snapshot?.entries ?? []);
-  let noteEntries = $derived(entries.filter(isMainLibraryEntry));
+  let channelEntryIDs = $derived(
+    new Set(voiceBriefSnapshot?.channels.flatMap((channel) => channel.entryIDs) ?? [])
+  );
+  let noteEntries = $derived(
+    entries.filter((entry) => isMainLibraryEntry(entry) && !channelEntryIDs.has(entry.id))
+  );
   let selectedEntry = $derived(
     entries.find((entry) => entry.id === selectedID) ?? null
   );

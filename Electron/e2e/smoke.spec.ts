@@ -34,6 +34,7 @@ test('the production app reads, edits, plays, and configures a library', async (
 
     await expect(page).toHaveTitle('Briefly');
     await expect(page.getByRole('button', { name: 'Electron smoke fixture' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Second smoke fixture' })).toHaveCount(0);
     await expect(page.locator('.native-document-body')).toContainText('Brief smoke summary.');
 
     const snapshot = await page.evaluate(() =>
@@ -132,6 +133,7 @@ async function createFixture(userDataPath: string, workspacePath: string): Promi
   await Promise.all([
     mkdir(join(workspacePath, 'library', 'summaries', 'brief'), { recursive: true }),
     mkdir(join(workspacePath, 'library', 'audio'), { recursive: true }),
+    mkdir(join(workspacePath, '.shared-library'), { recursive: true }),
     mkdir(join(workspacePath, 'voice-briefs'), { recursive: true }),
     mkdir(userDataPath, { recursive: true })
   ]);
@@ -177,6 +179,27 @@ Second smoke body.
     writeFile(
       join(workspacePath, 'library', 'summaries', 'brief', 'fixture.md'),
       'Brief smoke summary.\n'
+    ),
+    writeFile(
+      join(workspacePath, '.shared-library', 'voice-brief-state.json'),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        sources: {
+          'https://example.invalid/feed.xml': {
+            title: 'Smoke channel',
+            seen: ['second'],
+            items: [{
+              id: 'second',
+              title: 'Second smoke fixture',
+              url: 'https://example.invalid/second',
+              publishedAt: null,
+              entryID: 'personal:electron-smoke-second',
+              ingestedAt: '2026-07-23T08:00:00.000Z'
+            }]
+          }
+        },
+        voiceBriefs: {}
+      }, null, 2)}\n`
     ),
     writeFile(
       join(workspacePath, 'voice-briefs', 'smoke-voice-brief.md'),
