@@ -67,6 +67,38 @@ test('the production app reads, edits, plays, and configures a library', async (
       .toBeGreaterThan(0);
     await audio.evaluate((element: HTMLAudioElement) => element.pause());
 
+    const audioPanel = page.locator('.native-reader-audio');
+    const dragHandle = page.getByRole('button', {
+      name: 'Move audio controls with drag or arrow keys'
+    });
+    const handleBounds = await dragHandle.boundingBox();
+    expect(handleBounds).not.toBeNull();
+    await page.mouse.move(
+      handleBounds!.x + handleBounds!.width / 2,
+      handleBounds!.y + handleBounds!.height / 2
+    );
+    await page.mouse.down();
+    await page.mouse.move(handleBounds!.x - 80, handleBounds!.y - 60);
+    await page.mouse.up();
+    const savedAudioPosition = await page.evaluate(() =>
+      window.localStorage.getItem('briefly:reader-audio-position')
+    );
+    expect(savedAudioPosition).toBeTruthy();
+    const movedPosition = await audioPanel.evaluate((element) => ({
+      left: element.style.left,
+      top: element.style.top
+    }));
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Electron smoke fixture' })).toBeVisible();
+    await page.getByRole('button', { name: 'Expand audio player' }).click();
+    await expect(page.locator('.native-reader-audio')).toBeVisible();
+    await expect.poll(() =>
+      page!.locator('.native-reader-audio').evaluate((element) => ({
+        left: element.style.left,
+        top: element.style.top
+      }))
+    ).toEqual(movedPosition);
+
     const tabs = page.getByRole('tablist', { name: 'Library view' });
     await tabs.getByRole('tab', { name: 'Brief' }).click();
     await expect(page.getByLabel('Audio brief title')).toHaveValue('Smoke podcast');

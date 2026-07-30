@@ -89,6 +89,8 @@
     | 'prompt-summarization'
     | 'prompt-podcast';
   type ActiveView = 'items' | 'channels' | 'briefs';
+  type AudioPosition = { x: number; y: number };
+  const audioPositionKey = 'briefly:reader-audio-position';
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
   let podcastSnapshot = $state<PodcastSnapshot | null>(null);
   let activeView = $state<ActiveView>('items');
@@ -114,6 +116,10 @@
   let audioExpanded = $state(false);
   let audioPlaying = $state(false);
   let audioVolume = $state(1);
+  let audioPosition = $state<AudioPosition | null>(null);
+  let audioDragOffset: AudioPosition | null = null;
+  let readerPane = $state<HTMLElement>();
+  let audioPanel = $state<HTMLDivElement>();
   let connections = $state<DesktopConnectionStatus | null>(null);
   let syncStatus = $state<DesktopSyncStatus>({
     phase: 'idle',
@@ -264,8 +270,22 @@
 
   onMount(() => {
     const removeThemeListener = initializeTheme();
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(audioPositionKey) ?? 'null');
+      if (Number.isFinite(saved?.x) && Number.isFinite(saved?.y)) {
+        audioPosition = { x: saved.x, y: saved.y };
+      }
+    } catch {
+      window.localStorage.removeItem(audioPositionKey);
+    }
     void initialize();
     return removeThemeListener;
+  });
+
+  $effect(() => {
+    if (!audioExpanded || !audioPosition) return;
+    const frame = window.requestAnimationFrame(constrainSavedAudioPosition);
+    return () => window.cancelAnimationFrame(frame);
   });
 
   $effect(() => {
@@ -513,6 +533,69 @@
 
   function selectVariant(variant: LibraryVariant): void {
     selectedVariant = variant;
+  }
+
+  function constrainAudioPosition(x: number, y: number): AudioPosition {
+    if (!readerPane || !audioPanel) return { x, y };
+    return {
+      x: Math.round(Math.max(0, Math.min(x, readerPane.clientWidth - audioPanel.offsetWidth))),
+      y: Math.round(Math.max(0, Math.min(y, readerPane.clientHeight - audioPanel.offsetHeight - 44)))
+    };
+  }
+
+  function constrainSavedAudioPosition(): void {
+    if (!audioExpanded || !audioPosition) return;
+    const next = constrainAudioPosition(audioPosition.x, audioPosition.y);
+    if (next.x === audioPosition.x && next.y === audioPosition.y) return;
+    audioPosition = next;
+    window.localStorage.setItem(audioPositionKey, JSON.stringify(next));
+  }
+
+  function startAudioDrag(event: PointerEvent): void {
+    if (!readerPane || !audioPanel) return;
+    event.preventDefault();
+    const panelBounds = audioPanel.getBoundingClientRect();
+    audioDragOffset = {
+      x: event.clientX - panelBounds.left,
+      y: event.clientY - panelBounds.top
+    };
+    audioPosition = constrainAudioPosition(audioPanel.offsetLeft, audioPanel.offsetTop);
+  }
+
+  function dragAudio(event: PointerEvent): void {
+    if (!readerPane || !audioDragOffset) return;
+    const readerBounds = readerPane.getBoundingClientRect();
+    audioPosition = constrainAudioPosition(
+      event.clientX - readerBounds.left - audioDragOffset.x,
+      event.clientY - readerBounds.top - audioDragOffset.y
+    );
+    window.localStorage.setItem(audioPositionKey, JSON.stringify(audioPosition));
+  }
+
+  function finishAudioDrag(): void {
+    audioDragOffset = null;
+  }
+
+  function moveAudioWithKeyboard(event: KeyboardEvent): void {
+    if (!audioPanel) return;
+    const distance = event.shiftKey ? 40 : 10;
+    const movement =
+      event.key === 'ArrowLeft' ? [-distance, 0] :
+      event.key === 'ArrowRight' ? [distance, 0] :
+      event.key === 'ArrowUp' ? [0, -distance] :
+      event.key === 'ArrowDown' ? [0, distance] :
+      null;
+    if (!movement) return;
+    event.preventDefault();
+    const current = audioPosition ?? {
+      x: audioPanel.offsetLeft,
+      y: audioPanel.offsetTop
+    };
+    audioPosition = constrainAudioPosition(
+      current.x + movement[0],
+      current.y + movement[1]
+    );
+    window.localStorage.setItem(audioPositionKey, JSON.stringify(audioPosition));
   }
 
   function updateTheme(theme?: ThemeName, mode?: ThemeMode): void {
@@ -977,6 +1060,10 @@
   ondragover={capabilities.capture ? handleFileDrag : undefined}
   ondragleave={capabilities.capture ? handleFileDragLeave : undefined}
   ondrop={capabilities.capture ? handleFileDrop : undefined}
+  onpointermove={dragAudio}
+  onpointerup={finishAudioDrag}
+  onpointercancel={finishAudioDrag}
+  onresize={constrainSavedAudioPosition}
 />
 
 <div
@@ -1388,6 +1475,7 @@
       </aside>
 
       <main
+        bind:this={readerPane}
         class="native-reader-pane border-border! bg-card! bg-none! text-card-foreground! rounded-xl! border shadow-sm!"
       >
         {#if activeView === 'channels' && selectedChannelSource === 'new' && !selectedEntry}
@@ -1631,16 +1719,30 @@
           </div>
 
           <footer
-            class="native-document-footer"
-            class:audio-expanded={Boolean(selectedAudioURL && audioExpanded)}
+            class="native-document-footer native-reader-footer"
             aria-label="Document actions"
           >
             {#if selectedAudioURL}
               <div
+                bind:this={audioPanel}
                 id="reader-audio-player"
                 class="native-reader-audio"
                 class:collapsed={!audioExpanded}
+                class:positioned={Boolean(audioPosition)}
+                style={audioPosition
+                  ? `left:${audioPosition.x}px;top:${audioPosition.y}px;right:auto;bottom:auto`
+                  : undefined}
               >
+                <button
+                  type="button"
+                  class="native-reader-audio-drag"
+                  aria-label="Move audio controls with drag or arrow keys"
+                  title="Drag to move. Use arrow keys for precise movement."
+                  onpointerdown={startAudioDrag}
+                  onkeydown={moveAudioWithKeyboard}
+                >
+                  <span aria-hidden="true"></span>
+                </button>
                 <AudioPlayer
                   src={selectedAudioURL}
                   title={selectedEntry.title}

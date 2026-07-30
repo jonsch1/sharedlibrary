@@ -216,6 +216,28 @@
       height: 16px;
     }
   }
+  :global(.native-reader-footer) .segmented-depth--compact {
+    height: 44px;
+    gap: 0;
+    padding: 0;
+  }
+  :global(.native-reader-footer) .segmented-depth--compact .depth-slot,
+  :global(.native-reader-footer) .segmented-depth--compact .depth-step,
+  :global(.native-reader-footer) .segmented-depth--compact .depth-step-core {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+    border-radius: 0;
+  }
+  :global(.native-reader-footer) .segmented-depth--compact .depth-step.is-active {
+    background: var(--accent);
+    box-shadow: none;
+    color: var(--accent-foreground);
+  }
+  :global(.native-reader-footer) .segmented-depth--compact .depth-step:focus-visible {
+    outline: 0;
+    box-shadow: inset 0 0 0 2px var(--ring);
+  }
   @media (prefers-reduced-motion: reduce) {
     .depth-step,
     .depth-step-core {
