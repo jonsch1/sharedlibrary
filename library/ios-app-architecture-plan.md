@@ -34,7 +34,7 @@ Include:
 - Apple and Google account sign-in and membership status.
 - iCloud and Google Drive connection/status.
 - Complete offline library mirror.
-- Library and podcast-episode browsing, search, topic filtering, and all summary
+- Library and voice-brief-episode browsing, search, topic filtering, and all summary
   depths.
 - Markdown and transcript reading.
 - Audio playback with position and speed.

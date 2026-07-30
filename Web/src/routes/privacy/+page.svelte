@@ -68,9 +68,9 @@
 					<td>Performance of our contract; you choose whether to connect Drive.</td>
 				</tr>
 				<tr>
-					<td>Summaries and podcast scripts</td>
+					<td>Summaries and voice-brief scripts</td>
 					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI sends these to OpenRouter and its selected model provider. If you choose a custom local command, the desktop instead passes them to the CLI/provider you configured.</td>
-					<td>Create the summaries or podcast script you request. Briefly does not use this content to train its own models.</td>
+					<td>Create the summaries or voice-brief script you request. Briefly does not use this content to train its own models.</td>
 					<td>Performance of your processing request.</td>
 				</tr>
 				<tr>
@@ -81,8 +81,8 @@
 				</tr>
 				<tr>
 					<td>Transcription and voice generation</td>
-					<td>Uploaded audio or video for transcription, podcast-script text for speech generation, account-scoped usage units, and short-lived concurrency leases.</td>
-					<td>Transcribe media and create the podcast audio you request while enforcing fair-use and abuse limits.</td>
+					<td>Uploaded audio or video for transcription, voice-brief-script text for speech generation, account-scoped usage units, and short-lived concurrency leases.</td>
+					<td>Transcribe media and create the voice-brief audio you request while enforcing fair-use and abuse limits.</td>
 					<td>Performance of your request and legitimate interests in preventing abuse and controlling service cost.</td>
 				</tr>
 				<tr>
@@ -170,7 +170,7 @@
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
-					<td>Provides Briefly AI summaries and podcast scripts using the selected hosted model. Source content is sent only when you request processing.</td>
+					<td>Provides Briefly AI summaries and voice-brief scripts using the selected hosted model. Source content is sent only when you request processing.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">OpenAI</a></td>

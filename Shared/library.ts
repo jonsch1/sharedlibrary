@@ -1,4 +1,4 @@
-export const librarySchemaVersion = 3;
+export const librarySchemaVersion = 4;
 
 export const libraryVariants = [
   'brief',
@@ -20,7 +20,7 @@ export interface LibraryMedia {
   contentType: string;
 }
 
-export interface LibraryPodcast {
+export interface LibraryVoiceBrief {
   id: string;
   filename: string;
   title: string;
@@ -47,7 +47,7 @@ export interface LibraryEntry {
   id: string;
   captureID?: string;
   entryType?: string;
-  podcastID?: string;
+  voiceBriefID?: string;
   title: string;
   excerpt: string;
   topicIDs: string[];
@@ -75,7 +75,7 @@ export interface LibraryProjection {
   generatedAt: string;
   files: LibraryFile[];
   entries: LibraryEntry[];
-  podcasts?: LibraryPodcast[];
+  voiceBriefs?: LibraryVoiceBrief[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -114,7 +114,7 @@ function isLibraryEntry(value: unknown): value is LibraryEntry {
     (value.origin === 'personal' || value.origin === 'shared') &&
     isOptionalString(value.captureID) &&
     isOptionalString(value.entryType) &&
-    isOptionalString(value.podcastID) &&
+    isOptionalString(value.voiceBriefID) &&
     isOptionalString(value.sourceURL) &&
     isOptionalString(value.mediaURL) &&
     isOptionalString(value.faviconFile) &&
@@ -162,7 +162,7 @@ function isLibraryFile(value: unknown): value is LibraryFile {
   );
 }
 
-function isLibraryPodcast(value: unknown): value is LibraryPodcast {
+function isLibraryVoiceBrief(value: unknown): value is LibraryVoiceBrief {
   return (
     isObject(value) &&
     typeof value.id === 'string' &&
@@ -184,8 +184,8 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
     !value.files.every(isLibraryFile) ||
     !Array.isArray(value.entries) ||
     !value.entries.every(isLibraryEntry) ||
-    (value.podcasts !== undefined &&
-      (!Array.isArray(value.podcasts) || !value.podcasts.every(isLibraryPodcast)))
+    (value.voiceBriefs !== undefined &&
+      (!Array.isArray(value.voiceBriefs) || !value.voiceBriefs.every(isLibraryVoiceBrief)))
   ) {
     throw new Error(
       'This is not a compatible Briefly library index. Open the desktop app and let it synchronize again.'
@@ -197,7 +197,7 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
   return {
     ...projection,
     schemaVersion: librarySchemaVersion,
-    podcasts: Array.isArray(projection.podcasts) ? projection.podcasts : [],
+    voiceBriefs: Array.isArray(projection.voiceBriefs) ? projection.voiceBriefs : [],
     entries: projection.entries.map((entry) => {
       const legacy = entry as LibraryEntry & { sharedByDisplayName?: string };
       return {
@@ -273,7 +273,7 @@ export function preferredVariant(entry: LibraryEntry): LibraryVariant {
 }
 
 export function isMainLibraryEntry(entry: Pick<LibraryEntry, 'entryType'>): boolean {
-  return entry.entryType !== 'podcast_episode' && entry.entryType !== 'podcast_source';
+  return entry.entryType !== 'voice_brief_episode' && entry.entryType !== 'voice_brief_source';
 }
 
 export function matchesLibraryEntry(

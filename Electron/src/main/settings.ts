@@ -7,7 +7,7 @@ export interface DesktopSettings {
   saveCapturedAudio?: boolean;
   aboutYou?: string;
   processingPrompt?: string;
-  podcastPrompt?: string;
+  voiceBriefPrompt?: string;
   processingCommand?: string;
   agentCommand?: string;
 }

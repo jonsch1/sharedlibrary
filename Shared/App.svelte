@@ -30,7 +30,7 @@
   import AudioPlayer from './AudioPlayer.svelte';
   import DepthControl from './DepthControl.svelte';
   import MarkdownView from './MarkdownView.svelte';
-  import PodcastsView from './PodcastsView.svelte';
+  import VoiceBriefsView from './VoiceBriefsView.svelte';
   import {
     isMainLibraryEntry,
     matchesLibraryEntry,
@@ -48,7 +48,7 @@
     DesktopShortcutPreferences,
     DesktopSyncStatus,
     LibraryVariant,
-    PodcastSnapshot,
+    VoiceBriefSnapshot,
     PromptID,
     PromptPreferences,
     ProcessingPreferences,
@@ -87,12 +87,12 @@
     | 'agents'
     | 'topics'
     | 'prompt-summarization'
-    | 'prompt-podcast';
+    | 'prompt-voice-brief';
   type ActiveView = 'items' | 'channels' | 'briefs';
   type AudioPosition = { x: number; y: number };
   const audioPositionKey = 'briefly:reader-audio-position';
   let snapshot = $state<DesktopLibrarySnapshot | null>(null);
-  let podcastSnapshot = $state<PodcastSnapshot | null>(null);
+  let voiceBriefSnapshot = $state<VoiceBriefSnapshot | null>(null);
   let activeView = $state<ActiveView>('items');
   let selectedID = $state('');
   let selectedIDs = $state<string[]>([]);
@@ -100,7 +100,7 @@
   let selectedText = $state('');
   let query = $state('');
   let selectedTopic = $state('all');
-  let selectedPodcastID = $state('');
+  let selectedVoiceBriefID = $state('');
   let selectedChannelSource = $state('');
   let newChannelURL = $state('');
   let expandedBriefIDs = $state<string[]>([]);
@@ -138,7 +138,7 @@
   let promptPreferences = $state<PromptPreferences | null>(null);
   let promptDrafts = $state<Record<PromptID, string>>({
     summarization: '',
-    podcast: ''
+    'voice-brief': ''
   });
   let shortcutPreferences = $state<DesktopShortcutPreferences | null>(null);
   let audioPreferences = $state<DesktopAudioPreferences | null>(null);
@@ -169,7 +169,7 @@
   );
   let allChannelGroups = $derived.by(() => {
     const entriesByID = new Map(entries.map((entry) => [entry.id, entry]));
-    return (podcastSnapshot?.channels ?? []).map((channel) => ({
+    return (voiceBriefSnapshot?.channels ?? []).map((channel) => ({
       source: channel.source,
       title: channel.title ?? channel.source,
       kind: channel.kind,
@@ -199,7 +199,7 @@
     )
   );
   let briefGroups = $derived(
-    (podcastSnapshot?.podcasts ?? []).filter((brief) =>
+    (voiceBriefSnapshot?.voiceBriefs ?? []).filter((brief) =>
       !normalizedQuery ||
       [brief.title, brief.message, ...brief.episodes.map((episode) => episode.title)]
         .join(' ')
@@ -211,7 +211,7 @@
     allChannelGroups.find(({ source }) => source === selectedChannelSource) ?? null
   );
   let selectedBrief = $derived(
-    podcastSnapshot?.podcasts.find(({ id }) => id === selectedPodcastID) ?? null
+    voiceBriefSnapshot?.voiceBriefs.find(({ id }) => id === selectedVoiceBriefID) ?? null
   );
   let availableVariants = $derived(selectedEntry?.availableVariants ?? []);
   let renderSelectedTextAsPlain = $derived(
@@ -220,7 +220,7 @@
   let selectedAudioURL = $derived(
     selectedEntry?.audioURL ??
       (selectedEntry?.hasAudio
-        ? `briefly-podcast-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`
+        ? `briefly-voice-brief-audio://episode/${encodeURIComponent(selectedEntry.id)}.wav`
         : selectedEntry?.mediaURL)
   );
   let wordCount = $derived(
@@ -325,7 +325,7 @@
 
   async function initialize(): Promise<void> {
     try {
-      podcastSnapshot = await api.getPodcasts();
+      voiceBriefSnapshot = await api.getVoiceBriefs();
       applySnapshot(await api.getSnapshot());
       connections = await api.getConnectionStatus();
       syncStatus = connections.sync;
@@ -363,15 +363,15 @@
         api.onIngestionStatus((status) => {
           ingestion = status;
         });
-      const removePodcastsListener =
-        api.onPodcastsChanged((next) => {
-          podcastSnapshot = next;
+      const removeVoiceBriefsListener =
+        api.onVoiceBriefsChanged((next) => {
+          voiceBriefSnapshot = next;
           if (
-            selectedPodcastID &&
-            selectedPodcastID !== 'new' &&
-            !next.podcasts.some((podcast) => podcast.id === selectedPodcastID)
+            selectedVoiceBriefID &&
+            selectedVoiceBriefID !== 'new' &&
+            !next.voiceBriefs.some((voiceBrief) => voiceBrief.id === selectedVoiceBriefID)
           ) {
-            selectedPodcastID = '';
+            selectedVoiceBriefID = '';
           }
         });
       window.addEventListener(
@@ -382,7 +382,7 @@
           removeMessageListener();
           removeSyncListener();
           removeIngestionListener();
-          removePodcastsListener();
+          removeVoiceBriefsListener();
         },
         { once: true }
       );
@@ -483,8 +483,8 @@
       if (view === 'channels') {
         selectedChannelSource ||= allChannelGroups[0]?.source ?? '';
       } else {
-        selectedPodcastID ||=
-          podcastSnapshot?.podcasts[0]?.id ?? '';
+        selectedVoiceBriefID ||=
+          voiceBriefSnapshot?.voiceBriefs[0]?.id ?? '';
       }
     }
     selectedIDs = selectedID ? [selectedID] : [];
@@ -509,18 +509,18 @@
     mobileReaderVisible = true;
   }
 
-  function selectBrief(podcastID: string): void {
-    selectedPodcastID = podcastID;
+  function selectBrief(voiceBriefID: string): void {
+    selectedVoiceBriefID = voiceBriefID;
     selectedID = '';
     selectedIDs = [];
-    expandedBriefIDs = expandedBriefIDs.includes(podcastID)
-      ? expandedBriefIDs.filter((id) => id !== podcastID)
-      : [...expandedBriefIDs, podcastID];
+    expandedBriefIDs = expandedBriefIDs.includes(voiceBriefID)
+      ? expandedBriefIDs.filter((id) => id !== voiceBriefID)
+      : [...expandedBriefIDs, voiceBriefID];
     mobileReaderVisible = true;
   }
 
   function createBrief(): void {
-    selectedPodcastID = 'new';
+    selectedVoiceBriefID = 'new';
     selectedID = '';
     selectedIDs = [];
     mobileReaderVisible = true;
@@ -714,7 +714,7 @@
         sync: syncStatus
       };
       applySnapshot(demoSnapshot);
-      podcastSnapshot = await api.getPodcasts();
+      voiceBriefSnapshot = await api.getVoiceBriefs();
       message = 'Sample library opened.';
     });
   }
@@ -957,7 +957,7 @@
   async function checkSelectedChannel(): Promise<void> {
     if (!selectedChannel) return;
     await run(async () => {
-      podcastSnapshot = await api.checkChannel(selectedChannel.source);
+      voiceBriefSnapshot = await api.checkChannel(selectedChannel.source);
       message =
         allChannelGroups.find(({ source }) => source === selectedChannel.source)?.error ??
         'Channel checked.';
@@ -968,7 +968,7 @@
     if (!selectedChannel) return;
     const retrievalCount = (event.currentTarget as HTMLInputElement).valueAsNumber;
     try {
-      podcastSnapshot = await api.updateChannel(
+      voiceBriefSnapshot = await api.updateChannel(
         selectedChannel.source,
         retrievalCount
       );
@@ -983,9 +983,9 @@
     const source = selectedChannel.source;
     const previousCount = selectedChannel.items.length;
     await run(async () => {
-      podcastSnapshot = await api.loadMoreChannel(source);
+      voiceBriefSnapshot = await api.loadMoreChannel(source);
       const nextCount =
-        podcastSnapshot.channels.find((channel) => channel.source === source)
+        voiceBriefSnapshot.channels.find((channel) => channel.source === source)
           ?.itemCount ?? previousCount;
       message =
         nextCount > previousCount
@@ -1000,7 +1000,7 @@
     const source = newChannelURL.trim();
     if (!source) return;
     await run(async () => {
-      podcastSnapshot = await api.addChannel(source);
+      voiceBriefSnapshot = await api.addChannel(source);
       selectedChannelSource = source;
       expandedChannelSources = [
         ...new Set([...expandedChannelSources, source])
@@ -1013,12 +1013,12 @@
     if (
       !selectedChannel ||
       !window.confirm(
-        `Delete “${selectedChannel.title}” as a channel? Cached items will be removed; sources used by existing audio briefs will be kept.`
+        `Delete “${selectedChannel.title}” as a channel? Cached items will be removed; sources used by existing voice briefs will be kept.`
       )
     ) return;
     const source = selectedChannel.source;
     await run(async () => {
-      podcastSnapshot = await api.removeChannel(source);
+      voiceBriefSnapshot = await api.removeChannel(source);
       selectedChannelSource = allChannelGroups.find(
         (channel) => channel.source !== source
       )?.source ?? '';
@@ -1038,14 +1038,14 @@
     }
   }
 
-  function handleBriefSelected(podcastID: string): void {
-    selectedPodcastID =
-      podcastID ||
-      podcastSnapshot?.podcasts.find(({ id }) => id !== selectedPodcastID)?.id ||
+  function handleBriefSelected(voiceBriefID: string): void {
+    selectedVoiceBriefID =
+      voiceBriefID ||
+      voiceBriefSnapshot?.voiceBriefs.find(({ id }) => id !== selectedVoiceBriefID)?.id ||
       '';
     selectedID = '';
-    if (podcastID && !expandedBriefIDs.includes(podcastID)) {
-      expandedBriefIDs = [...expandedBriefIDs, podcastID];
+    if (voiceBriefID && !expandedBriefIDs.includes(voiceBriefID)) {
+      expandedBriefIDs = [...expandedBriefIDs, voiceBriefID];
     }
   }
 
@@ -1181,7 +1181,7 @@
           {/if}
           {#if capabilities.briefs}
             <button class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!" onclick={() => selectView('briefs')}>
-              <Headphones /> Audio briefs
+              <Headphones /> Voice briefs
             </button>
           {/if}
         </div>
@@ -1221,7 +1221,7 @@
                   onclick={() => selectView('briefs')}
                 >
                   <Headphones />
-                  <span>Brief</span>
+                  <span>Voice brief</span>
                 </button>
               {/if}
             </div>
@@ -1233,12 +1233,12 @@
                 aria-label={activeView === 'channels'
                   ? 'Search channels'
                   : activeView === 'briefs'
-                    ? 'Search audio briefs'
+                    ? 'Search voice briefs'
                     : 'Search items'}
                 placeholder={activeView === 'channels'
                   ? 'Search channels'
                   : activeView === 'briefs'
-                    ? 'Search audio briefs'
+                    ? 'Search voice briefs'
                     : 'Search items'}
               />
               {#if query}
@@ -1286,9 +1286,9 @@
               </div>
             {:else}
               {#each channelGroups as group (group.source)}
-                <div class="podcast-episode-group">
+                <div class="voice-brief-episode-group">
                   <button
-                    class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                    class="native-entry-row voice-brief-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
                     class:selected={selectedChannelSource === group.source && !selectedEntry}
                     aria-pressed={selectedChannelSource === group.source && !selectedEntry}
                     aria-expanded={expandedChannelSources.includes(group.source)}
@@ -1303,15 +1303,15 @@
                     {#if group.newEntryIDs.length}
                       <span
                         class="channel-new-badge"
-                        title={`Added since the latest audio brief on ${new Date(group.latestBriefAt!).toLocaleString()}`}
+                        title={`Added since the latest voice brief on ${new Date(group.latestBriefAt!).toLocaleString()}`}
                       >{group.newEntryIDs.length} new</span>
                     {/if}
                   </button>
                   {#if group.items.length && expandedChannelSources.includes(group.source)}
-                    <div class="podcast-note-list">
+                    <div class="voice-brief-note-list">
                       {#each group.items as item (item.id)}
                         <button
-                          class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                          class="native-entry-row voice-brief-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
                           class:selected={selectedIDs.includes(item.id)}
                           aria-pressed={selectedIDs.includes(item.id)}
                           onpointerdown={(event) => {
@@ -1339,7 +1339,7 @@
                           {#if group.newEntryIDs.includes(item.id)}
                             <span
                               class="channel-new-badge"
-                              title={`Added since the latest audio brief on ${new Date(group.latestBriefAt!).toLocaleString()}`}
+                              title={`Added since the latest voice brief on ${new Date(group.latestBriefAt!).toLocaleString()}`}
                             >New</span>
                           {/if}
                         </button>
@@ -1353,27 +1353,27 @@
             {#if capabilities.briefAuthoring}
               <button
                 class="native-entry-row native-create-row text-primary! rounded-lg! hover:bg-sidebar-accent/60!"
-                class:selected={selectedPodcastID === 'new'}
-                disabled={Boolean(podcastSnapshot &&
-                  podcastSnapshot.podcasts.length >= podcastSnapshot.maximumPodcasts)}
+                class:selected={selectedVoiceBriefID === 'new'}
+                disabled={Boolean(voiceBriefSnapshot &&
+                  voiceBriefSnapshot.voiceBriefs.length >= voiceBriefSnapshot.maximumVoiceBriefs)}
                 onclick={createBrief}
               >
                 <Plus />
-                <span>New audio brief</span>
+                <span>New voice brief</span>
               </button>
             {/if}
-            {#if briefGroups.length === 0 && selectedPodcastID !== 'new'}
+            {#if briefGroups.length === 0 && selectedVoiceBriefID !== 'new'}
               <div class="native-no-results text-muted-foreground!">
                 <Headphones />
-                <p>No audio briefs</p>
+                <p>No voice briefs</p>
               </div>
             {:else}
               {#each briefGroups as brief (brief.id)}
-                <div class="podcast-episode-group">
+                <div class="voice-brief-episode-group">
                   <button
-                    class="native-entry-row podcast-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
-                    class:selected={selectedPodcastID === brief.id && !selectedEntry}
-                    aria-pressed={selectedPodcastID === brief.id && !selectedEntry}
+                    class="native-entry-row voice-brief-episode-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                    class:selected={selectedVoiceBriefID === brief.id && !selectedEntry}
+                    aria-pressed={selectedVoiceBriefID === brief.id && !selectedEntry}
                     aria-expanded={expandedBriefIDs.includes(brief.id)}
                     onclick={() => selectBrief(brief.id)}
                   >
@@ -1385,10 +1385,10 @@
                     <span>{brief.title}</span>
                   </button>
                   {#if brief.episodes.length && expandedBriefIDs.includes(brief.id)}
-                    <div class="podcast-note-list">
+                    <div class="voice-brief-note-list">
                       {#each brief.episodes as episode (episode.id)}
                         <button
-                          class="native-entry-row podcast-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
+                          class="native-entry-row voice-brief-note-row text-sidebar-foreground! rounded-lg! hover:bg-sidebar-accent/60! [&.selected]:bg-sidebar-accent! [&.selected]:text-sidebar-accent-foreground!"
                           class:selected={selectedIDs.includes(episode.id)}
                           aria-pressed={selectedIDs.includes(episode.id)}
                           onpointerdown={(event) => {
@@ -1565,7 +1565,7 @@
                   </div>
                   <div>
                     <dt class="text-muted-foreground!">Used by</dt>
-                    <dd>{selectedChannel.briefs.join(', ') || 'No audio briefs'}</dd>
+                    <dd>{selectedChannel.briefs.join(', ') || 'No voice briefs'}</dd>
                   </div>
                   <div>
                     <dt class="text-muted-foreground!">Items per check</dt>
@@ -1646,13 +1646,13 @@
             </section>
           </div>
         {:else if activeView === 'briefs' && !selectedEntry &&
-        (selectedBrief || selectedPodcastID === 'new')}
+        (selectedBrief || selectedVoiceBriefID === 'new')}
           {#if capabilities.briefAuthoring}
-            {#key selectedPodcastID}
-              <PodcastsView
+            {#key selectedVoiceBriefID}
+              <VoiceBriefsView
                 {api}
-                podcastid={selectedPodcastID === 'new' ? '' : selectedPodcastID}
-                creating={selectedPodcastID === 'new'}
+                voiceBriefID={selectedVoiceBriefID === 'new' ? '' : selectedVoiceBriefID}
+                creating={selectedVoiceBriefID === 'new'}
                 onselected={handleBriefSelected}
                 onmessage={(value) => (message = value)}
               />
@@ -1962,7 +1962,7 @@
           <span>
             Save audio from manually captured YouTube videos
             <small class="text-muted-foreground! block">
-              Captured podcast audio stays remote. Channel and agent-imported items remain text-only. Generated audio brief episodes keep their audio.
+              Captured podcast audio stays remote. Channel and agent-imported items remain text-only. Generated voice brief episodes keep their audio.
             </small>
           </span>
         </label>

@@ -14,19 +14,19 @@ This directory contains the cross-platform Briefly desktop application.
   `CommandOrControl-G`).
 - Apple or Google signs in to the Briefly account; iCloud or Google Drive is chosen
   separately on the hosted account page for folder-structured Markdown and
-  podcast-definition sync.
+  voice-brief-definition sync.
 - Clipboard URLs use the bundled extractor, then the local Codex CLI creates four
   summaries and assigns a topic in the background. The app shows persistent ingest
   status and mirrors active work on the dock/taskbar progress indicator; macOS also
   shows the number of active ingests as a dock badge.
 - A bearer-authenticated agent API on `127.0.0.1` supports research ingestion and
-  agent-created audio briefings. Its bundled skills are installed into the selected
+  agent-created voice briefs. Its bundled skills are installed into the selected
   workspace automatically.
 - Versioned workspace input packages in `.briefly/inputs/` can override extraction
   for narrowly matched sites. They are hot-discovered and execute in restricted,
   secret-free child processes with optional built-in fallback.
-- Podcasts are plain Markdown files in `podcasts/`. Briefly can watch public feeds
-  itself, while the bundled audio-briefing skill lets Codex discover signed-in
+- Voice briefs are plain Markdown files in `voice-briefs/`. Briefly can watch public feeds
+  itself, while the bundled voice-brief skill lets Codex discover signed-in
   Reddit/X updates, avoid used sources, submit a linked script, and leave TTS and
   playback to Briefly.
 - Share links publish summaries and source metadata, never captured source text

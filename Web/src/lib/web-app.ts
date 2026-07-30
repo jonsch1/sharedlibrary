@@ -7,7 +7,7 @@ import {
   type DesktopOperationResult,
   type DesktopPlatform,
   type DesktopSyncStatus,
-  type PodcastSnapshot,
+  type VoiceBriefSnapshot,
   type ProcessingPreferences,
   type PromptPreferences,
   type SharedLibraryDesktopAPI
@@ -54,11 +54,11 @@ type AccountStatus = {
 };
 
 const emptyProjection: LibraryProjection = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   generatedAt: new Date(0).toISOString(),
   files: [],
   entries: [],
-  podcasts: []
+  voiceBriefs: []
 };
 
 const idleSync: DesktopSyncStatus = {
@@ -141,7 +141,7 @@ export function createWebAppBridge(): {
       id: entry.id,
       captureID: entry.captureID ?? entry.id,
       entryType: entry.entryType,
-      podcastID: entry.podcastID,
+      voiceBriefID: entry.voiceBriefID,
       filename:
         entry.texts.find(({ variant }) => variant === 'source')?.path?.split('/').at(-1) ??
         `${entry.captureID ?? entry.id}.md`,
@@ -295,9 +295,9 @@ export function createWebAppBridge(): {
     };
   }
 
-  function podcastSnapshot(): PodcastSnapshot {
-    const podcasts = (projection.podcasts ?? []).map((podcast) => ({
-      ...podcast,
+  function voiceBriefSnapshot(): VoiceBriefSnapshot {
+    const voiceBriefs = (projection.voiceBriefs ?? []).map((voiceBrief) => ({
+      ...voiceBrief,
       prompt: '',
       prioritizeForMe: false,
       status: 'ready' as const,
@@ -305,7 +305,7 @@ export function createWebAppBridge(): {
       episodes: projection.entries
         .filter(
           (entry) =>
-            entry.entryType === 'podcast_episode' && entry.podcastID === podcast.id
+            entry.entryType === 'voice_brief_episode' && entry.voiceBriefID === voiceBrief.id
         )
         .map((entry) => entryByID.get(entry.id))
         .filter((entry): entry is LibraryEntry => Boolean(entry))
@@ -313,7 +313,7 @@ export function createWebAppBridge(): {
           id: entry.id,
           captureID: entry.captureID ?? entry.id,
           entryType: entry.entryType,
-          podcastID: entry.podcastID,
+          voiceBriefID: entry.voiceBriefID,
           filename:
             entry.texts.find(({ variant }) => variant === 'source')?.path?.split('/').at(-1) ??
             `${entry.captureID ?? entry.id}.md`,
@@ -337,9 +337,9 @@ export function createWebAppBridge(): {
     }));
     return {
       generatedAt: projection.generatedAt,
-      podcasts,
+      voiceBriefs,
       channels: [],
-      maximumPodcasts: podcasts.length
+      maximumVoiceBriefs: voiceBriefs.length
     };
   }
 
@@ -472,24 +472,24 @@ export function createWebAppBridge(): {
     async testAIProcessingCommand() {
       return unavailable('Local AI commands');
     },
-    async getPodcasts() {
+    async getVoiceBriefs() {
       if (!demoMode) await initialize();
       await snapshot();
-      return podcastSnapshot();
+      return voiceBriefSnapshot();
     },
-    async savePodcast() {
-      return unavailable('Audio brief authoring');
+    async saveVoiceBrief() {
+      return unavailable('Voice brief authoring');
     },
-    async removePodcast() {
-      return unavailable('Audio brief authoring');
+    async removeVoiceBrief() {
+      return unavailable('Voice brief authoring');
     },
-    async checkPodcast() {
-      return unavailable('Audio brief authoring');
+    async checkVoiceBrief() {
+      return unavailable('Voice brief authoring');
     },
-    async runPodcast() {
-      return unavailable('Audio brief authoring');
+    async runVoiceBrief() {
+      return unavailable('Voice brief authoring');
     },
-    async revealPodcast() {
+    async revealVoiceBrief() {
       return unavailable('Revealing local files');
     },
     async addChannel() {
@@ -543,7 +543,7 @@ export function createWebAppBridge(): {
       syncListeners.add(listener);
       return () => syncListeners.delete(listener);
     },
-    onPodcastsChanged() {
+    onVoiceBriefsChanged() {
       return () => {};
     }
   };

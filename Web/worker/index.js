@@ -807,7 +807,7 @@ function validLibraryPath(path) {
 		typeof path === 'string' &&
 		path.length > 0 &&
 		path.length <= 1024 &&
-		(path === 'topics.md' || path.startsWith('library/') || path.startsWith('podcasts/')) &&
+		(path === 'topics.md' || path.startsWith('library/') || path.startsWith('voice-briefs/')) &&
 		!path.split('/').some((component) => !component || component === '.' || component === '..')
 	);
 }
@@ -943,7 +943,7 @@ async function syncLibraryMirror(request, env) {
 	if (
 		(value?.schemaVersion !== 1 && value?.schemaVersion !== 2) ||
 		typeof value.index !== 'object' ||
-		value.index?.schemaVersion !== 3 ||
+		value.index?.schemaVersion !== 4 ||
 		!Array.isArray(value.index.files) ||
 		!Array.isArray(value.index.entries) ||
 		!Array.isArray(value.files) ||
@@ -5666,7 +5666,7 @@ async function loadSharedInboxProjection(request, env) {
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
 	const connection = await sharedFolderConnection(env, email);
 	if (!connection) {
-		return json({ schemaVersion: 3, generatedAt: new Date().toISOString(), files: [], entries: [] });
+		return json({ schemaVersion: 4, generatedAt: new Date().toISOString(), files: [], entries: [] });
 	}
 	try {
 		const [tree, inboxContext] = await Promise.all([
@@ -5752,7 +5752,7 @@ async function loadSharedInboxProjection(request, env) {
 		).filter(Boolean);
 		entries.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
 		return json({
-			schemaVersion: 3,
+			schemaVersion: 4,
 			generatedAt: new Date().toISOString(),
 			files: [],
 			entries
@@ -5918,7 +5918,7 @@ async function updatePersonalDriveIndexAfterImport(
 ) {
 	const currentIndexFile = await driveFileByKind(env, email, 'library-index');
 	let index = {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		generatedAt: new Date().toISOString(),
 		files: [],
 		entries: []
@@ -5929,7 +5929,7 @@ async function updatePersonalDriveIndexAfterImport(
 				new TextDecoder().decode(await downloadDriveFile(env, email, currentIndexFile.id))
 			);
 			if (
-				value?.schemaVersion === 3 &&
+				value?.schemaVersion === 4 &&
 				Array.isArray(value.files) &&
 				Array.isArray(value.entries)
 			) {
@@ -5995,7 +5995,7 @@ async function updatePersonalDriveIndexAfterImport(
 	].sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(
 		String(a.updatedAt ?? a.createdAt ?? '')
 	));
-	index.schemaVersion = 3;
+	index.schemaVersion = 4;
 	index.generatedAt = new Date().toISOString();
 	await upsertDriveFile(env, email, {
 		rootFolderID: personalRootID,

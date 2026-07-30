@@ -10,36 +10,36 @@
   } from '@lucide/svelte';
   import {
     type ChannelDefinition,
-    type PodcastDefinition,
-    type PodcastDraft,
-    type PodcastSnapshot,
+    type VoiceBriefDefinition,
+    type VoiceBriefDraft,
+    type VoiceBriefSnapshot,
     type SharedLibraryDesktopAPI
   } from './contracts';
 
   let {
     api,
-    podcastid,
+    voiceBriefID,
     creating = false,
     onselected,
     onmessage
   }: {
     api: SharedLibraryDesktopAPI;
-    podcastid: string;
+    voiceBriefID: string;
     creating?: boolean;
-    onselected: (podcastID: string) => void;
+    onselected: (voiceBriefID: string) => void;
     onmessage: (message: string) => void;
   } = $props();
 
-  let snapshot = $state<PodcastSnapshot | null>(null);
+  let snapshot = $state<VoiceBriefSnapshot | null>(null);
   let selectedID = $state('');
-  let draft = $state<PodcastDraft>(emptyDraft());
+  let draft = $state<VoiceBriefDraft>(emptyDraft());
   let busy = $state(false);
   let dirty = $state(false);
   let revision = $state(0);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   let selected = $derived(
-    snapshot?.podcasts.find((podcast) => podcast.id === selectedID) ?? null
+    snapshot?.voiceBriefs.find((voiceBrief) => voiceBrief.id === selectedID) ?? null
   );
   let channels = $derived(snapshot?.channels ?? []);
   let channelDomains = $derived.by(() => {
@@ -75,10 +75,10 @@
 
   async function initialize(): Promise<void> {
     try {
-      selectedID = podcastid;
+      selectedID = voiceBriefID;
       dirty = creating;
-      applySnapshot(await api.getPodcasts());
-      const remove = api.onPodcastsChanged((next) => {
+      applySnapshot(await api.getVoiceBriefs());
+      const remove = api.onVoiceBriefsChanged((next) => {
         applySnapshot(next, !dirty);
       });
       window.addEventListener(
@@ -90,25 +90,25 @@
         { once: true }
       );
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'Audio briefs could not be loaded.');
+      onmessage(error instanceof Error ? error.message : 'Voice briefs could not be loaded.');
     }
   }
 
-  function applySnapshot(next: PodcastSnapshot, refreshDraft = true): void {
+  function applySnapshot(next: VoiceBriefSnapshot, refreshDraft = true): void {
     snapshot = next;
-    const podcast = next.podcasts.find((candidate) => candidate.id === selectedID);
-    if (refreshDraft && podcast) loadDraft(podcast);
+    const voiceBrief = next.voiceBriefs.find((candidate) => candidate.id === selectedID);
+    if (refreshDraft && voiceBrief) loadDraft(voiceBrief);
   }
 
-  function loadDraft(podcast: PodcastDefinition): void {
+  function loadDraft(voiceBrief: VoiceBriefDefinition): void {
     draft = {
-      id: podcast.id,
-      title: podcast.title,
-      prompt: podcast.prompt,
-      prioritizeForMe: podcast.prioritizeForMe,
-      schedule: podcast.schedule,
+      id: voiceBrief.id,
+      title: voiceBrief.title,
+      prompt: voiceBrief.prompt,
+      prioritizeForMe: voiceBrief.prioritizeForMe,
+      schedule: voiceBrief.schedule,
       length: '',
-      sources: [...podcast.sources]
+      sources: [...voiceBrief.sources]
     };
     dirty = false;
   }
@@ -132,10 +132,10 @@
     if (!title || !prompt) return;
 
     const savingRevision = revision;
-    const knownIDs = new Set(snapshot?.podcasts.map((podcast) => podcast.id) ?? []);
+    const knownIDs = new Set(snapshot?.voiceBriefs.map((voiceBrief) => voiceBrief.id) ?? []);
     busy = true;
     try {
-      const next = await api.savePodcast({
+      const next = await api.saveVoiceBrief({
         ...draft,
         title,
         prompt,
@@ -143,16 +143,16 @@
       });
       snapshot = next;
       const saved =
-        next.podcasts.find((podcast) => podcast.id === draft.id) ??
-        next.podcasts.find((podcast) => !knownIDs.has(podcast.id)) ??
-        next.podcasts.find((podcast) => podcast.title === title);
+        next.voiceBriefs.find((voiceBrief) => voiceBrief.id === draft.id) ??
+        next.voiceBriefs.find((voiceBrief) => !knownIDs.has(voiceBrief.id)) ??
+        next.voiceBriefs.find((voiceBrief) => voiceBrief.title === title);
       if (saved) {
         selectedID = saved.id;
         onselected(saved.id);
         if (revision === savingRevision) loadDraft(saved);
       }
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The audio brief could not be saved.');
+      onmessage(error instanceof Error ? error.message : 'The voice brief could not be saved.');
     } finally {
       busy = false;
       if (dirty && revision !== savingRevision) scheduleSave();
@@ -164,13 +164,13 @@
     if (dirty || !selected) return;
     busy = true;
     try {
-      applySnapshot(await api.runPodcast(selected.id));
+      applySnapshot(await api.runVoiceBrief(selected.id));
       onmessage(
-        snapshot?.podcasts.find((podcast) => podcast.id === selected.id)?.message ??
-          'Audio brief generation finished.'
+        snapshot?.voiceBriefs.find((voiceBrief) => voiceBrief.id === selected.id)?.message ??
+          'Voice brief generation finished.'
       );
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The audio brief could not be generated.');
+      onmessage(error instanceof Error ? error.message : 'The voice brief could not be generated.');
     } finally {
       busy = false;
     }
@@ -205,19 +205,19 @@
     if (!selected || !window.confirm(`Move “${selected.title}” to Trash?`)) return;
     busy = true;
     try {
-      applySnapshot(await api.removePodcast(selected.id));
+      applySnapshot(await api.removeVoiceBrief(selected.id));
       onselected('');
-      onmessage('Audio brief moved to Trash.');
+      onmessage('Voice brief moved to Trash.');
     } catch (error) {
-      onmessage(error instanceof Error ? error.message : 'The audio brief could not be removed.');
+      onmessage(error instanceof Error ? error.message : 'The voice brief could not be removed.');
     } finally {
       busy = false;
     }
   }
 
-  function emptyDraft(): PodcastDraft {
+  function emptyDraft(): VoiceBriefDraft {
     return {
-      title: 'New audio brief',
+      title: 'New voice brief',
       prompt: 'Connect the most important updates into one concise, conversational briefing.',
       prioritizeForMe: false,
       schedule: 'manual',
@@ -227,16 +227,16 @@
   }
 </script>
 
-<div class="podcast-document-workspace bg-background! bg-none! text-foreground! font-sans!">
-  <header class="podcast-document-toolbar border-border!">
-    <div class="podcast-document-actions">
-      <span class="podcast-save-status text-muted-foreground!">
+<div class="voice-brief-document-workspace bg-background! bg-none! text-foreground! font-sans!">
+  <header class="voice-brief-document-toolbar border-border!">
+    <div class="voice-brief-document-actions">
+      <span class="voice-brief-save-status text-muted-foreground!">
         {#if !dirty}<Check />{/if}{saveStatus}
       </span>
       {#if selected}
         <button
           class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
-          onclick={() => api.revealPodcast(selected!.id)}
+          onclick={() => api.revealVoiceBrief(selected!.id)}
         ><FileText /> File</button>
       {/if}
       <button
@@ -245,19 +245,19 @@
         onclick={generateNow}
       >
         {#if busy}<LoaderCircle class="spin" />{:else}<Sparkles />{/if}
-        Generate audio brief
+        Generate voice brief
       </button>
     </div>
   </header>
 
-  <div class="podcast-document-scroll">
-    <section class="podcast-document">
+  <div class="voice-brief-document-scroll">
+    <section class="voice-brief-document">
       <input
-        class="podcast-document-title text-foreground! placeholder:text-muted-foreground!"
-        aria-label="Audio brief title"
+        class="voice-brief-document-title text-foreground! placeholder:text-muted-foreground!"
+        aria-label="Voice brief title"
         bind:value={draft.title}
         oninput={markDirty}
-        placeholder="Audio brief title"
+        placeholder="Voice brief title"
       />
       <section class="brief-editor-section" aria-labelledby="brief-direction-title">
         <header>
@@ -267,11 +267,11 @@
           </p>
         </header>
         <textarea
-          class="podcast-prompt border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
-          aria-label="Audio brief instructions"
+          class="voice-brief-prompt border-input! bg-background! text-foreground! placeholder:text-muted-foreground! rounded-lg! border focus:border-ring focus:ring-2 focus:ring-ring/20"
+          aria-label="Voice brief instructions"
           bind:value={draft.prompt}
           oninput={markDirty}
-          placeholder="Describe the audio brief you want Briefly to make."
+          placeholder="Describe the voice brief you want Briefly to make."
         ></textarea>
       </section>
 
@@ -366,7 +366,7 @@
         {/if}
       </section>
 
-      <section class="brief-compact-settings" aria-label="Audio brief timing">
+      <section class="brief-compact-settings" aria-label="Voice brief timing">
         <label>
           <span><CalendarDays /> Schedule</span>
           <input
@@ -379,12 +379,12 @@
       </section>
 
       {#if selected}
-        <footer class="podcast-document-footer border-border!">
+        <footer class="voice-brief-document-footer border-border!">
           <button
-            class="podcast-delete text-destructive!"
+            class="voice-brief-delete text-destructive!"
             onclick={remove}
             disabled={busy}
-          ><Trash2 /> Delete audio brief</button>
+          ><Trash2 /> Delete voice brief</button>
         </footer>
       {/if}
     </section>

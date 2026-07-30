@@ -21,7 +21,7 @@ import type {
   LibraryFile,
   LibraryMedia,
   LibraryMediaKind,
-  LibraryPodcast,
+  LibraryVoiceBrief,
   LibraryProjection,
   LibraryText
 } from '../../../Shared/library.js';
@@ -48,7 +48,7 @@ export type DriveLibraryText = LibraryText & {
 };
 
 export interface DriveLibraryIndex extends Omit<LibraryProjection, 'entries'> {
-  schemaVersion: 3;
+  schemaVersion: 4;
   entries: Array<Omit<LibraryEntry, 'captureID' | 'origin' | 'texts'> & {
     captureID: string;
     origin: 'personal';
@@ -285,7 +285,7 @@ export class LibraryService {
       title?: string;
       content?: string;
       sourceURL?: string;
-      entryType?: 'podcast_source';
+      entryType?: 'voice_brief_source';
       mediaURL?: string;
       audio?: {
         bytes: Uint8Array;
@@ -370,9 +370,9 @@ export class LibraryService {
     return captureID;
   }
 
-  async capturePodcastEpisode(value: {
-    podcastID: string;
-    podcastTitle: string;
+  async captureVoiceBriefEpisode(value: {
+    voiceBriefID: string;
+    voiceBriefTitle: string;
     title: string;
     body: string;
     sources: string[];
@@ -383,19 +383,19 @@ export class LibraryService {
     const captureID = randomUUID().toUpperCase();
     const now = new Date().toISOString();
     const filename = await this.availableFilename(
-      slug(`${value.podcastTitle}-${now.slice(0, 10)}`)
+      slug(`${value.voiceBriefTitle}-${now.slice(0, 10)}`)
     );
     const audioPath = value.audio ? `audio/${captureID}.wav` : undefined;
     const metadata = {
       id: captureID,
-      type: 'podcast_episode',
-      title: value.title.trim() || `${value.podcastTitle} — ${now.slice(0, 10)}`,
+      type: 'voice_brief_episode',
+      title: value.title.trim() || `${value.voiceBriefTitle} — ${now.slice(0, 10)}`,
       created_at: now,
       updated_at: now,
-      tags: ['podcast'],
+      tags: ['voice-brief'],
       topics: [],
-      podcast_id: value.podcastID,
-      podcast_title: value.podcastTitle,
+      voice_brief_id: value.voiceBriefID,
+      voice_brief_title: value.voiceBriefTitle,
       ...(audioPath ? { audio_path: audioPath } : {}),
       source_ids: [...new Set(value.sourceIDs)],
       source_urls: [...new Set(value.sources)]
@@ -411,10 +411,10 @@ export class LibraryService {
     return `personal:${captureID}`;
   }
 
-  async attachPodcastAudio(entryID: string, audio: Uint8Array): Promise<void> {
+  async attachVoiceBriefAudio(entryID: string, audio: Uint8Array): Promise<void> {
     const indexed = await this.requireEntry(entryID);
-    if (indexed.entry.entryType !== 'podcast_episode') {
-      throw new Error('Audio can only be attached to an audio brief episode.');
+    if (indexed.entry.entryType !== 'voice_brief_episode') {
+      throw new Error('Audio can only be attached to a voice brief episode.');
     }
     const parsed = parseMarkdown(await readFile(indexed.sourcePath, 'utf8'));
     const audioRelativePath = `audio/${indexed.entry.captureID}.wav`;
@@ -430,18 +430,18 @@ export class LibraryService {
     this.indexedEntries.clear();
   }
 
-  async markPodcastSources(
+  async markVoiceBriefSources(
     entryIDs: string[]
   ): Promise<{ snapshot: DesktopLibrarySnapshot; changed: boolean }> {
     const sourceIDs = new Set(entryIDs);
     const snapshot = await this.snapshot();
     let changed = false;
     for (const entry of snapshot.entries) {
-      if (!sourceIDs.has(entry.id) || entry.entryType === 'podcast_source') continue;
+      if (!sourceIDs.has(entry.id) || entry.entryType === 'voice_brief_source') continue;
       const indexed = this.indexedEntries.get(entry.id);
       if (!indexed) continue;
       const text = await readFile(indexed.sourcePath, 'utf8');
-      const updated = text.replace(/^type:.*$/m, 'type: "podcast_source"');
+      const updated = text.replace(/^type:.*$/m, 'type: "voice_brief_source"');
       if (updated === text) continue;
       await atomicWrite(indexed.sourcePath, updated);
       changed = true;
@@ -452,9 +452,9 @@ export class LibraryService {
     };
   }
 
-  async podcastAudioPath(entryID: string): Promise<string> {
+  async voiceBriefAudioPath(entryID: string): Promise<string> {
     const path = (await this.requireEntry(entryID)).audioPath;
-    if (!path) throw new Error('That audio brief episode has no audio.');
+    if (!path) throw new Error('That voice brief episode has no audio.');
     return path;
   }
 
@@ -607,7 +607,7 @@ export class LibraryService {
         id: entry.id,
         captureID: entry.captureID,
         entryType: entry.entryType,
-        podcastID: entry.podcastID,
+        voiceBriefID: entry.voiceBriefID,
         title: entry.title,
         excerpt: entry.excerpt,
         topicIDs: entry.topicIDs,
@@ -627,10 +627,10 @@ export class LibraryService {
         texts
       };
     }));
-    const podcasts: LibraryPodcast[] = files.flatMap((file) => {
+    const voiceBriefs: LibraryVoiceBrief[] = files.flatMap((file) => {
       if (
-        !/^podcasts\/[^/]+\.md$/i.test(file.path) ||
-        file.path.toLowerCase() === 'podcasts/readme.md'
+        !/^voice-briefs\/[^/]+\.md$/i.test(file.path) ||
+        file.path.toLowerCase() === 'voice-briefs/readme.md'
       ) return [];
       const filename = basename(file.path);
       const metadata = parseMarkdown(file.content).metadata;
@@ -648,7 +648,7 @@ export class LibraryService {
     });
     return {
       index: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         generatedAt: new Date().toISOString(),
         files: files.map(({ path, contentHash, byteCount }) => ({
           path,
@@ -656,7 +656,7 @@ export class LibraryService {
           byteCount
         })),
         entries,
-        podcasts
+        voiceBriefs
       },
       files,
       media: [...mediaByHash.values()]
@@ -841,7 +841,7 @@ export class LibraryService {
         id,
         captureID,
         entryType: stringValue(parsed.metadata.type) || undefined,
-        podcastID: stringValue(parsed.metadata.podcast_id) || undefined,
+        voiceBriefID: stringValue(parsed.metadata.voice_brief_id) || undefined,
         filename,
         title,
         excerpt: excerpt(excerptText),
@@ -914,16 +914,16 @@ export class LibraryService {
       }
     };
     await walk(join(this.workspacePath, 'library'), '');
-    const podcastDirectory = join(this.workspacePath, 'podcasts');
+    const voiceBriefDirectory = join(this.workspacePath, 'voice-briefs');
     try {
-      const podcastFiles = await readdir(podcastDirectory, { withFileTypes: true });
-      for (const entry of podcastFiles) {
+      const voiceBriefFiles = await readdir(voiceBriefDirectory, { withFileTypes: true });
+      for (const entry of voiceBriefFiles) {
         if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-          paths.push(`podcasts/${entry.name}`);
+          paths.push(`voice-briefs/${entry.name}`);
         }
       }
     } catch {
-      // A workspace without scheduled podcasts has nothing extra to mirror.
+      // A workspace without voice briefs has nothing extra to mirror.
     }
     return paths.sort((left, right) => left.localeCompare(right));
   }
@@ -1128,7 +1128,7 @@ function countWords(value: string): number {
 function validMirroredPath(value: string): boolean {
   if (value === 'topics.md') return true;
   if (
-    !(value.startsWith('library/') || value.startsWith('podcasts/')) ||
+    !(value.startsWith('library/') || value.startsWith('voice-briefs/')) ||
     !value.toLowerCase().endsWith('.md')
   ) return false;
   return !value.split('/').some((component) => !component || component === '.' || component === '..');

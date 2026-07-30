@@ -1,21 +1,21 @@
 # Briefly
 
 Briefly is a cross-platform Electron desktop app for capturing, processing,
-browsing, editing, and turning watched sources into scheduled podcast drafts. A Svelte web reader
+browsing, editing, and turning watched sources into scheduled voice briefs. A Svelte web reader
 provides mobile access, offline caching, and deliberate public share
 links. iCloud or Google Drive stores the private library; the sharing service
 stores only documents the user explicitly publishes.
 
 The desktop app supports macOS, Windows, and Linux. It opens the workspace directly
 and includes capture extraction, Codex processing, iCloud or Google Drive synchronization,
-scheduled source watchers, podcast drafting, share links, editing, and coordinated Trash.
+scheduled source watchers, voice-brief authoring, share links, editing, and coordinated Trash.
 
 The default workspace is `~/Documents/Briefly`.
 
 - `library/` stores sources and their brief, concise, detailed, and comprehensive
   summaries.
 - `topics.md` stores the capture taxonomy.
-- `podcasts/` stores editable Markdown podcast definitions with a name, schedule,
+- `voice-briefs/` stores editable Markdown voice-brief definitions with a name, schedule,
   source URLs or `arxiv:` queries, and an optional length.
 - `AGENTS.md` contains workspace instructions for agents.
 - `.briefly/inputs/` contains optional workspace-local link input extensions.
@@ -59,7 +59,7 @@ together.
 ## Agent API
 
 While the desktop app is running it exposes an authenticated, loopback-only API for
-coding agents. The app installs its research, input-extension, and audio-briefing
+coding agents. The app installs its research, input-extension, and voice-brief
 skills into the selected workspace at `.agents/skills/` and writes the ephemeral
 connection to `.shared-library/agent-api.json`. Neither file is included in the
 Drive mirror.
@@ -74,7 +74,7 @@ The API includes topic listing/creation, approved batch URL ingestion, asynchron
 job polling, and topic-item reads at any summary depth. Requests use a per-launch
 bearer token from the connection file and are accepted only on `127.0.0.1`.
 
-For audio briefings, the agent reads podcast definitions and used-source keys,
+For voice briefs, the agent reads voice-brief definitions and used-source keys,
 uses Briefly's extractor for known URLs, and uses the signed-in browser only for
 discovery or extraction fallbacks on sites such as Reddit and X. It submits exact
 source permalinks with the finished script; Briefly stores the linked episode,
@@ -112,7 +112,7 @@ account.
 Every desktop client is an editing source. Account sign-in (Apple or Google) is
 separate from library storage (iCloud or Google Drive). After meaningful
 changes—captures, edits, processing, deletions, launch, wake, or restored
-connectivity—it mirrors `library/`, `podcasts/`, and `topics.md` through the selected provider.
+connectivity—it mirrors `library/`, `voice-briefs/`, and `topics.md` through the selected provider.
 Files are compared by SHA-256 hash, so unchanged files are not uploaded.
 
 The web reader checks the selected provider when it opens, every few minutes while running, when it

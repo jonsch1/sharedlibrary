@@ -6,8 +6,8 @@ import type {
   DesktopSyncStatus,
   AICommandPreferencesUpdate,
   LibraryVariant,
-  PodcastDraft,
-  PodcastSnapshot,
+  VoiceBriefDraft,
+  VoiceBriefSnapshot,
   PromptPreferenceUpdate,
   ProcessingPreferencesUpdate,
   SharedLibraryDesktopAPI
@@ -56,13 +56,13 @@ const api: SharedLibraryDesktopAPI = {
     ipcRenderer.invoke('ai-commands:update', preferences),
   testAIProcessingCommand: (command: string) =>
     ipcRenderer.invoke('ai-commands:test-processing', command),
-  getPodcasts: () => ipcRenderer.invoke('podcasts:get'),
-  savePodcast: (podcast: PodcastDraft) =>
-    ipcRenderer.invoke('podcasts:save', podcast),
-  removePodcast: (id: string) => ipcRenderer.invoke('podcasts:remove', id),
-  checkPodcast: (id: string) => ipcRenderer.invoke('podcasts:check', id),
-  runPodcast: (id: string) => ipcRenderer.invoke('podcasts:run', id),
-  revealPodcast: (id: string) => ipcRenderer.invoke('podcasts:reveal', id),
+  getVoiceBriefs: () => ipcRenderer.invoke('voice-briefs:get'),
+  saveVoiceBrief: (voiceBrief: VoiceBriefDraft) =>
+    ipcRenderer.invoke('voice-briefs:save', voiceBrief),
+  removeVoiceBrief: (id: string) => ipcRenderer.invoke('voice-briefs:remove', id),
+  checkVoiceBrief: (id: string) => ipcRenderer.invoke('voice-briefs:check', id),
+  runVoiceBrief: (id: string) => ipcRenderer.invoke('voice-briefs:run', id),
+  revealVoiceBrief: (id: string) => ipcRenderer.invoke('voice-briefs:reveal', id),
   addChannel: (source: string) => ipcRenderer.invoke('channels:add', source),
   checkChannel: (source: string) => ipcRenderer.invoke('channels:check', source),
   updateChannel: (source: string, retrievalCount: number) =>
@@ -92,11 +92,11 @@ const api: SharedLibraryDesktopAPI = {
     ipcRenderer.on('sync:status', callback);
     return () => ipcRenderer.removeListener('sync:status', callback);
   },
-  onPodcastsChanged: (listener: (snapshot: PodcastSnapshot) => void) => {
-    const callback = (_event: Electron.IpcRendererEvent, snapshot: PodcastSnapshot) =>
+  onVoiceBriefsChanged: (listener: (snapshot: VoiceBriefSnapshot) => void) => {
+    const callback = (_event: Electron.IpcRendererEvent, snapshot: VoiceBriefSnapshot) =>
       listener(snapshot);
-    ipcRenderer.on('podcasts:changed', callback);
-    return () => ipcRenderer.removeListener('podcasts:changed', callback);
+    ipcRenderer.on('voice-briefs:changed', callback);
+    return () => ipcRenderer.removeListener('voice-briefs:changed', callback);
   },
 };
 

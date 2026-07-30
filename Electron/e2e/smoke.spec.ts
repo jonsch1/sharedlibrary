@@ -100,12 +100,12 @@ test('the production app reads, edits, plays, and configures a library', async (
     ).toEqual(movedPosition);
 
     const tabs = page.getByRole('tablist', { name: 'Library view' });
-    await tabs.getByRole('tab', { name: 'Brief' }).click();
-    await expect(page.getByLabel('Audio brief title')).toHaveValue('Smoke podcast');
-    await page.getByLabel('Audio brief instructions').fill('Explain why each update matters.');
+    await tabs.getByRole('tab', { name: 'Voice brief' }).click();
+    await expect(page.getByLabel('Voice brief title')).toHaveValue('Smoke voice brief');
+    await page.getByLabel('Voice brief instructions').fill('Explain why each update matters.');
     await expect.poll(() =>
       page!.evaluate(async () =>
-        (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]?.prompt
+        (await (window as ElectronWindow).sharedLibrary.getVoiceBriefs()).voiceBriefs[0]?.prompt
       )
     ).toBe('Explain why each update matters.');
 
@@ -132,7 +132,7 @@ async function createFixture(userDataPath: string, workspacePath: string): Promi
   await Promise.all([
     mkdir(join(workspacePath, 'library', 'summaries', 'brief'), { recursive: true }),
     mkdir(join(workspacePath, 'library', 'audio'), { recursive: true }),
-    mkdir(join(workspacePath, 'podcasts'), { recursive: true }),
+    mkdir(join(workspacePath, 'voice-briefs'), { recursive: true }),
     mkdir(userDataPath, { recursive: true })
   ]);
   await Promise.all([
@@ -179,9 +179,9 @@ Second smoke body.
       'Brief smoke summary.\n'
     ),
     writeFile(
-      join(workspacePath, 'podcasts', 'smoke-podcast.md'),
+      join(workspacePath, 'voice-briefs', 'smoke-voice-brief.md'),
       `---
-name: "Smoke podcast"
+name: "Smoke voice brief"
 schedule: "weekly MON 08:00"
 sources:
   - "https://example.invalid/feed.xml"

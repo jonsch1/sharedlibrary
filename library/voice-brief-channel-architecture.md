@@ -1,9 +1,9 @@
-# Audio Brief Channel Architecture
+# Voice Brief Channel Architecture
 
 ## Purpose
 
 An ordinary capture turns one URL, file, or text value into one library item.
-An audio-brief channel watches a durable location, discovers new item references,
+A voice-brief channel watches a durable location, discovers new item references,
 and sends every unseen item through that same capture path.
 
 Channels orchestrate captures. They are not a second extraction system.
@@ -18,7 +18,7 @@ flowchart LR
   H --> X["Existing extractors<br/>browser session, feeds, transcripts, extensions"]
   X --> L["One library entry<br/>per independent item"]
   L --> R["Review gathered items<br/>titles, dates, excerpts"]
-  R --> P["Select pending entries for<br/>the audio brief"]
+  R --> P["Select pending entries for<br/>the voice brief"]
   P --> A["Generate episode"]
 
   U["Visible browser"] -->|sign in only| S["Shared browser session"]
@@ -62,14 +62,14 @@ The channel workflow exposes two operations:
 1. **Enumerate** a channel into item references.
 2. **Capture** one item using the existing capture pipeline.
 
-The audio-brief service depends only on those operations. It does not choose between
+The voice-brief service depends only on those operations. It does not choose between
 a “standard” extractor and a browser path.
 
 The visible browser exists only to establish authentication. Headless workflows
 reuse the same Electron session.
 
 Gathering and generation are separate user actions. **Check channels** updates
-the pending queue and its preview; **Generate audio brief** consumes that
+the pending queue and its preview; **Generate voice brief** consumes that
 reviewed queue without refreshing it again.
 
 ## Library UI
@@ -79,10 +79,10 @@ The existing sidebar-and-reader shell has three scopes:
 - **Item** lists independent captured documents.
 - **Channel** treats each channel as a folder containing its captured items;
   selecting the folder opens channel configuration.
-- **Brief** treats each audio brief as a folder containing its generated
+- **Voice brief** treats each voice brief as a folder containing its generated
   episodes; selecting the folder opens the brief definition.
 
-Channel and audio-brief configuration lives in the reader pane, not Settings.
+Channel and voice-brief configuration lives in the reader pane, not Settings.
 
 ## Extensibility
 
@@ -109,7 +109,7 @@ responsible for content.
 
 ## Implementation direction
 
-1. Keep the audio-brief workflow centered on channels and make
+1. Keep the voice-brief workflow centered on channels and make
    `enumerate → checkpoint → capture` explicit.
 2. Reuse the existing extractor for ordinary item capture.
 3. Keep authenticated X enumeration and thread/article expansion in the

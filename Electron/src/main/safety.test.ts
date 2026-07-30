@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { LibraryService } from './library.js';
-import { podcastAudioRange } from './podcasts.js';
+import { voiceBriefAudioRange } from './voice-briefs.js';
 import { isTrustedRendererURL, isWebURL } from './security.js';
 
 test('sync preserves both sides of a concurrent edit', async () => {
@@ -24,7 +24,7 @@ test('sync preserves both sides of a concurrent edit', async () => {
 
     const result = await library.mergeRemoteMirror(
       {
-        schemaVersion: 3,
+        schemaVersion: 4,
         generatedAt: new Date().toISOString(),
         files: [{
           path: 'library/example.md',
@@ -50,6 +50,6 @@ test('desktop trust boundaries reject unsafe navigation and media ranges', () =>
   assert.equal(isTrustedRendererURL('file:///etc/passwd', entry), false);
   assert.equal(isWebURL('https://readbriefly.fyi/'), true);
   assert.equal(isWebURL('javascript:alert(1)'), false);
-  assert.deepEqual(podcastAudioRange('bytes=20-29', 100), { start: 20, end: 29 });
-  assert.equal(podcastAudioRange('bytes=0-1,4-5', 100), null);
+  assert.deepEqual(voiceBriefAudioRange('bytes=20-29', 100), { start: 20, end: 29 });
+  assert.equal(voiceBriefAudioRange('bytes=0-1,4-5', 100), null);
 });

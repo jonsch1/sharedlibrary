@@ -14,7 +14,7 @@ import type {
 import type { LibraryMedia } from '../../../Shared/library.js';
 
 const backendOrigin = 'https://www.readbriefly.fyi';
-const podcastSpeechEndpoint = 'https://jonsch1--briefly-kokoro-speech.modal.run';
+const voiceBriefSpeechEndpoint = 'https://jonsch1--briefly-kokoro-speech.modal.run';
 const transcriptEndpoint = 'https://jonsch1--briefly-whisper-transcribe.modal.run';
 const firecrawlEndpoint = `${backendOrigin}/api/extraction/firecrawl`;
 
@@ -103,13 +103,13 @@ export class BackendClient {
     return value.output;
   }
 
-  async generatePodcastAudio(text: string): Promise<Uint8Array> {
+  async generateVoiceBriefAudio(text: string): Promise<Uint8Array> {
     const [cookie] = await session.defaultSession.cookies.get({
       url: backendOrigin,
       name: 'shared_library_session'
     });
-    if (!cookie?.value) throw new Error('Sign in to Briefly to generate audio briefs.');
-    const response = await session.defaultSession.fetch(podcastSpeechEndpoint, {
+    if (!cookie?.value) throw new Error('Sign in to Briefly to generate voice briefs.');
+    const response = await session.defaultSession.fetch(voiceBriefSpeechEndpoint, {
       method: 'POST',
       headers: {
         Accept: 'audio/wav',
@@ -120,7 +120,7 @@ export class BackendClient {
     });
     if (!response.ok) {
       throw new Error(
-        await this.errorMessage(response, 'Audio brief narration could not be generated.')
+        await this.errorMessage(response, 'Voice brief narration could not be generated.')
       );
     }
     const audio = new Uint8Array(await response.arrayBuffer());
@@ -129,7 +129,7 @@ export class BackendClient {
       new TextDecoder().decode(audio.subarray(0, 4)) !== 'RIFF' ||
       new TextDecoder().decode(audio.subarray(8, 12)) !== 'WAVE'
     ) {
-      throw new Error('The audio brief service returned an invalid WAV file.');
+      throw new Error('The voice brief service returned an invalid WAV file.');
     }
     return audio;
   }

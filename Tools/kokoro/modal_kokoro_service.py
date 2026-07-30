@@ -1,4 +1,4 @@
-"""Kokoro-82M speech endpoint for Briefly podcasts.
+"""Kokoro-82M speech endpoint for Briefly voice briefs.
 
 Deploy:
     modal run Tools/kokoro/modal_kokoro_service.py::download
@@ -117,7 +117,7 @@ async def speech(
             if result.phonemes
         ]
         if not phonemes:
-            raise HTTPException(status_code=400, detail="The podcast contains no speakable text.")
+            raise HTTPException(status_code=400, detail="The voice brief contains no speakable text.")
         audio = await Kokoro().generate.remote.aio(phonemes)
         return Response(audio, media_type="audio/wav")
     finally:
@@ -144,7 +144,7 @@ async def _reserve_usage(authorization: str | None, units: int) -> str:
             detail = None
         raise HTTPException(
             status_code=response.status_code,
-            detail=detail or "Briefly could not authorize this podcast.",
+            detail=detail or "Briefly could not authorize this voice brief.",
         )
     return response.json()["leaseID"]
 

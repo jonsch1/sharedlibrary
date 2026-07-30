@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Use Briefly's local agent API for private audio briefings."""
+"""Use Briefly's local agent API for private voice briefs."""
 
 from __future__ import annotations
 
@@ -91,11 +91,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", help="Path to agent-api.json")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
-    commands.add_parser("podcasts")
+    commands.add_parser("voice-briefs")
     extract = commands.add_parser("extract")
     extract.add_argument("url")
     create = commands.add_parser("create-episode")
-    create.add_argument("--podcast", required=True)
+    create.add_argument("--voice-brief", required=True)
     create.add_argument("--request", required=True, type=Path)
     return parser.parse_args()
 
@@ -105,8 +105,8 @@ def main() -> int:
     connection = load_connection(args.config)
     if args.command == "status":
         result = request_json(connection, "GET", "/v1/status")
-    elif args.command == "podcasts":
-        result = request_json(connection, "GET", "/v1/podcasts")
+    elif args.command == "voice-briefs":
+        result = request_json(connection, "GET", "/v1/voice-briefs")
     elif args.command == "extract":
         result = request_json(connection, "POST", "/v1/extract", {"url": args.url})
     elif args.command == "create-episode":
@@ -119,7 +119,7 @@ def main() -> int:
         result = request_json(
             connection,
             "POST",
-            f"/v1/podcasts/{quote(args.podcast, safe='')}/episodes",
+            f"/v1/voice-briefs/{quote(args.voice_brief, safe='')}/episodes",
             payload,
         )
     else:

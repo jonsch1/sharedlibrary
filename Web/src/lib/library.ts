@@ -13,7 +13,7 @@ import {
 	type LibraryFile,
 	type LibraryMedia,
 	type LibraryOrigin,
-	type LibraryPodcast,
+	type LibraryVoiceBrief,
 	type LibraryProjection,
 	type LibraryText,
 	type LibraryVariant
@@ -34,7 +34,7 @@ export {
 	type LibraryFile,
 	type LibraryMedia,
 	type LibraryOrigin,
-	type LibraryPodcast,
+	type LibraryVoiceBrief,
 	type LibraryProjection,
 	type LibraryText,
 	type LibraryVariant

@@ -1,13 +1,13 @@
-# Briefly audio briefing API
+# Briefly voice brief API
 
 The running desktop app writes its authenticated loopback connection to
 `.shared-library/agent-api.json`. Never print its bearer token.
 
-## `GET /v1/podcasts`
+## `GET /v1/voice-briefs`
 
-Lists podcast definitions, episodes, `usedSourceURLs`, and canonical
+Lists voice-brief definitions, episodes, `usedSourceURLs`, and canonical
 `usedItemKeys`. Use the item keys to exclude posts already used by that
-podcast.
+voice-brief.
 
 ## `POST /v1/extract`
 
@@ -20,7 +20,7 @@ Extracts a known item URL through Briefly without adding it to the library.
 The returned `item` contains `itemKey`, `url`, `title`, `content`, and an
 optional `mediaURL`.
 
-## `POST /v1/podcasts/:podcastID/episodes`
+## `POST /v1/voice-briefs/:voiceBriefID/episodes`
 
 Creates an episode from an agent-written Markdown script and one or more sources.
 Each source requires `url`; `title` and `content` are optional. Omit `content`

@@ -144,7 +144,7 @@
 	<title>Briefly — Get the gist or go deep</title>
 	<meta
 		name="description"
-		content="Save videos, podcasts, articles, and posts to a private library with four reading depths. Follow trusted sources and receive scheduled text and audio briefs."
+		content="Save videos, podcasts, articles, and posts to a private library with four reading depths. Follow trusted sources and receive scheduled text and voice briefs."
 	/>
 	<meta property="og:type" content="website" />
 	<meta property="og:title" content="Briefly — Get the gist or go deep" />
@@ -297,12 +297,12 @@
 						standard changed how removals will be verified.
 					</p>
 
-					<div class="audio-player" aria-label="Sample audio brief player">
+					<div class="audio-player" aria-label="Sample voice brief player">
 						<button type="button" aria-label="Play sample brief"><PlayIcon /></button>
 						<span>0:00</span>
 						<div class="audio-track"><i></i></div>
 						<span>8:00</span>
-						<b><HeadphonesIcon /> Audio brief</b>
+						<b><HeadphonesIcon /> Voice brief</b>
 					</div>
 
 					<span class="read-report">

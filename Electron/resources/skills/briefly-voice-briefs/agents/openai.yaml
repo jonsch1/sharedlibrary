@@ -1,0 +1,4 @@
+interface:
+  display_name: "Briefly Voice Briefs"
+  short_description: "Create source-linked private voice briefs"
+  default_prompt: "Use $briefly-voice-briefs to create a voice brief from new source updates."

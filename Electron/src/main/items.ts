@@ -17,7 +17,7 @@ export interface SavedItem {
 
 export interface SaveItemOptions {
   discovered?: DiscoveredSourceItem;
-  entryType?: 'podcast_source';
+  entryType?: 'voice_brief_source';
   extracted?: ExtractedContent;
   topicIDs?: string[];
   saveAudio?: boolean;
@@ -162,14 +162,14 @@ function httpURL(value: string): string | null {
 function findSource(
   snapshot: DesktopLibrarySnapshot,
   sourceURL: string,
-  entryType?: 'podcast_source'
+  entryType?: 'voice_brief_source'
 ) {
   const identity = sourceIdentity(sourceURL);
   // ponytail: linear scan is enough for local libraries; index identities if it becomes slow.
   return snapshot.entries.find(
     (entry) =>
       entry.sourceURL &&
-      (entry.entryType === 'podcast_source') === (entryType === 'podcast_source') &&
+      (entry.entryType === 'voice_brief_source') === (entryType === 'voice_brief_source') &&
       sourceIdentity(entry.sourceURL) === identity
   );
 }

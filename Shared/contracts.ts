@@ -13,7 +13,7 @@ export interface DesktopLibraryEntry {
   id: string;
   captureID: string;
   entryType?: string;
-  podcastID?: string;
+  voiceBriefID?: string;
   filename: string;
   title: string;
   excerpt: string;
@@ -43,7 +43,7 @@ export interface DesktopLibrarySnapshot {
   entries: DesktopLibraryEntry[];
 }
 
-export interface PodcastDefinition {
+export interface VoiceBriefDefinition {
   id: string;
   filename: string;
   title: string;
@@ -76,7 +76,7 @@ export interface PodcastDefinition {
   }>;
 }
 
-export interface PodcastDraft {
+export interface VoiceBriefDraft {
   id?: string;
   title: string;
   prompt: string;
@@ -102,11 +102,11 @@ export interface ChannelDefinition {
   briefTitles: string[];
 }
 
-export const defaultPodcastPrompt = `Write one private audio brief in natural spoken Markdown.
+export const defaultVoiceBriefPrompt = `Write one private voice brief in natural spoken Markdown.
 
 Return Markdown only. Start with one # title. Do not add a Sources section; Briefly adds it.
 
-Audio brief: {{podcast_title}}
+Voice brief: {{voice_brief_title}}
 Requested length: {{requested_length}}
 
 Requirements:
@@ -120,11 +120,11 @@ Requirements:
 Source packets:
 {{source_packets}}`;
 
-export interface PodcastSnapshot {
+export interface VoiceBriefSnapshot {
   generatedAt: string;
-  podcasts: PodcastDefinition[];
+  voiceBriefs: VoiceBriefDefinition[];
   channels: ChannelDefinition[];
-  maximumPodcasts: number;
+  maximumVoiceBriefs: number;
 }
 
 export interface DesktopOperationResult {
@@ -183,7 +183,7 @@ export interface AICommandPreferencesUpdate {
   agentCommand: string;
 }
 
-export const promptIDs = ['summarization', 'podcast'] as const;
+export const promptIDs = ['summarization', 'voice-brief'] as const;
 
 export type PromptID = (typeof promptIDs)[number];
 
@@ -278,17 +278,17 @@ export interface SharedLibraryDesktopAPI {
     preferences: AICommandPreferencesUpdate
   ): Promise<AICommandPreferences>;
   testAIProcessingCommand(command: string): Promise<void>;
-  getPodcasts(): Promise<PodcastSnapshot>;
-  savePodcast(podcast: PodcastDraft): Promise<PodcastSnapshot>;
-  removePodcast(id: string): Promise<PodcastSnapshot>;
-  checkPodcast(id: string): Promise<PodcastSnapshot>;
-  runPodcast(id: string): Promise<PodcastSnapshot>;
-  revealPodcast(id: string): Promise<void>;
-  addChannel(source: string): Promise<PodcastSnapshot>;
-  checkChannel(source: string): Promise<PodcastSnapshot>;
-  updateChannel(source: string, retrievalCount: number): Promise<PodcastSnapshot>;
-  loadMoreChannel(source: string): Promise<PodcastSnapshot>;
-  removeChannel(source: string): Promise<PodcastSnapshot>;
+  getVoiceBriefs(): Promise<VoiceBriefSnapshot>;
+  saveVoiceBrief(voiceBrief: VoiceBriefDraft): Promise<VoiceBriefSnapshot>;
+  removeVoiceBrief(id: string): Promise<VoiceBriefSnapshot>;
+  checkVoiceBrief(id: string): Promise<VoiceBriefSnapshot>;
+  runVoiceBrief(id: string): Promise<VoiceBriefSnapshot>;
+  revealVoiceBrief(id: string): Promise<void>;
+  addChannel(source: string): Promise<VoiceBriefSnapshot>;
+  checkChannel(source: string): Promise<VoiceBriefSnapshot>;
+  updateChannel(source: string, retrievalCount: number): Promise<VoiceBriefSnapshot>;
+  loadMoreChannel(source: string): Promise<VoiceBriefSnapshot>;
+  removeChannel(source: string): Promise<VoiceBriefSnapshot>;
   loginChannel(url: string): Promise<void>;
   getShareLink(entryID: string): Promise<ShareLinkStatus>;
   publishShareLink(entryID: string): Promise<ShareLinkStatus>;
@@ -296,5 +296,5 @@ export interface SharedLibraryDesktopAPI {
   onLibraryChanged(listener: (snapshot: DesktopLibrarySnapshot) => void): () => void;
   onIngestionStatus(listener: (status: DesktopIngestionStatus) => void): () => void;
   onSyncStatus(listener: (status: DesktopSyncStatus) => void): () => void;
-  onPodcastsChanged(listener: (snapshot: PodcastSnapshot) => void): () => void;
+  onVoiceBriefsChanged(listener: (snapshot: VoiceBriefSnapshot) => void): () => void;
 }

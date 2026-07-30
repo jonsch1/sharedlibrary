@@ -27,7 +27,7 @@ and Electron clients reuse the saved personal library location.
 The backend encrypts account tokens with `OPENROUTER_CREDENTIAL_KEY` (32 random
 bytes encoded as 64 hexadecimal characters) and requests only `drive.file`. It can therefore
 access only files Briefly creates or that the user explicitly opens with it,
-not the rest of the user's Drive. The app mirrors `library/`, `podcasts/`, and `topics.md`, and stores a
+not the rest of the user's Drive. The app mirrors `library/`, `voice-briefs/`, and `topics.md`, and stores a
 rebuildable metadata-only index under `.shared-library/`. It reuses existing
 `Shared Library` and `Shared Library Media` folders during migration.
 

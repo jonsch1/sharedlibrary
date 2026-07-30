@@ -13,7 +13,7 @@
 		<p>
 			These Terms are an agreement between you and <strong>Jonathan Schaul</strong>, operating
 			Briefly in Germany (“Briefly”, “we”, or “us”). They apply to the Briefly website,
-			desktop and web apps, accounts, synchronization, scheduled podcasts, share links, downloads, and
+			desktop and web apps, accounts, synchronization, scheduled voice briefs, share links, downloads, and
 			the Briefly membership (together, the “Service”).
 		</p>
 		<p>
@@ -33,18 +33,18 @@
 		<h2>2. What Briefly provides</h2>
 		<p>
 			Briefly helps you capture sources and notes into a local Markdown library, read them at
-			different levels of detail, watch sources and prepare scheduled podcast episodes, synchronize selected files through
+			different levels of detail, watch sources and prepare scheduled voice-brief episodes, synchronize selected files through
 			your selected iCloud or Google Drive provider, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
 			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device iCloud or Google Drive synchronization, and public share links.</li>
 			<li>An account and active membership are required to access the apps and downloads.</li>
-			<li>Briefly AI provides hosted summary and podcast-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
+			<li>Briefly AI provides hosted summary and voice-brief-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
 			<li>Features may require a supported operating system, browser, internet connection, Apple or Google account, or third-party service.</li>
 			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
-			Generated summaries, extraction, metadata, and podcast episodes may contain errors or omissions.
+			Generated summaries, extraction, metadata, and voice-brief episodes may contain errors or omissions.
 			They are aids, not professional legal, medical, financial, or other expert advice. Check
 			important information against the original source.
 		</p>

@@ -8,11 +8,11 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import {
-  defaultPodcastPrompt,
+  defaultVoiceBriefPrompt,
   type DesktopLibrarySnapshot,
-  type PodcastDefinition,
-  type PodcastDraft,
-  type PodcastSnapshot
+  type VoiceBriefDefinition,
+  type VoiceBriefDraft,
+  type VoiceBriefSnapshot
 } from '../shared/contracts.js';
 import type {
   DiscoveredSource,
@@ -27,23 +27,23 @@ import {
   type ManagedAIRunner
 } from './processing.js';
 
-const maximumPodcasts = 20;
-const maximumSourcesPerPodcast = 200;
+const maximumVoiceBriefs = 20;
+const maximumSourcesPerVoiceBrief = 200;
 const defaultChannelRetrievalCount = 5;
 const maximumChannelRetrievalCount = 100;
 const sourceCheckIntervalMilliseconds = 30 * 60 * 1000;
 const schedulerIntervalMilliseconds = 60 * 1000;
 const maximumEpisodeInputCharacters = 120_000;
 const maximumAgentScriptCharacters = 60_000;
-const podcastPromptPlaceholders = [
-  '{{podcast_title}}',
+const voiceBriefPromptPlaceholders = [
+  '{{voice_brief_title}}',
   '{{requested_length}}',
   '{{source_packets}}'
 ];
 
-export { defaultPodcastPrompt };
+export { defaultVoiceBriefPrompt };
 
-export function podcastAudioRange(
+export function voiceBriefAudioRange(
   value: string | null,
   size: number
 ): { start: number; end: number } | null {
@@ -79,20 +79,20 @@ interface SourceState {
   items: WatchedItem[];
 }
 
-interface PodcastRunState {
+interface VoiceBriefRunState {
   lastRunAt?: string;
-  status?: PodcastDefinition['status'];
+  status?: VoiceBriefDefinition['status'];
   message?: string;
   consumed: string[];
 }
 
-interface PodcastState {
+interface VoiceBriefState {
   schemaVersion: 1;
   sources: Record<string, SourceState>;
-  podcasts: Record<string, PodcastRunState>;
+  voiceBriefs: Record<string, VoiceBriefRunState>;
 }
 
-interface ParsedPodcast {
+interface ParsedVoiceBrief {
   id: string;
   filename: string;
   title: string;
@@ -119,7 +119,7 @@ export interface AgentEpisodeResult {
 
 type FinishIngestion = () => void;
 
-export class PodcastService {
+export class VoiceBriefService {
   private timer: NodeJS.Timeout | null = null;
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -130,13 +130,13 @@ export class PodcastService {
     private readonly items: Pick<ItemService, 'save'>,
     private readonly generateAudio: (text: string) => Promise<Uint8Array>,
     private readonly trash: (path: string) => Promise<void>,
-    private readonly onChanged: (snapshot: PodcastSnapshot) => void,
+    private readonly onChanged: (snapshot: VoiceBriefSnapshot) => void,
     private readonly onLibraryChanged: () => Promise<void>,
     private readonly onSyncRequested: (reason: string) => void,
     private readonly onOperationMessage: (message: string, entryID?: string) => void,
     private readonly onIngestionStarted: (source: string) => FinishIngestion,
     private readonly promptTemplate: () => Promise<string> = async () =>
-      defaultPodcastPrompt,
+      defaultVoiceBriefPrompt,
     private readonly processingCommand: () => Promise<string> = async () =>
       defaultProcessingCommand,
     private readonly managedAIRunner?: ManagedAIRunner,
@@ -159,47 +159,47 @@ export class PodcastService {
     void this.tick();
   }
 
-  snapshot(): Promise<PodcastSnapshot> {
+  snapshot(): Promise<VoiceBriefSnapshot> {
     return this.enqueue(() => this.buildSnapshot());
   }
 
-  save(value: PodcastDraft): Promise<PodcastSnapshot> {
+  save(value: VoiceBriefDraft): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
-      const podcasts = await this.readDefinitions();
+      const voiceBriefs = await this.readDefinitions();
       const draft = normalizeDraft(value);
       const existing = value.id
-        ? podcasts.find((podcast) => podcast.id === value.id)
+        ? voiceBriefs.find((voiceBrief) => voiceBrief.id === value.id)
         : undefined;
-      if (!existing && podcasts.length >= maximumPodcasts) {
-        throw new Error(`A workspace can contain up to ${maximumPodcasts} audio briefs.`);
+      if (!existing && voiceBriefs.length >= maximumVoiceBriefs) {
+        throw new Error(`A workspace can contain up to ${maximumVoiceBriefs} voice briefs.`);
       }
       const filename =
         existing?.filename ??
-        availablePodcastFilename(
+        availableVoiceBriefFilename(
           slug(draft.title),
-          new Set(podcasts.map((podcast) => podcast.filename))
+          new Set(voiceBriefs.map((voiceBrief) => voiceBrief.filename))
         );
       const id = existing?.id ?? `file:${filename}`;
-      const path = join(this.workspacePath(), 'podcasts', filename);
-      await atomicWrite(path, serializePodcast({ ...draft, id }));
-      this.onSyncRequested('audio brief settings');
+      const path = join(this.workspacePath(), 'voice-briefs', filename);
+      await atomicWrite(path, serializeVoiceBrief({ ...draft, id }));
+      this.onSyncRequested('voice brief settings');
       return this.notify();
     });
   }
 
-  remove(id: string): Promise<PodcastSnapshot> {
+  remove(id: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
-      const podcast = await this.requirePodcast(id);
-      await this.trash(join(this.workspacePath(), 'podcasts', podcast.filename));
+      const voiceBrief = await this.requireVoiceBrief(id);
+      await this.trash(join(this.workspacePath(), 'voice-briefs', voiceBrief.filename));
       const state = await this.readState();
-      delete state.podcasts[id];
+      delete state.voiceBriefs[id];
       await this.saveState(state);
-      this.onSyncRequested('deleted audio brief settings');
+      this.onSyncRequested('deleted voice brief settings');
       return this.notify();
     });
   }
 
-  addChannel(sourceValue: string): Promise<PodcastSnapshot> {
+  addChannel(sourceValue: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
       const state = await this.readState();
@@ -214,12 +214,12 @@ export class PodcastService {
     });
   }
 
-  checkChannel(sourceValue: string): Promise<PodcastSnapshot> {
+  checkChannel(sourceValue: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
       const state = await this.readState();
-      const owner = (await this.readDefinitions()).find((podcast) =>
-        podcast.sources.includes(source)
+      const owner = (await this.readDefinitions()).find((voiceBrief) =>
+        voiceBrief.sources.includes(source)
       );
       if (!owner && !state.sources[source]) {
         throw new Error('The selected channel no longer exists.');
@@ -238,14 +238,14 @@ export class PodcastService {
   updateChannel(
     sourceValue: string,
     retrievalCountValue: number
-  ): Promise<PodcastSnapshot> {
+  ): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
       const state = await this.readState();
       const exists =
         state.sources[source] ||
-        (await this.readDefinitions()).some((podcast) =>
-          podcast.sources.includes(source)
+        (await this.readDefinitions()).some((voiceBrief) =>
+          voiceBrief.sources.includes(source)
         );
       if (!exists) throw new Error('The selected channel no longer exists.');
       const current = state.sources[source] ??= { seen: [], items: [] };
@@ -256,12 +256,12 @@ export class PodcastService {
     });
   }
 
-  loadMoreChannel(sourceValue: string): Promise<PodcastSnapshot> {
+  loadMoreChannel(sourceValue: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
       const state = await this.readState();
-      const owner = (await this.readDefinitions()).find((podcast) =>
-        podcast.sources.includes(source)
+      const owner = (await this.readDefinitions()).find((voiceBrief) =>
+        voiceBrief.sources.includes(source)
       );
       const current = state.sources[source];
       if (!owner && !current) {
@@ -285,22 +285,22 @@ export class PodcastService {
     });
   }
 
-  removeChannel(sourceValue: string): Promise<PodcastSnapshot> {
+  removeChannel(sourceValue: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const source = normalizeChannelSource(sourceValue);
-      const podcasts = await this.readDefinitions();
-      const owners = podcasts.filter((podcast) => podcast.sources.includes(source));
+      const voiceBriefs = await this.readDefinitions();
+      const owners = voiceBriefs.filter((voiceBrief) => voiceBrief.sources.includes(source));
       const state = await this.readState();
       if (!owners.length && !state.sources[source]) {
         throw new Error('The selected channel no longer exists.');
       }
       await Promise.all(
-        owners.map((podcast) =>
+        owners.map((voiceBrief) =>
           atomicWrite(
-            join(this.workspacePath(), 'podcasts', podcast.filename),
-            serializePodcast({
-              ...podcast,
-              sources: podcast.sources.filter((candidate) => candidate !== source)
+            join(this.workspacePath(), 'voice-briefs', voiceBrief.filename),
+            serializeVoiceBrief({
+              ...voiceBrief,
+              sources: voiceBrief.sources.filter((candidate) => candidate !== source)
             })
           )
         )
@@ -311,9 +311,9 @@ export class PodcastService {
       const channelEntryIDs =
         state.sources[source]?.items.map((item) => item.entryID) ?? [];
       const { snapshot: library } =
-        await this.library.markPodcastSources(channelEntryIDs);
+        await this.library.markVoiceBriefSources(channelEntryIDs);
       delete state.sources[source];
-      for (const run of Object.values(state.podcasts)) {
+      for (const run of Object.values(state.voiceBriefs)) {
         run.consumed = run.consumed.filter((key) => !channelKeys.has(key));
       }
       await this.trashUnreferencedChannelEntries(channelEntryIDs, state, library);
@@ -324,7 +324,7 @@ export class PodcastService {
     });
   }
 
-  forgetItem(entryID: string): Promise<PodcastSnapshot> {
+  forgetItem(entryID: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
       const state = await this.readState();
       const removedKeys = new Set<string>();
@@ -337,7 +337,7 @@ export class PodcastService {
         for (const item of removed) removedKeys.add(itemKey(source, item.id));
       }
       if (removedKeys.size) {
-        for (const run of Object.values(state.podcasts)) {
+        for (const run of Object.values(state.voiceBriefs)) {
           run.consumed = run.consumed.filter((key) => !removedKeys.has(key));
         }
         await this.saveState(state);
@@ -346,26 +346,26 @@ export class PodcastService {
     });
   }
 
-  check(id: string): Promise<PodcastSnapshot> {
+  check(id: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
-      const podcast = await this.requirePodcast(id);
+      const voiceBrief = await this.requireVoiceBrief(id);
       const state = await this.readState();
-      await this.checkSources(podcast, state, true);
+      await this.checkSources(voiceBrief, state, true);
       await this.saveState(state);
       return this.notify();
     });
   }
 
-  run(id: string): Promise<PodcastSnapshot> {
+  run(id: string): Promise<VoiceBriefSnapshot> {
     return this.enqueue(async () => {
-      const podcast = await this.requirePodcast(id);
+      const voiceBrief = await this.requireVoiceBrief(id);
       const state = await this.readState();
       if (
-        !podcast.sources.every((source) => state.sources[source]?.lastCheckedAt)
+        !voiceBrief.sources.every((source) => state.sources[source]?.lastCheckedAt)
       ) {
-        throw new Error('Check the channels before generating this audio brief.');
+        throw new Error('Check the channels before generating this voice brief.');
       }
-      await this.generateEpisode(podcast, state);
+      await this.generateEpisode(voiceBrief, state);
       await this.saveState(state);
       return this.notify();
     });
@@ -379,18 +379,18 @@ export class PodcastService {
     const script = scriptValue.trim();
     if (!script || script.length > maximumAgentScriptCharacters) {
       throw new Error(
-        `Audio brief scripts must contain 1–${maximumAgentScriptCharacters.toLocaleString()} characters.`
+        `Voice brief scripts must contain 1–${maximumAgentScriptCharacters.toLocaleString()} characters.`
       );
     }
     const sources = normalizeAgentEpisodeSources(sourceValues);
     return this.enqueue(async () => {
-      const podcast = await this.requirePodcast(id);
+      const voiceBrief = await this.requireVoiceBrief(id);
       const library = await this.library.snapshot();
       const sourceKeys = sources.map(({ url }) => sourceIdentity(url)).sort();
       const duplicate = library.entries.find(
         (entry) =>
-          entry.entryType === 'podcast_episode' &&
-          entry.podcastID === podcast.id &&
+          entry.entryType === 'voice_brief_episode' &&
+          entry.voiceBriefID === voiceBrief.id &&
           sameStrings(
             (entry.sourceURLs ?? []).map(sourceIdentity).sort(),
             sourceKeys
@@ -398,8 +398,8 @@ export class PodcastService {
       );
       if (duplicate) {
         if (!duplicate.hasAudio) {
-          await this.markAgentAudioPending(podcast);
-          this.queueAgentAudio(podcast, duplicate.id, script, sources.length);
+          await this.markAgentAudioPending(voiceBrief);
+          this.queueAgentAudio(voiceBrief, duplicate.id, script, sources.length);
         }
         return {
           entryID: duplicate.id,
@@ -410,7 +410,7 @@ export class PodcastService {
       const selected: Array<{ entryID: string; title: string; url: string }> = [];
       for (const source of sources) {
         const saved = await this.items.save(source.url, {
-          entryType: 'podcast_source',
+          entryType: 'voice_brief_source',
           extracted: source.content
             ? {
                 title: source.title,
@@ -424,7 +424,7 @@ export class PodcastService {
             url: source.url,
             publishedAt: null
           },
-          syncReason: 'agent podcast source'
+          syncReason: 'agent voice brief source'
         });
         selected.push({
           entryID: saved.entryID,
@@ -435,32 +435,32 @@ export class PodcastService {
 
       const title =
         /^#\s+(.+)$/m.exec(script)?.[1]?.trim() ||
-        `${podcast.title} — ${new Date().toLocaleDateString('en-CA')}`;
+        `${voiceBrief.title} — ${new Date().toLocaleDateString('en-CA')}`;
       const sourceList = selected
         .map(
           (source, index) =>
             `${index + 1}. [${escapeLinkText(source.title)}](${source.url})`
         )
         .join('\n');
-      const entryID = await this.library.capturePodcastEpisode({
-        podcastID: podcast.id,
-        podcastTitle: podcast.title,
+      const entryID = await this.library.captureVoiceBriefEpisode({
+        voiceBriefID: voiceBrief.id,
+        voiceBriefTitle: voiceBrief.title,
         title,
         body: `${script}\n\n## Sources\n\n${sourceList}`,
         sources: selected.map(({ url }) => url),
         sourceIDs: selected.map(({ entryID }) => entryID)
       });
-      await this.markAgentAudioPending(podcast);
+      await this.markAgentAudioPending(voiceBrief);
       await this.onLibraryChanged();
-      this.onSyncRequested('agent podcast episode script');
-      this.queueAgentAudio(podcast, entryID, script, selected.length);
+      this.onSyncRequested('agent voice brief episode script');
+      this.queueAgentAudio(voiceBrief, entryID, script, selected.length);
       return { entryID, duplicate: false, audioPending: true };
     });
   }
 
   async filePath(id: string): Promise<string> {
-    const podcast = await this.requirePodcast(id);
-    return join(this.workspacePath(), 'podcasts', podcast.filename);
+    const voiceBrief = await this.requireVoiceBrief(id);
+    return join(this.workspacePath(), 'voice-briefs', voiceBrief.filename);
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -471,30 +471,30 @@ export class PodcastService {
 
   private async tick(): Promise<void> {
     await this.enqueue(async () => {
-      const podcasts = await this.readDefinitions();
+      const voiceBriefs = await this.readDefinitions();
       const state = await this.readState();
       let changed = false;
-      for (const podcast of podcasts.filter((candidate) => !candidate.error)) {
-        changed = (await this.checkSources(podcast, state, false)) || changed;
+      for (const voiceBrief of voiceBriefs.filter((candidate) => !candidate.error)) {
+        changed = (await this.checkSources(voiceBrief, state, false)) || changed;
       }
       const now = new Date();
-      for (const podcast of podcasts.filter((candidate) => !candidate.error)) {
-        const run = state.podcasts[podcast.id] ?? { consumed: [] };
+      for (const voiceBrief of voiceBriefs.filter((candidate) => !candidate.error)) {
+        const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
         if (!run.lastRunAt) {
           run.lastRunAt = now.toISOString();
           run.status = 'idle';
-          run.message = 'Scheduled. Generate the first audio brief when ready.';
-          state.podcasts[podcast.id] = run;
+          run.message = 'Scheduled. Generate the first voice brief when ready.';
+          state.voiceBriefs[voiceBrief.id] = run;
           changed = true;
           continue;
         }
-        const next = nextPodcastRun(
-          podcast.schedule,
-          podcast.timezone,
+        const next = nextVoiceBriefRun(
+          voiceBrief.schedule,
+          voiceBrief.timezone,
           new Date(run.lastRunAt)
         );
         if (!next || next.getTime() > now.getTime()) continue;
-        await this.generateEpisode(podcast, state);
+        await this.generateEpisode(voiceBrief, state);
         changed = true;
       }
       if (!changed) {
@@ -507,14 +507,14 @@ export class PodcastService {
   }
 
   private async checkSources(
-    podcast: Pick<ParsedPodcast, 'id' | 'sources'>,
-    state: PodcastState,
+    voiceBrief: Pick<ParsedVoiceBrief, 'id' | 'sources'>,
+    state: VoiceBriefState,
     force: boolean,
     updateRun = true,
     retrievalLimit?: number
   ): Promise<boolean> {
     let changed = false;
-    const markedLibrary = await this.library.markPodcastSources(
+    const markedLibrary = await this.library.markVoiceBriefSources(
       Object.values(state.sources).flatMap((source) =>
         source.items.map((item) => item.entryID)
       )
@@ -524,7 +524,7 @@ export class PodcastService {
     const availableEntryIDs = new Set(
       library.entries.map((entry) => entry.id)
     );
-    for (const source of podcast.sources) {
+    for (const source of voiceBrief.sources) {
       const current = state.sources[source] ?? { seen: [], items: [] };
       state.sources[source] = current;
       const missingItemIDs = new Set(
@@ -548,11 +548,11 @@ export class PodcastService {
       ) {
         continue;
       }
-      const run = state.podcasts[podcast.id] ?? { consumed: [] };
+      const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
       if (updateRun) {
         run.status = 'checking';
         run.message = `Checking ${source}`;
-        state.podcasts[podcast.id] = run;
+        state.voiceBriefs[voiceBrief.id] = run;
         await this.saveState(state);
         this.onChanged(await this.buildSnapshot(state));
       }
@@ -609,13 +609,13 @@ export class PodcastService {
       changed = (await this.pruneChannelItems(source, state, library)) || changed;
     }
     if (updateRun) {
-      const run = state.podcasts[podcast.id] ?? { consumed: [] };
+      const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
       if (run.status === 'checking') {
-        const errors = podcast.sources
+        const errors = voiceBrief.sources
           .map((source) => state.sources[source]?.error)
           .filter(Boolean);
         run.status = errors.length ? 'error' : 'idle';
-        const ready = podcast.sources
+        const ready = voiceBrief.sources
           .flatMap((source) =>
             (state.sources[source]?.items ?? []).map((item) =>
               itemKey(source, item.id)
@@ -627,7 +627,7 @@ export class PodcastService {
           : ready
             ? `${ready} gathered ${ready === 1 ? 'item is' : 'items are'} ready to review.`
             : 'Channels checked. No new items to review.';
-        state.podcasts[podcast.id] = run;
+        state.voiceBriefs[voiceBrief.id] = run;
       }
     }
     return changed;
@@ -635,14 +635,14 @@ export class PodcastService {
 
   private async pruneChannelItems(
     source: string,
-    state: PodcastState,
+    state: VoiceBriefState,
     library: DesktopLibrarySnapshot
   ): Promise<boolean> {
     const current = state.sources[source];
     if (!current || current.items.length <= maximumChannelRetrievalCount) return false;
     const removed = current.items.splice(maximumChannelRetrievalCount);
     const removedKeys = new Set(removed.map((item) => itemKey(source, item.id)));
-    for (const run of Object.values(state.podcasts)) {
+    for (const run of Object.values(state.voiceBriefs)) {
       run.consumed = run.consumed.filter((key) => !removedKeys.has(key));
     }
     const deleted = await this.trashUnreferencedChannelEntries(
@@ -659,7 +659,7 @@ export class PodcastService {
 
   private async trashUnreferencedChannelEntries(
     entryIDs: string[],
-    state: PodcastState,
+    state: VoiceBriefState,
     library: DesktopLibrarySnapshot
   ): Promise<boolean> {
     const activeEntryIDs = new Set(
@@ -669,14 +669,14 @@ export class PodcastService {
     );
     const episodeSourceIDs = new Set(
       library.entries
-        .filter(({ entryType }) => entryType === 'podcast_episode')
+        .filter(({ entryType }) => entryType === 'voice_brief_episode')
         .flatMap(({ sourceIDs }) => sourceIDs ?? [])
     );
     const entries = new Map(library.entries.map((entry) => [entry.id, entry]));
     let deleted = false;
     for (const entryID of new Set(entryIDs)) {
       if (activeEntryIDs.has(entryID) || episodeSourceIDs.has(entryID)) continue;
-      if (entries.get(entryID)?.entryType !== 'podcast_source') continue;
+      if (entries.get(entryID)?.entryType !== 'voice_brief_source') continue;
       await this.library.trashCapture(entryID);
       deleted = true;
     }
@@ -686,7 +686,7 @@ export class PodcastService {
   private async ingestItem(item: DiscoveredSourceItem): Promise<WatchedItem> {
     const saved = await this.items.save(item.url, {
       discovered: item,
-      entryType: 'podcast_source',
+      entryType: 'voice_brief_source',
       syncReason: 'watched source'
     });
     return {
@@ -696,28 +696,28 @@ export class PodcastService {
     };
   }
 
-  private async markAgentAudioPending(podcast: ParsedPodcast): Promise<void> {
+  private async markAgentAudioPending(voiceBrief: ParsedVoiceBrief): Promise<void> {
     const state = await this.readState();
-    const run = state.podcasts[podcast.id] ?? { consumed: [] };
+    const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
     run.lastRunAt = new Date().toISOString();
     run.status = 'generating';
     run.message = 'Episode saved. Generating audio…';
-    state.podcasts[podcast.id] = run;
+    state.voiceBriefs[voiceBrief.id] = run;
     await this.saveState(state);
     this.onChanged(await this.buildSnapshot(state));
   }
 
   private queueAgentAudio(
-    podcast: ParsedPodcast,
+    voiceBrief: ParsedVoiceBrief,
     entryID: string,
     script: string,
     sourceCount: number
   ): void {
     void this.enqueue(async () => {
       const state = await this.readState();
-      const run = state.podcasts[podcast.id] ?? { consumed: [] };
+      const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
       try {
-        await this.library.attachPodcastAudio(
+        await this.library.attachVoiceBriefAudio(
           entryID,
           await this.generateAudio(spokenText(script))
         );
@@ -726,27 +726,27 @@ export class PodcastService {
           sourceCount === 1 ? 'source' : 'sources'
         }.`;
         await this.onLibraryChanged();
-        this.onSyncRequested('agent podcast episode audio');
-        this.onOperationMessage('An agent-created audio brief is ready.', entryID);
+        this.onSyncRequested('agent voice brief episode audio');
+        this.onOperationMessage('An agent-created voice brief is ready.', entryID);
       } catch (error) {
         run.status = 'error';
         run.message = `Episode saved without audio: ${
           error instanceof Error ? error.message : 'audio generation failed'
         }`;
       }
-      state.podcasts[podcast.id] = run;
+      state.voiceBriefs[voiceBrief.id] = run;
       await this.saveState(state);
       await this.notify();
     });
   }
 
   private async generateEpisode(
-    podcast: ParsedPodcast,
-    state: PodcastState
+    voiceBrief: ParsedVoiceBrief,
+    state: VoiceBriefState
   ): Promise<void> {
-    const run = state.podcasts[podcast.id] ?? { consumed: [] };
+    const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
     const consumed = new Set(run.consumed);
-    const pending = podcast.sources
+    const pending = voiceBrief.sources
       .flatMap((source) =>
         (state.sources[source]?.items ?? []).map((item) => ({
           key: itemKey(source, item.id),
@@ -764,7 +764,7 @@ export class PodcastService {
     if (!pending.length) {
       run.status = 'idle';
       run.message = 'No new channel items; the episode was skipped.';
-      state.podcasts[podcast.id] = run;
+      state.voiceBriefs[voiceBrief.id] = run;
       return;
     }
 
@@ -772,7 +772,7 @@ export class PodcastService {
     run.message = `Writing an episode from ${pending.length} new ${
       pending.length === 1 ? 'item' : 'items'
     }…`;
-    state.podcasts[podcast.id] = run;
+    state.voiceBriefs[voiceBrief.id] = run;
     await this.saveState(state);
     this.onChanged(await this.buildSnapshot(state));
 
@@ -810,19 +810,19 @@ export class PodcastService {
       }
       if (!selected.length) throw new Error('The new source items are unavailable.');
       const script = await runAIText(
-        renderPodcastPrompt(
+        renderVoiceBriefPrompt(
           await this.promptTemplate(),
-          podcast,
+          voiceBrief,
           packets,
-          podcast.prioritizeForMe ? (await this.personalContext?.()) ?? '' : ''
+          voiceBrief.prioritizeForMe ? (await this.personalContext?.()) ?? '' : ''
         ),
         await this.processingCommand(),
         this.managedAIRunner
       );
-      if (!script) throw new Error('The AI command returned an empty audio brief.');
+      if (!script) throw new Error('The AI command returned an empty voice brief.');
       const title =
         /^#\s+(.+)$/m.exec(script)?.[1]?.trim() ||
-        `${podcast.title} — ${new Date().toLocaleDateString('en-CA')}`;
+        `${voiceBrief.title} — ${new Date().toLocaleDateString('en-CA')}`;
       const sources = selected.map(({ item }) => item.url);
       const sourceList = selected
         .map(
@@ -830,9 +830,9 @@ export class PodcastService {
             `${index + 1}. [${escapeLinkText(item.title)}](${item.url})`
         )
         .join('\n');
-      const entryID = await this.library.capturePodcastEpisode({
-        podcastID: podcast.id,
-        podcastTitle: podcast.title,
+      const entryID = await this.library.captureVoiceBriefEpisode({
+        voiceBriefID: voiceBrief.id,
+        voiceBriefTitle: voiceBrief.title,
         title,
         body: `${script.trim()}\n\n## Sources\n\n${sourceList}`,
         sources,
@@ -840,18 +840,18 @@ export class PodcastService {
       });
       for (const { key } of selected) consumed.add(key);
       const activeKeys = new Set(
-        podcast.sources.flatMap((source) =>
+        voiceBrief.sources.flatMap((source) =>
           (state.sources[source]?.items ?? []).map((item) => itemKey(source, item.id))
         )
       );
       run.consumed = [...consumed].filter((key) => activeKeys.has(key));
       run.message = 'Episode saved. Generating audio…';
-      state.podcasts[podcast.id] = run;
+      state.voiceBriefs[voiceBrief.id] = run;
       await this.saveState(state);
       await this.onLibraryChanged();
-      this.onSyncRequested('podcast episode script');
+      this.onSyncRequested('voice brief episode script');
       this.onChanged(await this.buildSnapshot(state));
-      await this.library.attachPodcastAudio(
+      await this.library.attachVoiceBriefAudio(
         entryID,
         await this.generateAudio(spokenText(script))
       );
@@ -860,25 +860,25 @@ export class PodcastService {
         selected.length === 1 ? 'source' : 'sources'
       }.`;
       await this.onLibraryChanged();
-      this.onSyncRequested('podcast episode audio');
-      this.onOperationMessage('A scheduled audio brief is ready.', entryID);
+      this.onSyncRequested('voice brief episode audio');
+      this.onOperationMessage('A scheduled voice brief is ready.', entryID);
     } catch (error) {
       run.status = 'error';
       run.message =
-        error instanceof Error ? error.message : 'The audio brief could not be written.';
+        error instanceof Error ? error.message : 'The voice brief could not be written.';
     }
-    state.podcasts[podcast.id] = run;
+    state.voiceBriefs[voiceBrief.id] = run;
   }
 
   private async buildSnapshot(
-    providedState?: PodcastState
-  ): Promise<PodcastSnapshot> {
+    providedState?: VoiceBriefState
+  ): Promise<VoiceBriefSnapshot> {
     await this.ensureDirectory();
-    const [podcasts, state] = await Promise.all([
+    const [voiceBriefs, state] = await Promise.all([
       this.readDefinitions(),
       providedState ? Promise.resolve(providedState) : this.readState()
     ]);
-    const markedLibrary = await this.library.markPodcastSources(
+    const markedLibrary = await this.library.markVoiceBriefSources(
       Object.values(state.sources).flatMap((source) =>
         source.items.map((item) => item.entryID)
       )
@@ -890,26 +890,26 @@ export class PodcastService {
     const channelSources = [
       ...new Set([
         ...Object.keys(state.sources),
-        ...podcasts.flatMap((podcast) => podcast.sources)
+        ...voiceBriefs.flatMap((voiceBrief) => voiceBrief.sources)
       ])
     ];
     return {
       generatedAt: now.toISOString(),
-      maximumPodcasts,
+      maximumVoiceBriefs,
       channels: channelSources.map((source) => {
         const channel = state.sources[source];
         const items =
           channel?.items.filter((item) => entries.has(item.entryID)) ?? [];
-        const owners = podcasts.filter((podcast) =>
-          podcast.sources.includes(source)
+        const owners = voiceBriefs.filter((voiceBrief) =>
+          voiceBrief.sources.includes(source)
         );
-        const ownerIDs = new Set(owners.map((podcast) => podcast.id));
+        const ownerIDs = new Set(owners.map((voiceBrief) => voiceBrief.id));
         const latestBriefAt = library.entries
           .filter(
             (entry) =>
-              entry.entryType === 'podcast_episode' &&
+              entry.entryType === 'voice_brief_episode' &&
               Boolean(entry.createdAt) &&
-              ownerIDs.has(entry.podcastID ?? '')
+              ownerIDs.has(entry.voiceBriefID ?? '')
           )
           .map((entry) => entry.createdAt!)
           .sort()
@@ -931,43 +931,43 @@ export class PodcastService {
                 .filter((item) => item.ingestedAt > latestBriefAt)
                 .map((item) => item.entryID)
             : [],
-          briefIDs: owners.map((podcast) => podcast.id),
-          briefTitles: owners.map((podcast) => podcast.title)
+          briefIDs: owners.map((voiceBrief) => voiceBrief.id),
+          briefTitles: owners.map((voiceBrief) => voiceBrief.title)
         };
       }),
-      podcasts: podcasts.map((podcast) => {
-        const run = state.podcasts[podcast.id] ?? { consumed: [] };
-        const checks = podcast.sources
+      voiceBriefs: voiceBriefs.map((voiceBrief) => {
+        const run = state.voiceBriefs[voiceBrief.id] ?? { consumed: [] };
+        const checks = voiceBrief.sources
           .map((source) => state.sources[source]?.lastCheckedAt)
           .filter((value): value is string => Boolean(value))
           .sort();
         return {
-          id: podcast.id,
-          filename: podcast.filename,
-          title: podcast.title,
-          prompt: podcast.prompt,
-          prioritizeForMe: podcast.prioritizeForMe,
-          schedule: podcast.schedule,
-          length: podcast.length,
-          sources: podcast.sources,
+          id: voiceBrief.id,
+          filename: voiceBrief.filename,
+          title: voiceBrief.title,
+          prompt: voiceBrief.prompt,
+          prioritizeForMe: voiceBrief.prioritizeForMe,
+          schedule: voiceBrief.schedule,
+          length: voiceBrief.length,
+          sources: voiceBrief.sources,
           nextRunAt:
-            !podcast.error
-              ? nextPodcastRun(
-                  podcast.schedule,
-                  podcast.timezone,
+            !voiceBrief.error
+              ? nextVoiceBriefRun(
+                  voiceBrief.schedule,
+                  voiceBrief.timezone,
                   new Date(run.lastRunAt ?? now)
                 )?.toISOString()
               : undefined,
           lastRunAt: run.lastRunAt,
           lastCheckedAt: checks.at(-1),
-          status: podcast.error ? 'error' : (run.status ?? 'idle'),
-          message: podcast.error ?? run.message ?? 'Ready.',
+          status: voiceBrief.error ? 'error' : (run.status ?? 'idle'),
+          message: voiceBrief.error ?? run.message ?? 'Ready.',
           episodes: library.entries.filter(
             (entry) =>
-              entry.entryType === 'podcast_episode' &&
-              entry.podcastID === podcast.id
+              entry.entryType === 'voice_brief_episode' &&
+              entry.voiceBriefID === voiceBrief.id
           ),
-          sourceStatuses: podcast.sources.map((source) => {
+          sourceStatuses: voiceBrief.sources.map((source) => {
             const items = (state.sources[source]?.items ?? []).filter((item) =>
               entries.has(item.entryID)
             );
@@ -993,24 +993,24 @@ export class PodcastService {
     };
   }
 
-  private async notify(): Promise<PodcastSnapshot> {
+  private async notify(): Promise<VoiceBriefSnapshot> {
     const snapshot = await this.buildSnapshot();
     this.onChanged(snapshot);
     return snapshot;
   }
 
-  private async requirePodcast(id: string): Promise<ParsedPodcast> {
-    const podcast = (await this.readDefinitions()).find(
+  private async requireVoiceBrief(id: string): Promise<ParsedVoiceBrief> {
+    const voiceBrief = (await this.readDefinitions()).find(
       (candidate) => candidate.id === id
     );
-    if (!podcast) throw new Error('The selected audio brief no longer exists.');
-    if (podcast.error) throw new Error(podcast.error);
-    return podcast;
+    if (!voiceBrief) throw new Error('The selected voice brief no longer exists.');
+    if (voiceBrief.error) throw new Error(voiceBrief.error);
+    return voiceBrief;
   }
 
-  private async readDefinitions(): Promise<ParsedPodcast[]> {
+  private async readDefinitions(): Promise<ParsedVoiceBrief[]> {
     await this.ensureDirectory();
-    const entries = await readdir(join(this.workspacePath(), 'podcasts'), {
+    const entries = await readdir(join(this.workspacePath(), 'voice-briefs'), {
       withFileTypes: true
     });
     const files = entries
@@ -1026,8 +1026,8 @@ export class PodcastService {
     return Promise.all(
       files.map(async (filename) => {
         try {
-          return parsePodcast(await readFile(
-            join(this.workspacePath(), 'podcasts', filename),
+          return parseVoiceBrief(await readFile(
+            join(this.workspacePath(), 'voice-briefs', filename),
             'utf8'
           ), filename);
         } catch (error) {
@@ -1035,14 +1035,14 @@ export class PodcastService {
             id: `invalid:${filename}`,
             filename,
             title: basename(filename, '.md').replaceAll('-', ' '),
-            prompt: defaultPodcastPrompt,
+            prompt: defaultVoiceBriefPrompt,
             prioritizeForMe: false,
             schedule: 'manual',
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             length: '',
             sources: [],
             error:
-              error instanceof Error ? error.message : 'This audio brief file is invalid.'
+              error instanceof Error ? error.message : 'This voice brief file is invalid.'
           };
         }
       })
@@ -1050,46 +1050,46 @@ export class PodcastService {
   }
 
   private async ensureDirectory(): Promise<void> {
-    const directory = join(this.workspacePath(), 'podcasts');
+    const directory = join(this.workspacePath(), 'voice-briefs');
     await mkdir(directory, { recursive: true });
     const readme = join(directory, 'README.md');
     try {
       await readFile(readme, 'utf8');
     } catch {
-      await atomicWrite(readme, podcastReadme);
+      await atomicWrite(readme, voiceBriefReadme);
     }
   }
 
-  private async readState(): Promise<PodcastState> {
+  private async readState(): Promise<VoiceBriefState> {
     try {
       const value = JSON.parse(
         await readFile(this.statePath(), 'utf8')
-      ) as Partial<PodcastState>;
+      ) as Partial<VoiceBriefState>;
       if (
         value.schemaVersion === 1 &&
         value.sources &&
         typeof value.sources === 'object' &&
-        value.podcasts &&
-        typeof value.podcasts === 'object'
+        value.voiceBriefs &&
+        typeof value.voiceBriefs === 'object'
       ) {
-        return value as PodcastState;
+        return value as VoiceBriefState;
       }
     } catch {
       // New workspaces start with an empty rebuildable watcher state.
     }
-    return { schemaVersion: 1, sources: {}, podcasts: {} };
+    return { schemaVersion: 1, sources: {}, voiceBriefs: {} };
   }
 
-  private saveState(state: PodcastState): Promise<void> {
+  private saveState(state: VoiceBriefState): Promise<void> {
     return atomicWrite(this.statePath(), `${JSON.stringify(state, null, 2)}\n`);
   }
 
   private statePath(): string {
-    return join(this.workspacePath(), '.shared-library', 'podcast-state.json');
+    return join(this.workspacePath(), '.shared-library', 'voice-brief-state.json');
   }
 }
 
-export function parsePodcast(text: string, filename = 'podcast.md'): ParsedPodcast {
+export function parseVoiceBrief(text: string, filename = 'voice-brief.md'): ParsedVoiceBrief {
   const parsed = parseMarkdown(text);
   const metadata = parsed.metadata;
   const title =
@@ -1101,7 +1101,7 @@ export function parsePodcast(text: string, filename = 'podcast.md'): ParsedPodca
     ...normalizeDraft({
       id,
       title,
-      prompt: parsed.body.trim() || defaultPodcastPrompt,
+      prompt: parsed.body.trim() || defaultVoiceBriefPrompt,
       prioritizeForMe:
         stringValue(metadata.prioritize_for_me).toLowerCase() === 'true',
       schedule: stringValue(metadata.schedule) || 'manual',
@@ -1114,7 +1114,7 @@ export function parsePodcast(text: string, filename = 'podcast.md'): ParsedPodca
   };
 }
 
-export function nextPodcastRun(
+export function nextVoiceBriefRun(
   scheduleValue: string,
   timezone: string,
   after: Date
@@ -1191,10 +1191,10 @@ function parseSchedule(value: string):
   );
 }
 
-function normalizeDraft(value: PodcastDraft): PodcastDraft {
+function normalizeDraft(value: VoiceBriefDraft): VoiceBriefDraft {
   const title = value.title.trim().replace(/\s+/g, ' ');
   if (!title || title.length > 120) {
-    throw new Error('Audio brief titles must contain 1–120 characters.');
+    throw new Error('Voice brief titles must contain 1–120 characters.');
   }
   const schedule = value.schedule.trim() || 'manual';
   parseSchedule(schedule);
@@ -1211,21 +1211,21 @@ function normalizeDraft(value: PodcastDraft): PodcastDraft {
     )
   ];
   const prompt = value.prompt.trim();
-  if (!prompt) throw new Error('The audio brief prompt cannot be empty.');
+  if (!prompt) throw new Error('The voice brief prompt cannot be empty.');
   if (prompt.length > 50_000) {
-    throw new Error('The audio brief prompt must be 50,000 characters or fewer.');
+    throw new Error('The voice brief prompt must be 50,000 characters or fewer.');
   }
-  const presentPlaceholders = podcastPromptPlaceholders.filter((placeholder) =>
+  const presentPlaceholders = voiceBriefPromptPlaceholders.filter((placeholder) =>
     prompt.includes(placeholder)
   );
-  const missingPlaceholder = podcastPromptPlaceholders.find(
+  const missingPlaceholder = voiceBriefPromptPlaceholders.find(
     (placeholder) => !prompt.includes(placeholder)
   );
   if (presentPlaceholders.length && missingPlaceholder) {
-    throw new Error(`The audio brief prompt must include ${missingPlaceholder}.`);
+    throw new Error(`The voice brief prompt must include ${missingPlaceholder}.`);
   }
-  if (sources.length > maximumSourcesPerPodcast) {
-    throw new Error(`An audio brief can watch up to ${maximumSourcesPerPodcast} channels.`);
+  if (sources.length > maximumSourcesPerVoiceBrief) {
+    throw new Error(`A voice brief can watch up to ${maximumSourcesPerVoiceBrief} channels.`);
   }
   return {
     id: value.id,
@@ -1261,7 +1261,7 @@ function normalizeChannelRetrievalCount(value: number): number {
   return value;
 }
 
-function serializePodcast(value: PodcastDraft & { id: string }): string {
+function serializeVoiceBrief(value: VoiceBriefDraft & { id: string }): string {
   const lines = [
     '---',
     ...(value.id.startsWith('file:') ? [] : [`id: ${JSON.stringify(value.id)}`]),
@@ -1279,7 +1279,7 @@ function serializePodcast(value: PodcastDraft & { id: string }): string {
   return lines.join('\n');
 }
 
-function availablePodcastFilename(base: string, used: Set<string>): string {
+function availableVoiceBriefFilename(base: string, used: Set<string>): string {
   let filename = `${base}.md`;
   for (let suffix = 2; used.has(filename); suffix += 1) {
     filename = `${base}-${suffix}.md`;
@@ -1287,9 +1287,9 @@ function availablePodcastFilename(base: string, used: Set<string>): string {
   return filename;
 }
 
-export function renderPodcastPrompt(
+export function renderVoiceBriefPrompt(
   template: string,
-  podcast: {
+  voiceBrief: {
     title: string;
     length: string;
     prompt?: string;
@@ -1298,22 +1298,22 @@ export function renderPodcastPrompt(
   packets: string[],
   personalContext = ''
 ): string {
-  const specific = podcast.prompt?.trim() ?? '';
-  const usesSpecificTemplate = podcastPromptPlaceholders.some((placeholder) =>
+  const specific = voiceBrief.prompt?.trim() ?? '';
+  const usesSpecificTemplate = voiceBriefPromptPlaceholders.some((placeholder) =>
     specific.includes(placeholder)
   );
   const selectedTemplate = usesSpecificTemplate ? specific : template;
-  const missing = podcastPromptPlaceholders.find(
+  const missing = voiceBriefPromptPlaceholders.find(
     (placeholder) => !selectedTemplate.includes(placeholder)
   );
-  if (missing) throw new Error(`The audio brief prompt must include ${missing}.`);
+  if (missing) throw new Error(`The voice brief prompt must include ${missing}.`);
   const rendered = selectedTemplate
     .trim()
-    .replaceAll('{{podcast_title}}', JSON.stringify(podcast.title))
+    .replaceAll('{{voice_brief_title}}', JSON.stringify(voiceBrief.title))
     .replaceAll(
       '{{requested_length}}',
       JSON.stringify(
-        podcast.length || 'Use the natural length for the available material.'
+        voiceBrief.length || 'Use the natural length for the available material.'
       )
     )
     .replaceAll(
@@ -1321,10 +1321,10 @@ export function renderPodcastPrompt(
       packets.map((packet) => `\n<source>\n${packet}\n</source>`).join('\n')
     );
   const prompt = specific && !usesSpecificTemplate
-    ? `Audio-brief-specific instructions:\n${specific}\n\n${rendered}`
+    ? `Voice-brief-specific instructions:\n${specific}\n\n${rendered}`
     : rendered;
   const context = personalContext.trim();
-  return podcast.prioritizeForMe && context
+  return voiceBrief.prioritizeForMe && context
     ? `Personal context for relevance:
 <personal_context>
 ${context}
@@ -1407,7 +1407,7 @@ function slug(value: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
-      .slice(0, 64) || 'podcast'
+      .slice(0, 64) || 'voice-brief'
   );
 }
 
@@ -1418,9 +1418,9 @@ async function atomicWrite(path: string, text: string): Promise<void> {
   await rename(temporary, path);
 }
 
-const podcastReadme = `# Audio briefs
+const voiceBriefReadme = `# Voice briefs
 
-Each other Markdown file in this folder defines one audio brief. Briefly and your
+Each other Markdown file in this folder defines one voice brief. Briefly and your
 agents can edit the files directly. Add or remove lines under \`sources:\` to
 change which channels it watches. The Markdown body contains its editorial
 instructions.

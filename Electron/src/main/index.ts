@@ -63,10 +63,10 @@ import {
   runAIText
 } from './processing.js';
 import {
-  defaultPodcastPrompt,
-  podcastAudioRange,
-  PodcastService
-} from './podcasts.js';
+  defaultVoiceBriefPrompt,
+  voiceBriefAudioRange,
+  VoiceBriefService
+} from './voice-briefs.js';
 import { SettingsStore } from './settings.js';
 import { isTrustedRendererURL, isWebURL } from './security.js';
 import { SyncCoordinator } from './sync.js';
@@ -74,7 +74,7 @@ import { SyncCoordinator } from './sync.js';
 app.setName('Briefly');
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'briefly-podcast-audio',
+    scheme: 'briefly-voice-brief-audio',
     privileges: {
       secure: true,
       standard: true,
@@ -110,7 +110,7 @@ let extraction: ExtractionService;
 let channelWorkflows: ChannelWorkflowService;
 let items: ItemService;
 let processing: ProcessingService;
-let podcasts: PodcastService;
+let voiceBriefs: VoiceBriefService;
 let sync: SyncCoordinator;
 let captureShortcut = defaultCaptureShortcut;
 const activeIngestions = new Map<symbol, string>();
@@ -146,8 +146,8 @@ function bundledAgentSkills(): BundledAgentSkill[] {
       sourcePath: join(root, 'briefly-input-extension')
     },
     {
-      name: 'briefly-audio-briefing',
-      sourcePath: join(root, 'briefly-audio-briefing')
+      name: 'briefly-voice-briefs',
+      sourcePath: join(root, 'briefly-voice-briefs')
     }
   ];
 }
@@ -299,13 +299,13 @@ async function promptPreferences(): Promise<PromptPreferences> {
         requiredPlaceholders: ['{{topics}}', '{{source}}']
       },
       {
-        id: 'podcast',
-        title: 'Audio brief',
-        description: 'Turns new channel items into an audio brief script.',
-        prompt: saved.podcastPrompt ?? defaultPodcastPrompt,
-        defaultPrompt: defaultPodcastPrompt,
+        id: 'voice-brief',
+        title: 'Voice brief',
+        description: 'Turns new channel items into a voice brief script.',
+        prompt: saved.voiceBriefPrompt ?? defaultVoiceBriefPrompt,
+        defaultPrompt: defaultVoiceBriefPrompt,
         requiredPlaceholders: [
-          '{{podcast_title}}',
+          '{{voice_brief_title}}',
           '{{requested_length}}',
           '{{source_packets}}'
         ]
@@ -361,7 +361,7 @@ function normalizePromptPreferenceUpdate(value: unknown): PromptPreferenceUpdate
   if (prompt.length > 50_000) throw new Error('Prompts must be 50,000 characters or fewer.');
   const required: Record<PromptID, string[]> = {
     summarization: ['{{topics}}', '{{source}}'],
-    podcast: ['{{podcast_title}}', '{{requested_length}}', '{{source_packets}}']
+    'voice-brief': ['{{voice_brief_title}}', '{{requested_length}}', '{{source_packets}}']
   };
   const missing = required[candidate.id as PromptID].find(
     (placeholder) => !prompt.includes(placeholder)
@@ -470,10 +470,10 @@ function registerIPC(): void {
     library.setWorkspacePath(path);
     await settings.update({ workspacePath: path });
     await agentApi.refreshWorkspace(previousWorkspacePath);
-    const podcastSnapshot = await podcasts.snapshot();
+    const voiceBriefSnapshot = await voiceBriefs.snapshot();
     const snapshot = await snapshotAndNotify();
-    mainWindow?.webContents.send('podcasts:changed', podcastSnapshot);
-    podcasts.wake();
+    mainWindow?.webContents.send('voice-briefs:changed', voiceBriefSnapshot);
+    voiceBriefs.wake();
     return snapshot;
   });
   handle(
@@ -495,7 +495,7 @@ function registerIPC(): void {
   );
   handle('library:trash-capture', async (_event, entryID: string) => {
     await library.trashCapture(entryID);
-    await podcasts.forgetItem(entryID);
+    await voiceBriefs.forgetItem(entryID);
     sync.request('deleted documents');
     return {
       snapshot: await snapshotAndNotify(),
@@ -646,7 +646,7 @@ function registerIPC(): void {
     const next = normalizePromptPreferenceUpdate(value);
     const key: Record<PromptID, keyof import('./settings.js').DesktopSettings> = {
       summarization: 'processingPrompt',
-      podcast: 'podcastPrompt'
+      'voice-brief': 'voiceBriefPrompt'
     };
     await settings.update({ [key[next.id]]: next.prompt });
     return promptPreferences();
@@ -670,28 +670,28 @@ function registerIPC(): void {
       throw new Error('The command ran, but returned an unexpected response.');
     }
   });
-  handle('podcasts:get', () => podcasts.snapshot());
-  handle('podcasts:save', (_event, value) => podcasts.save(value));
-  handle('podcasts:remove', (_event, id: string) => podcasts.remove(id));
-  handle('podcasts:check', (_event, id: string) => podcasts.check(id));
-  handle('podcasts:run', (_event, id: string) => podcasts.run(id));
-  handle('podcasts:reveal', async (_event, id: string) => {
-    shell.showItemInFolder(await podcasts.filePath(id));
+  handle('voice-briefs:get', () => voiceBriefs.snapshot());
+  handle('voice-briefs:save', (_event, value) => voiceBriefs.save(value));
+  handle('voice-briefs:remove', (_event, id: string) => voiceBriefs.remove(id));
+  handle('voice-briefs:check', (_event, id: string) => voiceBriefs.check(id));
+  handle('voice-briefs:run', (_event, id: string) => voiceBriefs.run(id));
+  handle('voice-briefs:reveal', async (_event, id: string) => {
+    shell.showItemInFolder(await voiceBriefs.filePath(id));
   });
   handle('channels:add', (_event, source: string) =>
-    podcasts.addChannel(source)
+    voiceBriefs.addChannel(source)
   );
   handle('channels:check', (_event, source: string) =>
-    podcasts.checkChannel(source)
+    voiceBriefs.checkChannel(source)
   );
   handle('channels:update', (_event, source: string, retrievalCount: number) =>
-    podcasts.updateChannel(source, retrievalCount)
+    voiceBriefs.updateChannel(source, retrievalCount)
   );
   handle('channels:load-more', (_event, source: string) =>
-    podcasts.loadMoreChannel(source)
+    voiceBriefs.loadMoreChannel(source)
   );
   handle('channels:remove', (_event, source: string) =>
-    podcasts.removeChannel(source)
+    voiceBriefs.removeChannel(source)
   );
   handle('channels:login', (_event, url: string) =>
     channelWorkflows.login(mainWindow, url)
@@ -1029,12 +1029,12 @@ app.whenReady().then(async () => {
     process.platform,
     (path) => shell.trashItem(path)
   );
-  protocol.handle('briefly-podcast-audio', async (request) => {
+  protocol.handle('briefly-voice-brief-audio', async (request) => {
     try {
       const filename = new URL(request.url).pathname.split('/').at(-1) ?? '';
       if (!filename.endsWith('.wav')) throw new Error('Invalid audio path.');
       const entryID = decodeURIComponent(filename.slice(0, -4));
-      const audioPath = await library.podcastAudioPath(entryID);
+      const audioPath = await library.voiceBriefAudioPath(entryID);
       const contentTypes: Record<string, string> = {
         '.aac': 'audio/aac',
         '.flac': 'audio/flac',
@@ -1049,7 +1049,7 @@ app.whenReady().then(async () => {
       if (!contentType) throw new Error('Unsupported audio type.');
       const size = (await stat(audioPath)).size;
       const rangeHeader = request.headers.get('range')?.trim() || null;
-      const range = podcastAudioRange(rangeHeader, size);
+      const range = voiceBriefAudioRange(rangeHeader, size);
       if (!range) {
         return new Response(null, {
           status: 416,
@@ -1126,21 +1126,21 @@ app.whenReady().then(async () => {
     (reason) => sync.request(reason)
   );
   channelWorkflows = new ChannelWorkflowService(extraction);
-  podcasts = new PodcastService(
+  voiceBriefs = new VoiceBriefService(
     () => library.getWorkspacePath(),
     library,
     channelWorkflows,
     items,
-    (text) => backend.generatePodcastAudio(text),
+    (text) => backend.generateVoiceBriefAudio(text),
     (path) => shell.trashItem(path),
-    (snapshot) => mainWindow?.webContents.send('podcasts:changed', snapshot),
+    (snapshot) => mainWindow?.webContents.send('voice-briefs:changed', snapshot),
     async () => {
       await snapshotAndNotify();
     },
     (reason) => sync.request(reason),
     sendOperationMessage,
     beginIngestion,
-    async () => (await settings.load()).podcastPrompt ?? defaultPodcastPrompt,
+    async () => (await settings.load()).voiceBriefPrompt ?? defaultVoiceBriefPrompt,
     async () =>
       (await settings.load()).processingCommand ?? defaultProcessingCommand,
     (prompt, format) => backend.runManagedAI(prompt, format),
@@ -1155,7 +1155,7 @@ app.whenReady().then(async () => {
     (status) => mainWindow?.webContents.send('sync:status', status),
     async () => {
       await snapshotAndNotify();
-      podcasts?.wake();
+      voiceBriefs?.wake();
     }
   );
   agentApi = new AgentApiServer(
@@ -1165,9 +1165,9 @@ app.whenReady().then(async () => {
       saveItem: (url, options) => items.save(url, options),
       processItem: (entryID, topicID, reason) =>
         items.process(entryID, topicID, reason),
-      podcastSnapshot: () => podcasts.snapshot(),
-      createPodcastEpisode: (podcastID, script, sources) =>
-        podcasts.createAgentEpisode(podcastID, script, sources),
+      voiceBriefSnapshot: () => voiceBriefs.snapshot(),
+      createVoiceBriefEpisode: (voiceBriefID, script, sources) =>
+        voiceBriefs.createAgentEpisode(voiceBriefID, script, sources),
       onLibraryChanged: async () => {
         await snapshotAndNotify();
       },
@@ -1181,8 +1181,8 @@ app.whenReady().then(async () => {
   registerIPC();
   installMenu();
   await createWindow();
-  podcasts.start();
-  powerMonitor.on('resume', () => podcasts.wake());
+  voiceBriefs.start();
+  powerMonitor.on('resume', () => voiceBriefs.wake());
   if (app.isPackaged && !process.windowsStore) {
     void electronUpdater.autoUpdater.checkForUpdatesAndNotify().catch((error) => {
       console.error('Desktop update check failed:', error);
@@ -1197,7 +1197,7 @@ app.whenReady().then(async () => {
 
 let agentApiStopping = false;
 app.on('before-quit', (event) => {
-  podcasts?.stop();
+  voiceBriefs?.stop();
   if (!agentApi || agentApiStopping) return;
   event.preventDefault();
   agentApiStopping = true;

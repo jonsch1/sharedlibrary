@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import {
   libraryVariants,
   type LibraryVariant,
-  type PodcastSnapshot,
+  type VoiceBriefSnapshot,
   type TopicDefinition
 } from '../shared/contracts.js';
 import type { ExtractedContent } from './extraction.js';
@@ -34,7 +34,7 @@ import { LibraryService } from './library.js';
 import {
   type AgentEpisodeResult,
   type AgentEpisodeSource
-} from './podcasts.js';
+} from './voice-briefs.js';
 
 const apiVersion = 1;
 const maximumBodyBytes = 256 * 1024;
@@ -84,9 +84,9 @@ export interface AgentApiDependencies {
   extractURL(url: string): Promise<ExtractedContent | undefined>;
   saveItem(url: string, options?: SaveItemOptions): Promise<SavedItem>;
   processItem(entryID: string, topicID: string, syncReason: string): Promise<string>;
-  podcastSnapshot(): Promise<PodcastSnapshot>;
-  createPodcastEpisode(
-    podcastID: string,
+  voiceBriefSnapshot(): Promise<VoiceBriefSnapshot>;
+  createVoiceBriefEpisode(
+    voiceBriefID: string,
     script: string,
     sources: AgentEpisodeSource[]
   ): Promise<AgentEpisodeResult>;
@@ -279,21 +279,21 @@ export class AgentApiServer {
         return;
       }
 
-      if (method === 'GET' && url.pathname === '/v1/podcasts') {
-        const snapshot = await this.dependencies.podcastSnapshot();
+      if (method === 'GET' && url.pathname === '/v1/voice-briefs') {
+        const snapshot = await this.dependencies.voiceBriefSnapshot();
         this.send(response, 200, {
-          podcasts: snapshot.podcasts.map((podcast) => {
+          voiceBriefs: snapshot.voiceBriefs.map((voiceBrief) => {
             const usedSourceURLs = [
-              ...new Set(podcast.episodes.flatMap((episode) => episode.sourceURLs ?? []))
+              ...new Set(voiceBrief.episodes.flatMap((episode) => episode.sourceURLs ?? []))
             ];
             return {
-              id: podcast.id,
-              title: podcast.title,
-              prompt: podcast.prompt,
-              sources: podcast.sources,
+              id: voiceBrief.id,
+              title: voiceBrief.title,
+              prompt: voiceBrief.prompt,
+              sources: voiceBrief.sources,
               usedSourceURLs,
               usedItemKeys: usedSourceURLs.map(sourceIdentity),
-              episodes: podcast.episodes.map((episode) => ({
+              episodes: voiceBrief.episodes.map((episode) => ({
                 entryID: episode.id,
                 title: episode.title,
                 createdAt: episode.createdAt,
@@ -325,14 +325,14 @@ export class AgentApiServer {
         return;
       }
 
-      const episodeMatch = /^\/v1\/podcasts\/([^/]+)\/episodes$/.exec(url.pathname);
+      const episodeMatch = /^\/v1\/voice-briefs\/([^/]+)\/episodes$/.exec(url.pathname);
       if (method === 'POST' && episodeMatch) {
         const body = await readJSONBody(request);
         const script = stringProperty(body, 'script');
         if (script.length > 60_000) {
           throw new ApiError(400, 'script_too_long', 'script must be 60,000 characters or fewer.');
         }
-        const result = await this.dependencies.createPodcastEpisode(
+        const result = await this.dependencies.createVoiceBriefEpisode(
           decodeURIComponent(episodeMatch[1]),
           script,
           normalizeEpisodeSources(body.sources)
