@@ -114,7 +114,7 @@ let processing: ProcessingService;
 let podcasts: PodcastService;
 let sync: SyncCoordinator;
 let captureShortcut = defaultCaptureShortcut;
-let activeIngestionCount = 0;
+const activeIngestions = new Map<symbol, string>();
 
 async function defaultWorkspacePath(): Promise<string> {
   const preferred = join(app.getPath('documents'), 'Briefly');
@@ -167,14 +167,11 @@ function sendOperationMessage(message: string, selectedEntryID?: string): void {
 }
 
 function ingestionStatus(): DesktopIngestionStatus {
-  return activeIngestionCount > 0
+  return activeIngestions.size > 0
     ? {
         phase: 'processing',
-        activeCount: activeIngestionCount,
-        message:
-          activeIngestionCount === 1
-            ? 'Ingesting 1 source…'
-            : `Ingesting ${activeIngestionCount} sources…`
+        activeCount: activeIngestions.size,
+        message: [...activeIngestions.values()].at(-1)!
       }
     : {
         phase: 'idle',
@@ -195,14 +192,15 @@ function updateIngestionPresentation(): void {
   mainWindow?.webContents.send('ingestion:status', status);
 }
 
-function beginIngestion(): () => void {
-  activeIngestionCount += 1;
+function beginIngestion(source: string): () => void {
+  const id = Symbol();
+  activeIngestions.set(id, source);
   updateIngestionPresentation();
   let finished = false;
   return () => {
     if (finished) return;
     finished = true;
-    activeIngestionCount = Math.max(0, activeIngestionCount - 1);
+    activeIngestions.delete(id);
     updateIngestionPresentation();
   };
 }
@@ -959,7 +957,11 @@ async function capturePDF(path: unknown) {
 }
 
 async function captureText(text: string, extracted?: ExtractedContent) {
-  const finishIngestion = beginIngestion();
+  const finishIngestion = beginIngestion(
+    extracted?.title?.trim() ||
+      extracted?.sourceURL ||
+      text.trim().split(/\r?\n/, 1)[0].slice(0, 100)
+  );
   try {
     const stored =
       extracted && !(await audioPreferences()).saveCapturedAudio

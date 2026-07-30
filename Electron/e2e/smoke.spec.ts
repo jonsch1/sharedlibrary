@@ -68,6 +68,17 @@ test(
       await expect(page.locator('.native-document-body')).toContainText(
         'Brief smoke summary.'
       );
+      await expect(page.locator('.native-document-body')).toHaveCSS(
+        'background-position',
+        '0px 51px'
+      );
+      const paperWidth = await page.locator('.native-document-scroll').evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+      const documentWidth = await page.locator('.native-document-body').evaluate(
+        (element) => element.getBoundingClientRect().width
+      );
+      expect(documentWidth).toBe(paperWidth);
       const audio = page.locator('audio');
       const actionBar = page.getByLabel('Document actions');
       const audioPlayer = page.locator('.native-reader-audio');
@@ -75,12 +86,19 @@ test(
       await expect(audioPlayer).toBeHidden();
       await page.getByRole('button', { name: 'Expand audio player' }).click();
       await expect(audioPlayer).toBeVisible();
-      await expect(actionBar).toHaveCSS('height', '190px');
+      await expect(actionBar).toHaveCSS('height', '178px');
       await expect(audioPlayer.getByRole('button', { name: 'Back 15 seconds' })).toBeVisible();
       await expect(audioPlayer.getByRole('button', { name: 'Forward 30 seconds' })).toBeVisible();
-      await expect(
-        audioPlayer.getByRole('button', { name: 'Sleep timer unavailable' })
-      ).toBeDisabled();
+      await expect(audioPlayer.getByTitle('Sleep timer')).toHaveCount(0);
+      const playerBox = await audioPlayer.boundingBox();
+      const expandedActionsBox = await actionBar.locator('.native-footer-actions').boundingBox();
+      const playBox = await audioPlayer
+        .getByRole('button', { name: 'Play', exact: true })
+        .boundingBox();
+      expect(playerBox!.x + playerBox!.width)
+        .toBe(expandedActionsBox!.x + expandedActionsBox!.width);
+      expect(playerBox!.y + playerBox!.height).toBeLessThan(expandedActionsBox!.y);
+      expect(playBox!.x + playBox!.width / 2).toBe(playerBox!.x + playerBox!.width / 2);
       await expect(page.getByRole('slider', { name: 'Volume' })).toHaveCount(0);
       await audio.evaluate((element: HTMLAudioElement) => element.play());
       const volume = page.getByRole('slider', { name: 'Volume' });
@@ -91,7 +109,7 @@ test(
       await expect(volume).toHaveCount(0);
       await page.getByRole('button', { name: 'Collapse audio player' }).click();
       await expect(audioPlayer).toBeHidden();
-      await expect(actionBar).toHaveCSS('height', '50px');
+      await expect(actionBar).toHaveCSS('height', '40px');
       await expect(page.locator('.native-document-meta')).toContainText('3 words');
       await expect(actionBar).not.toContainText('words');
 
@@ -147,16 +165,17 @@ test(
       expect(
         await actionBar.evaluate((element) => element.getBoundingClientRect().width)
       ).toBe(actionBarWidth);
-      await expect(actionBar).toHaveCSS('height', '50px');
-      await expect(actionBar).toHaveCSS('column-gap', '0px');
+      expect(actionBarWidth).toBeLessThanOrEqual(780);
+      await expect(actionBar).toHaveCSS('height', '40px');
       await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '2px');
       const barBox = await actionBar.boundingBox();
       const depthBox = await actionBar.getByRole('radiogroup').boundingBox();
       const actionsBox = await actionBar.locator('.native-footer-actions').boundingBox();
-      expect(actionsBox!.x - depthBox!.x - depthBox!.width).toBe(76);
-      expect(depthBox!.x - barBox!.x).toBeLessThanOrEqual(10);
+      expect(actionsBox!.height).toBe(depthBox!.height);
+      expect(actionsBox!.x - depthBox!.x - depthBox!.width).toBeGreaterThan(300);
+      expect(depthBox!.x - barBox!.x).toBeLessThanOrEqual(1);
       expect(barBox!.x + barBox!.width - actionsBox!.x - actionsBox!.width)
-        .toBeLessThanOrEqual(10);
+        .toBeLessThanOrEqual(1);
       await expect(actionBar.getByRole('button', { name: 'Settings' })).toHaveCount(0);
       const viewTabs = page.getByRole('tablist', { name: 'Library view' });
       await expect(viewTabs.getByRole('tab', { name: 'Item' })).toHaveAttribute(
@@ -219,15 +238,30 @@ test(
         'aria-selected',
         'true'
       );
-      await expect(page.getByText('No podcast episodes')).toBeVisible();
-      await page.getByRole('button', { name: 'Manage podcasts' }).click();
+      await expect(page.getByLabel('Audio brief title')).toHaveValue('Smoke podcast');
+      const podcastPrompt = page.getByLabel('Audio brief instructions');
+      await expect(podcastPrompt).toHaveValue('Keep the episode practical.');
+      await expect(
+        page.getByRole('button', { name: /example\.invalid\/feed\.xml/ })
+      ).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByRole('textbox', { name: 'Schedule' })).toHaveValue(
+        'weekly MON 08:00'
+      );
+      await podcastPrompt.fill('Explain why each update matters.');
+      await expect
+        .poll(() =>
+          page!.evaluate(async () =>
+            (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]
+              ?.prompt
+          )
+        )
+        .toBe('Explain why each update matters.');
+
+      await sidebarActions.getByRole('button', { name: 'Settings' }).click();
       await expect(page.locator('.settings-screen')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Topics' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Prompts' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Summarization' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Podcast', exact: true })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Research', exact: true })).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Input extensions' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'AI agents' })).toBeVisible();
       await page.getByRole('button', { name: 'General' }).click();
       await expect(page.getByRole('heading', { name: 'Current document' })).toHaveCount(0);
       const saveAudio = page.getByRole('checkbox', {
@@ -243,44 +277,12 @@ test(
         )
         .toEqual({ saveCapturedAudio: false });
       await expect(page.getByRole('button', { name: 'Feedback' })).toBeVisible();
-      await page.getByRole('button', { name: 'Podcasts', exact: true }).click();
-      const podcastSettings = page.locator('.podcast-document-workspace');
-      await expect(
-        podcastSettings.getByRole('button', { name: 'Smoke podcast' })
-      ).toBeVisible();
-      await expect(
-        podcastSettings.getByText('Recommended: set up with a coding agent')
-      ).toBeVisible();
-      await expect(podcastSettings.getByRole('button', { name: 'Open coding agent' }))
-        .toBeVisible();
-      await expect(podcastSettings.getByLabel('Podcast title')).toHaveValue(
-        'Smoke podcast'
-      );
-      const podcastPrompt = podcastSettings.getByLabel('Podcast prompt');
-      await expect(podcastPrompt).toHaveValue('Keep the episode practical.');
-      await expect(podcastSettings.getByLabel('Podcast sources')).toHaveValue(
-        'https://example.invalid/feed.xml'
-      );
-      await expect(podcastSettings.getByText('weekly MON 08:00')).toHaveCount(0);
-      await expect(podcastSettings.getByText('15 minutes')).toHaveCount(0);
-      await podcastPrompt.fill('Explain why each update matters.');
-      await expect
-        .poll(() =>
-          page!.evaluate(async () =>
-            (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]
-              ?.prompt
-          )
-        )
-        .toBe('Explain why each update matters.');
-      await podcastSettings.getByRole('button', { name: 'Show episodes' }).click();
+      await page.getByRole('button', { name: 'Back to app' }).click();
       await expect(page.locator('.settings-screen')).toHaveCount(0);
       await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toHaveAttribute(
         'aria-selected',
         'true'
       );
-      await expect(
-        page.locator('.topic-strip').getByRole('button', { name: 'Smoke podcast' })
-      ).toHaveClass(/active/);
       expect(rendererErrors).toEqual([]);
     } catch (error) {
       if (page) {

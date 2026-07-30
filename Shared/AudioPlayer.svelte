@@ -193,13 +193,6 @@
           <text x="12" y="16" text-anchor="middle">30</text>
         </svg>
       </button>
-      <button aria-label="Sleep timer unavailable" title="Sleep timer" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M15.5 3.5a7.5 7.5 0 1 0 5 12 8 8 0 0 1-5-12Z" />
-          <text x="18" y="7" text-anchor="middle">z</text>
-          <text x="21" y="4" text-anchor="middle">z</text>
-        </svg>
-      </button>
     </div>
   {:else}
     <div class="transport">

@@ -16,8 +16,10 @@
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.e2e.json && svelte-check --tsconfig tsconfig.web.json",
     "test": "node --import tsx --test src/main/*.test.ts",
-    "test:e2e": "npm run build && install-electron && playwright test",
+    "test:e2e:built": "install-electron && playwright test",
+    "test:e2e": "npm run build && npm run test:e2e:built",
     "extractor:install": "npm --prefix ../Tools/extractor ci --omit=dev",
+    "package:built": "electron-builder",
     "package": "npm run extractor:install && npm run build && electron-builder --dir -c.mac.identity=null",
     "dist": "npm run extractor:install && npm run build && electron-builder"
   },

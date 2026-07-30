@@ -1194,8 +1194,18 @@ button:disabled {
 }
 
 .native-reader-audio {
-  grid-area: audio;
+  position: absolute;
+  right: 0;
+  bottom: 48px;
+  width: min(320px, 100%);
+  height: 130px;
   min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--popover);
+  box-shadow: var(--theme-shadow-sm);
+  backdrop-filter: blur(22px) saturate(112%);
 }
 
 .native-reader-audio.collapsed {
@@ -1262,7 +1272,7 @@ button:disabled {
 }
 
 .native-document-body {
-  width: min(880px, calc(100% - 80px));
+  width: 100%;
   min-height: 100%;
   margin: 0 auto;
   padding: 46px 0 150px;
@@ -1275,13 +1285,14 @@ button:disabled {
   );
   background-repeat: repeat;
   background-size: 100% 32px;
-  background-position: 0 43px;
+  background-position: 0 51px;
   color: rgb(47 44 39);
 }
 
 .native-document-meta {
   max-width: 780px;
   margin: 0 auto 24px;
+  transform: translateY(10px);
   font-family: var(--theme-font-sans);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -1432,7 +1443,6 @@ button:disabled {
 }
 
 .native-document-footer {
-  --document-action-size: 38px;
   --document-action-foreground: var(--popover-foreground);
   --document-action-hover: var(--accent);
   --document-action-hover-foreground: var(--accent-foreground);
@@ -1444,49 +1454,47 @@ button:disabled {
   right: 18px;
   bottom: 18px;
   left: 18px;
-  display: grid;
-  width: fit-content;
-  max-width: calc(100% - 36px);
-  height: 50px;
-  grid-template-areas: "variant . actions";
-  grid-template-columns:
-    auto
-    minmax(0, calc(var(--document-action-size) + var(--document-action-size)))
-    auto;
-  grid-template-rows: 40px;
-  align-items: center;
-  gap: 0;
+  display: flex;
+  width: min(780px, calc(100% - 36px));
+  height: 40px;
+  align-items: flex-end;
+  justify-content: space-between;
   margin: 0 auto;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--popover);
-  box-shadow: var(--theme-shadow-sm);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--popover-foreground);
-  backdrop-filter: blur(22px) saturate(112%);
+  backdrop-filter: none;
   transition: height 160ms ease;
 }
 
 .native-document-footer.audio-expanded {
-  height: 190px;
-  grid-template-areas:
-    "audio audio audio"
-    "variant . actions";
-  grid-template-rows: 130px 40px;
+  height: 178px;
 }
 
 .native-document-footer > .segmented-depth {
-  grid-area: variant;
-  justify-self: start;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--popover);
+  box-shadow: var(--theme-shadow-sm);
+  backdrop-filter: blur(22px) saturate(112%);
 }
 
 .native-footer-actions {
-  grid-area: actions;
   position: relative;
   display: flex;
+  height: 40px;
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--popover);
+  box-shadow: var(--theme-shadow-sm);
+  backdrop-filter: blur(22px) saturate(112%);
 }
 
 .native-play-button,
@@ -1846,6 +1854,12 @@ button:disabled {
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
+}
+
+.ingestion-indicator span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toast.error {
@@ -2717,30 +2731,18 @@ button:disabled {
   }
 
   .native-document-body {
-    width: calc(100% - 52px);
+    width: 100%;
   }
 
   .native-document-footer {
     right: 14px;
     bottom: 14px;
     left: 14px;
-    max-width: calc(100% - 28px);
-    grid-template-areas: "variant . actions";
-    grid-template-columns:
-      auto
-      minmax(0, calc(var(--document-action-size) + var(--document-action-size)))
-      auto;
-    grid-template-rows: 40px;
-    padding-right: 8px;
-    padding-left: 8px;
+    width: calc(100% - 28px);
   }
 
   .native-document-footer.audio-expanded {
-    height: 190px;
-    grid-template-areas:
-      "audio audio audio"
-      "variant . actions";
-    grid-template-rows: 130px 40px;
+    height: 178px;
   }
 
   .native-footer-actions {
@@ -2924,44 +2926,31 @@ button:disabled {
   }
 
   .native-document-body {
-    width: calc(100% - 38px);
+    width: 100%;
     padding: 30px 0 158px;
-    background-position: 0 27px;
+    background-position: 0 35px;
   }
 
   .native-document-footer {
     right: 10px;
     bottom: 10px;
     left: 10px;
-    max-width: calc(100% - 20px);
-    height: 50px;
-    grid-template-areas: "variant . actions";
-    grid-template-columns:
-      auto
-      minmax(0, calc(var(--document-action-size) + var(--document-action-size)))
-      auto;
-    grid-template-rows: 40px;
-    padding: 5px 7px;
-    border-radius: 16px;
+    width: calc(100% - 20px);
+    height: 40px;
   }
 
   .native-document-footer.audio-expanded {
-    height: 190px;
-    grid-template-areas:
-      "audio audio audio"
-      "variant . actions";
-    grid-template-rows: 130px 40px;
+    height: 178px;
   }
 
   .native-footer-actions {
-    grid-area: actions;
-    width: 100%;
+    width: auto;
     max-width: max-content;
-    align-self: center;
+    align-self: flex-end;
     justify-content: center;
     gap: 2px;
     overflow: visible;
-    padding: 0;
+    padding: 0 7px;
     opacity: 1;
     pointer-events: auto;
   }

@@ -82,7 +82,7 @@ jobs:
 
       - name: Verify unpacked packaging
         if: github.event_name != 'pull_request'
-        run: npm run package
+        run: npm run package:built -- --dir -c.mac.identity=null
 
       - name: Upload failure diagnostics
         if: failure()

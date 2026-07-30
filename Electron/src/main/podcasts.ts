@@ -131,7 +131,7 @@ export class PodcastService {
     private readonly onLibraryChanged: () => Promise<void>,
     private readonly onSyncRequested: (reason: string) => void,
     private readonly onOperationMessage: (message: string, entryID?: string) => void,
-    private readonly onIngestionStarted: () => FinishIngestion,
+    private readonly onIngestionStarted: (source: string) => FinishIngestion,
     private readonly promptTemplate: () => Promise<string> = async () =>
       defaultPodcastPrompt,
     private readonly processingCommand: () => Promise<string> = async () =>
@@ -535,7 +535,7 @@ export class PodcastService {
         const unseen = discoveredItems.filter((item) => !seen.has(item.id));
         const selected = unseen;
         let finishIngestion: FinishIngestion | null = null;
-        if (selected.length) finishIngestion = this.onIngestionStarted();
+        if (selected.length) finishIngestion = this.onIngestionStarted(source);
         try {
           for (const item of selected.reverse()) {
             const ingested = await this.ingestItem(item);

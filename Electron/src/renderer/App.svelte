@@ -1532,7 +1532,7 @@
       {#if ingestion.phase === 'processing'}
         <div class="ingestion-indicator border-primary/30! bg-primary/10! text-foreground!" role="status" aria-live="polite">
           <LoaderCircle class="spin" />
-          <span>{ingestion.message} Extracting and preparing summaries.</span>
+          <span title={ingestion.message}>{ingestion.message}</span>
         </div>
       {/if}
       {#if message}

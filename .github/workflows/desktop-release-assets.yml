@@ -103,7 +103,7 @@ jobs:
         run: xvfb-run --auto-servernum npm run test:e2e
 
       - name: Build installer
-        run: npm run dist -- ${{ matrix.build_args }} --publish never
+        run: npm run package:built -- ${{ matrix.build_args }} --publish never
 
       - name: Notarize macOS disk image
         if: matrix.target == 'mac'

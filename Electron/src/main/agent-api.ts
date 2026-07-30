@@ -88,7 +88,7 @@ export interface AgentApiDependencies {
   onLibraryChanged(): Promise<void>;
   onSyncRequested(reason: string): void;
   onOperationMessage?(message: string, entryID?: string): void;
-  onIngestionStarted?(): () => void;
+  onIngestionStarted?(source: string): () => void;
 }
 
 export interface AgentApiConnection {
@@ -503,7 +503,7 @@ export class AgentApiServer {
   }
 
   private async runSource(job: AgentJob, source: AgentJobSource): Promise<void> {
-    const finishIngestion = this.dependencies.onIngestionStarted?.();
+    const finishIngestion = this.dependencies.onIngestionStarted?.(source.url);
     try {
       source.status = 'extracting';
       touch(job);
