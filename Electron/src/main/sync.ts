@@ -88,9 +88,14 @@ export class SyncCoordinator {
 
       this.update('uploading', 'Uploading local changes…');
       const mirror = await this.library.buildDriveMirror();
-      const result = await this.backend.uploadLibrary(mirror, provider);
+      let result = await this.backend.uploadLibrary(mirror, provider);
+      let uploaded = Number(result.changed || 0);
+      while (result.incomplete) {
+        result = await this.backend.uploadLibrary(mirror, provider, true);
+        uploaded += Number(result.changed || 0);
+      }
       await this.library.saveSyncBaseline(mirror.index.files);
-      const changed = downloaded + Number(result.changed || 0);
+      const changed = downloaded + uploaded;
       const updatedAt = result.syncedAt || new Date().toISOString();
       return this.update(
         'up-to-date',

@@ -8,331 +8,109 @@ import type { SharedLibraryDesktopAPI } from '../src/shared/contracts.js';
 
 const electronRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const launchScript = join(electronRoot, 'playwright.launch.mjs');
-type ElectronWindow = Window &
-  typeof globalThis & {
-    sharedLibrary: SharedLibraryDesktopAPI;
-  };
+type ElectronWindow = Window & typeof globalThis & {
+  sharedLibrary: SharedLibraryDesktopAPI;
+};
 
-test(
-  'launches the production app and reads and writes through the preload API',
-  async ({}, testInfo) => {
-    const temporaryRoot = await mkdtemp(join(tmpdir(), 'shared-library-e2e-'));
-    const userDataPath = join(temporaryRoot, 'user-data');
-    const workspacePath = join(temporaryRoot, 'workspace');
-    let electronApp: ElectronApplication | undefined;
-    let page: Page | undefined;
-    let tracingStopped = false;
-    const processOutput: string[] = [];
+test('the production app reads, edits, plays, and configures a library', async ({}, testInfo) => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), 'briefly-e2e-'));
+  const userDataPath = join(temporaryRoot, 'user-data');
+  const workspacePath = join(temporaryRoot, 'workspace');
+  let app: ElectronApplication | undefined;
+  let page: Page | undefined;
+  try {
+    await createFixture(userDataPath, workspacePath);
+    app = await electron.launch({
+      args: [launchScript],
+      cwd: electronRoot,
+      env: { ...process.env, BRIEFLY_E2E_USER_DATA: userDataPath }
+    });
+    page = await app.firstWindow();
+    const rendererErrors: string[] = [];
+    page.on('pageerror', (error) => rendererErrors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') rendererErrors.push(message.text());
+    });
 
-    try {
-      await createFixture(userDataPath, workspacePath);
+    await expect(page).toHaveTitle('Briefly');
+    await expect(page.getByRole('button', { name: 'Electron smoke fixture' })).toBeVisible();
+    await expect(page.locator('.native-document-body')).toContainText('Brief smoke summary.');
 
-      electronApp = await electron.launch({
-        args: [launchScript],
-        cwd: electronRoot,
-        env: {
-          ...process.env,
-          BRIEFLY_E2E_USER_DATA: userDataPath
-        }
-      });
-      electronApp.process().stdout?.on('data', (chunk) => {
-        processOutput.push(String(chunk));
-      });
-      electronApp.process().stderr?.on('data', (chunk) => {
-        processOutput.push(String(chunk));
-      });
-      await electronApp.context().tracing.start({
-        screenshots: true,
-        snapshots: true,
-        sources: true
-      });
-
-      const rendererErrors: string[] = [];
-      try {
-        page = await electronApp.firstWindow();
-      } catch (error) {
-        throw new Error(
-          `Electron did not open a window.\n${processOutput.join('').trim()}`,
-          { cause: error }
-        );
-      }
-      page.on('pageerror', (error) => rendererErrors.push(error.message));
-      page.on('console', (message) => {
-        if (message.type() === 'error') rendererErrors.push(message.text());
-      });
-
-      await expect(page).toHaveTitle('Briefly');
-      await expect(
-        page.getByRole('button', { name: 'Electron smoke fixture' })
-      ).toBeVisible();
-      await expect(page.locator('.native-document-body')).toContainText(
-        'Brief smoke summary.'
-      );
-      await expect(page.locator('.native-document-body')).toHaveCSS(
-        'background-position',
-        '0px 51px'
-      );
-      const paperWidth = await page.locator('.native-document-scroll').evaluate(
-        (element) => element.getBoundingClientRect().width
-      );
-      const documentWidth = await page.locator('.native-document-body').evaluate(
-        (element) => element.getBoundingClientRect().width
-      );
-      expect(documentWidth).toBe(paperWidth);
-      const audio = page.locator('audio');
-      const actionBar = page.getByLabel('Document actions');
-      const audioPlayer = page.locator('.native-reader-audio');
-      await expect(audio).toHaveCount(1);
-      await expect(audioPlayer).toBeHidden();
-      await page.getByRole('button', { name: 'Expand audio player' }).click();
-      await expect(audioPlayer).toBeVisible();
-      await expect(actionBar).toHaveCSS('height', '178px');
-      await expect(audioPlayer.getByRole('button', { name: 'Back 15 seconds' })).toBeVisible();
-      await expect(audioPlayer.getByRole('button', { name: 'Forward 30 seconds' })).toBeVisible();
-      await expect(audioPlayer.getByTitle('Sleep timer')).toHaveCount(0);
-      const playerBox = await audioPlayer.boundingBox();
-      const expandedActionsBox = await actionBar.locator('.native-footer-actions').boundingBox();
-      const playBox = await audioPlayer
-        .getByRole('button', { name: 'Play', exact: true })
-        .boundingBox();
-      expect(playerBox!.x + playerBox!.width)
-        .toBe(expandedActionsBox!.x + expandedActionsBox!.width);
-      expect(playerBox!.y + playerBox!.height).toBeLessThan(expandedActionsBox!.y);
-      expect(playBox!.x + playBox!.width / 2).toBe(playerBox!.x + playerBox!.width / 2);
-      await expect(page.getByRole('slider', { name: 'Volume' })).toHaveCount(0);
-      await audio.evaluate((element: HTMLAudioElement) => element.play());
-      const volume = page.getByRole('slider', { name: 'Volume' });
-      await expect(volume).toBeVisible();
-      await volume.fill('0.4');
-      expect(await audio.evaluate((element: HTMLAudioElement) => element.volume)).toBe(0.4);
-      await audio.evaluate((element: HTMLAudioElement) => element.pause());
-      await expect(volume).toHaveCount(0);
-      await page.getByRole('button', { name: 'Collapse audio player' }).click();
-      await expect(audioPlayer).toBeHidden();
-      await expect(actionBar).toHaveCSS('height', '40px');
-      await expect(page.locator('.native-document-meta')).toContainText('3 words');
-      await expect(actionBar).not.toContainText('words');
-
-      const snapshot = await page.evaluate(() =>
-        (window as ElectronWindow).sharedLibrary.getSnapshot()
-      );
-      expect(snapshot.workspacePath).toBe(workspacePath);
-      expect(snapshot.entries).toHaveLength(2);
-      expect(snapshot.entries[0].title).toBe('Electron smoke fixture');
-
-      await page.getByRole('button', { name: 'Second smoke fixture' }).click({
-        modifiers: ['Meta']
-      });
-      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
-      // ponytail: macOS Actions cannot dismiss native menus through CDP; the
-      // Windows and Linux runners cover right-click selection until Playwright can.
-      if (snapshot.platform !== 'darwin') {
-        await page.getByRole('button', { name: 'Electron smoke fixture' }).click({
-          button: 'right'
-        });
-        await page.keyboard.press('Escape');
-        await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
-      }
-      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
-      await expect(page.locator('.native-entry-row.selected')).toHaveCount(1);
-
-      const firstBox = await page
-        .getByRole('button', { name: 'Electron smoke fixture' })
-        .boundingBox();
-      const secondBox = await page
-        .getByRole('button', { name: 'Second smoke fixture' })
-        .boundingBox();
-      expect(firstBox).not.toBeNull();
-      expect(secondBox).not.toBeNull();
-      await page.mouse.move(firstBox!.x + firstBox!.width / 2, firstBox!.y + firstBox!.height / 2);
-      await page.mouse.down();
-      await page.mouse.move(
-        secondBox!.x + secondBox!.width / 2,
-        secondBox!.y + secondBox!.height / 2
-      );
-      await page.mouse.up();
-      await expect(page.locator('.native-entry-row.selected')).toHaveCount(2);
-      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
-
-      await expect(actionBar.getByRole('radio')).toHaveCount(
-        snapshot.entries[0].availableVariants.length
-      );
-      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('opacity', '1');
-      const actionBarWidth = await actionBar.evaluate(
-        (element) => element.getBoundingClientRect().width
-      );
-      await actionBar.hover();
-      expect(
-        await actionBar.evaluate((element) => element.getBoundingClientRect().width)
-      ).toBe(actionBarWidth);
-      expect(actionBarWidth).toBeLessThanOrEqual(780);
-      await expect(actionBar).toHaveCSS('height', '40px');
-      await expect(actionBar.locator('.native-footer-actions')).toHaveCSS('column-gap', '2px');
-      const barBox = await actionBar.boundingBox();
-      const depthBox = await actionBar.getByRole('radiogroup').boundingBox();
-      const actionsBox = await actionBar.locator('.native-footer-actions').boundingBox();
-      expect(actionsBox!.height).toBe(depthBox!.height);
-      expect(actionsBox!.x - depthBox!.x - depthBox!.width).toBeGreaterThan(300);
-      expect(depthBox!.x - barBox!.x).toBeLessThanOrEqual(1);
-      expect(barBox!.x + barBox!.width - actionsBox!.x - actionsBox!.width)
-        .toBeLessThanOrEqual(1);
-      await expect(actionBar.getByRole('button', { name: 'Settings' })).toHaveCount(0);
-      const viewTabs = page.getByRole('tablist', { name: 'Library view' });
-      await expect(viewTabs.getByRole('tab', { name: 'Item' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toBeVisible();
-      const sidebarActions = page.locator('.native-sidebar-footer');
-      await expect(sidebarActions.getByRole('button', { name: 'AI' })).toBeVisible();
-      await expect(sidebarActions.getByRole('button', { name: 'Settings' })).toBeVisible();
-      await expect(sidebarActions).toHaveCSS('column-gap', '0px');
-      await expect(sidebarActions).toHaveCSS('padding', '0px');
-      const sidebarButtonWidths = await sidebarActions.locator('button').evaluateAll(
-        (buttons) => buttons.map((button) => button.getBoundingClientRect().width)
-      );
-      expect(sidebarButtonWidths[0]).toBe(sidebarButtonWidths[1]);
-
-      const entryID = snapshot.entries[0].id;
-      const originalText = await page.evaluate(
-        ({ id }) =>
-          (window as ElectronWindow).sharedLibrary.readText(id, 'source'),
-        { id: entryID }
-      );
-      expect(originalText).toBe('Original smoke body.');
-
-      const editedText = 'Edited through the Electron preload bridge.';
+    const snapshot = await page.evaluate(() =>
+      (window as ElectronWindow).sharedLibrary.getSnapshot()
+    );
+    expect(snapshot.workspacePath).toBe(workspacePath);
+    expect(snapshot.entries).toHaveLength(2);
+    const entryID = snapshot.entries[0].id;
+    expect(
       await page.evaluate(
-        ({ id, text }) =>
-          (window as ElectronWindow).sharedLibrary.writeText(id, 'source', text),
-        { id: entryID, text: editedText }
-      );
-      await audio.evaluate((element) => element.setAttribute('data-smoke-player', 'persistent'));
-      await page.getByRole('radio', { name: 'Original' }).click();
-      await expect(page.locator('.native-document-body')).toContainText(editedText);
-      await expect(audio).toHaveCount(1);
-      await expect(audio).toHaveAttribute('data-smoke-player', 'persistent');
-      await audio.evaluate((element: HTMLAudioElement) => element.play());
-      await expect
-        .poll(() =>
-          audio.evaluate((element: HTMLAudioElement) => element.currentTime)
-        )
-        .toBeGreaterThan(0);
-      await audio.evaluate((element: HTMLAudioElement) => {
-        element.pause();
-        element.currentTime = 0.5;
-        element.dispatchEvent(new Event('timeupdate'));
-      });
-      await page.getByRole('button', { name: 'Second smoke fixture' }).click();
-      await expect(page.locator('audio')).toHaveCount(0);
-      await page.getByRole('button', { name: 'Electron smoke fixture' }).click();
-      await page.getByRole('radio', { name: 'Original' }).click();
-      await expect
-        .poll(() =>
-          page!.locator('audio').evaluate((element: HTMLAudioElement) => element.currentTime)
-        )
-        .toBeGreaterThanOrEqual(0.49);
+        (id) => (window as ElectronWindow).sharedLibrary.readText(id, 'source'),
+        entryID
+      )
+    ).toBe('Original smoke body.');
 
-      await viewTabs.getByRole('tab', { name: 'Brief' }).click();
-      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      await expect(page.getByLabel('Audio brief title')).toHaveValue('Smoke podcast');
-      const podcastPrompt = page.getByLabel('Audio brief instructions');
-      await expect(podcastPrompt).toHaveValue('Keep the episode practical.');
-      await expect(
-        page.getByRole('button', { name: /example\.invalid\/feed\.xml/ })
-      ).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.getByRole('textbox', { name: 'Schedule' })).toHaveValue(
-        'weekly MON 08:00'
-      );
-      await podcastPrompt.fill('Explain why each update matters.');
-      await expect
-        .poll(() =>
-          page!.evaluate(async () =>
-            (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]
-              ?.prompt
-          )
-        )
-        .toBe('Explain why each update matters.');
+    await page.evaluate(
+      ({ id, text }) => (window as ElectronWindow).sharedLibrary.writeText(id, 'source', text),
+      { id: entryID, text: 'Edited through the Electron preload bridge.' }
+    );
+    await page.getByRole('radio', { name: 'Original' }).click();
+    await expect(page.locator('.native-document-body')).toContainText(
+      'Edited through the Electron preload bridge.'
+    );
 
-      await sidebarActions.getByRole('button', { name: 'Settings' }).click();
-      await expect(page.locator('.settings-screen')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Topics' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Prompts' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'AI agents' })).toBeVisible();
-      await page.getByRole('button', { name: 'General' }).click();
-      await expect(page.getByRole('heading', { name: 'Current document' })).toHaveCount(0);
-      const saveAudio = page.getByRole('checkbox', {
-        name: 'Save audio from manually captured YouTube videos'
-      });
-      await expect(saveAudio).toBeChecked();
-      await saveAudio.uncheck();
-      await expect
-        .poll(() =>
-          page!.evaluate(() =>
-            (window as ElectronWindow).sharedLibrary.getAudioPreferences()
-          )
-        )
-        .toEqual({ saveCapturedAudio: false });
-      await expect(page.getByRole('button', { name: 'Feedback' })).toBeVisible();
-      await page.getByRole('button', { name: 'Back to app' }).click();
-      await expect(page.locator('.settings-screen')).toHaveCount(0);
-      await expect(viewTabs.getByRole('tab', { name: 'Brief' })).toHaveAttribute(
-        'aria-selected',
-        'true'
-      );
-      expect(rendererErrors).toEqual([]);
-    } catch (error) {
-      if (page) {
-        await page
-          .screenshot({
-            path: testInfo.outputPath('failure.png'),
-            fullPage: true
-          })
-          .catch(() => {});
-      }
-      if (electronApp) {
-        await electronApp.context().tracing
-          .stop({ path: testInfo.outputPath('trace.zip') })
-          .catch(() => {});
-        tracingStopped = true;
-      }
-      throw error;
-    } finally {
-      if (electronApp) {
-        if (!tracingStopped) {
-          await electronApp.context().tracing.stop().catch(() => {});
-        }
-        await electronApp.close().catch(() => {});
-      }
-      await rm(temporaryRoot, { recursive: true, force: true });
-    }
+    const audio = page.locator('audio');
+    await expect(audio).toHaveCount(1);
+    await page.getByRole('button', { name: 'Expand audio player' }).click();
+    await expect(page.locator('.native-reader-audio')).toBeVisible();
+    await audio.evaluate((element: HTMLAudioElement) => element.play());
+    await expect.poll(() => audio.evaluate((element: HTMLAudioElement) => element.currentTime))
+      .toBeGreaterThan(0);
+    await audio.evaluate((element: HTMLAudioElement) => element.pause());
+
+    const tabs = page.getByRole('tablist', { name: 'Library view' });
+    await tabs.getByRole('tab', { name: 'Brief' }).click();
+    await expect(page.getByLabel('Audio brief title')).toHaveValue('Smoke podcast');
+    await page.getByLabel('Audio brief instructions').fill('Explain why each update matters.');
+    await expect.poll(() =>
+      page!.evaluate(async () =>
+        (await (window as ElectronWindow).sharedLibrary.getPodcasts()).podcasts[0]?.prompt
+      )
+    ).toBe('Explain why each update matters.');
+
+    await page.locator('.native-sidebar-footer').getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('button', { name: 'General' }).click();
+    const saveAudio = page.getByRole('checkbox', {
+      name: 'Save audio from manually captured YouTube videos'
+    });
+    await saveAudio.uncheck();
+    await expect.poll(() =>
+      page!.evaluate(() => (window as ElectronWindow).sharedLibrary.getAudioPreferences())
+    ).toEqual({ saveCapturedAudio: false });
+    expect(rendererErrors).toEqual([]);
+  } catch (error) {
+    await page?.screenshot({ path: testInfo.outputPath('failure.png'), fullPage: true }).catch(() => {});
+    throw error;
+  } finally {
+    await app?.close().catch(() => {});
+    await rm(temporaryRoot, { recursive: true, force: true });
   }
-);
+});
 
-async function createFixture(
-  userDataPath: string,
-  workspacePath: string
-): Promise<void> {
-  await mkdir(join(workspacePath, 'library', 'summaries', 'brief'), {
-    recursive: true
-  });
-  await mkdir(join(workspacePath, 'library', 'audio'), { recursive: true });
-  await mkdir(join(workspacePath, 'podcasts'), { recursive: true });
-  await mkdir(userDataPath, { recursive: true });
-
+async function createFixture(userDataPath: string, workspacePath: string): Promise<void> {
+  await Promise.all([
+    mkdir(join(workspacePath, 'library', 'summaries', 'brief'), { recursive: true }),
+    mkdir(join(workspacePath, 'library', 'audio'), { recursive: true }),
+    mkdir(join(workspacePath, 'podcasts'), { recursive: true }),
+    mkdir(userDataPath, { recursive: true })
+  ]);
   await Promise.all([
     writeFile(
       join(userDataPath, 'settings.json'),
-      `${JSON.stringify({ workspacePath }, null, 2)}\n`,
-      'utf8'
+      `${JSON.stringify({ workspacePath }, null, 2)}\n`
     ),
     writeFile(
       join(workspacePath, 'topics.md'),
-      'topics:\n  - id: "testing"\n    title: "Testing"\n',
-      'utf8'
+      'topics:\n  - id: "testing"\n    title: "Testing"\n'
     ),
     writeFile(
       join(workspacePath, 'library', 'fixture.md'),
@@ -347,8 +125,7 @@ topics:
 ---
 
 Original smoke body.
-`,
-      'utf8'
+`
     ),
     writeFile(
       join(workspacePath, 'library', 'second.md'),
@@ -362,17 +139,12 @@ topics:
 ---
 
 Second smoke body.
-`,
-      'utf8'
+`
     ),
-    writeFile(
-      join(workspacePath, 'library', 'audio', 'electron-smoke.wav'),
-      toneWav()
-    ),
+    writeFile(join(workspacePath, 'library', 'audio', 'electron-smoke.wav'), toneWav()),
     writeFile(
       join(workspacePath, 'library', 'summaries', 'brief', 'fixture.md'),
-      'Brief smoke summary.\n',
-      'utf8'
+      'Brief smoke summary.\n'
     ),
     writeFile(
       join(workspacePath, 'podcasts', 'smoke-podcast.md'),
@@ -385,8 +157,7 @@ length: "15 minutes"
 ---
 
 Keep the episode practical.
-`,
-      'utf8'
+`
     )
   ]);
 }

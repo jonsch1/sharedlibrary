@@ -7,6 +7,39 @@
   triggers `.github/workflows/deploy-web.yml`, which applies D1 migrations and
   deploys to Cloudflare.
 
+## Test strategy
+
+- Keep the suite intentionally small. Prefer a few end-to-end or request-boundary
+  journeys that exercise production entry points over unit tests for helpers,
+  branches, parsers, presentation details, or configuration values.
+- Extend one of the existing test files before creating another:
+  `Shared/app.test.ts`, `Tools/extractor/e2e.test.mjs`,
+  `Electron/src/main/safety.test.ts`, `Electron/e2e/smoke.spec.ts`, or
+  `Web/worker/index.test.mjs`. Add a new file only for a genuinely new executable
+  boundary.
+- Add a regression check only when failure would risk data loss, security,
+  payments, or a core user journey. The narrow Electron safety tests are the
+  explicit exception to the end-to-end preference.
+- Assert observable output or persisted state. Do not test source text, exact CSS
+  geometry, internal call counts, removed features, or duplicate the same
+  behavior across platforms.
+- Do not rebuild broad unit matrices or handwritten service/database emulators.
+  Use the real CLI, production Electron build, Worker entry point, and the
+  smallest binding stub needed to reach the boundary.
+- Run `npm test` in `Shared/` and `Tools/extractor/`, `npm test` plus
+  `npm run test:e2e` in `Electron/`, and `npm run test:worker` in `Web/`.
+
+## Shared app UI
+
+- `Shared/App.svelte` and `Shared/styles.css` are the source of truth for the
+  authenticated app UI on web and Electron.
+- Keep `Web/src/routes/+page.svelte` and `Electron/src/renderer/App.svelte` as
+  thin platform adapters. Add shared UI and behavior in `Shared/`, then expose
+  platform differences through `BrieflyAppCapabilities` or the shared API.
+- Do not copy shared components or styles into a platform directory. Web-only
+  public/account routes and Electron-native integrations remain platform-owned.
+- After changing shared app UI, run the Shared tests and both platforms' checks.
+
 ## Generated Briefly workspace instructions
 
 The `AGENTS.md` populated in a user's Briefly workspace must make the

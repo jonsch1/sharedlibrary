@@ -267,17 +267,20 @@ export class BackendClient {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  async uploadLibrary(mirror: DriveLibraryMirror, provider: ConnectionProvider): Promise<{
-    changed: number;
-    syncedAt: string;
-  }> {
+  async uploadLibrary(
+    mirror: DriveLibraryMirror,
+    provider: ConnectionProvider,
+    resume = false
+  ): Promise<{ changed: number; syncedAt: string; incomplete?: boolean }> {
     if (provider === 'icloud') {
       return this.callICloud<{ changed: number; syncedAt: string }>('uploadLibrary', [mirror]);
     }
     let uploadedMedia = 0;
-    for (const media of mirror.media) {
-      const result = await this.uploadMedia(media);
-      if (!result.existed) uploadedMedia += 1;
+    if (!resume) {
+      for (const media of mirror.media) {
+        const result = await this.uploadMedia(media);
+        if (!result.existed) uploadedMedia += 1;
+      }
     }
     const response = await this.fetch('/api/library/sync', {
       method: 'POST',
@@ -289,6 +292,19 @@ export class BackendClient {
         media: mirror.media.map(({ content: _, ...media }) => media)
       })
     });
+    const partial = response.status === 503
+      ? await response.clone().json().catch(() => null) as {
+          code?: string;
+          changed?: number;
+        } | null
+      : null;
+    if (partial?.code === 'sync_incomplete') {
+      return {
+        changed: Number(partial.changed ?? 0) + uploadedMedia,
+        syncedAt: new Date().toISOString(),
+        incomplete: true
+      };
+    }
     const result = await this.json<{ changed: number; syncedAt: string }>(
       response,
       'Could not synchronize the library with Google Drive.'

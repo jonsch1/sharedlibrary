@@ -12,15 +12,18 @@
     type ChannelDefinition,
     type PodcastDefinition,
     type PodcastDraft,
-    type PodcastSnapshot
-  } from '../shared/contracts';
+    type PodcastSnapshot,
+    type SharedLibraryDesktopAPI
+  } from './contracts';
 
   let {
+    api,
     podcastid,
     creating = false,
     onselected,
     onmessage
   }: {
+    api: SharedLibraryDesktopAPI;
     podcastid: string;
     creating?: boolean;
     onselected: (podcastID: string) => void;
@@ -74,8 +77,8 @@
     try {
       selectedID = podcastid;
       dirty = creating;
-      applySnapshot(await window.sharedLibrary.getPodcasts());
-      const remove = window.sharedLibrary.onPodcastsChanged((next) => {
+      applySnapshot(await api.getPodcasts());
+      const remove = api.onPodcastsChanged((next) => {
         applySnapshot(next, !dirty);
       });
       window.addEventListener(
@@ -132,7 +135,7 @@
     const knownIDs = new Set(snapshot?.podcasts.map((podcast) => podcast.id) ?? []);
     busy = true;
     try {
-      const next = await window.sharedLibrary.savePodcast({
+      const next = await api.savePodcast({
         ...draft,
         title,
         prompt,
@@ -161,7 +164,7 @@
     if (dirty || !selected) return;
     busy = true;
     try {
-      applySnapshot(await window.sharedLibrary.runPodcast(selected.id));
+      applySnapshot(await api.runPodcast(selected.id));
       onmessage(
         snapshot?.podcasts.find((podcast) => podcast.id === selected.id)?.message ??
           'Audio brief generation finished.'
@@ -202,7 +205,7 @@
     if (!selected || !window.confirm(`Move “${selected.title}” to Trash?`)) return;
     busy = true;
     try {
-      applySnapshot(await window.sharedLibrary.removePodcast(selected.id));
+      applySnapshot(await api.removePodcast(selected.id));
       onselected('');
       onmessage('Audio brief moved to Trash.');
     } catch (error) {
@@ -233,7 +236,7 @@
       {#if selected}
         <button
           class="secondary-button border-border! bg-secondary! bg-none! text-secondary-foreground! rounded-lg! border shadow-sm! hover:bg-secondary/80!"
-          onclick={() => window.sharedLibrary.revealPodcast(selected!.id)}
+          onclick={() => api.revealPodcast(selected!.id)}
         ><FileText /> File</button>
       {/if}
       <button

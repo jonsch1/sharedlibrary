@@ -17,6 +17,7 @@ export interface SavedItem {
 
 export interface SaveItemOptions {
   discovered?: DiscoveredSourceItem;
+  entryType?: 'podcast_source';
   extracted?: ExtractedContent;
   topicIDs?: string[];
   saveAudio?: boolean;
@@ -39,7 +40,7 @@ export class ItemService {
     const sourceURL = httpURL(value);
     let snapshot = await this.library.snapshot();
     if (sourceURL && options.reuseExisting !== false) {
-      const existing = findSource(snapshot, sourceURL);
+      const existing = findSource(snapshot, sourceURL, options.entryType);
       if (existing) return saved(existing, snapshot, false);
     }
     const extracted =
@@ -53,7 +54,7 @@ export class ItemService {
         : undefined);
     const resolvedURL = httpURL(extracted?.sourceURL ?? '');
     if (resolvedURL && options.reuseExisting !== false) {
-      const existing = findSource(snapshot, resolvedURL);
+      const existing = findSource(snapshot, resolvedURL, options.entryType);
       if (existing) return saved(existing, snapshot, false);
     }
     const stored =
@@ -62,7 +63,7 @@ export class ItemService {
         : extracted;
     const captureID = await this.library.captureText(
       value,
-      stored,
+      { ...stored, entryType: options.entryType },
       options.topicIDs
     );
     const entryID = `personal:${captureID}`;
@@ -158,11 +159,18 @@ function httpURL(value: string): string | null {
   }
 }
 
-function findSource(snapshot: DesktopLibrarySnapshot, sourceURL: string) {
+function findSource(
+  snapshot: DesktopLibrarySnapshot,
+  sourceURL: string,
+  entryType?: 'podcast_source'
+) {
   const identity = sourceIdentity(sourceURL);
   // ponytail: linear scan is enough for local libraries; index identities if it becomes slow.
   return snapshot.entries.find(
-    (entry) => entry.sourceURL && sourceIdentity(entry.sourceURL) === identity
+    (entry) =>
+      entry.sourceURL &&
+      (entry.entryType === 'podcast_source') === (entryType === 'podcast_source') &&
+      sourceIdentity(entry.sourceURL) === identity
   );
 }
 

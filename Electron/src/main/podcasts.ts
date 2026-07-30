@@ -9,6 +9,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import {
   defaultPodcastPrompt,
+  type DesktopLibrarySnapshot,
   type PodcastDefinition,
   type PodcastDraft,
   type PodcastSnapshot
@@ -307,10 +308,15 @@ export class PodcastService {
       const channelKeys = new Set(
         (state.sources[source]?.items ?? []).map((item) => itemKey(source, item.id))
       );
+      const channelEntryIDs =
+        state.sources[source]?.items.map((item) => item.entryID) ?? [];
+      const { snapshot: library } =
+        await this.library.markPodcastSources(channelEntryIDs);
       delete state.sources[source];
       for (const run of Object.values(state.podcasts)) {
         run.consumed = run.consumed.filter((key) => !channelKeys.has(key));
       }
+      await this.trashUnreferencedChannelEntries(channelEntryIDs, state, library);
       await this.saveState(state);
       await this.onLibraryChanged();
       this.onSyncRequested('deleted channel');
@@ -404,6 +410,7 @@ export class PodcastService {
       const selected: Array<{ entryID: string; title: string; url: string }> = [];
       for (const source of sources) {
         const saved = await this.items.save(source.url, {
+          entryType: 'podcast_source',
           extracted: source.content
             ? {
                 title: source.title,
@@ -507,11 +514,19 @@ export class PodcastService {
     retrievalLimit?: number
   ): Promise<boolean> {
     let changed = false;
+    const markedLibrary = await this.library.markPodcastSources(
+      Object.values(state.sources).flatMap((source) =>
+        source.items.map((item) => item.entryID)
+      )
+    );
+    const library = markedLibrary.snapshot;
+    if (markedLibrary.changed) this.onSyncRequested('channel provenance');
     const availableEntryIDs = new Set(
-      (await this.library.snapshot()).entries.map((entry) => entry.id)
+      library.entries.map((entry) => entry.id)
     );
     for (const source of podcast.sources) {
       const current = state.sources[source] ?? { seen: [], items: [] };
+      state.sources[source] = current;
       const missingItemIDs = new Set(
         current.items
           .filter((item) => !availableEntryIDs.has(item.entryID))
@@ -524,6 +539,7 @@ export class PodcastService {
         current.seen = current.seen.filter((id) => !missingItemIDs.has(id));
         changed = true;
       }
+      changed = (await this.pruneChannelItems(source, state, library)) || changed;
       const lastChecked = Date.parse(current.lastCheckedAt ?? '');
       if (
         !force &&
@@ -533,7 +549,6 @@ export class PodcastService {
         continue;
       }
       const run = state.podcasts[podcast.id] ?? { consumed: [] };
-      state.sources[source] = current;
       if (updateRun) {
         run.status = 'checking';
         run.message = `Checking ${source}`;
@@ -591,6 +606,7 @@ export class PodcastService {
         current.lastCheckedAt = new Date().toISOString();
       }
       state.sources[source] = current;
+      changed = (await this.pruneChannelItems(source, state, library)) || changed;
     }
     if (updateRun) {
       const run = state.podcasts[podcast.id] ?? { consumed: [] };
@@ -617,9 +633,60 @@ export class PodcastService {
     return changed;
   }
 
+  private async pruneChannelItems(
+    source: string,
+    state: PodcastState,
+    library: DesktopLibrarySnapshot
+  ): Promise<boolean> {
+    const current = state.sources[source];
+    if (!current || current.items.length <= maximumChannelRetrievalCount) return false;
+    const removed = current.items.splice(maximumChannelRetrievalCount);
+    const removedKeys = new Set(removed.map((item) => itemKey(source, item.id)));
+    for (const run of Object.values(state.podcasts)) {
+      run.consumed = run.consumed.filter((key) => !removedKeys.has(key));
+    }
+    const deleted = await this.trashUnreferencedChannelEntries(
+      removed.map((item) => item.entryID),
+      state,
+      library
+    );
+    if (deleted) {
+      await this.onLibraryChanged();
+      this.onSyncRequested('channel retention');
+    }
+    return true;
+  }
+
+  private async trashUnreferencedChannelEntries(
+    entryIDs: string[],
+    state: PodcastState,
+    library: DesktopLibrarySnapshot
+  ): Promise<boolean> {
+    const activeEntryIDs = new Set(
+      Object.values(state.sources).flatMap((channel) =>
+        channel.items.map((item) => item.entryID)
+      )
+    );
+    const episodeSourceIDs = new Set(
+      library.entries
+        .filter(({ entryType }) => entryType === 'podcast_episode')
+        .flatMap(({ sourceIDs }) => sourceIDs ?? [])
+    );
+    const entries = new Map(library.entries.map((entry) => [entry.id, entry]));
+    let deleted = false;
+    for (const entryID of new Set(entryIDs)) {
+      if (activeEntryIDs.has(entryID) || episodeSourceIDs.has(entryID)) continue;
+      if (entries.get(entryID)?.entryType !== 'podcast_source') continue;
+      await this.library.trashCapture(entryID);
+      deleted = true;
+    }
+    return deleted;
+  }
+
   private async ingestItem(item: DiscoveredSourceItem): Promise<WatchedItem> {
     const saved = await this.items.save(item.url, {
       discovered: item,
+      entryType: 'podcast_source',
       syncReason: 'watched source'
     });
     return {
@@ -811,7 +878,13 @@ export class PodcastService {
       this.readDefinitions(),
       providedState ? Promise.resolve(providedState) : this.readState()
     ]);
-    const library = await this.library.snapshot();
+    const markedLibrary = await this.library.markPodcastSources(
+      Object.values(state.sources).flatMap((source) =>
+        source.items.map((item) => item.entryID)
+      )
+    );
+    const library = markedLibrary.snapshot;
+    if (markedLibrary.changed) this.onSyncRequested('channel provenance');
     const now = new Date();
     const entries = new Map(library.entries.map((entry) => [entry.id, entry]));
     const channelSources = [
@@ -830,6 +903,17 @@ export class PodcastService {
         const owners = podcasts.filter((podcast) =>
           podcast.sources.includes(source)
         );
+        const ownerIDs = new Set(owners.map((podcast) => podcast.id));
+        const latestBriefAt = library.entries
+          .filter(
+            (entry) =>
+              entry.entryType === 'podcast_episode' &&
+              Boolean(entry.createdAt) &&
+              ownerIDs.has(entry.podcastID ?? '')
+          )
+          .map((entry) => entry.createdAt!)
+          .sort()
+          .at(-1);
         return {
           source,
           title: channel?.title,
@@ -841,6 +925,12 @@ export class PodcastService {
             channel?.retrievalCount ?? defaultChannelRetrievalCount,
           canLoadMore: channel?.canLoadMore ?? true,
           entryIDs: items.map((item) => item.entryID),
+          latestBriefAt,
+          newEntryIDs: latestBriefAt
+            ? items
+                .filter((item) => item.ingestedAt > latestBriefAt)
+                .map((item) => item.entryID)
+            : [],
           briefIDs: owners.map((podcast) => podcast.id),
           briefTitles: owners.map((podcast) => podcast.title)
         };

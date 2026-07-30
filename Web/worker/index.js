@@ -1023,12 +1023,24 @@ async function syncLibraryMirror(request, env) {
 				return /^[a-f0-9]{64}$/.test(hash || '') ? [[hash, file]] : [];
 			})
 		);
+		const maximumMutations = 30;
 		let uploaded = 0;
+		let deleted = 0;
+		const incomplete = () =>
+			json(
+				{
+					error: 'A large library sync is still in progress.',
+					code: 'sync_incomplete',
+					changed: uploaded + deleted
+				},
+				{ status: 503, headers: { 'Retry-After': '0' } }
+			);
 		for (const file of files) {
 			const pathHash = await sha256Hex(file.path);
 			const remote = remoteByPathHash.get(pathHash);
 			remoteByPathHash.delete(pathHash);
 			if (remote?.appProperties?.sharedLibraryContentHash === file.contentHash) continue;
+			if (uploaded + deleted >= maximumMutations) return incomplete();
 			await upsertDriveFile(env, email, {
 				rootFolderID,
 				folders,
@@ -1039,15 +1051,11 @@ async function syncLibraryMirror(request, env) {
 			});
 			uploaded += 1;
 		}
-		let deleted = 0;
-		for (const stale of remoteByPathHash.values()) {
-			await trashDriveFile(env, email, stale.id);
-			deleted += 1;
-		}
 		const indexBytes = new TextEncoder().encode(JSON.stringify(value.index, null, 2));
 		const indexHash = await sha256Hex(indexBytes);
 		const remoteIndex = remoteIndexes[0];
 		if (remoteIndex?.appProperties?.sharedLibraryContentHash !== indexHash) {
+			if (uploaded + deleted >= maximumMutations) return incomplete();
 			await upsertDriveFile(env, email, {
 				rootFolderID,
 				folders,
@@ -1058,10 +1066,16 @@ async function syncLibraryMirror(request, env) {
 			});
 			uploaded += 1;
 		}
+		for (const stale of remoteByPathHash.values()) {
+			if (uploaded + deleted >= maximumMutations) return incomplete();
+			await trashDriveFile(env, email, stale.id);
+			deleted += 1;
+		}
 		for (const stale of [...remoteAudio, ...remoteFavicons]) {
 			const kind = stale.appProperties?.sharedLibraryKind;
 			const hash = stale.appProperties?.sharedLibraryHash;
 			if (activeMedia.has(`${kind}:${hash}`)) continue;
+			if (uploaded + deleted >= maximumMutations) return incomplete();
 			await trashDriveFile(env, email, stale.id);
 			deleted += 1;
 		}
