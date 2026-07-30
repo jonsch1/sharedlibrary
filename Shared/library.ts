@@ -273,7 +273,7 @@ export function preferredVariant(entry: LibraryEntry): LibraryVariant {
 }
 
 export function isMainLibraryEntry(entry: Pick<LibraryEntry, 'entryType'>): boolean {
-  return entry.entryType !== 'podcast_episode' && entry.entryType !== 'podcast_source';
+  return entry.entryType !== 'podcast_episode';
 }
 
 export function matchesLibraryEntry(

@@ -46,10 +46,8 @@ import {
 } from './agent-api.js';
 import { BackendClient } from './backend.js';
 import { ChannelWorkflowService } from './channel-workflows.js';
-import {
-  ExtractionService,
-  type ExtractedContent
-} from './extraction.js';
+import { ExtractionService } from './extraction.js';
+import { ItemService, type SaveItemOptions } from './items.js';
 import { LibraryService } from './library.js';
 import {
   agentCommandPresets,
@@ -110,6 +108,7 @@ let settings: SettingsStore;
 let backend: BackendClient;
 let extraction: ExtractionService;
 let channelWorkflows: ChannelWorkflowService;
+let items: ItemService;
 let processing: ProcessingService;
 let podcasts: PodcastService;
 let sync: SyncCoordinator;
@@ -496,6 +495,7 @@ function registerIPC(): void {
   );
   handle('library:trash-capture', async (_event, entryID: string) => {
     await library.trashCapture(entryID);
+    await podcasts.forgetItem(entryID);
     sync.request('deleted documents');
     return {
       snapshot: await snapshotAndNotify(),
@@ -942,40 +942,47 @@ async function captureFromMenu(): Promise<void> {
 async function captureClipboard() {
   const text = clipboard.readText();
   const preferences = await audioPreferences();
-  return captureText(
-    text,
-    await extraction.extractClipboard(text, preferences.saveCapturedAudio)
-  );
+  return captureItem(text, { saveAudio: preferences.saveCapturedAudio });
 }
 
 async function capturePDF(path: unknown) {
   const extracted = await extraction.extractPDFFile(path);
-  return captureText(
+  return captureItem(
     extracted.title ?? basename(typeof path === 'string' ? path : 'PDF'),
-    extracted
+    { extracted }
   );
 }
 
-async function captureText(text: string, extracted?: ExtractedContent) {
+async function captureItem(text: string, options: SaveItemOptions = {}) {
   const finishIngestion = beginIngestion(
-    extracted?.title?.trim() ||
-      extracted?.sourceURL ||
+    options.extracted?.title?.trim() ||
+      options.extracted?.sourceURL ||
       text.trim().split(/\r?\n/, 1)[0].slice(0, 100)
   );
   try {
-    const stored =
-      extracted && !(await audioPreferences()).saveCapturedAudio
-        ? { ...extracted, audio: undefined }
-        : extracted;
-    const captureID = await library.captureText(text, stored);
-    const entryID = `personal:${captureID}`;
-    const snapshot = await snapshotAndNotify();
-    sync.request('the new capture');
-    void processCapture(entryID).finally(finishIngestion);
+    const saved = await items.save(text, {
+      ...options,
+      syncReason: 'the new capture'
+    });
+    const entry = saved.snapshot.entries.find(
+      (candidate) => candidate.id === saved.entryID
+    );
+    const needsProcessing =
+      saved.created ||
+      !entry?.availableVariants.some((variant) => variant !== 'source');
+    if (needsProcessing) {
+      void processCapture(saved.entryID).finally(finishIngestion);
+    } else {
+      finishIngestion();
+    }
     return {
-      snapshot,
-      message: 'Captured. Summaries are being prepared in the background.',
-      selectedEntryID: entryID
+      snapshot: saved.snapshot,
+      message: saved.created
+        ? 'Captured. Summaries are being prepared in the background.'
+        : needsProcessing
+          ? 'Already captured. Summaries are being prepared in the background.'
+          : 'This item is already in the library.',
+      selectedEntryID: saved.entryID
     };
   } catch (error) {
     finishIngestion();
@@ -986,10 +993,12 @@ async function captureText(text: string, extracted?: ExtractedContent) {
 async function processCapture(entryID: string): Promise<void> {
   try {
     sendOperationMessage('Processing the new capture…', entryID);
-    const processedID = await processing.process(entryID, library);
-    await snapshotAndNotify();
+    const processedID = await items.process(
+      entryID,
+      undefined,
+      'processed summaries'
+    );
     sendOperationMessage('Capture processed and added to the library.', processedID);
-    sync.request('processed summaries');
   } catch (error) {
     sendOperationMessage(
       error instanceof Error ? error.message : 'The capture could not be processed.',
@@ -1109,11 +1118,19 @@ app.whenReady().then(async () => {
       (await settings.load()).processingCommand ?? defaultProcessingCommand,
     (prompt, format) => backend.runManagedAI(prompt, format)
   );
+  items = new ItemService(
+    library,
+    extraction,
+    processing,
+    snapshotAndNotify,
+    (reason) => sync.request(reason)
+  );
   channelWorkflows = new ChannelWorkflowService(extraction);
   podcasts = new PodcastService(
     () => library.getWorkspacePath(),
     library,
     channelWorkflows,
+    items,
     (text) => backend.generatePodcastAudio(text),
     (path) => shell.trashItem(path),
     (snapshot) => mainWindow?.webContents.send('podcasts:changed', snapshot),
@@ -1145,8 +1162,9 @@ app.whenReady().then(async () => {
     {
       library,
       extractURL: (url) => extraction.extractURL(url),
-      processEntry: (entryID, topicID) =>
-        processing.process(entryID, library, topicID),
+      saveItem: (url, options) => items.save(url, options),
+      processItem: (entryID, topicID, reason) =>
+        items.process(entryID, topicID, reason),
       podcastSnapshot: () => podcasts.snapshot(),
       createPodcastEpisode: (podcastID, script, sources) =>
         podcasts.createAgentEpisode(podcastID, script, sources),

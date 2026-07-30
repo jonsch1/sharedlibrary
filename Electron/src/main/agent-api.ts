@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   chmod,
   cp,
@@ -25,9 +25,13 @@ import {
   type TopicDefinition
 } from '../shared/contracts.js';
 import type { ExtractedContent } from './extraction.js';
-import { LibraryService } from './library.js';
 import {
   sourceIdentity,
+  type SaveItemOptions,
+  type SavedItem
+} from './items.js';
+import { LibraryService } from './library.js';
+import {
   type AgentEpisodeResult,
   type AgentEpisodeSource
 } from './podcasts.js';
@@ -78,7 +82,8 @@ interface AgentJob {
 export interface AgentApiDependencies {
   library: LibraryService;
   extractURL(url: string): Promise<ExtractedContent | undefined>;
-  processEntry(entryID: string, topicID: string): Promise<string>;
+  saveItem(url: string, options?: SaveItemOptions): Promise<SavedItem>;
+  processItem(entryID: string, topicID: string, syncReason: string): Promise<string>;
   podcastSnapshot(): Promise<PodcastSnapshot>;
   createPodcastEpisode(
     podcastID: string,
@@ -454,10 +459,10 @@ export class AgentApiServer {
     const existingByURL = new Map(
       snapshot.entries
         .filter((entry) => entry.topicIDs.includes(topic.id) && entry.sourceURL)
-        .map((entry) => [canonicalURL(entry.sourceURL!), entry])
+        .map((entry) => [sourceIdentity(entry.sourceURL!), entry])
     );
     for (const source of job.sources) {
-      const existing = existingByURL.get(canonicalURL(source.url));
+      const existing = existingByURL.get(sourceIdentity(source.url));
       if (!existing) continue;
       source.status = 'skipped';
       source.entryID = existing.id;
@@ -507,26 +512,22 @@ export class AgentApiServer {
     try {
       source.status = 'extracting';
       touch(job);
-      const extracted = await this.dependencies.extractURL(source.url);
-      if (!extracted) throw new Error('The URL did not return extractable content.');
-      const { audio: _audio, ...stored } = extracted;
-      const captureID = await this.dependencies.library.captureText(
-        source.url,
-        stored,
-        [job.topic.id]
-      );
-      const entryID = `personal:${captureID}`;
-      source.entryID = entryID;
-      source.title = extracted.title;
+      const saved = await this.dependencies.saveItem(source.url, {
+        topicIDs: [job.topic.id],
+        reuseExisting: false,
+        syncReason: 'agent capture'
+      });
+      source.entryID = saved.entryID;
+      source.title = saved.title;
       source.status = 'summarizing';
       touch(job);
-      await this.dependencies.onLibraryChanged();
-      this.dependencies.onSyncRequested('agent capture');
-      await this.dependencies.processEntry(entryID, job.topic.id);
+      await this.dependencies.processItem(
+        saved.entryID,
+        job.topic.id,
+        'agent summaries'
+      );
       source.status = 'completed';
       touch(job);
-      await this.dependencies.onLibraryChanged();
-      this.dependencies.onSyncRequested('agent summaries');
     } catch (error) {
       source.status = 'failed';
       source.error =
@@ -653,7 +654,7 @@ function normalizeURLs(value: unknown): string[] {
       throw new ApiError(400, 'invalid_url', `Invalid web URL: ${candidate}`);
     }
   });
-  return [...new Set(urls)];
+  return [...new Map(urls.map((url) => [sourceIdentity(url), url])).values()];
 }
 
 function normalizeEpisodeSources(value: unknown): AgentEpisodeSource[] {
@@ -712,16 +713,6 @@ function normalizeVariant(value: string | null): LibraryVariant {
     );
   }
   return variant as LibraryVariant;
-}
-
-function canonicalURL(value: string): string {
-  try {
-    const url = new URL(value);
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return createHash('sha256').update(value).digest('hex');
-  }
 }
 
 function touch(job: AgentJob): void {

@@ -91,7 +91,8 @@ const projection = {
 test('desktop projections produce the same main library behavior for both clients', () => {
   const parsed = parseLibraryProjection(projection);
   assert.deepEqual(parsed.entries.filter(isMainLibraryEntry).map(({ id }) => id), [
-    'personal:article'
+    'personal:article',
+    'personal:source'
   ]);
   assert.equal(matchesLibraryEntry(parsed.entries[0], 'ENGINEERING'), true);
   assert.equal(preferredVariant(parsed.entries[0]), 'source');

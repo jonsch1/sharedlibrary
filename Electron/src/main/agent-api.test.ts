@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { AgentApiServer, type AgentApiConnection } from './agent-api.js';
+import { ItemService } from './items.js';
 import { LibraryService, type ProcessingSuggestion } from './library.js';
 
 const fakeSuggestion: ProcessingSuggestion = {
@@ -56,20 +57,32 @@ test('agent API requires approval, imports URLs, and returns topic summaries', a
   const createdEpisodes: Array<Record<string, unknown>> = [];
   let activeIngestions = 0;
   let completedIngestions = 0;
+  const extractURL = async (url: string) => ({
+    title: new URL(url).hostname,
+    content: `Extracted content from ${url}`,
+    sourceURL: url,
+    audio: {
+      bytes: new Uint8Array([1, 2, 3]),
+      extension: 'm4a' as const
+    }
+  });
+  const items = new ItemService(
+    library,
+    { extractURL },
+    {
+      process: (entryID, _library, topicID) =>
+        library.applyProcessingSuggestion(entryID, fakeSuggestion, topicID)
+    },
+    () => library.snapshot(),
+    (reason) => syncReasons.push(reason)
+  );
   const server = new AgentApiServer(
     {
       library,
-      extractURL: async (url) => ({
-        title: new URL(url).hostname,
-        content: `Extracted content from ${url}`,
-        sourceURL: url,
-        audio: {
-          bytes: new Uint8Array([1, 2, 3]),
-          extension: 'm4a'
-        }
-      }),
-      processEntry: (entryID, topicID) =>
-        library.applyProcessingSuggestion(entryID, fakeSuggestion, topicID),
+      extractURL,
+      saveItem: (url, options) => items.save(url, options),
+      processItem: (entryID, topicID, reason) =>
+        items.process(entryID, topicID, reason),
       podcastSnapshot: async () => ({
         generatedAt: new Date().toISOString(),
         maximumPodcasts: 20,

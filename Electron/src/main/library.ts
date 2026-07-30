@@ -285,7 +285,6 @@ export class LibraryService {
       title?: string;
       content?: string;
       sourceURL?: string;
-      entryType?: 'podcast_source';
       mediaURL?: string;
       audio?: {
         bytes: Uint8Array;
@@ -328,7 +327,7 @@ export class LibraryService {
     const metadata = [
       '---',
       `id: ${quoted(captureID)}`,
-      `type: ${quoted(extracted?.entryType ?? (sourceURL ? 'link' : 'text'))}`,
+      `type: ${quoted(sourceURL ? 'link' : 'text')}`,
       `title: ${quoted(title || 'Clipboard capture')}`,
       `created_at: ${quoted(now)}`,
       `updated_at: ${quoted(now)}`,
@@ -428,23 +427,6 @@ export class LibraryService {
       })}\n\n${parsed.body.trim()}\n`
     );
     this.indexedEntries.clear();
-  }
-
-  async markPodcastSources(entryIDs: string[]): Promise<DesktopLibrarySnapshot> {
-    const sourceIDs = new Set(entryIDs);
-    const snapshot = await this.snapshot();
-    let changed = false;
-    for (const entry of snapshot.entries) {
-      if (!sourceIDs.has(entry.id) || entry.entryType === 'podcast_source') continue;
-      const indexed = this.indexedEntries.get(entry.id);
-      if (!indexed) continue;
-      const text = await readFile(indexed.sourcePath, 'utf8');
-      const updated = text.replace(/^type:.*$/m, 'type: "podcast_source"');
-      if (updated === text) continue;
-      await atomicWrite(indexed.sourcePath, updated);
-      changed = true;
-    }
-    return changed ? this.snapshot() : snapshot;
   }
 
   async podcastAudioPath(entryID: string): Promise<string> {

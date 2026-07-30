@@ -9,6 +9,7 @@ import {
   xProfileURL
 } from '../shared/browser-workflow.js';
 import type { ChannelWorkflowService } from './channel-workflows.js';
+import { ItemService, sourceIdentity } from './items.js';
 import { LibraryService } from './library.js';
 import {
   defaultPodcastPrompt,
@@ -16,8 +17,7 @@ import {
   parsePodcast,
   PodcastService,
   podcastAudioRange,
-  renderPodcastPrompt,
-  sourceIdentity
+  renderPodcastPrompt
 } from './podcasts.js';
 
 test('audio briefs are editable Markdown files with a plain channel list', () => {
@@ -135,6 +135,7 @@ test('identifies social posts and canonical web URLs consistently', () => {
     sourceIdentity('https://www.reddit.com/r/test/comments/AbC/title/?utm_medium=social'),
     'reddit:post:abc'
   );
+  assert.equal(sourceIdentity('https://redd.it/AbC'), 'reddit:post:abc');
   assert.equal(
     sourceIdentity('https://example.com/report?utm_source=test&id=4#section'),
     'https://example.com/report?id=4'
@@ -158,12 +159,24 @@ sources:
 Explain why each update matters.
 `
     );
-    const library = new LibraryService(root, 'linux', async () => {});
+    const library = new LibraryService(
+      root,
+      'linux',
+      (path) => rm(path, { force: true })
+    );
+    const items = new ItemService(
+      library,
+      { extractURL: async () => { throw new Error('Unexpected extraction.'); } },
+      { process: async (entryID) => entryID },
+      () => library.snapshot(),
+      () => {}
+    );
     let audioRuns = 0;
     const service = new PodcastService(
       () => root,
       library,
       {} as ChannelWorkflowService,
+      items,
       async () => {
         audioRuns += 1;
         return new Uint8Array([1, 2, 3]);
@@ -202,7 +215,10 @@ Explain why each update matters.
       1
     );
     assert.equal(
-      entries.filter(({ entryType }) => entryType === 'podcast_source').length,
+      entries.filter(
+        ({ entryType, sourceURL }) =>
+          entryType !== 'podcast_episode' && Boolean(sourceURL)
+      ).length,
       1
     );
     assert.equal(entries.find(({ id }) => id === first.entryID)?.hasAudio, true);
@@ -227,34 +243,47 @@ sources:
 Summarize every new item.
 `
     );
-    const items = Array.from({ length: 31 }, (_, index) => ({
+    const discoveredItems = Array.from({ length: 31 }, (_, index) => ({
       id: String(index),
       title: `Item ${index}`,
       url: `https://example.com/items/${index}`
     }));
     let checks = 0;
     let captures = 0;
+    const library = new LibraryService(
+      root,
+      'linux',
+      (path) => rm(path, { force: true })
+    );
+    const items = new ItemService(
+      library,
+      {
+        extractURL: async (url) => {
+          captures += 1;
+          return {
+            title: url.split('/').at(-1),
+            content: `Content for ${url}`,
+            sourceURL: url
+          };
+        }
+      },
+      { process: async (entryID) => entryID },
+      () => library.snapshot(),
+      () => {}
+    );
     const channels = {
       enumerate: async (source: string) => {
         checks += 1;
         return source.endsWith('/standalone')
           ? { title: 'Standalone', kind: 'page', items: [] }
-          : { title: 'Feed', kind: 'feed', items };
-      },
-      capture: async (item: { url: string }) => {
-        captures += 1;
-        return {
-          title: item.url.split('/').at(-1),
-          content: `Content for ${item.url}`,
-          sourceURL: item.url
-        };
+          : { title: 'Feed', kind: 'feed', items: discoveredItems };
       }
     } as unknown as ChannelWorkflowService;
-    const library = new LibraryService(root, 'linux', async () => {});
     const service = new PodcastService(
       () => root,
       library,
       channels,
+      items,
       async () => new Uint8Array(),
       async () => {},
       () => {},
@@ -294,10 +323,22 @@ Summarize every new item.
     assert.equal(loaded.channels[0]?.retrievalCount, 3);
     assert.equal(checks, 3);
     assert.equal(captures, 8);
-    items[0] = { ...items[0], id: 'refreshed-item' };
+    discoveredItems[0] = {
+      ...discoveredItems[0],
+      id: 'refreshed-item'
+    };
     const refreshed = await service.checkChannel('https://example.com/feed.xml');
     assert.equal(refreshed.channels[0]?.itemCount, 8);
     assert.equal(checks, 4);
+    assert.equal(captures, 8);
+    const removedEntryID = refreshed.channels[0]?.entryIDs[0];
+    assert.ok(removedEntryID);
+    await library.trashCapture(removedEntryID);
+    assert.equal((await service.forgetItem(removedEntryID)).channels[0]?.itemCount, 7);
+    assert.equal(
+      (await service.checkChannel('https://example.com/feed.xml')).channels[0]?.itemCount,
+      8
+    );
     assert.equal(captures, 9);
     const afterRemoval = await service.removeChannel(
       'https://example.com/feed.xml'
@@ -305,9 +346,9 @@ Summarize every new item.
     assert.deepEqual(afterRemoval.podcasts[0]?.sources, []);
     assert.equal(
       (await library.snapshot()).entries.filter(
-        ({ entryType }) => entryType === 'podcast_source'
+        ({ entryType }) => entryType !== 'podcast_episode'
       ).length,
-      9
+      8
     );
     const added = await service.addChannel('https://example.com/standalone');
     assert.deepEqual(added.channels[0]?.briefIDs, []);
@@ -315,7 +356,7 @@ Summarize every new item.
     assert.equal(checked.channels[0]?.title, 'Standalone');
     assert.ok(checked.channels[0]?.lastCheckedAt);
     assert.equal(checked.channels[0]?.canLoadMore, false);
-    assert.equal(checks, 5);
+    assert.equal(checks, 6);
     assert.equal(captures, 9);
     assert.equal(
       (await service.removeChannel('https://example.com/standalone')).channels.length,

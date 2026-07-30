@@ -18,6 +18,7 @@ import type {
   DiscoveredSourceItem
 } from './extraction.js';
 import type { ChannelWorkflowService } from './channel-workflows.js';
+import { sourceIdentity, type ItemService } from './items.js';
 import { LibraryService, parseMarkdown } from './library.js';
 import {
   defaultProcessingCommand,
@@ -124,7 +125,8 @@ export class PodcastService {
   constructor(
     private readonly workspacePath: () => string,
     private readonly library: LibraryService,
-    private readonly channels: ChannelWorkflowService,
+    private readonly channels: Pick<ChannelWorkflowService, 'enumerate'>,
+    private readonly items: Pick<ItemService, 'save'>,
     private readonly generateAudio: (text: string) => Promise<Uint8Array>,
     private readonly trash: (path: string) => Promise<void>,
     private readonly onChanged: (snapshot: PodcastSnapshot) => void,
@@ -316,6 +318,28 @@ export class PodcastService {
     });
   }
 
+  forgetItem(entryID: string): Promise<PodcastSnapshot> {
+    return this.enqueue(async () => {
+      const state = await this.readState();
+      const removedKeys = new Set<string>();
+      for (const [source, current] of Object.entries(state.sources)) {
+        const removed = current.items.filter((item) => item.entryID === entryID);
+        if (!removed.length) continue;
+        current.items = current.items.filter((item) => item.entryID !== entryID);
+        const removedIDs = new Set(removed.map((item) => item.id));
+        current.seen = current.seen.filter((id) => !removedIDs.has(id));
+        for (const item of removed) removedKeys.add(itemKey(source, item.id));
+      }
+      if (removedKeys.size) {
+        for (const run of Object.values(state.podcasts)) {
+          run.consumed = run.consumed.filter((key) => !removedKeys.has(key));
+        }
+        await this.saveState(state);
+      }
+      return this.notify();
+    });
+  }
+
   check(id: string): Promise<PodcastSnapshot> {
     return this.enqueue(async () => {
       const podcast = await this.requirePodcast(id);
@@ -377,46 +401,28 @@ export class PodcastService {
           audioPending: !duplicate.hasAudio
         };
       }
-
-      const existingByKey = new Map(
-        library.entries.flatMap((entry) =>
-          entry.sourceURL ? [[sourceIdentity(entry.sourceURL), entry] as const] : []
-        )
-      );
       const selected: Array<{ entryID: string; title: string; url: string }> = [];
       for (const source of sources) {
-        const existing = existingByKey.get(sourceIdentity(source.url));
-        if (existing) {
-          selected.push({
-            entryID: existing.id,
-            title: source.title || existing.title,
-            url: existing.sourceURL ?? source.url
-          });
-          continue;
-        }
-        const extracted = source.content
-          ? {
-              title: source.title,
-              content: source.content,
-              sourceURL: source.url
-            }
-          : await this.channels.capture({
-              id: sourceIdentity(source.url),
-              title: source.title || source.url,
-              url: source.url,
-              publishedAt: null
-            });
-        const { audio: _audio, ...stored } = extracted;
-        const captureID = await this.library.captureText(source.url, {
-          ...stored,
-          title: source.title || extracted.title,
-          entryType: 'podcast_source'
+        const saved = await this.items.save(source.url, {
+          extracted: source.content
+            ? {
+                title: source.title,
+                content: source.content,
+                sourceURL: source.url
+              }
+            : undefined,
+          discovered: {
+            id: sourceIdentity(source.url),
+            title: source.title || source.url,
+            url: source.url,
+            publishedAt: null
+          },
+          syncReason: 'agent podcast source'
         });
-        const entryID = `personal:${captureID}`;
         selected.push({
-          entryID,
-          title: source.title || extracted.title || new URL(source.url).hostname,
-          url: extracted.sourceURL || source.url
+          entryID: saved.entryID,
+          title: source.title || saved.title,
+          url: saved.sourceURL || source.url
         });
       }
 
@@ -501,8 +507,23 @@ export class PodcastService {
     retrievalLimit?: number
   ): Promise<boolean> {
     let changed = false;
+    const availableEntryIDs = new Set(
+      (await this.library.snapshot()).entries.map((entry) => entry.id)
+    );
     for (const source of podcast.sources) {
       const current = state.sources[source] ?? { seen: [], items: [] };
+      const missingItemIDs = new Set(
+        current.items
+          .filter((item) => !availableEntryIDs.has(item.entryID))
+          .map((item) => item.id)
+      );
+      if (missingItemIDs.size) {
+        current.items = current.items.filter((item) =>
+          availableEntryIDs.has(item.entryID)
+        );
+        current.seen = current.seen.filter((id) => !missingItemIDs.has(id));
+        changed = true;
+      }
       const lastChecked = Date.parse(current.lastCheckedAt ?? '');
       if (
         !force &&
@@ -539,9 +560,19 @@ export class PodcastService {
         try {
           for (const item of selected.reverse()) {
             const ingested = await this.ingestItem(item);
-            current.items = current.items.filter(
-              (existing) => existing.url !== ingested.url
+            const replacedIDs = new Set(
+              current.items
+                .filter(
+                  (existing) =>
+                    sourceIdentity(existing.url) === sourceIdentity(ingested.url)
+                )
+                .map((existing) => existing.id)
             );
+            current.items = current.items.filter(
+              (existing) =>
+                sourceIdentity(existing.url) !== sourceIdentity(ingested.url)
+            );
+            current.seen = current.seen.filter((id) => !replacedIDs.has(id));
             current.items.unshift(ingested);
             current.seen.unshift(item.id);
             current.seen = [...new Set(current.seen)];
@@ -583,25 +614,17 @@ export class PodcastService {
         state.podcasts[podcast.id] = run;
       }
     }
-    if (changed) {
-      await this.onLibraryChanged();
-      this.onSyncRequested('watched sources');
-    }
     return changed;
   }
 
   private async ingestItem(item: DiscoveredSourceItem): Promise<WatchedItem> {
-    const extracted = await this.channels.capture(item);
-    const { audio: _audio, ...stored } = extracted;
-    const captureID = await this.library.captureText(item.url, {
-      ...stored,
-      title: item.title || extracted.title,
-      entryType: 'podcast_source'
+    const saved = await this.items.save(item.url, {
+      discovered: item,
+      syncReason: 'watched source'
     });
-    const entryID = `personal:${captureID}`;
     return {
       ...item,
-      entryID,
+      entryID: saved.entryID,
       ingestedAt: new Date().toISOString()
     };
   }
@@ -788,11 +811,7 @@ export class PodcastService {
       this.readDefinitions(),
       providedState ? Promise.resolve(providedState) : this.readState()
     ]);
-    const library = await this.library.markPodcastSources(
-      Object.values(state.sources).flatMap((source) =>
-        source.items.map((item) => item.entryID)
-      )
-    );
+    const library = await this.library.snapshot();
     const now = new Date();
     const entries = new Map(library.entries.map((entry) => [entry.id, entry]));
     const channelSources = [
@@ -806,6 +825,8 @@ export class PodcastService {
       maximumPodcasts,
       channels: channelSources.map((source) => {
         const channel = state.sources[source];
+        const items =
+          channel?.items.filter((item) => entries.has(item.entryID)) ?? [];
         const owners = podcasts.filter((podcast) =>
           podcast.sources.includes(source)
         );
@@ -814,12 +835,12 @@ export class PodcastService {
           title: channel?.title,
           kind: channel?.kind,
           lastCheckedAt: channel?.lastCheckedAt,
-          itemCount: channel?.items.length ?? 0,
+          itemCount: items.length,
           error: channel?.error,
           retrievalCount:
             channel?.retrievalCount ?? defaultChannelRetrievalCount,
           canLoadMore: channel?.canLoadMore ?? true,
-          entryIDs: channel?.items.map((item) => item.entryID) ?? [],
+          entryIDs: items.map((item) => item.entryID),
           briefIDs: owners.map((podcast) => podcast.id),
           briefTitles: owners.map((podcast) => podcast.title)
         };
@@ -856,22 +877,27 @@ export class PodcastService {
               entry.entryType === 'podcast_episode' &&
               entry.podcastID === podcast.id
           ),
-          sourceStatuses: podcast.sources.map((source) => ({
-            source,
-            title: state.sources[source]?.title,
-            kind: state.sources[source]?.kind,
-            lastCheckedAt: state.sources[source]?.lastCheckedAt,
-            itemCount: state.sources[source]?.items.length ?? 0,
-            error: state.sources[source]?.error,
-            items: (state.sources[source]?.items ?? []).map((item) => ({
-              entryID: item.entryID,
-              title: item.title,
-              url: item.url,
-              publishedAt: item.publishedAt,
-              excerpt: entries.get(item.entryID)?.excerpt ?? '',
-              pending: !run.consumed.includes(itemKey(source, item.id))
-            }))
-          }))
+          sourceStatuses: podcast.sources.map((source) => {
+            const items = (state.sources[source]?.items ?? []).filter((item) =>
+              entries.has(item.entryID)
+            );
+            return {
+              source,
+              title: state.sources[source]?.title,
+              kind: state.sources[source]?.kind,
+              lastCheckedAt: state.sources[source]?.lastCheckedAt,
+              itemCount: items.length,
+              error: state.sources[source]?.error,
+              items: items.map((item) => ({
+                entryID: item.entryID,
+                title: item.title,
+                url: item.url,
+                publishedAt: item.publishedAt,
+                excerpt: entries.get(item.entryID)?.excerpt ?? '',
+                pending: !run.consumed.includes(itemKey(source, item.id))
+              }))
+            };
+          })
         };
       })
     };
@@ -1251,47 +1277,6 @@ function normalizeAgentEpisodeSources(values: AgentEpisodeSource[]): AgentEpisod
   return [
     ...new Map(sources.map((source) => [sourceIdentity(source.url), source])).values()
   ];
-}
-
-export function sourceIdentity(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return value.trim();
-  }
-  url.hash = '';
-  const host = url.hostname.toLowerCase().replace(/^www\./u, '');
-  const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-  const status = parts.findIndex(
-    (part, index) => index > 0 && part.toLowerCase() === 'status'
-  );
-  if (['x.com', 'twitter.com'].includes(host) && /^\d+$/u.test(parts[status + 1] ?? '')) {
-    return `x:status:${parts[status + 1]}`;
-  }
-  const comments = parts.findIndex((part) => part.toLowerCase() === 'comments');
-  if (host.endsWith('reddit.com') && /^[a-z0-9]+$/iu.test(parts[comments + 1] ?? '')) {
-    return `reddit:post:${parts[comments + 1].toLowerCase()}`;
-  }
-  if (host === 'bsky.app' && parts[0] === 'profile' && parts[2] === 'post' && parts[3]) {
-    return `bluesky:post:${parts[1]}:${parts[3]}`;
-  }
-  const youtubeID =
-    host === 'youtu.be'
-      ? parts[0]
-      : host.endsWith('youtube.com')
-        ? url.searchParams.get('v')
-        : null;
-  if (youtubeID) return `youtube:video:${youtubeID}`;
-  for (const key of [...url.searchParams.keys()]) {
-    if (
-      key.toLowerCase().startsWith('utm_') ||
-      ['fbclid', 'gclid', 'mc_cid', 'mc_eid'].includes(key.toLowerCase())
-    ) {
-      url.searchParams.delete(key);
-    }
-  }
-  return url.toString();
 }
 
 function sameStrings(left: string[], right: string[]): boolean {

@@ -147,26 +147,8 @@ Original body.
     assert.match(stored, /Edited body\./);
 
     const capturedID = await service.captureText('A new clipboard thought');
-    const podcastSourceID = await service.captureText(
-      'https://example.com/podcast-source',
-      {
-        content: 'Podcast source body.',
-        sourceURL: 'https://example.com/podcast-source',
-        entryType: 'podcast_source'
-      }
-    );
     const afterCapture = await service.snapshot();
     assert.ok(afterCapture.entries.some((entry) => entry.captureID === capturedID));
-    assert.equal(
-      afterCapture.entries.find((entry) => entry.captureID === podcastSourceID)?.entryType,
-      'podcast_source'
-    );
-    const migrated = await service.markPodcastSources([`personal:${capturedID}`]);
-    assert.equal(
-      migrated.entries.find((entry) => entry.captureID === capturedID)?.entryType,
-      'podcast_source'
-    );
-
     const researchTopic = await service.ensureTopic('Approved Research');
     const favicon = {
       bytes: new Uint8Array([0, 0, 1, 0]),
