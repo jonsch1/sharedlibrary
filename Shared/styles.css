@@ -978,6 +978,10 @@ button:disabled {
   background: var(--sidebar);
 }
 
+.web-app .native-sidebar-footer {
+  grid-template-columns: 1fr;
+}
+
 .agent-button {
   display: flex;
   width: 100%;
@@ -1284,8 +1288,10 @@ button:disabled {
 }
 
 .native-document-meta {
-  max-width: 780px;
+  width: 100%;
+  max-width: 844px;
   margin: 0 auto 24px;
+  padding-inline: 32px;
   transform: translateY(10px);
   font-family: var(--theme-font-sans);
   font-size: 12px;
@@ -1294,8 +1300,10 @@ button:disabled {
 }
 
 .native-document-body .library-prose {
-  max-width: 780px;
+  width: 100%;
+  max-width: 844px;
   margin: 0 auto;
+  padding-inline: 32px;
   color: var(--card-foreground);
   font-family: var(--theme-font-serif);
   font-size: 19px;

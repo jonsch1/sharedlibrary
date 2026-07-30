@@ -258,6 +258,7 @@ export function createWebAppBridge(): {
   }
 
   async function initialize(): Promise<void> {
+    if (demoMode) return;
     if (initializePromise) return initializePromise;
     initializePromise = (async () => {
       consumeGoogleDriveConnectionResult();
@@ -576,6 +577,7 @@ export function createWebAppBridge(): {
 
   async function loadDemo(): Promise<DesktopLibrarySnapshot> {
     demoMode = true;
+    account = { authenticated: true };
     projection = demoProjection;
     return snapshot();
   }

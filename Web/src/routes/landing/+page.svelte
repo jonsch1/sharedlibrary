@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
-	import ClipboardIcon from '@lucide/svelte/icons/clipboard';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import GlobeIcon from '@lucide/svelte/icons/globe-2';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
-	import MessageIcon from '@lucide/svelte/icons/message-circle';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import RssIcon from '@lucide/svelte/icons/rss';
+	import ShareIcon from '@lucide/svelte/icons/share-2';
+	import BrieflyApp from '../../../../Shared/App.svelte';
+	import { webCapabilities } from '../../../../Shared/app';
 	import {
 		beginBrieflyPlusCheckout,
 		formatMonthlyPrice,
@@ -21,194 +19,10 @@
 		type BillingStatus,
 		type PricingTier
 	} from '$lib/billing.js';
+	import { createWebAppBridge } from '$lib/web-app.js';
 	import posthog from 'posthog-js';
 
-	type SourceCard = {
-		id: string;
-		kind: string;
-		title: string;
-		source: string;
-		meta: string;
-		x: number;
-		y: number;
-		rotate: number;
-		tone: string;
-	};
-
-	const sourceCards: SourceCard[] = [
-		{
-			id: 'youtube',
-			kind: 'YouTube',
-			title: 'Intro to Large Language Models',
-			source: 'Andrej Karpathy',
-			meta: '1:00:18 · Video',
-			x: 86,
-			y: 18,
-			rotate: 5,
-			tone: 'red'
-		},
-		{
-			id: 'arxiv',
-			kind: 'arXiv',
-			title: 'Attention Is All You Need',
-			source: 'Vaswani et al.',
-			meta: 'arXiv:1706.03762',
-			x: 65,
-			y: 12,
-			rotate: -5,
-			tone: 'orange'
-		},
-		{
-			id: 'x',
-			kind: 'X',
-			title: 'Notes on “vibe coding”',
-			source: '@karpathy',
-			meta: 'Post · Feb 2025',
-			x: 92,
-			y: 36,
-			rotate: -7,
-			tone: 'ink'
-		},
-		{
-			id: 'blog',
-			kind: 'Blog',
-			title: 'The Illustrated Transformer',
-			source: 'Jay Alammar',
-			meta: '12 min read',
-			x: 70,
-			y: 34,
-			rotate: 4,
-			tone: 'teal'
-		},
-		{
-			id: 'podcast',
-			kind: 'Podcast',
-			title: 'Machines of Loving Grace',
-			source: 'Dwarkesh Podcast',
-			meta: '2:02:07 · Audio',
-			x: 83,
-			y: 72,
-			rotate: -4,
-			tone: 'purple'
-		},
-		{
-			id: 'pdf',
-			kind: 'PDF',
-			title: 'Constitutional AI: Harmlessness from AI Feedback',
-			source: 'Anthropic',
-			meta: '22 pages',
-			x: 59,
-			y: 58,
-			rotate: 6,
-			tone: 'blue'
-		},
-		{
-			id: 'newsletter',
-			kind: 'Newsletter',
-			title: 'Centaurs and Cyborgs on the Jagged Frontier',
-			source: 'One Useful Thing',
-			meta: '14 min read',
-			x: 68,
-			y: 79,
-			rotate: -6,
-			tone: 'teal'
-		},
-		{
-			id: 'web',
-			kind: 'Web page',
-			title: 'What Is ChatGPT Doing … and Why Does It Work?',
-			source: 'Stephen Wolfram',
-			meta: '35 min read',
-			x: 57,
-			y: 86,
-			rotate: 5,
-			tone: 'blue'
-		},
-		{
-			id: 'notes',
-			kind: 'Notes',
-			title: 'Designing reliable scientific data pipelines',
-			source: 'Private Briefly note',
-			meta: '6 highlights',
-			x: 74,
-			y: 51,
-			rotate: -4,
-			tone: 'ink'
-		},
-		{
-			id: 'report',
-			kind: 'Report',
-			title: 'The 2025 AI Index Report',
-			source: 'Stanford HAI',
-			meta: '456 pages',
-			x: 92,
-			y: 88,
-			rotate: 5,
-			tone: 'orange'
-		},
-		{
-			id: 'github',
-			kind: 'Code',
-			title: 'The Annotated Transformer',
-			source: 'Harvard NLP',
-			meta: 'Notebook · PyTorch',
-			x: 70,
-			y: 31,
-			rotate: -3,
-			tone: 'ink'
-		},
-		{
-			id: 'research',
-			kind: 'Research',
-			title: 'Cell–cell communication workflows',
-			source: 'Private Briefly library',
-			meta: '4 related sources',
-			x: 81,
-			y: 92,
-			rotate: 4,
-			tone: 'purple'
-		}
-	];
-
-	const marqueeSources = [
-		{ id: 'youtube', label: 'YouTube' },
-		{ id: 'arxiv', label: 'arXiv' },
-		{ id: 'podcast', label: 'Podcasts' },
-		{ id: 'blog', label: 'Blog posts' },
-		{ id: 'x', label: 'X posts' },
-		{ id: 'bluesky', label: 'Bluesky' },
-		{ id: 'pdf', label: 'PDFs' },
-		{ id: 'website', label: 'Any website' },
-		{ id: 'clipboard', label: 'Your clipboard' }
-	];
-
-	const depthOptions = [
-		{
-			label: 'Brief',
-			time: '20 sec',
-			image: '/product-ui-brief.png',
-			copy: 'Agent memory works best when context is curated, structured, and easy to retrieve.'
-		},
-		{
-			label: 'Concise',
-			time: '2 min',
-			image: '/product-ui-concise.png',
-			copy: 'Strong memory systems do more than store information. They compress useful context, preserve source links, and make the right detail easy to retrieve at the moment it matters.'
-		},
-		{
-			label: 'Detailed',
-			time: '7 min',
-			image: '/product-ui-detailed.png',
-			copy: 'Agent memory is less a storage problem than a context-design problem. Useful systems decide what to retain, how to structure it, and which level of detail fits the task. Clear summaries, durable source links, and predictable Markdown give both people and agents a reliable surface to work from.'
-		},
-		{
-			label: 'Comprehensive',
-			time: '18 min',
-			image: '/product-ui-comprehensive.png',
-			copy: 'A complete reading view preserves the source argument, supporting details, and practical implications while keeping the material navigable. Structured headings help an agent locate evidence; a stable original keeps the human reader grounded. The result is not another pile of notes, but a reusable context layer that can move from quick recall to deep work without losing provenance.'
-		}
-	];
-
+	const demoBridge = createWebAppBridge();
 	const defaultPricingTiers: PricingTier[] = [
 		{
 			key: 'founding',
@@ -252,10 +66,7 @@
 		}
 	];
 
-	let selectedDepth = $state(1);
-	let collectedCount = $state(0);
-	let fieldComplete = $state(false);
-	let resetSweep = (): void => {};
+	let demoReady = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
 	let billingMessage = $state('');
@@ -324,717 +135,347 @@
 	onMount(() => {
 		document.body.classList.add('landing-body');
 		void initializePricing();
-		const observer = new IntersectionObserver(
-			(entries) => {
-				for (const entry of entries) {
-					if (entry.isIntersecting) entry.target.classList.add('is-visible');
-				}
-			},
-			{ threshold: 0.14 }
-		);
-
-		document.querySelectorAll('.reveal').forEach((element) => observer.observe(element));
-
-		const arena = document.querySelector<HTMLElement>('[data-sweep-arena]');
-		const collector = document.querySelector<HTMLElement>('[data-sweep-collector]');
-		const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-source-card]'));
-		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-		let animationFrame = 0;
-		let heroObserver: IntersectionObserver | null = null;
-		let heroInView = true;
-		let pointerSeen = false;
-		let impact = 0;
-		let collectorX = 0;
-		let collectorY = 0;
-		let targetX = 0;
-		let targetY = 0;
-
-		const motion = cards.map((element, index) => ({
-			element,
-			homeX: 0,
-			homeY: 0,
-			x: 0,
-			y: 0,
-			vx: 0,
-			vy: 0,
-			rotation: sourceCards[index].rotate,
-			scale: 1,
-			opacity: 1,
-			collected: false
-		}));
-
-		const placeCard = (item: (typeof motion)[number]): void => {
-			item.element.style.left = '0';
-			item.element.style.top = '0';
-			item.element.style.opacity = `${item.opacity}`;
-			item.element.style.filter = item.scale < 0.7 ? `blur(${(1 - item.scale) * 4}px)` : '';
-			item.element.style.transform = `translate3d(${item.x}px, ${item.y}px, 0) translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`;
-		};
-
-		const layoutSweep = (): void => {
-			if (!arena || !collector) return;
-			const bounds = arena.getBoundingClientRect();
-			if (!collectorX && !collectorY) {
-				collectorX = bounds.width * 0.78;
-				collectorY = bounds.height * 0.58;
-				targetX = collectorX;
-				targetY = collectorY;
-			}
-
-			motion.forEach((item, index) => {
-				const wasAtHome = Math.abs(item.x - item.homeX) < 4 && Math.abs(item.y - item.homeY) < 4;
-				item.homeX = bounds.width * sourceCards[index].x * 0.01;
-				item.homeY = bounds.height * sourceCards[index].y * 0.01;
-				if (wasAtHome || (!item.x && !item.y)) {
-					item.x = item.homeX;
-					item.y = item.homeY;
-					placeCard(item);
-				}
-			});
-		};
-
-		const collect = (item: (typeof motion)[number]): void => {
-			if (!collector || item.collected) return;
-			item.collected = true;
-			item.vx = 0;
-			item.vy = 0;
-			item.scale = 0.04;
-			item.opacity = 0;
-			item.element.classList.add('is-absorbing');
-			item.element.style.opacity = '0';
-			item.element.style.filter = 'blur(7px)';
-			item.element.style.transform = `translate3d(${collectorX}px, ${collectorY}px, 0) translate(-50%, -50%) rotate(0deg) scale(0.04)`;
-			collectedCount += 1;
-			impact = Math.min(0.28, impact + 0.18);
-			collector.classList.remove('has-impact');
-			void collector.offsetWidth;
-			collector.classList.add('has-impact');
-			fieldComplete = collectedCount === sourceCards.length;
-		};
-
-		resetSweep = (): void => {
-			if (!arena || !collector) return;
-			const bounds = arena.getBoundingClientRect();
-			collectedCount = 0;
-			fieldComplete = false;
-			pointerSeen = false;
-			impact = 0;
-			targetX = bounds.width * 0.78;
-			targetY = bounds.height * 0.58;
-			collectorX = targetX;
-			collectorY = targetY;
-			collector.classList.remove('has-impact', 'is-attracting');
-			motion.forEach((item) => {
-				item.collected = false;
-				item.x = item.homeX;
-				item.y = item.homeY;
-				item.vx = 0;
-				item.vy = 0;
-				item.rotation = sourceCards[motion.indexOf(item)].rotate;
-				item.scale = 1;
-				item.opacity = 1;
-				item.element.classList.remove('is-absorbing');
-				item.element.style.transition = '';
-				placeCard(item);
-			});
-		};
-
-		const setTarget = (event: PointerEvent): void => {
-			if (!arena) return;
-			const bounds = arena.getBoundingClientRect();
-			targetX = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
-			targetY = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
-			pointerSeen = true;
-			arena.classList.add('has-pointer');
-		};
-
-		const handleSweepShortcut = (event: KeyboardEvent): void => {
-			const target = event.target as HTMLElement | null;
-			if (
-				event.key.toLowerCase() !== 'r' ||
-				event.metaKey ||
-				event.ctrlKey ||
-				event.altKey ||
-				!heroInView ||
-				target?.matches('input, textarea, select, [contenteditable="true"]')
-			) {
-				return;
-			}
-			event.preventDefault();
-			resetSweep();
-		};
-
-		const animate = (): void => {
-			if (!arena || !collector) return;
-			if (!heroInView || document.hidden || reduceMotion) {
-				animationFrame = window.requestAnimationFrame(animate);
-				return;
-			}
-			const pullRadius = Math.max(135, Math.min(190, arena.clientWidth * 0.13));
-			const absorbRadius = Math.max(68, Math.min(88, arena.clientWidth * 0.06));
-			let attracting = false;
-
-			collectorX += (targetX - collectorX) * 0.2;
-			collectorY += (targetY - collectorY) * 0.2;
-			impact *= 0.86;
-
-			if (pointerSeen && !reduceMotion) {
-				for (const item of motion) {
-					if (item.collected) continue;
-					const dx = collectorX - item.x;
-					const dy = collectorY - item.y;
-					const distance = Math.hypot(dx, dy);
-
-					if (distance < pullRadius) {
-						const force = 1 - distance / pullRadius;
-						attracting = true;
-						item.vx += dx * (0.015 + force * 0.055);
-						item.vy += dy * (0.015 + force * 0.055);
-						item.rotation *= 0.88;
-						item.scale = Math.max(0.2, item.scale - force * 0.04);
-						item.opacity = Math.max(0.35, item.opacity - force * 0.025);
-					} else {
-						item.vx += (item.homeX - item.x) * 0.012;
-						item.vy += (item.homeY - item.y) * 0.012;
-						item.rotation +=
-							(sourceCards[motion.indexOf(item)].rotate - item.rotation) * 0.045;
-						item.scale += (1 - item.scale) * 0.07;
-						item.opacity += (1 - item.opacity) * 0.1;
-					}
-
-					item.vx *= 0.82;
-					item.vy *= 0.82;
-					item.x += item.vx;
-					item.y += item.vy;
-
-					if (distance < absorbRadius) {
-						collect(item);
-					} else {
-						placeCard(item);
-					}
-				}
-			}
-
-			collector.classList.toggle('is-attracting', attracting);
-			const persistentGrowth = Math.min(0.15, collectedCount * 0.0125);
-			const tilt = Math.max(-4, Math.min(4, (targetX - collectorX) * 0.025));
-			collector.style.transform = `translate3d(${collectorX}px, ${collectorY}px, 0) translate(-50%, -50%) rotate(${tilt}deg) scale(${1 + persistentGrowth + impact})`;
-			animationFrame = window.requestAnimationFrame(animate);
-		};
-
-		if (arena && collector) {
-			layoutSweep();
-			heroObserver = new IntersectionObserver(
-				([entry]) => {
-					heroInView = entry?.isIntersecting ?? true;
-				},
-				{ threshold: 0 }
-			);
-			heroObserver.observe(arena);
-
-			if (!reduceMotion) {
-				arena.addEventListener('pointermove', setTarget, { passive: true });
-				arena.addEventListener('pointerdown', setTarget, { passive: true });
-			}
-			window.addEventListener('resize', layoutSweep, { passive: true });
-			window.addEventListener('keydown', handleSweepShortcut);
-			animationFrame = window.requestAnimationFrame(animate);
-		}
-
-		return () => {
-			observer.disconnect();
-			document.body.classList.remove('landing-body');
-			window.cancelAnimationFrame(animationFrame);
-			heroObserver?.disconnect();
-			arena?.removeEventListener('pointermove', setTarget);
-			arena?.removeEventListener('pointerdown', setTarget);
-			window.removeEventListener('resize', layoutSweep);
-			window.removeEventListener('keydown', handleSweepShortcut);
-		};
+		void demoBridge.loadDemo().then(() => (demoReady = true));
+		return () => document.body.classList.remove('landing-body');
 	});
 </script>
 
 <svelte:head>
-	<title>Briefly — Turn what you find into what you know</title>
+	<title>Briefly — Get the gist or go deep</title>
 	<meta
 		name="description"
-		content="Capture videos, papers, posts, podcasts, and pages. Briefly turns every source into a private, searchable, agent-ready library for you and your agents."
+		content="Save videos, podcasts, articles, and posts to a private library with four reading depths. Follow trusted sources and receive scheduled text and audio briefs."
 	/>
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Briefly — Turn what you find into what you know" />
+	<meta property="og:title" content="Briefly — Get the gist or go deep" />
 	<meta
 		property="og:description"
-		content="Capture anything. Understand it at any depth. Keep the context ready for you and your agents."
+		content="Keep what interests you. Briefly summarizes anything you save and reads ahead across the sources you follow."
 	/>
 	<meta property="og:url" content="https://www.readbriefly.fyi/landing" />
 	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing.png" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Briefly — Turn what you find into what you know" />
+	<meta name="twitter:title" content="Briefly — Get the gist or go deep" />
 	<meta
 		name="twitter:description"
-		content="Your private, searchable, agent-ready library."
+		content="A private library for what you save, and scheduled briefs for what you follow."
 	/>
 	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing.png" />
 </svelte:head>
 
 <div class="landing">
-	<header class="landing-nav">
+	<header class="landing-nav section-shell">
 		<a class="landing-brand" href="/landing" aria-label="Briefly home">
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
 
-		<a class="nav-cta" href="/account">
-			{billing?.authenticated ? 'Your account' : 'Sign up'}
-			<ArrowRightIcon aria-hidden="true" />
-		</a>
+		<nav aria-label="Main navigation">
+			<a href="#library">How it works</a>
+			<a href="#briefs">Briefs</a>
+			<a href="#pricing">Pricing</a>
+		</nav>
+
+		<div class="nav-actions">
+			<a class="nav-sign-in" href="/account">Sign in</a>
+			<a class="nav-cta" href="/account">
+				{billing?.authenticated ? 'Your account' : 'Start your library'}
+			</a>
+		</div>
 	</header>
 
 	<main>
-		<section class="hero-scroll">
-			<div class="hero-sticky" data-sweep-arena>
-				<div class="hero-grid" aria-hidden="true"></div>
-
-				<div class="hero-copy">
-					<h1>Turn what you find<br />into what you know.</h1>
-					<p>
-						Capture any source in seconds. Briefly turns the internet into a private,
-						searchable library—ready for you and your agents.
-					</p>
-					<div class="hero-actions">
-						<a class="button button-primary" href="/account">
-							{billing?.authenticated ? 'Open your account' : 'Create your account'}
-							<ArrowRightIcon aria-hidden="true" />
-						</a>
-						<a class="text-link" href="#how">
-							See how it works
-							<ArrowDownIcon aria-hidden="true" />
-						</a>
-					</div>
-				</div>
-
-				<div class="gather-stage" aria-hidden="true">
-					<div class="gather-logo" data-sweep-collector>
-						<span class="logo-halo"></span>
-						<span class="intake-ring intake-ring-one"></span>
-						<span class="intake-ring intake-ring-two"></span>
-						<img src="/icons/icon-512.png" alt="" />
-					</div>
-
-					{#each sourceCards as card}
-						<article
-							class="source-card source-card-{card.tone}"
-							data-source-card
-							style={`left:${card.x}%;top:${card.y}%;--rotate:${card.rotate}deg`}
-						>
-							<div class="source-topline">
-								<span class="source-icon">
-									{#if card.id === 'youtube'}
-										<PlayIcon />
-									{:else if card.id === 'arxiv' || card.id === 'pdf' || card.id === 'report'}
-										<FileTextIcon />
-									{:else if card.id === 'x'}
-										<MessageIcon />
-									{:else if card.id === 'blog' || card.id === 'newsletter'}
-										<RssIcon />
-									{:else if card.id === 'podcast'}
-										<HeadphonesIcon />
-									{:else}
-										<GlobeIcon />
-									{/if}
-								</span>
-								<span>{card.kind}</span>
-								<span class="source-grip"><i></i><i></i><i></i></span>
-							</div>
-							<strong>{card.title}</strong>
-							<span class="source-author">{card.source}</span>
-							<small>{card.meta}</small>
-						</article>
-					{/each}
-				</div>
-
-				<div class="sweep-status" class:is-complete={fieldComplete} aria-live="polite">
-					<div>
-						<span class="sweep-count">{collectedCount} / {sourceCards.length}</span>
-						<span>{fieldComplete ? 'Your page is clean' : 'Sweep over a source to gather it'}</span>
-					</div>
-					{#if fieldComplete}
-						<button type="button" onclick={() => resetSweep()}>
-							<RotateCcwIcon aria-hidden="true" />
-							Scatter again
-							<kbd>R</kbd>
-						</button>
-					{:else}
-						<span class="sweep-hint">
-							The Briefly mark is your cursor · <kbd>R</kbd> resets
-						</span>
-					{/if}
-				</div>
-
-				<div class="scroll-cue">
-					<span>Scroll to explore</span>
-					<div class="scroll-track"><i></i></div>
-				</div>
+		<section class="hero">
+			<div class="paper-shape paper-shape-lavender" aria-hidden="true"></div>
+			<div class="paper-shape paper-shape-orange" aria-hidden="true"></div>
+			<div class="hero-leaf" aria-hidden="true">
+				<i></i><i></i><i></i>
 			</div>
-		</section>
 
-		<section class="source-marquee" aria-label="Supported source types">
-			<div class="marquee-track">
-				{#each Array(2) as _}
-					<div class="marquee-set" aria-hidden="true">
-						{#each marqueeSources as source}
-							<span class="marquee-item">
-								<span class="marquee-logo marquee-logo-{source.id}">
-									{#if source.id === 'youtube'}
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4a2.5 2.5 0 0 0-1.8 1.8A26 26 0 0 0 2 12a26 26 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.8 1.8c1.6.4 7.8.4 7.8.4s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8A26 26 0 0 0 22 12a26 26 0 0 0-.4-4.8Z" />
-											<path d="m10 15 5-3-5-3Z" class="logo-cutout" />
-										</svg>
-									{:else if source.id === 'x'}
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M18.2 2h3.7l-8 9.1L23.3 22h-7.4l-5.8-7.6L3.5 22H-.2l8.5-9.8L-.7 2h7.6l5.2 6.9L18.2 2Zm-1.3 18h2L5.8 3.9h-2Z" />
-										</svg>
-									{:else if source.id === 'bluesky'}
-										<svg viewBox="0 0 24 24" aria-hidden="true">
-											<path d="M12 10.8C10.9 8.7 8 4.7 5.2 2.8 2.6.9 1.6 1.3.9 1.6.1 1.9 0 3.1 0 3.8s.4 5.6.6 6.5c.8 2.7 3.7 3.6 6.4 3.3-4.6.7-8.7 2.4-3.3 8.4 5.9 6.1 8.1-1.4 8.8-3.7.6 2.3 2.3 9.8 8.6 3.7 4.7-4.5 1.3-7.2-3.7-8.4 2.7.3 5.6-.6 6.4-3.3.2-.9.6-5.8.6-6.5s-.1-1.9-.9-2.2c-.7-.3-1.7-.7-4.3 1.2-2.8 1.9-5.7 5.9-6.8 8Z" />
-										</svg>
-									{:else if source.id === 'podcast'}
-										<HeadphonesIcon />
-									{:else if source.id === 'blog'}
-										<RssIcon />
-									{:else if source.id === 'website'}
-										<GlobeIcon />
-									{:else if source.id === 'clipboard'}
-										<ClipboardIcon />
-									{:else}
-										<FileTextIcon />
-									{/if}
-								</span>
-								{source.label}
-							</span>
-						{/each}
-					</div>
-				{/each}
-			</div>
-		</section>
-
-		<section class="attention-section section-shell">
-			<div class="section-number reveal">01 / WHY BRIEFLY</div>
-			<div class="attention-grid">
-				<h2 class="display-heading reveal">
-					The best thing you read this week shouldn’t disappear by Friday.
-				</h2>
-				<div class="attention-copy reveal">
-					<p>
-						The internet is excellent at giving you more. It is terrible at helping you keep
-						what mattered.
-					</p>
-					<p>
-						Briefly turns scattered sources into durable understanding—without another
-						inbox to triage or a note-taking ritual to maintain.
-					</p>
-				</div>
-			</div>
-		</section>
-
-		<section class="flow-section" id="how">
-			<div class="flow-heading section-shell reveal">
-				<div>
-					<div class="section-number">02 / THE FLOW</div>
-					<h2>From open tab<br />to useful context.</h2>
-				</div>
-				<p>
-					One shortcut captures the source. Briefly handles the structure, depth, and
-					retrievability.
+			<div class="hero-inner section-shell">
+				<p class="eyebrow">A quieter way to stay curious</p>
+				<h1>Keep what interests you.<br />Get the gist—or go deep.</h1>
+				<p class="hero-copy">
+					Save videos, podcasts, articles, and posts. Get four summaries—from 20 seconds to
+					a deep read—in one private library.
 				</p>
-			</div>
-
-			<figure class="flow-visual reveal">
-				<img
-					src="/briefly-flow-v2.webp"
-					alt="YouTube videos, arXiv papers, blog posts, and podcasts flow through Briefly into four reading depths and agent-ready Markdown."
-				/>
-				<figcaption>
-					<span>Capture any source</span>
-					<i aria-hidden="true"></i>
-					<span>Choose the useful depth</span>
-					<i aria-hidden="true"></i>
-					<span>Keep clean, agent-ready context</span>
-				</figcaption>
-			</figure>
-
-			<div class="steps-grid section-shell">
-				<article class="step-card reveal">
-					<span>01</span>
-					<h3>Capture</h3>
-					<p>Copy anything worth keeping. One shortcut gets it out of your tabs.</p>
-				</article>
-				<article class="step-card reveal">
-					<span>02</span>
-					<h3>Clarify</h3>
-					<p>Briefly extracts the signal and writes every useful level of detail.</p>
-				</article>
-					<article class="step-card reveal">
-						<span>03</span>
-						<h3>Connect</h3>
-						<p>Find it, share it, give it to an agent, or turn updates into a scheduled podcast.</p>
-					</article>
-			</div>
-		</section>
-
-		<section class="depth-section section-shell" id="depth">
-			<div class="depth-copy reveal">
-				<div class="section-number">03 / ONE SOURCE, FOUR DEPTHS</div>
-				<h2>Go from the gist<br />to the whole thing.</h2>
-				<p>
-					Not every source deserves an hour. Not every question can be answered in a sentence.
-					Choose exactly how deep you want to go.
-				</p>
-				<div class="listen-chip"><RssIcon /> Watch sources and schedule podcast episodes</div>
-			</div>
-
-			<div class="product-demo reveal">
-				<div class="product-demo-toolbar">
-					<div>
-						<span class="live-dot"></span>
-						Real Briefly interface
-					</div>
-					<span>{depthOptions[selectedDepth].time} read</span>
-				</div>
-
-				<div class="product-screenshot" aria-live="polite">
-					<img
-						src={depthOptions[selectedDepth].image}
-						alt={`The actual Briefly library and reader interface showing the ${depthOptions[selectedDepth].label.toLowerCase()} reading depth`}
-					/>
-				</div>
-
-				<div class="product-depth-picker" role="tablist" aria-label="Preview reading depth">
-					{#each depthOptions as option, index}
-						<button
-							type="button"
-							class:active={selectedDepth === index}
-							role="tab"
-							aria-selected={selectedDepth === index}
-							onclick={() => (selectedDepth = index)}
-						>
-							<span>{index + 1}</span>
-							{option.label}
-						</button>
-					{/each}
-				</div>
-
-			</div>
-		</section>
-
-		<section class="agents-section" id="agents">
-			<div class="agents-inner section-shell">
-				<div class="agents-copy reveal">
-					<div class="agents-heading">
-						<div class="section-number">04 / YOU + YOUR AGENTS</div>
-						<h2>One workspace.<br />Shared context.</h2>
-					</div>
-					<div class="agents-story">
-						<p>
-							Briefly gives you and every agent one place to research, understand, and create.
-							They can build on what you know, investigate further, and leave the useful work
-							in your hands.
-						</p>
-						<a class="button button-light" href="/">
-							Start your shared workspace
-							<ArrowRightIcon aria-hidden="true" />
-						</a>
-					</div>
-				</div>
-
-				<figure class="agents-visual reveal">
-					<img
-						src="/briefly-agent-workspace.webp"
-						alt="Claude Code, Codex, OpenCode, and Pi connect to the same Briefly workspace to produce research, insights, and drafts."
-						width="1672"
-						height="941"
-						loading="lazy"
-						decoding="async"
-					/>
-					<figcaption>
-						<span>You and your agents, working from the same place.</span>
-						<span>Research · insight · useful work</span>
-					</figcaption>
-				</figure>
-			</div>
-		</section>
-
-		<section class="privacy-section section-shell">
-			<div class="privacy-heading reveal">
-				<div class="section-number">05 / YOURS MEANS YOURS</div>
-				<h2>Local when you want it. Shared when you choose.</h2>
-			</div>
-			<div class="privacy-grid">
-				<article class="reveal">
-					<h3>Private by default</h3>
-					<p>
-						Your library stays in your own local workspace until you choose sync,
-						extraction, AI processing, transcription, voice generation, or sharing.
-					</p>
-				</article>
-				<article class="reveal">
-					<h3>Offline when you need it</h3>
-					<p>Capture, search, and read your library locally—even when the connection does not.</p>
-				</article>
-				<article class="reveal">
-					<h3>Shared on purpose</h3>
-					<p>Your membership adds cross-device sync and deliberate share links when you need them.</p>
-				</article>
-			</div>
-		</section>
-
-		<section class="downloads-section" id="get-briefly">
-			<div class="downloads-inner section-shell">
-				<div class="downloads-heading reveal">
-					<div class="section-number">06 / GET BRIEFLY</div>
-					<h2>One library.<br />Every screen.</h2>
-					<p>
-						Create your account, choose your membership, then install Briefly on every
-						device you use.
-					</p>
-				</div>
-
-				<div class="plan-strip reveal" id="pricing">
-					<article class="plan-card plan-plus">
-						<div class="plan-card-top">
-							<span>Briefly membership</span>
-							<strong>{formatMonthlyPrice(currentPricingTier.amount)}/month</strong>
-						</div>
-						<h3>Join earlier. Keep the lower price.</h3>
-						<p class="plan-plus-intro">
-							Your monthly price stays fixed while your subscription remains active.
-						</p>
-						<div class="pricing-ladder" aria-label="Briefly launch pricing">
-							{#each displayedPricingTiers as tier}
-								<div class:current={tier.current} class:past={!tier.current && tier.remaining === 0}>
-									<span>
-										<b>{tier.name}</b>
-										<small>
-											{tier.capacity === null
-												? 'Stable price'
-												: `${tier.capacity} subscriber${tier.capacity === 1 ? '' : 's'}`}
-										</small>
-									</span>
-									<strong>{formatMonthlyPrice(tier.amount)}</strong>
-									{#if tier.current}
-										<em>
-											{tier.remaining === null
-												? 'Current'
-												: `${tier.remaining} left`}
-										</em>
-									{:else if tier.remaining === 0}
-										<em>Filled</em>
-									{/if}
-								</div>
-							{/each}
-						</div>
-							<ul>
-								<li><CheckCircleIcon /> Capture links, files, and notes</li>
-								<li><CheckCircleIcon /> Four useful reading depths</li>
-								<li><CheckCircleIcon /> Local, searchable Markdown library</li>
-								<li><CheckCircleIcon /> Scheduled podcasts from watched sources</li>
-								<li><CheckCircleIcon /> Sync your library across devices</li>
-								<li><CheckCircleIcon /> Share clean, deliberate reading links</li>
-							</ul>
-						{#if billing?.entitled && billing.subscription}
-							<button
-								class="pricing-cta"
-								type="button"
-								disabled={billingBusy}
-								onclick={manageBilling}
-							>
-								{billingBusy ? 'Opening billing…' : 'Manage billing'}
-								<ArrowUpRightIcon aria-hidden="true" />
-							</button>
-						{:else if billing?.entitled}
-							<button class="pricing-cta" type="button" disabled>
-								Membership active
-								<CheckCircleIcon aria-hidden="true" />
-							</button>
-						{:else}
-							<button
-								class="pricing-cta"
-								type="button"
-								disabled={billingBusy || billing?.configured === false}
-								onclick={startCheckout}
-							>
-								{billingBusy
-									? 'Opening secure checkout…'
-									: billing?.configured === false
-										? 'Checkout setup pending'
-										: `Lock in ${formatMonthlyPrice(currentPricingTier.amount)}/month`}
-								<ArrowRightIcon aria-hidden="true" />
-							</button>
-						{/if}
-						<p class="pricing-note">
-							Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe<br />
-							High fair-use limits apply to hosted processing and public storage. Briefly AI
-							is included; optional third-party agent CLIs use your separate provider
-							account.<br />
-							By subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
-							<a href="/privacy">Privacy Notice</a>.
-						</p>
-						{#if billingMessage}
-							<p class="pricing-message" role="status">{billingMessage}</p>
-						{/if}
-					</article>
-				</div>
-
-				<div class="download-gate reveal">
-					<LockIcon />
-					<div>
-						<h3>Downloads live in your account.</h3>
-						<p>Sign in and activate your membership to get the macOS, Windows, Linux, and web apps.</p>
-					</div>
+				<div class="hero-actions">
 					<a class="button button-primary" href="/account">
-						{billing?.authenticated ? 'Go to your account' : 'Sign up to continue'}
-						<ArrowRightIcon />
+						{billing?.authenticated ? 'Open your library' : 'Start your library'}
+						<ArrowRightIcon aria-hidden="true" />
+					</a>
+					<a class="text-link" href="#briefs">
+						See scheduled briefs
+						<ArrowRightIcon aria-hidden="true" />
 					</a>
 				</div>
+
+				<div class="source-rail" aria-label="Supported content types">
+					<span><PlayIcon /> YouTube</span>
+					<span><HeadphonesIcon /> Podcasts</span>
+					<span><FileTextIcon /> Articles & PDFs</span>
+					<span><RssIcon /> Blogs & feeds</span>
+					<span><b>@</b> Social posts</span>
+				</div>
+			</div>
+		</section>
+
+		<a class="reads-ahead" href="#briefs">
+			<span>And for the sources you follow, Briefly reads ahead.</span>
+			<ArrowRightIcon aria-hidden="true" />
+		</a>
+
+		<section class="library-section section-shell" id="library">
+			<div class="section-copy">
+				<p class="eyebrow">Saved to your library</p>
+				<h2>Four summaries.<br />One source.</h2>
+				<p>
+					Start with 20 seconds. Go deeper when it earns your time.
+				</p>
+			</div>
+
+			<div class="reader-demo">
+				{#if demoReady}
+					<div class="reader-demo-app">
+						<BrieflyApp
+							api={demoBridge.api}
+							capabilities={webCapabilities}
+							appIcon="/icons/icon-192.png"
+						/>
+					</div>
+				{/if}
+			</div>
+		</section>
+
+		<section class="briefs-section" id="briefs">
+			<div class="briefs-inner section-shell">
+				<div class="briefs-copy">
+					<p class="eyebrow">Your channels, quietly watched</p>
+					<h2>Follow without<br />the feed.</h2>
+					<p>
+						Choose the sources. Briefly checks what’s new and delivers one cited report—on
+						your schedule, in text and audio.
+					</p>
+					<div class="schedule-chip">
+						<span>Every Friday</span>
+						<b>8:00 AM</b>
+						<span>Text + audio</span>
+					</div>
+					<div class="channel-list" aria-label="Example followed source types">
+						<span class="source-youtube"><PlayIcon /> YouTube</span>
+						<span class="source-podcast"><HeadphonesIcon /> Podcasts</span>
+						<span class="source-reddit">r/ Reddit</span>
+						<span class="source-rss"><RssIcon /> RSS</span>
+						<span class="source-web">@ Profiles</span>
+					</div>
+				</div>
+
+				<article class="brief-card">
+					<div class="brief-card-top">
+						<span>Your Friday brief</span>
+						<time datetime="2026-07-24">24 July 2026</time>
+					</div>
+
+					<div class="brief-cover">
+						<div class="brief-art" aria-hidden="true">
+							<i class="sun"></i>
+							<i class="hill hill-one"></i>
+							<i class="hill hill-two"></i>
+							<i class="wind wind-one"></i>
+							<i class="wind wind-two"></i>
+						</div>
+						<div>
+							<p>Climate technology</p>
+							<h3>The week in<br />climate technology</h3>
+							<span>8 min · 14 sources · cited</span>
+						</div>
+					</div>
+
+					<p class="brief-excerpt">
+						Three developments mattered this week: long-duration storage moved closer to
+						commercial scale, heat-pump adoption accelerated, and a new carbon market
+						standard changed how removals will be verified.
+					</p>
+
+					<div class="audio-player" aria-label="Sample audio brief player">
+						<button type="button" aria-label="Play sample brief"><PlayIcon /></button>
+						<span>0:00</span>
+						<div class="audio-track"><i></i></div>
+						<span>8:00</span>
+						<b><HeadphonesIcon /> Audio brief</b>
+					</div>
+
+					<span class="read-report">
+						Text report included
+						<FileTextIcon aria-hidden="true" />
+					</span>
+				</article>
+			</div>
+
+			<div class="brief-flow section-shell" aria-label="How scheduled briefs work">
+				<div>
+					<span>01</span>
+					<b>Follow your sources</b>
+				</div>
+				<i aria-hidden="true"></i>
+				<div>
+					<span>02</span>
+					<b>Briefly reads ahead</b>
+				</div>
+				<i aria-hidden="true"></i>
+				<div>
+					<span>03</span>
+					<b>Read or listen</b>
+				</div>
+			</div>
+		</section>
+
+		<section class="share-section section-shell">
+			<div class="share-copy">
+				<p class="eyebrow">Share</p>
+				<h2>Share the<br />useful version.</h2>
+				<p>Send a clean reader. Your captured source stays private.</p>
+			</div>
+			<div class="share-card">
+				<div class="share-card-top">
+					<span><ShareIcon /> Shared summary</span>
+					<span>Source linked</span>
+				</div>
+				<h3>A practical guide to biological networks</h3>
+				<p>Concise · 2 min read</p>
+				<div class="share-link">
+					<span>readbriefly.fyi/share/biological-networks</span>
+					<b>Copy link</b>
+				</div>
+			</div>
+		</section>
+
+		<section class="pricing-section" id="pricing">
+			<div class="pricing-inner section-shell">
+				<div class="pricing-copy">
+					<p class="eyebrow">Briefly membership</p>
+					<h2>Your library.<br />Working ahead.</h2>
+					<p>
+						Save, follow, and let Briefly prepare the reading.
+					</p>
+				</div>
+
+				<article class="plan-card">
+					<div class="plan-card-top">
+						<span>Briefly membership</span>
+						<strong>{formatMonthlyPrice(currentPricingTier.amount)}<small>/month</small></strong>
+					</div>
+					<h3>Join earlier. Keep the lower price.</h3>
+					<p>Your monthly price stays fixed while your subscription remains active.</p>
+
+					<div class="pricing-ladder" aria-label="Briefly launch pricing">
+						{#each displayedPricingTiers as tier}
+							<div class:current={tier.current} class:past={!tier.current && tier.remaining === 0}>
+								<span>
+									<b>{tier.name}</b>
+									<small>
+										{tier.capacity === null
+											? 'Stable price'
+											: `${tier.capacity} subscriber${tier.capacity === 1 ? '' : 's'}`}
+									</small>
+								</span>
+								<strong>{formatMonthlyPrice(tier.amount)}</strong>
+								{#if tier.current}
+									<em>{tier.remaining === null ? 'Current' : `${tier.remaining} left`}</em>
+								{:else if tier.remaining === 0}
+									<em>Filled</em>
+								{/if}
+							</div>
+						{/each}
+					</div>
+
+					<ul>
+						<li><CheckCircleIcon /> Save links, files, and notes</li>
+						<li><CheckCircleIcon /> Four useful reading depths</li>
+						<li><CheckCircleIcon /> Follow sources and schedule briefs</li>
+						<li><CheckCircleIcon /> Read or listen to every brief</li>
+						<li><CheckCircleIcon /> Searchable local Markdown library</li>
+						<li><CheckCircleIcon /> Sync across your devices</li>
+					</ul>
+
+					{#if billing?.entitled && billing.subscription}
+						<button type="button" disabled={billingBusy} onclick={manageBilling}>
+							{billingBusy ? 'Opening billing…' : 'Manage billing'}
+							<ArrowUpRightIcon aria-hidden="true" />
+						</button>
+					{:else if billing?.entitled}
+						<button type="button" disabled>
+							Membership active
+							<CheckCircleIcon aria-hidden="true" />
+						</button>
+					{:else}
+						<button
+							type="button"
+							disabled={billingBusy || billing?.configured === false}
+							onclick={startCheckout}
+						>
+							{billingBusy
+								? 'Opening secure checkout…'
+								: billing?.configured === false
+									? 'Checkout setup pending'
+									: `Lock in ${formatMonthlyPrice(currentPricingTier.amount)}/month`}
+							<ArrowRightIcon aria-hidden="true" />
+						</button>
+					{/if}
+
+					<p class="pricing-note">
+						Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe<br />
+						High fair-use limits apply to hosted processing and public storage. By
+						subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
+						<a href="/privacy">Privacy Notice</a>.
+					</p>
+					{#if billingMessage}
+						<p class="pricing-message" role="status">{billingMessage}</p>
+					{/if}
+				</article>
+			</div>
+
+			<div class="download-gate section-shell">
+				<LockIcon />
+				<div>
+					<h3>Downloads live in your account.</h3>
+					<p>Sign in to get Briefly for macOS, Windows, Linux, and the web.</p>
+				</div>
+				<a class="button button-secondary" href="/account">
+					{billing?.authenticated ? 'Go to your account' : 'Sign up to continue'}
+					<ArrowRightIcon />
+				</a>
 			</div>
 		</section>
 
 		<section class="final-cta">
-			<div class="final-orbit orbit-one" aria-hidden="true"></div>
-			<div class="final-orbit orbit-two" aria-hidden="true"></div>
-			<div class="final-sources" aria-hidden="true">
-				<span><PlayIcon /></span>
-				<span><FileTextIcon /></span>
-				<span><HeadphonesIcon /></span>
-				<span><RssIcon /></span>
-			</div>
-			<div class="final-content reveal">
+			<div class="final-cta-inner">
 				<img src="/icons/icon-192.png" alt="" />
-				<p>THE INTERNET IS ENDLESS. YOUR ATTENTION ISN’T.</p>
-				<h2>Keep the parts<br />worth knowing.</h2>
-				<a class="button button-white" href="/account">
-					{billing?.authenticated ? 'Open your account' : 'Create your account'}
+				<p>A quieter way to stay curious</p>
+				<h2>Keep what matters.<br />Skip the feed.</h2>
+				<a class="button button-light" href="/account">
+					{billing?.authenticated ? 'Open your library' : 'Start your library'}
 					<ArrowRightIcon aria-hidden="true" />
 				</a>
-				<span class="final-note">One account · Mac · Windows · Linux · Web</span>
+				<span>One account · Mac · Windows · Linux · Web</span>
 			</div>
 		</section>
 	</main>
 
-	<footer class="landing-footer">
+	<footer class="landing-footer section-shell">
 		<a class="landing-brand" href="/landing">
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
-		<p>Turn what you find into what you know.</p>
+		<p>Your private library, working ahead.</p>
 		<div>
 			<a href="/">Open app</a>
 			<a href="/account">Account</a>
 			<a href="/feedback">Feedback</a>
-			<a class="footer-legal" href="/privacy">Privacy</a>
-			<a class="footer-legal" href="/terms">Terms</a>
-			<a class="footer-legal" href="/account/cookies">Cookies</a>
-			<a class="footer-legal" href="/imprint">Imprint</a>
+			<a href="/privacy">Privacy</a>
+			<a href="/terms">Terms</a>
+			<a href="/account/cookies">Cookies</a>
+			<a href="/imprint">Imprint</a>
 			<span>© 2026 Briefly</span>
 		</div>
 	</footer>
@@ -1049,8 +490,8 @@
 	:global(body:has(.landing)) {
 		overflow-x: hidden;
 		overflow-y: auto;
-		background: #f3efe5;
-		color: #11110f;
+		background: #f4efe5;
+		color: #10372d;
 	}
 
 	:global(body.landing-body *) {
@@ -1058,20 +499,23 @@
 	}
 
 	.landing {
-		--paper: #f3efe5;
-		--paper-bright: #fbf8f0;
-		--ink: #11110f;
-		--blue: #164dff;
-		--blue-deep: #071a54;
-		--blue-black: #020a24;
-		--line: rgb(17 17 15 / 18%);
+		--cream: #f4efe5;
+		--paper: #fffaf1;
+		--forest: #10372d;
+		--forest-deep: #082a22;
+		--orange: #d85312;
+		--lavender: #d6c4df;
+		--cobalt: #2448c7;
+		--line: rgb(16 55 45 / 16%);
 		min-height: 100vh;
 		overflow: clip;
-		background:
-			radial-gradient(circle at 50% 5%, rgb(255 255 255 / 88%), transparent 24rem),
-			var(--paper);
-		color: var(--ink);
-		font-family: 'Inter Variable', Inter, sans-serif;
+		background: var(--cream);
+		color: var(--forest);
+		font-family: 'DM Sans Variable', 'DM Sans', sans-serif;
+	}
+
+	.landing :global(*) {
+		box-sizing: border-box;
 	}
 
 	.landing a {
@@ -1084,1443 +528,854 @@
 		-webkit-tap-highlight-color: transparent;
 	}
 
+	.section-shell {
+		width: min(100% - 48px, 1280px);
+		margin-inline: auto;
+	}
+
 	.landing-nav {
-		position: absolute;
-		z-index: 100;
-		top: 0;
-		left: 0;
-		display: flex;
-		width: 100%;
+		position: relative;
+		z-index: 20;
+		display: grid;
+		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
-		justify-content: space-between;
-		padding: 24px clamp(22px, 4vw, 68px);
+		padding-block: 24px;
 	}
 
 	.landing-brand {
 		display: inline-flex;
 		width: fit-content;
 		align-items: center;
-		gap: 10px;
-		font-size: 18px;
-		font-weight: 780;
-		letter-spacing: -0.04em;
+		gap: 12px;
+		font-size: 20px;
+		font-weight: 720;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
 	}
 
 	.landing-brand img {
-		width: 35px;
-		height: 35px;
+		width: 38px;
+		height: 38px;
 		border-radius: 10px;
-		box-shadow: 0 8px 18px rgb(8 27 82 / 18%);
 	}
 
-	.landing-nav .landing-brand img {
-		width: 48px;
-		height: 48px;
-		border-radius: 14px;
+	.landing-nav nav,
+	.nav-actions {
+		display: flex;
+		align-items: center;
+		gap: 28px;
+		font-size: 14px;
+	}
+
+	.landing-nav nav a,
+	.nav-sign-in {
+		transition: opacity 160ms ease;
+	}
+
+	.landing-nav nav a:hover,
+	.nav-sign-in:hover {
+		opacity: 0.58;
+	}
+
+	.nav-actions {
+		justify-self: end;
+		gap: 18px;
 	}
 
 	.nav-cta {
-		display: inline-flex;
-		justify-self: end;
-		align-items: center;
-		gap: 10px;
-		padding: 11px 16px;
-		border: 1px solid rgb(17 17 15 / 20%);
+		padding: 11px 17px;
+		border: 1px solid var(--forest);
 		border-radius: 999px;
-		background: rgb(255 255 255 / 50%);
-		font-size: 13px;
-		font-weight: 680;
-		backdrop-filter: blur(12px);
+		font-weight: 650;
 		transition:
-			border-color 200ms ease,
-			background 200ms ease,
-			transform 200ms ease;
+			background 180ms ease,
+			color 180ms ease;
 	}
 
 	.nav-cta:hover {
-		border-color: var(--blue);
-		background: white;
-		transform: translateY(-2px);
+		background: var(--forest);
+		color: var(--paper);
 	}
 
-	.nav-cta :global(svg) {
-		width: 15px;
-	}
-
-	.hero-scroll {
+	.hero {
 		position: relative;
-		height: 100svh;
-		min-height: 720px;
-	}
-
-	.hero-sticky {
-		position: relative;
-		height: 100%;
-		min-height: inherit;
+		min-height: 690px;
+		display: grid;
+		align-items: center;
+		padding: 72px 0 96px;
 		overflow: hidden;
-		cursor: none;
-		touch-action: pan-y;
 		background:
-			radial-gradient(circle at 78% 58%, rgb(22 77 255 / 14%), transparent 25%),
-			linear-gradient(180deg, #fbf8f0 0%, var(--paper) 100%);
+			radial-gradient(circle at 50% 20%, rgb(255 255 255 / 72%), transparent 38rem),
+			var(--cream);
 	}
 
-	.hero-sticky * {
-		cursor: none;
+	.hero-inner {
+		position: relative;
+		z-index: 3;
+		display: grid;
+		justify-items: center;
+		text-align: center;
 	}
 
-	.hero-grid {
-		position: absolute;
-		inset: 0;
-		background-image:
-			linear-gradient(rgb(17 17 15 / 3.5%) 1px, transparent 1px),
-			linear-gradient(90deg, rgb(17 17 15 / 3.5%) 1px, transparent 1px);
-		background-position: center center;
-		background-size: 46px 46px;
-		mask-image: radial-gradient(circle at center, black, transparent 72%);
-		opacity: 0.6;
+	.eyebrow {
+		margin: 0 0 20px;
+		color: var(--orange);
+		font-size: 12px;
+		font-weight: 750;
+		letter-spacing: 0.2em;
+		line-height: 1.4;
+		text-transform: uppercase;
+	}
+
+	.hero h1,
+	.section-copy h2,
+	.briefs-copy h2,
+	.share-section h2,
+	.pricing-copy h2,
+	.final-cta h2 {
+		margin: 0;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-weight: 480;
+		letter-spacing: -0.055em;
+		line-height: 0.94;
+	}
+
+	.hero h1 {
+		max-width: 1080px;
+		font-size: clamp(56px, 7.3vw, 104px);
 	}
 
 	.hero-copy {
-		position: absolute;
-		z-index: 12;
-		top: clamp(132px, 18vh, 180px);
-		left: clamp(24px, 5vw, 82px);
-		width: min(690px, 54vw);
-		text-align: left;
-	}
-
-	.hero-copy h1,
-	.display-heading,
-	.flow-heading h2,
-	.depth-copy h2,
-	.agents-copy h2,
-	.privacy-heading h2,
-	.final-content h2 {
-		margin: 0;
-		font-size: clamp(58px, 8vw, 124px);
-		font-weight: 820;
-		letter-spacing: -0.075em;
-		line-height: 0.86;
-	}
-
-	.hero-copy p {
-		max-width: 560px;
+		max-width: 700px;
 		margin: 27px 0 0;
-		color: rgb(17 17 15 / 64%);
-		font-size: clamp(16px, 1.5vw, 20px);
-		letter-spacing: -0.025em;
-		line-height: 1.5;
+		color: rgb(16 55 45 / 76%);
+		font-size: clamp(17px, 1.5vw, 20px);
+		line-height: 1.6;
 	}
 
 	.hero-actions {
 		display: flex;
 		align-items: center;
-		justify-content: flex-start;
-		gap: 24px;
-		margin-top: 29px;
+		gap: 28px;
+		margin-top: 34px;
 	}
 
 	.button {
 		display: inline-flex;
+		min-height: 52px;
 		align-items: center;
 		justify-content: center;
-		gap: 12px;
-		min-height: 52px;
-		padding: 0 22px;
+		gap: 10px;
+		padding: 0 23px;
 		border: 0;
-		border-radius: 999px;
+		border-radius: 8px;
 		font-size: 14px;
-		font-weight: 730;
-		letter-spacing: -0.015em;
+		font-weight: 700;
 		transition:
-			transform 220ms ease,
-			box-shadow 220ms ease,
-			background 220ms ease;
+			transform 180ms ease,
+			box-shadow 180ms ease;
+	}
+
+	.button:hover {
+		transform: translateY(-2px);
 	}
 
 	.button :global(svg) {
 		width: 17px;
-		transition: transform 220ms ease;
-	}
-
-	.button:hover {
-		transform: translateY(-3px);
-	}
-
-	.button:hover :global(svg) {
-		transform: translateX(3px);
 	}
 
 	.button-primary {
-		background: var(--blue);
+		box-shadow: 0 14px 32px rgb(216 83 18 / 18%);
+		background: var(--orange);
 		color: white !important;
-		box-shadow: 0 16px 35px rgb(22 77 255 / 22%);
 	}
 
 	.button-primary:hover {
-		background: #0c40ec;
-		box-shadow: 0 20px 45px rgb(22 77 255 / 30%);
+		box-shadow: 0 18px 38px rgb(216 83 18 / 28%);
 	}
 
 	.text-link {
 		display: inline-flex;
 		align-items: center;
 		gap: 8px;
+		padding-block: 8px;
+		border-bottom: 1px solid currentColor;
+		color: var(--cobalt) !important;
 		font-size: 14px;
-		font-weight: 680;
+		font-weight: 650;
 	}
 
 	.text-link :global(svg) {
+		width: 17px;
+	}
+
+	.source-rail {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 10px;
+		margin-top: 64px;
+	}
+
+	.source-rail span {
+		display: inline-flex;
+		align-items: center;
+		gap: 7px;
+		padding: 9px 13px;
+		border: 1px solid var(--line);
+		border-radius: 999px;
+		background: rgb(255 250 241 / 70%);
+		color: rgb(16 55 45 / 72%);
+		font-size: 12px;
+		font-weight: 650;
+		backdrop-filter: blur(10px);
+	}
+
+	.source-rail :global(svg) {
 		width: 15px;
-		transition: transform 200ms ease;
+		height: 15px;
 	}
 
-	.text-link:hover :global(svg) {
-		transform: translateY(3px);
-	}
-
-	.gather-stage {
-		position: absolute;
-		z-index: 8;
-		inset: 0;
-		pointer-events: none;
-	}
-
-	.gather-logo {
-		position: absolute;
-		z-index: 20;
-		top: 0;
-		left: 0;
-		width: clamp(156px, 13vw, 208px);
-		aspect-ratio: 1;
-		transform: translate3d(78vw, 58vh, 0) translate(-50%, -50%);
-		transform-origin: center;
-		will-change: transform;
-	}
-
-	.gather-logo img {
-		position: relative;
-		z-index: 4;
-		width: 100%;
-		height: 100%;
-		filter: drop-shadow(0 25px 28px rgb(6 24 80 / 30%));
-		transition: filter 180ms ease;
-	}
-
-	.gather-logo:global(.is-attracting) img {
-		filter:
-			drop-shadow(0 28px 30px rgb(6 24 80 / 32%))
-			drop-shadow(0 0 18px rgb(44 95 255 / 50%));
-	}
-
-	.gather-logo:global(.has-impact) img {
-		animation: logo-impact 360ms cubic-bezier(0.16, 0.8, 0.28, 1);
-	}
-
-	.logo-halo {
+	.paper-shape {
 		position: absolute;
 		z-index: 1;
-		inset: -82%;
-		border-radius: 50%;
-		background: radial-gradient(circle, rgb(28 82 255 / 21%), transparent 64%);
-		animation: halo-breathe 3.2s ease-in-out infinite;
+		border: 1px solid rgb(16 55 45 / 8%);
+		filter: saturate(0.9);
 	}
 
-	.intake-ring {
-		position: absolute;
-		z-index: 3;
-		inset: -10%;
-		border: 1px solid rgb(57 106 255 / 34%);
-		border-radius: 30%;
-		opacity: 0;
-	}
-
-	.gather-logo:global(.is-attracting) .intake-ring {
-		animation: intake-ring 1s ease-out infinite;
-	}
-
-	.intake-ring-two {
-		animation-delay: -0.5s !important;
-	}
-
-	.source-card {
-		position: absolute;
-		z-index: 8;
-		display: flex;
-		width: clamp(162px, 14vw, 214px);
-		min-height: 118px;
-		flex-direction: column;
-		padding: 12px 13px 12px;
-		border: 1px solid rgb(17 17 15 / 15%);
-		border-radius: 15px;
+	.paper-shape-lavender {
+		bottom: -180px;
+		left: -230px;
+		width: 540px;
+		height: 440px;
+		border-radius: 44% 56% 48% 52%;
 		background:
-			linear-gradient(145deg, rgb(255 255 255 / 95%), rgb(241 237 226 / 97%)),
-			var(--paper-bright);
-		box-shadow:
-			0 20px 45px rgb(27 25 17 / 13%),
-			inset 0 1px 0 white;
-		transform: translate(-50%, -50%) rotate(var(--rotate));
-		transform-origin: center center;
-		will-change: transform, filter, opacity;
-		backdrop-filter: blur(12px);
+			repeating-linear-gradient(8deg, transparent 0 23px, rgb(216 83 18 / 24%) 24px 25px),
+			var(--lavender);
+		transform: rotate(14deg);
 	}
 
-	.source-card::after {
+	.paper-shape-orange {
+		right: -120px;
+		bottom: -240px;
+		width: 360px;
+		height: 420px;
+		border-radius: 50%;
+		background: #df6b34;
+	}
+
+	.hero-leaf {
 		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		background: linear-gradient(115deg, transparent 22%, rgb(255 255 255 / 42%), transparent 58%);
-		content: '';
-		opacity: 0.45;
-		pointer-events: none;
+		z-index: 2;
+		right: 55px;
+		bottom: 28px;
+		width: 120px;
+		height: 220px;
+		border-left: 2px solid var(--forest);
+		transform: rotate(16deg);
+		opacity: 0.72;
 	}
 
-	.source-card.is-absorbing {
-		transition:
-			opacity 240ms ease,
-			filter 240ms ease,
-			transform 240ms cubic-bezier(0.5, 0, 1, 0.4);
+	.hero-leaf i {
+		position: absolute;
+		width: 46px;
+		height: 84px;
+		border: 2px solid var(--forest);
+		border-radius: 100% 0 100% 0;
 	}
 
-	.source-topline {
+	.hero-leaf i:nth-child(1) {
+		top: 32px;
+		left: -45px;
+		transform: rotate(-30deg);
+	}
+
+	.hero-leaf i:nth-child(2) {
+		top: 76px;
+		left: 8px;
+		transform: rotate(38deg);
+	}
+
+	.hero-leaf i:nth-child(3) {
+		top: 125px;
+		left: -44px;
+		transform: rotate(-34deg) scale(0.82);
+	}
+
+	.reads-ahead {
+		display: flex;
+		min-height: 70px;
+		align-items: center;
+		justify-content: center;
+		gap: 14px;
+		padding: 18px 24px;
+		background: var(--forest);
+		color: var(--paper) !important;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: clamp(20px, 2vw, 28px);
+		text-align: center;
+	}
+
+	.reads-ahead :global(svg) {
+		width: 20px;
+		transition: transform 180ms ease;
+	}
+
+	.reads-ahead:hover :global(svg) {
+		transform: translateX(5px);
+	}
+
+	.library-section {
+		display: grid;
+		grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.5fr);
+		gap: clamp(44px, 7vw, 105px);
+		align-items: center;
+		padding-block: clamp(90px, 11vw, 160px);
+	}
+
+	.section-copy h2,
+	.briefs-copy h2,
+	.share-section h2,
+	.pricing-copy h2 {
+		font-size: clamp(48px, 5.5vw, 78px);
+	}
+
+	.section-copy > p:not(.eyebrow),
+	.briefs-copy > p:not(.eyebrow),
+	.share-copy > p:not(.eyebrow),
+	.pricing-copy > p:not(.eyebrow) {
+		margin: 26px 0 0;
+		color: rgb(16 55 45 / 70%);
+		font-size: 17px;
+		line-height: 1.68;
+	}
+
+	.reader-demo {
+		height: 560px;
+		overflow: hidden;
+		border: 8px solid #211929;
+		border-radius: 20px;
+		box-shadow: 0 28px 80px rgb(16 55 45 / 12%);
+		background: #211929;
+	}
+
+	.reader-demo-app {
+		width: 125%;
+		height: 125%;
+		transform: scale(0.8);
+		transform-origin: top left;
+	}
+
+	.briefs-section {
+		padding-block: clamp(88px, 10vw, 145px);
+		background:
+			radial-gradient(circle at 82% 24%, rgb(60 119 102 / 34%), transparent 25rem),
+			var(--forest-deep);
+		color: var(--paper);
+	}
+
+	.briefs-inner {
+		display: grid;
+		grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
+		gap: clamp(48px, 8vw, 120px);
+		align-items: center;
+	}
+
+	.briefs-copy .eyebrow {
+		color: #f07e42;
+	}
+
+	.briefs-copy > p:not(.eyebrow) {
+		color: rgb(255 250 241 / 72%);
+	}
+
+	.schedule-chip {
+		display: flex;
+		width: fit-content;
+		align-items: center;
+		gap: 10px;
+		margin-top: 30px;
+		padding: 9px 11px;
+		border: 1px solid rgb(255 250 241 / 19%);
+		border-radius: 8px;
+		background: rgb(255 255 255 / 5%);
+		font-size: 11px;
+	}
+
+	.schedule-chip span,
+	.schedule-chip b {
+		padding: 5px 8px;
+	}
+
+	.schedule-chip b {
+		border-radius: 5px;
+		background: var(--paper);
+		color: var(--forest);
+	}
+
+	.channel-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin-top: 19px;
+	}
+
+	.channel-list span {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 10px;
+		border-radius: 999px;
+		background: rgb(255 250 241 / 9%);
+		color: rgb(255 250 241 / 78%);
+		font-size: 11px;
+		font-weight: 650;
+	}
+
+	.channel-list :global(svg) {
+		width: 13px;
+	}
+
+	.source-youtube :global(svg) {
+		color: #ff645b;
+	}
+
+	.source-podcast :global(svg) {
+		color: #c7a6e8;
+	}
+
+	.source-rss :global(svg) {
+		color: #f29b4b;
+	}
+
+	.brief-card {
+		padding: clamp(18px, 2.4vw, 30px);
+		border-radius: 18px;
+		box-shadow: 0 34px 90px rgb(0 0 0 / 24%);
+		background: var(--paper);
+		color: var(--forest);
+		transform: rotate(0.7deg);
+	}
+
+	.brief-card-top {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		color: rgb(17 17 15 / 65%);
+		justify-content: space-between;
+		padding-bottom: 14px;
+		border-bottom: 1px solid var(--line);
+		color: rgb(16 55 45 / 55%);
 		font-size: 10px;
 		font-weight: 750;
-		letter-spacing: 0.11em;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
 	}
 
-	.source-grip {
-		display: flex;
-		gap: 2px;
-		margin-left: auto;
-	}
-
-	.source-grip i {
-		width: 2px;
-		height: 2px;
-		border-radius: 50%;
-		background: rgb(17 17 15 / 35%);
-	}
-
-	.source-icon {
+	.brief-cover {
 		display: grid;
-		width: 24px;
-		height: 24px;
-		place-items: center;
-		border-radius: 7px;
-		background: rgb(22 77 255 / 9%);
-		color: var(--blue);
+		grid-template-columns: 175px 1fr;
+		gap: 28px;
+		align-items: center;
+		padding-block: 24px 20px;
 	}
 
-	.source-icon :global(svg) {
-		width: 13px;
-		height: 13px;
-		stroke-width: 2.2;
-	}
-
-	.source-card-red .source-icon {
-		background: rgb(238 40 40 / 10%);
-		color: #e62d2d;
-	}
-
-	.source-card-orange .source-icon {
-		background: rgb(224 95 32 / 10%);
-		color: #d55a20;
-	}
-
-	.source-card-ink .source-icon {
-		background: rgb(17 17 15 / 8%);
-		color: #11110f;
-	}
-
-	.source-card-teal .source-icon {
-		background: rgb(15 141 135 / 10%);
-		color: #087e78;
-	}
-
-	.source-card-purple .source-icon {
-		background: rgb(118 57 218 / 10%);
-		color: #7236c9;
-	}
-
-	.source-card strong {
+	.brief-art {
 		position: relative;
-		z-index: 1;
-		margin-top: 12px;
-		font-size: 12px;
-		letter-spacing: -0.025em;
-		line-height: 1.2;
+		min-height: 190px;
+		overflow: hidden;
+		border-radius: 10px;
+		background: #c8d4bd;
 	}
 
-	.source-author {
-		position: relative;
-		z-index: 1;
-		margin-top: 6px;
-		color: rgb(17 17 15 / 68%);
-		font-size: 9px;
-		font-weight: 650;
-		letter-spacing: -0.01em;
-	}
-
-	.source-card small {
-		position: relative;
-		z-index: 1;
-		margin-top: auto;
-		padding-top: 8px;
-		color: rgb(17 17 15 / 48%);
-		font-size: 9px;
-	}
-
-	.sweep-status {
+	.brief-art .sun {
 		position: absolute;
-		z-index: 24;
-		right: clamp(20px, 3vw, 48px);
-		bottom: 24px;
-		display: flex;
-		align-items: center;
-		gap: 20px;
-		padding: 10px 12px 10px 14px;
-		border: 1px solid rgb(17 17 15 / 11%);
-		border-radius: 999px;
-		background: rgb(250 247 239 / 78%);
-		box-shadow: 0 12px 28px rgb(26 23 14 / 8%);
-		color: rgb(17 17 15 / 56%);
-		font-size: 9px;
-		font-weight: 680;
-		letter-spacing: 0.03em;
-		backdrop-filter: blur(18px);
-		transition:
-			border-color 200ms ease,
-			background 200ms ease;
+		top: 25px;
+		right: 28px;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: #fff1ce;
 	}
 
-	.sweep-status > div {
+	.hill {
+		position: absolute;
+		right: -45px;
+		bottom: -90px;
+		left: -45px;
+		height: 220px;
+		border-radius: 50% 50% 0 0;
+		background: #316a54;
+		transform: rotate(-8deg);
+	}
+
+	.hill-two {
+		right: -75px;
+		bottom: -135px;
+		left: -75px;
+		background: var(--forest);
+		transform: rotate(9deg);
+	}
+
+	.wind {
+		position: absolute;
+		z-index: 3;
+		bottom: 65px;
+		left: 55px;
+		width: 2px;
+		height: 62px;
+		background: #fff4d8;
+	}
+
+	.wind::before,
+	.wind::after {
+		position: absolute;
+		top: 0;
+		left: 1px;
+		width: 38px;
+		height: 1px;
+		background: #fff4d8;
+		content: '';
+		transform-origin: left;
+	}
+
+	.wind::before {
+		transform: rotate(18deg);
+	}
+
+	.wind::after {
+		transform: rotate(138deg);
+	}
+
+	.wind-two {
+		bottom: 74px;
+		left: 112px;
+		height: 44px;
+		transform: scale(0.76);
+	}
+
+	.brief-cover p {
+		margin: 0 0 7px;
+		color: var(--orange);
+		font-size: 10px;
+		font-weight: 750;
+		letter-spacing: 0.15em;
+		text-transform: uppercase;
+	}
+
+	.brief-cover h3 {
+		margin: 0;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: clamp(32px, 3.3vw, 48px);
+		font-weight: 500;
+		letter-spacing: -0.045em;
+		line-height: 0.98;
+	}
+
+	.brief-cover span {
+		display: block;
+		margin-top: 15px;
+		color: rgb(16 55 45 / 58%);
+		font-size: 11px;
+	}
+
+	.brief-excerpt {
+		margin: 0;
+		padding: 18px 0;
+		border-block: 1px solid var(--line);
+		color: rgb(16 55 45 / 77%);
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 16px;
+		line-height: 1.55;
+	}
+
+	.audio-player {
 		display: flex;
 		align-items: center;
-		gap: 9px;
+		gap: 10px;
+		padding: 18px 0;
+	}
+
+	.audio-player button {
+		display: grid;
+		flex: 0 0 auto;
+		width: 42px;
+		height: 42px;
+		place-items: center;
+		border: 0;
+		border-radius: 50%;
+		background: var(--cobalt);
+		color: white;
+		cursor: pointer;
+	}
+
+	.audio-player button :global(svg) {
+		width: 18px;
+		fill: currentColor;
+	}
+
+	.audio-player > span {
+		color: rgb(16 55 45 / 55%);
+		font-size: 10px;
+	}
+
+	.audio-track {
+		position: relative;
+		flex: 1;
+		height: 3px;
+		border-radius: 999px;
+		background: rgb(16 55 45 / 16%);
+	}
+
+	.audio-track i {
+		position: absolute;
+		inset: 0 auto 0 0;
+		width: 17%;
+		border-radius: inherit;
+		background: var(--cobalt);
+	}
+
+	.audio-player b {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		color: var(--cobalt);
+		font-size: 10px;
 		white-space: nowrap;
 	}
 
-	.sweep-count {
-		color: var(--blue);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.sweep-hint {
-		display: flex;
-		align-items: center;
-		gap: 5px;
-		padding-left: 18px;
-		border-left: 1px solid rgb(17 17 15 / 10%);
-		color: rgb(17 17 15 / 38%);
-	}
-
-	.sweep-status kbd {
-		display: inline-grid;
-		min-width: 19px;
-		height: 19px;
-		place-items: center;
-		padding: 0 5px;
-		border: 1px solid rgb(17 17 15 / 16%);
-		border-bottom-width: 2px;
-		border-radius: 5px;
-		background: rgb(255 255 255 / 72%);
-		color: rgb(17 17 15 / 64%);
-		font-family: inherit;
-		font-size: 8px;
-		font-weight: 780;
-	}
-
-	.sweep-status.is-complete {
-		border-color: rgb(22 77 255 / 22%);
-		background: rgb(247 249 255 / 88%);
-	}
-
-	.sweep-status button {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		padding: 7px 11px;
-		border: 0;
-		border-radius: 999px;
-		background: var(--blue);
-		color: white;
-		font: inherit;
-		cursor: none;
-	}
-
-	.sweep-status button :global(svg) {
-		width: 12px;
-	}
-
-	.sweep-status button kbd {
-		border-color: rgb(255 255 255 / 28%);
-		background: rgb(255 255 255 / 14%);
-		color: white;
-	}
-
-	.scroll-cue {
-		position: absolute;
-		z-index: 15;
-		bottom: 26px;
-		left: clamp(22px, 4vw, 68px);
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		color: rgb(17 17 15 / 46%);
-		font-size: 9px;
-		font-weight: 740;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-	}
-
-	.scroll-track {
-		position: relative;
-		width: 42px;
-		height: 1px;
-		overflow: hidden;
-		background: rgb(17 17 15 / 16%);
-	}
-
-	.scroll-track i {
-		position: absolute;
-		width: 18px;
-		height: 1px;
-		background: var(--blue);
-		animation: scroll-line 1.8s ease-in-out infinite;
-	}
-
-	.source-marquee {
-		overflow: hidden;
-		padding: 17px 0;
-		border-top: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
-		background: #e9e3d7;
-	}
-
-	.marquee-track {
-		display: flex;
-		width: max-content;
-		animation: marquee 36s linear infinite;
-	}
-
-	.marquee-set {
-		display: flex;
-		min-width: 100vw;
-		flex: 0 0 auto;
-		align-items: center;
-		justify-content: space-around;
-		gap: 32px;
-		padding: 0 16px;
-	}
-
-	.marquee-item {
-		display: inline-flex;
-		flex: 0 0 auto;
-		align-items: center;
-		gap: 8px;
-		font-size: 11px;
-		font-weight: 780;
-		letter-spacing: 0.13em;
-		text-transform: uppercase;
-	}
-
-	.marquee-logo {
-		display: grid;
-		width: 20px;
-		height: 20px;
-		place-items: center;
-		color: rgb(17 17 15 / 75%);
-	}
-
-	.marquee-logo :global(svg) {
-		width: 18px;
-		height: 18px;
-		fill: none;
-		stroke: currentColor;
-		stroke-width: 2;
-	}
-
-	.marquee-logo-youtube {
-		color: #f03;
-	}
-
-	.marquee-logo-youtube svg,
-	.marquee-logo-x svg,
-	.marquee-logo-bluesky svg {
-		fill: currentColor;
-		stroke: none;
-	}
-
-	.marquee-logo-youtube .logo-cutout {
-		fill: white;
-	}
-
-	.marquee-logo-bluesky {
-		color: #087bed;
-	}
-
-	.section-shell {
-		width: min(1380px, calc(100% - clamp(40px, 8vw, 132px)));
-		margin-inline: auto;
-	}
-
-	.attention-section {
-		padding-top: clamp(110px, 14vw, 220px);
-		padding-bottom: clamp(120px, 15vw, 230px);
-	}
-
-	.section-number {
-		color: var(--blue);
-		font-size: 10px;
-		font-weight: 820;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-	}
-
-	.attention-grid {
-		display: grid;
-		grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.65fr);
-		gap: clamp(50px, 9vw, 150px);
-		margin-top: clamp(55px, 7vw, 96px);
-	}
-
-	.display-heading {
-		max-width: 960px;
-		font-size: clamp(58px, 7.3vw, 116px);
-	}
-
-	.attention-copy {
-		padding-top: 8px;
-	}
-
-	.attention-copy > p {
-		margin: 0 0 26px;
-		color: rgb(17 17 15 / 64%);
-		font-size: clamp(17px, 1.5vw, 21px);
-		letter-spacing: -0.025em;
-		line-height: 1.55;
-	}
-
-	.attention-copy > p:first-child {
-		color: var(--ink);
-		font-weight: 610;
-	}
-
-	.flow-section {
-		padding: clamp(100px, 12vw, 180px) 0;
-		background: #e8e2d6;
-	}
-
-	.flow-heading {
-		display: grid;
-		grid-template-columns: 1fr 0.42fr;
-		align-items: end;
-		gap: 80px;
-	}
-
-	.flow-heading h2,
-	.depth-copy h2,
-	.agents-copy h2,
-	.privacy-heading h2 {
-		margin-top: 30px;
-		font-size: clamp(60px, 7.6vw, 118px);
-	}
-
-	.flow-heading > p {
-		max-width: 440px;
-		margin: 0 0 4px;
-		color: rgb(17 17 15 / 61%);
-		font-size: 18px;
-		letter-spacing: -0.025em;
-		line-height: 1.55;
-	}
-
-	.flow-visual {
-		position: relative;
-		width: min(1480px, calc(100% - 32px));
-		margin: clamp(70px, 8vw, 120px) auto 0;
-		overflow: hidden;
-		border: 1px solid rgb(17 17 15 / 11%);
-		border-radius: 32px;
-		background: #f7f2e9;
-		box-shadow: 0 40px 100px rgb(55 46 29 / 12%);
-	}
-
-	.flow-visual::after {
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		box-shadow: inset 0 1px 0 rgb(255 255 255 / 72%);
-		content: '';
-		pointer-events: none;
-	}
-
-	.flow-visual img {
-		display: block;
-		width: 100%;
-		aspect-ratio: 1672 / 941;
-		object-fit: cover;
-	}
-
-	.flow-visual figcaption {
-		display: grid;
-		grid-template-columns: auto 1fr auto 1fr auto;
-		align-items: center;
-		gap: 18px;
-		padding: 18px 24px;
-		border-top: 1px solid rgb(17 17 15 / 8%);
-		background: rgb(250 247 239 / 92%);
-		color: rgb(17 17 15 / 48%);
-		font-size: 9px;
-		font-weight: 760;
-		letter-spacing: 0.09em;
-		text-transform: uppercase;
-	}
-
-	.flow-visual figcaption i {
-		height: 1px;
-		background: linear-gradient(90deg, rgb(22 77 255 / 14%), rgb(22 77 255 / 58%));
-	}
-
-	.flow-canvas {
-		position: relative;
-		display: grid;
-		width: min(1480px, calc(100% - 32px));
-		min-height: 580px;
-		grid-template-columns: 1fr 0.5fr 0.8fr 0.5fr 1fr;
-		align-items: center;
-		margin: clamp(70px, 8vw, 120px) auto 0;
-		overflow: hidden;
-		border: 1px solid rgb(255 255 255 / 8%);
-		border-radius: 32px;
-		background:
-			radial-gradient(circle at 50% 50%, rgb(29 85 255 / 20%), transparent 28%),
-			linear-gradient(145deg, #071b59, #020817 62%, #061439);
-		box-shadow: 0 40px 100px rgb(1 6 23 / 18%);
-		color: white;
-	}
-
-	.flow-noise {
-		position: absolute;
-		inset: 0;
-		background-image: radial-gradient(rgb(255 255 255 / 12%) 0.7px, transparent 0.7px);
-		background-size: 7px 7px;
-		mask-image: linear-gradient(90deg, transparent, black 45%, black 55%, transparent);
-		opacity: 0.22;
-	}
-
-	.flow-inputs {
-		position: relative;
-		z-index: 2;
-		display: grid;
-		grid-template-columns: repeat(2, minmax(110px, 1fr));
-		gap: 12px;
-		padding-left: clamp(24px, 5vw, 76px);
-	}
-
-	.mini-source {
-		display: flex;
-		min-height: 80px;
-		align-items: center;
-		gap: 11px;
-		padding: 16px;
-		border: 1px solid rgb(255 255 255 / 11%);
-		border-radius: 14px;
-		background: rgb(255 255 255 / 7%);
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		backdrop-filter: blur(12px);
-	}
-
-	.mini-source :global(svg) {
-		width: 18px;
-		color: #78a0ff;
-	}
-
-	.flow-line {
-		position: relative;
-		z-index: 2;
-		height: 1px;
-		background: linear-gradient(90deg, rgb(80 124 255 / 8%), #4b7dff);
-	}
-
-	.flow-line-out {
-		background: linear-gradient(90deg, #4b7dff, rgb(80 124 255 / 8%));
-	}
-
-	.flow-line::before,
-	.flow-line::after {
-		position: absolute;
-		top: -2px;
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: #80a3ff;
-		box-shadow: 0 0 12px #4678ff;
-		content: '';
-	}
-
-	.flow-line::before {
-		left: 15%;
-	}
-
-	.flow-line::after {
-		right: 15%;
-	}
-
-	.flow-line span {
-		position: absolute;
-		top: -1px;
-		width: 70px;
-		height: 3px;
-		background: linear-gradient(90deg, transparent, white, transparent);
-		filter: blur(1px);
-		animation: data-flow 2.4s ease-in-out infinite;
-	}
-
-	.flow-core {
-		position: relative;
-		z-index: 3;
-		display: flex;
-		align-items: center;
-		flex-direction: column;
-	}
-
-	.shortcut {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		margin-bottom: 30px;
-	}
-
-	.shortcut i {
+	.audio-player b :global(svg) {
 		width: 13px;
-		height: 1px;
-		background: rgb(255 255 255 / 26%);
 	}
 
-	.core-mark {
-		position: relative;
-		width: clamp(116px, 11vw, 150px);
-		aspect-ratio: 1;
-	}
-
-	.core-mark span {
-		position: absolute;
-		inset: -35%;
-		border-radius: 50%;
-		background: radial-gradient(circle, rgb(47 102 255 / 38%), transparent 65%);
-		animation: halo-breathe 3s ease-in-out infinite;
-	}
-
-	.flow-core > strong {
-		margin-top: 18px;
-		font-size: 21px;
-		letter-spacing: -0.04em;
-	}
-
-	.flow-core > small {
-		margin-top: 6px;
-		color: rgb(255 255 255 / 48%);
-		font-size: 10px;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-	}
-
-	.flow-output {
-		position: relative;
-		z-index: 2;
-		height: 300px;
-		margin-right: clamp(24px, 5vw, 76px);
-	}
-
-	.stack-card {
-		position: absolute;
-		inset: 0;
-		border: 1px solid rgb(255 255 255 / 12%);
-		border-radius: 18px;
-	}
-
-	.stack-back {
-		background: #0e2a73;
-		transform: translate(22px, -18px) rotate(5deg);
-	}
-
-	.stack-mid {
-		background: #274fbd;
-		transform: translate(12px, -9px) rotate(2deg);
-	}
-
-	.stack-front {
-		overflow: hidden;
-		padding: 58px 24px 24px;
-		background: #f6f3ea;
-		box-shadow: 0 20px 50px rgb(0 0 0 / 30%);
-		color: var(--ink);
-	}
-
-	.doc-toolbar {
-		position: absolute;
-		top: 0;
-		right: 0;
-		left: 0;
-		display: flex;
-		height: 38px;
-		align-items: center;
-		gap: 5px;
-		padding: 0 12px;
-		border-bottom: 1px solid rgb(17 17 15 / 9%);
-		background: #e6e1d6;
-	}
-
-	.doc-toolbar i {
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: rgb(17 17 15 / 16%);
-	}
-
-	.doc-toolbar span {
-		margin-left: auto;
-		color: rgb(17 17 15 / 45%);
-		font-size: 8px;
-		font-weight: 700;
-		letter-spacing: 0.06em;
-	}
-
-	.doc-title {
-		width: 72%;
-		height: 13px;
-		margin-bottom: 23px;
-		border-radius: 4px;
-		background: var(--ink);
-	}
-
-	.doc-line {
-		width: 72%;
-		height: 5px;
-		margin-bottom: 10px;
-		border-radius: 3px;
-		background: rgb(17 17 15 / 20%);
-	}
-
-	.doc-line.long {
-		width: 96%;
-	}
-
-	.doc-line.short {
-		width: 52%;
-	}
-
-	.doc-tag {
-		position: absolute;
-		right: 18px;
-		bottom: 18px;
-		padding: 7px 9px;
-		border: 1px solid rgb(22 77 255 / 25%);
-		border-radius: 7px;
-		background: rgb(22 77 255 / 7%);
-		color: var(--blue);
-		font-size: 7px;
-		font-weight: 850;
-		letter-spacing: 0.12em;
-	}
-
-	.steps-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		margin-top: 30px;
-		border-top: 1px solid var(--line);
-		border-left: 1px solid var(--line);
-	}
-
-	.step-card {
-		position: relative;
-		min-height: 330px;
-		padding: 30px;
-		border-right: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
-		transition:
-			background 240ms ease,
-			transform 240ms ease;
-	}
-
-	.step-card:hover {
-		z-index: 2;
-		background: #f2ede3;
-		transform: translateY(-5px);
-	}
-
-	.step-card > span {
-		color: rgb(17 17 15 / 35%);
-		font-size: 9px;
-		font-weight: 780;
-		letter-spacing: 0.12em;
-	}
-
-	.step-card h3 {
-		margin: 135px 0 9px;
-		font-size: 23px;
-		letter-spacing: -0.045em;
-	}
-
-	.step-card p {
-		max-width: 330px;
-		margin: 0;
-		color: rgb(17 17 15 / 56%);
-		font-size: 14px;
-		line-height: 1.55;
-	}
-
-	.depth-section {
-		display: grid;
-		grid-template-columns: 0.85fr 1.15fr;
-		gap: clamp(60px, 9vw, 150px);
-		align-items: center;
-		padding-top: clamp(120px, 15vw, 230px);
-		padding-bottom: clamp(120px, 15vw, 230px);
-	}
-
-	.depth-copy h2 {
-		font-size: clamp(58px, 6.8vw, 104px);
-	}
-
-	.depth-copy > p {
-		max-width: 520px;
-		margin: 34px 0 0;
-		color: rgb(17 17 15 / 60%);
-		font-size: 18px;
-		letter-spacing: -0.025em;
-		line-height: 1.6;
-	}
-
-	.listen-chip {
+	.read-report {
 		display: inline-flex;
 		align-items: center;
-		gap: 9px;
-		margin-top: 32px;
-		padding: 10px 13px;
-		border: 1px solid rgb(22 77 255 / 13%);
-		border-radius: 999px;
-		background: rgb(22 77 255 / 6%);
-		color: #173ea8;
-		font-size: 11px;
-		font-weight: 650;
+		gap: 7px;
+		color: var(--cobalt) !important;
+		font-size: 12px;
+		font-weight: 750;
 	}
 
-	.listen-chip :global(svg) {
-		width: 14px;
+	.read-report :global(svg) {
+		width: 15px;
 	}
 
-	.product-demo {
-		position: relative;
-		padding: 10px;
-		border: 1px solid rgb(17 17 15 / 16%);
-		border-radius: 25px;
-		background: #d0d1cd;
-		box-shadow:
-			0 42px 100px rgb(43 36 22 / 21%),
-			inset 0 1px 0 rgb(255 255 255 / 60%);
-		transform: rotate(1deg);
-		transition: transform 350ms ease;
-	}
-
-	.product-demo:hover {
-		transform: rotate(0);
-	}
-
-	.product-demo-toolbar {
-		display: flex;
-		height: 36px;
+	.brief-flow {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr auto 1fr;
+		gap: 28px;
 		align-items: center;
-		justify-content: space-between;
-		padding: 0 8px 0 10px;
-		color: rgb(17 17 15 / 52%);
-		font-size: 8px;
-		font-weight: 740;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
+		margin-top: clamp(64px, 8vw, 100px);
+		padding-top: 32px;
+		border-top: 1px solid rgb(255 250 241 / 16%);
 	}
 
-	.product-demo-toolbar > div {
-		display: flex;
-		align-items: center;
+	.brief-flow > div {
+		display: grid;
 		gap: 7px;
 	}
 
-	.live-dot {
-		width: 5px;
-		height: 5px;
-		border-radius: 50%;
-		background: #1a7a5c;
-		box-shadow: 0 0 0 4px rgb(26 122 92 / 12%);
-	}
-
-	.product-screenshot {
-		overflow: hidden;
-		aspect-ratio: 16 / 9;
-		border: 1px solid rgb(17 17 15 / 13%);
-		border-radius: 17px;
-		background: #aeb0ab;
-		box-shadow: 0 18px 45px rgb(30 28 22 / 18%);
-	}
-
-	.product-screenshot img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.product-depth-picker {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		gap: 6px;
-		padding: 10px 2px 1px;
-	}
-
-	.product-depth-picker button {
-		display: flex;
-		min-width: 0;
-		height: 42px;
-		align-items: center;
-		justify-content: center;
-		gap: 7px;
-		padding: 0 8px;
-		border: 1px solid transparent;
-		border-radius: 12px;
-		background: transparent;
-		color: rgb(17 17 15 / 52%);
-		font: inherit;
-		font-size: 9px;
-		font-weight: 680;
-		cursor: pointer;
-		transition:
-			background 180ms ease,
-			border-color 180ms ease,
-			color 180ms ease;
-	}
-
-	.product-depth-picker button span {
-		display: grid;
-		width: 19px;
-		height: 19px;
-		flex: 0 0 19px;
-		place-items: center;
-		border: 1px solid rgb(17 17 15 / 16%);
-		border-radius: 6px;
-		font-size: 7px;
-	}
-
-	.product-depth-picker button.active {
-		border-color: rgb(11 86 63 / 18%);
-		background: #ecece7;
-		color: #0b563f;
-	}
-
-	.product-depth-picker button.active span {
-		border-color: #0b563f;
-		background: #0b563f;
-		color: white;
-	}
-
-	.agents-section {
-		padding: clamp(110px, 14vw, 210px) 0;
-		overflow: hidden;
-		background:
-			radial-gradient(circle at 50% 72%, rgb(28 83 255 / 16%), transparent 38%),
-			#030b24;
-		color: white;
-	}
-
-	.agents-inner {
-		display: grid;
-		gap: clamp(54px, 7vw, 92px);
-	}
-
-	.agents-copy {
-		display: grid;
-		grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.55fr);
-		gap: clamp(60px, 9vw, 150px);
-		align-items: end;
-	}
-
-	.agents-heading .section-number {
-		color: #82a7ff;
-	}
-
-	.agents-heading h2 {
-		max-width: 900px;
-		font-size: clamp(58px, 6.5vw, 100px);
-	}
-
-	.agents-story > p {
-		margin: 0;
-		color: rgb(255 255 255 / 61%);
-		font-size: 17px;
-		letter-spacing: -0.02em;
-		line-height: 1.6;
-	}
-
-	.agents-story .button {
-		margin-top: 35px;
-	}
-
-	.agents-visual {
-		position: relative;
-		margin: 0;
-		overflow: hidden;
-		border: 1px solid rgb(255 255 255 / 14%);
-		border-radius: 28px;
-		background: #f4eee4;
-		box-shadow: 0 42px 110px rgb(0 0 0 / 36%);
-		isolation: isolate;
-	}
-
-	.agents-visual::after {
-		position: absolute;
-		z-index: 1;
-		inset: 0;
-		background: linear-gradient(
-			110deg,
-			transparent 35%,
-			rgb(255 255 255 / 22%) 48%,
-			transparent 61%
-		);
-		content: '';
-		pointer-events: none;
-		transform: translateX(-120%);
-		animation: workspace-glint 8s ease-in-out infinite;
-	}
-
-	.agents-visual img {
-		display: block;
-		width: 100%;
-		height: auto;
-		transition: transform 900ms cubic-bezier(0.2, 0.75, 0.2, 1);
-	}
-
-	.agents-visual:hover img {
-		transform: scale(1.012);
-	}
-
-	.agents-visual figcaption {
-		position: relative;
-		z-index: 2;
-		display: flex;
-		justify-content: space-between;
-		gap: 24px;
-		padding: 16px 20px;
-		border-top: 1px solid rgb(17 17 15 / 8%);
-		background: #f4eee4;
-		color: rgb(17 17 15 / 52%);
+	.brief-flow span {
+		color: #f07e42;
 		font-size: 10px;
-		font-weight: 680;
+		font-weight: 800;
+		letter-spacing: 0.12em;
+	}
+
+	.brief-flow b {
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 22px;
+		font-weight: 530;
+	}
+
+	.brief-flow > i {
+		width: 34px;
+		height: 1px;
+		background: rgb(255 250 241 / 24%);
+	}
+
+	.share-section {
+		display: grid;
+		grid-template-columns: 0.8fr 1.2fr;
+		gap: clamp(50px, 9vw, 135px);
+		align-items: center;
+		padding-block: clamp(95px, 11vw, 160px);
+	}
+
+	.share-card {
+		padding: clamp(28px, 5vw, 58px);
+		border: 1px solid var(--line);
+		border-radius: 18px;
+		box-shadow: 0 25px 70px rgb(16 55 45 / 10%);
+		background:
+			linear-gradient(rgb(255 250 241 / 92%), rgb(255 250 241 / 92%)),
+			repeating-linear-gradient(
+				to bottom,
+				transparent 0 31px,
+				rgb(16 55 45 / 9%) 32px
+			);
+	}
+
+	.share-card-top {
+		display: flex;
+		justify-content: space-between;
+		gap: 20px;
+		color: rgb(16 55 45 / 48%);
+		font-size: 9px;
+		font-weight: 750;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 	}
 
-	.button-light {
-		background: #e9efff;
-		color: #09236d !important;
+	.share-card-top span {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 
-	.button-light:hover {
-		box-shadow: 0 18px 40px rgb(38 88 230 / 28%);
+	.share-card-top :global(svg) {
+		width: 14px;
+		color: var(--orange);
 	}
 
-	.privacy-section {
-		padding-top: clamp(120px, 15vw, 220px);
-		padding-bottom: clamp(120px, 14vw, 210px);
+	.share-card h3 {
+		max-width: 600px;
+		margin: 54px 0 12px;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: clamp(32px, 4vw, 54px);
+		font-weight: 520;
+		letter-spacing: -0.04em;
+		line-height: 1.02;
 	}
 
-	.privacy-heading {
-		display: grid;
-		grid-template-columns: 0.32fr 1fr;
-		align-items: start;
-		gap: 60px;
-	}
-
-	.privacy-heading h2 {
-		max-width: 980px;
-		margin-top: 0;
-		font-size: clamp(58px, 7vw, 110px);
-	}
-
-	.privacy-grid {
-		display: grid;
-		grid-template-columns: repeat(3, 1fr);
-		margin-top: clamp(75px, 9vw, 130px);
-		border-top: 1px solid var(--line);
-		border-left: 1px solid var(--line);
-	}
-
-	.privacy-grid article {
-		min-height: 270px;
-		padding: 30px;
-		border-right: 1px solid var(--line);
-		border-bottom: 1px solid var(--line);
-	}
-
-	.privacy-grid h3 {
-		margin: 113px 0 12px;
-		font-size: 21px;
-		letter-spacing: -0.045em;
-	}
-
-	.privacy-grid p {
-		max-width: 320px;
+	.share-card > p {
 		margin: 0;
-		color: rgb(17 17 15 / 55%);
-		font-size: 13px;
-		line-height: 1.6;
+		color: var(--cobalt);
+		font-size: 10px;
+		font-weight: 750;
+		text-transform: uppercase;
 	}
 
-	.downloads-section {
-		padding: clamp(110px, 14vw, 210px) 0;
-		border-top: 1px solid var(--line);
-		background:
-			radial-gradient(circle at 84% 16%, rgb(22 77 255 / 12%), transparent 26%),
-			#e7e1d5;
+	.share-link {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin-top: 52px;
+		padding: 9px 9px 9px 13px;
+		border: 1px solid var(--line);
+		border-radius: 8px;
+		background: rgb(255 255 255 / 70%);
+		color: rgb(16 55 45 / 50%);
+		font-size: 10px;
 	}
 
-	.downloads-heading {
-		display: grid;
-		grid-template-columns: 0.28fr 0.8fr 0.72fr;
-		gap: clamp(30px, 5vw, 80px);
-		align-items: end;
-	}
-
-	.downloads-heading h2 {
-		margin: 0;
-		font-size: clamp(62px, 7.6vw, 118px);
-		font-weight: 820;
-		letter-spacing: -0.075em;
-		line-height: 0.87;
-	}
-
-	.downloads-heading > p {
-		max-width: 480px;
-		margin: 0 0 8px;
-		color: rgb(17 17 15 / 58%);
-		font-size: 16px;
-		letter-spacing: -0.025em;
-		line-height: 1.62;
-	}
-
-	.plan-strip {
-		display: grid;
-		width: min(820px, 100%);
-		margin-top: clamp(64px, 7vw, 100px);
-		margin-right: auto;
-		margin-left: auto;
+	.share-link span {
 		overflow: hidden;
-		border: 1px solid rgb(17 17 15 / 13%);
-		border-radius: 28px;
-		background: rgb(250 247 239 / 72%);
-		box-shadow: 0 28px 70px rgb(31 27 18 / 8%);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.share-link b {
+		flex: 0 0 auto;
+		padding: 8px 10px;
+		border-radius: 6px;
+		background: var(--forest);
+		color: var(--paper);
+		font-size: 9px;
+	}
+
+	.pricing-section {
+		padding-block: clamp(90px, 10vw, 140px);
+		background: #dfd6e3;
+	}
+
+	.pricing-inner {
+		display: grid;
+		grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+		gap: clamp(45px, 8vw, 120px);
+		align-items: start;
 	}
 
 	.plan-card {
-		min-height: 330px;
-		padding: clamp(28px, 4vw, 52px);
-	}
-
-	.plan-plus {
-		background:
-			radial-gradient(circle at 88% 12%, rgb(99 139 255 / 42%), transparent 28%),
-			linear-gradient(145deg, #0b2a83, #030d2d 78%);
-		color: white;
+		padding: clamp(25px, 4vw, 48px);
+		border: 1px solid rgb(16 55 45 / 18%);
+		border-radius: 18px;
+		box-shadow: 0 25px 70px rgb(16 55 45 / 10%);
+		background: var(--paper);
 	}
 
 	.plan-card-top {
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
-		gap: 24px;
-	}
-
-	.plan-card-top span {
-		font-size: 10px;
-		font-weight: 820;
-		letter-spacing: 0.12em;
+		gap: 20px;
+		padding-bottom: 22px;
+		border-bottom: 1px solid var(--line);
+		color: rgb(16 55 45 / 55%);
+		font-size: 11px;
+		font-weight: 750;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
 	}
 
 	.plan-card-top strong {
-		padding: 8px 11px;
-		border-radius: 999px;
-		background: rgb(22 77 255 / 9%);
-		color: #173ea8;
-		font-size: 9px;
-		letter-spacing: 0.04em;
+		color: var(--forest);
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 40px;
+		font-weight: 520;
+		letter-spacing: -0.045em;
+		line-height: 0.8;
 	}
 
-	.plan-plus .plan-card-top strong {
-		background: rgb(255 255 255 / 11%);
-		color: #c6d3ff;
+	.plan-card-top strong small {
+		font-family: 'DM Sans Variable', sans-serif;
+		font-size: 11px;
+		letter-spacing: 0;
+		text-transform: none;
 	}
 
 	.plan-card h3 {
-		max-width: 570px;
-		margin: 58px 0 0;
-		font-size: clamp(28px, 3vw, 44px);
-		letter-spacing: -0.06em;
-		line-height: 1;
+		margin: 28px 0 9px;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 30px;
+		font-weight: 520;
+		letter-spacing: -0.035em;
 	}
 
-	.plan-plus h3 {
-		margin-top: 38px;
-	}
-
-	.plan-plus-intro {
-		max-width: 540px;
-		margin: 13px 0 0;
-		color: rgb(255 255 255 / 58%);
-		font-size: 12px;
-		line-height: 1.55;
+	.plan-card > p {
+		margin: 0;
+		color: rgb(16 55 45 / 65%);
+		font-size: 13px;
 	}
 
 	.pricing-ladder {
 		display: grid;
-		margin-top: 28px;
+		grid-template-columns: repeat(4, 1fr);
+		margin-top: 25px;
 		overflow: hidden;
-		border: 1px solid rgb(255 255 255 / 12%);
-		border-radius: 16px;
-		background: rgb(255 255 255 / 4%);
+		border: 1px solid var(--line);
+		border-radius: 10px;
 	}
 
 	.pricing-ladder > div {
+		position: relative;
 		display: grid;
-		min-height: 58px;
-		grid-template-columns: minmax(0, 1fr) auto minmax(58px, auto);
-		align-items: center;
-		gap: 16px;
-		padding: 10px 13px;
-		border-bottom: 1px solid rgb(255 255 255 / 9%);
-		color: rgb(255 255 255 / 48%);
+		gap: 11px;
+		padding: 14px;
+		border-right: 1px solid var(--line);
 	}
 
 	.pricing-ladder > div:last-child {
-		border-bottom: 0;
+		border-right: 0;
 	}
 
 	.pricing-ladder > div.current {
-		background: rgb(95 139 255 / 16%);
-		color: white;
-		box-shadow: inset 3px 0 #7da0ff;
+		background: var(--forest);
+		color: var(--paper);
 	}
 
 	.pricing-ladder > div.past {
-		opacity: 0.5;
+		opacity: 0.45;
 	}
 
 	.pricing-ladder span,
@@ -2535,101 +1390,81 @@
 
 	.pricing-ladder small {
 		margin-top: 3px;
-		color: rgb(255 255 255 / 42%);
-		font-size: 9px;
+		font-size: 8px;
 		font-weight: 500;
+		opacity: 0.62;
 	}
 
-	.pricing-ladder > div > strong {
-		color: inherit;
-		font-size: 14px;
-		font-variant-numeric: tabular-nums;
+	.pricing-ladder strong {
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 21px;
+		font-weight: 550;
 	}
 
 	.pricing-ladder em {
-		min-width: 58px;
-		padding: 5px 7px;
-		border-radius: 999px;
-		background: rgb(255 255 255 / 10%);
-		color: #c8d5ff;
-		font-size: 8px;
+		position: absolute;
+		top: 9px;
+		right: 9px;
+		font-size: 7px;
 		font-style: normal;
-		font-weight: 760;
-		text-align: center;
+		font-weight: 750;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
 	}
 
 	.plan-card ul {
 		display: grid;
-		gap: 11px;
-		margin: 34px 0 0;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 12px 22px;
+		margin: 27px 0;
 		padding: 0;
-		color: rgb(17 17 15 / 57%);
-		font-size: 12px;
 		list-style: none;
-	}
-
-	.plan-plus ul {
-		color: rgb(255 255 255 / 64%);
+		font-size: 12px;
 	}
 
 	.plan-card li {
 		display: flex;
 		align-items: center;
-		gap: 9px;
+		gap: 8px;
 	}
 
 	.plan-card li :global(svg) {
 		width: 15px;
-		flex: 0 0 auto;
-		color: #0c7757;
+		color: var(--orange);
 	}
 
-	.plan-plus li :global(svg) {
-		color: #8aa9ff;
-	}
-
-	.pricing-cta {
-		display: inline-flex;
-		min-height: 48px;
+	.plan-card > button {
+		display: flex;
+		width: 100%;
+		min-height: 50px;
 		align-items: center;
 		justify-content: center;
-		gap: 10px;
-		margin-top: 27px;
-		padding: 0 18px;
+		gap: 9px;
 		border: 0;
-		border-radius: 999px;
-		background: white;
-		color: #09236d;
-		font: inherit;
-		font-size: 12px;
-		font-weight: 760;
+		border-radius: 8px;
+		background: var(--orange);
+		color: white;
 		cursor: pointer;
-		transition:
-			transform 180ms ease,
-			box-shadow 180ms ease;
+		font: inherit;
+		font-size: 13px;
+		font-weight: 750;
 	}
 
-	.pricing-cta:hover:not(:disabled) {
-		box-shadow: 0 16px 34px rgb(0 0 0 / 22%);
-		transform: translateY(-2px);
+	.plan-card > button:disabled {
+		cursor: default;
+		opacity: 0.62;
 	}
 
-	.pricing-cta:disabled {
-		cursor: not-allowed;
-		opacity: 0.55;
+	.plan-card > button :global(svg) {
+		width: 16px;
 	}
 
-	.pricing-cta :global(svg) {
-		width: 15px;
-	}
-
-	.pricing-note,
-	.pricing-message {
-		margin: 11px 0 0;
-		color: rgb(255 255 255 / 42%);
+	.plan-card .pricing-note {
+		margin-top: 14px;
+		color: rgb(16 55 45 / 48%);
 		font-size: 9px;
-		line-height: 1.5;
+		line-height: 1.55;
+		text-align: center;
 	}
 
 	.pricing-note a {
@@ -2637,737 +1472,320 @@
 		text-underline-offset: 2px;
 	}
 
-	.pricing-message {
-		color: #f8cfa7;
+	.plan-card .pricing-message {
+		margin-top: 12px;
+		color: var(--orange);
+		font-size: 11px;
+		text-align: center;
 	}
 
 	.download-gate {
 		display: grid;
-		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-columns: auto 1fr auto;
+		gap: 18px;
 		align-items: center;
-		gap: clamp(18px, 4vw, 42px);
-		margin-top: clamp(48px, 6vw, 82px);
-		padding: clamp(24px, 4vw, 38px);
-		border: 1px solid rgb(17 17 15 / 13%);
-		border-radius: 23px;
-		background: rgb(250 247 239 / 75%);
-		box-shadow: 0 20px 50px rgb(31 27 18 / 7%);
+		margin-top: 28px;
+		padding: 20px 24px;
+		border: 1px solid rgb(16 55 45 / 15%);
+		border-radius: 12px;
+		background: rgb(255 250 241 / 48%);
 	}
 
 	.download-gate > :global(svg) {
-		width: 28px;
-		color: #173ea8;
-	}
-
-	.download-gate h3,
-	.download-gate p {
-		margin: 0;
+		width: 21px;
 	}
 
 	.download-gate h3 {
-		font-size: clamp(22px, 3vw, 34px);
-		letter-spacing: -0.045em;
+		margin: 0;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 19px;
+		font-weight: 550;
 	}
 
 	.download-gate p {
-		max-width: 570px;
-		margin-top: 7px;
-		color: rgb(17 17 15 / 52%);
-		font-size: 12px;
-		line-height: 1.5;
+		margin: 3px 0 0;
+		color: rgb(16 55 45 / 60%);
+		font-size: 11px;
 	}
 
-	.download-gate .button {
-		white-space: nowrap;
+	.button-secondary {
+		min-height: 44px;
+		border: 1px solid var(--forest);
+		background: transparent;
+		color: var(--forest) !important;
 	}
 
 	.final-cta {
 		position: relative;
 		display: grid;
-		min-height: 92svh;
+		min-height: 610px;
 		place-items: center;
+		padding: 80px 24px;
 		overflow: hidden;
 		background:
-			radial-gradient(circle at 50% 50%, rgb(41 98 255 / 46%), transparent 27%),
-			linear-gradient(150deg, #092a86, #020a24 68%);
+			radial-gradient(circle at 50% 0, rgb(255 250 241 / 18%), transparent 28rem),
+			var(--orange);
 		color: white;
 		text-align: center;
 	}
 
-	.final-cta::before {
+	.final-cta::before,
+	.final-cta::after {
 		position: absolute;
-		inset: 0;
-		background-image: radial-gradient(rgb(255 255 255 / 20%) 0.65px, transparent 0.65px);
-		background-size: 9px 9px;
-		mask-image: radial-gradient(circle, black, transparent 74%);
-		content: '';
-		opacity: 0.24;
-	}
-
-	.final-orbit {
-		position: absolute;
-		border: 1px solid rgb(110 149 255 / 17%);
+		width: 360px;
+		height: 360px;
+		border: 1px solid rgb(255 255 255 / 20%);
 		border-radius: 50%;
+		content: '';
 	}
 
-	.orbit-one {
-		width: min(76vw, 1020px);
-		aspect-ratio: 1;
+	.final-cta::before {
+		top: -180px;
+		left: -120px;
 	}
 
-	.orbit-two {
-		width: min(48vw, 660px);
-		aspect-ratio: 1;
+	.final-cta::after {
+		right: -120px;
+		bottom: -190px;
 	}
 
-	.final-sources span {
-		position: absolute;
-		display: grid;
-		width: 50px;
-		height: 50px;
-		place-items: center;
-		border: 1px solid rgb(255 255 255 / 13%);
-		border-radius: 15px;
-		background: rgb(255 255 255 / 7%);
-		color: #9ab7ff;
-		backdrop-filter: blur(8px);
-		animation: float 5s ease-in-out infinite;
-	}
-
-	.final-sources span :global(svg) {
-		width: 18px;
-	}
-
-	.final-sources span:nth-child(1) {
-		top: 23%;
-		left: 13%;
-	}
-
-	.final-sources span:nth-child(2) {
-		top: 17%;
-		right: 17%;
-		animation-delay: -1.4s;
-	}
-
-	.final-sources span:nth-child(3) {
-		right: 12%;
-		bottom: 20%;
-		animation-delay: -2.8s;
-	}
-
-	.final-sources span:nth-child(4) {
-		bottom: 18%;
-		left: 17%;
-		animation-delay: -4s;
-	}
-
-	.final-content {
+	.final-cta-inner {
 		position: relative;
-		z-index: 3;
-		width: min(1000px, calc(100% - 40px));
-		padding: 80px 0;
+		z-index: 2;
+		display: grid;
+		justify-items: center;
 	}
 
-	.final-content > img {
-		width: 88px;
-		height: 88px;
-		margin-bottom: 27px;
-		filter: drop-shadow(0 20px 30px rgb(0 0 0 / 35%));
+	.final-cta img {
+		width: 54px;
+		height: 54px;
+		border-radius: 14px;
 	}
 
-	.final-content > p {
-		margin: 0 0 27px;
-		color: #9ab7ff;
-		font-size: 10px;
-		font-weight: 780;
-		letter-spacing: 0.18em;
+	.final-cta p {
+		margin: 26px 0 22px;
+		font-size: 11px;
+		font-weight: 750;
+		letter-spacing: 0.2em;
+		text-transform: uppercase;
 	}
 
-	.final-content h2 {
-		font-size: clamp(66px, 9vw, 138px);
+	.final-cta h2 {
+		font-size: clamp(58px, 7vw, 96px);
 	}
 
-	.button-white {
-		margin-top: 36px;
-		background: white;
-		color: #09236d !important;
-		box-shadow: 0 20px 50px rgb(0 0 0 / 24%);
+	.button-light {
+		margin-top: 34px;
+		background: var(--paper);
+		color: var(--forest) !important;
 	}
 
-	.final-note {
-		display: block;
+	.final-cta span {
 		margin-top: 18px;
-		color: rgb(255 255 255 / 45%);
 		font-size: 10px;
+		opacity: 0.65;
 	}
 
 	.landing-footer {
 		display: grid;
-		grid-template-columns: 1fr auto 1fr;
-		align-items: center;
+		grid-template-columns: auto 1fr auto;
 		gap: 30px;
-		padding: 28px clamp(22px, 4vw, 68px);
-		border-top: 1px solid var(--line);
-		background: #e7e1d5;
+		align-items: center;
+		padding-block: 32px;
 	}
 
-	.landing-footer p {
+	.landing-footer .landing-brand {
+		font-size: 14px;
+	}
+
+	.landing-footer .landing-brand img {
+		width: 30px;
+		height: 30px;
+		border-radius: 8px;
+	}
+
+	.landing-footer > p {
 		margin: 0;
-		color: rgb(17 17 15 / 50%);
-		font-size: 11px;
+		color: rgb(16 55 45 / 55%);
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 13px;
 	}
 
 	.landing-footer > div {
 		display: flex;
-		justify-self: end;
-		align-items: center;
-		gap: 22px;
-		color: rgb(17 17 15 / 50%);
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 15px;
+		color: rgb(16 55 45 / 62%);
 		font-size: 10px;
 	}
 
-	.reveal {
-		opacity: 0;
-		transform: translateY(34px);
-		transition:
-			opacity 800ms cubic-bezier(0.2, 0.72, 0.2, 1),
-			transform 800ms cubic-bezier(0.2, 0.72, 0.2, 1);
+	.landing-footer > div a:hover {
+		color: var(--forest);
 	}
 
-	.reveal.is-visible {
-		opacity: 1;
-		transform: translateY(0);
-	}
-
-	.steps-grid .reveal:nth-child(2),
-	.privacy-grid .reveal:nth-child(2) {
-		transition-delay: 100ms;
-	}
-
-	.steps-grid .reveal:nth-child(3),
-	.privacy-grid .reveal:nth-child(3) {
-		transition-delay: 200ms;
-	}
-
-	@keyframes halo-breathe {
-		0%,
-		100% {
-			opacity: 0.7;
-			transform: scale(0.94);
-		}
-		50% {
-			opacity: 1;
-			transform: scale(1.06);
-		}
-	}
-
-	@keyframes logo-impact {
-		0%,
-		100% {
-			transform: scale(1);
-		}
-		48% {
-			transform: scale(1.1);
-		}
-	}
-
-	@keyframes intake-ring {
-		0% {
-			opacity: 0;
-			transform: scale(0.76);
-		}
-		16% {
-			opacity: 0.55;
-		}
-		70%,
-		100% {
-			opacity: 0;
-			transform: scale(1.24);
-		}
-	}
-
-	@keyframes scroll-line {
-		0% {
-			transform: translateX(-20px);
-		}
-		100% {
-			transform: translateX(48px);
-		}
-	}
-
-	@keyframes marquee {
-		to {
-			transform: translateX(-50%);
-		}
-	}
-
-	@keyframes data-flow {
-		0% {
-			left: -35%;
-			opacity: 0;
-		}
-		25%,
-		70% {
-			opacity: 1;
-		}
-		100% {
-			left: 105%;
-			opacity: 0;
-		}
-	}
-
-	@keyframes float {
-		0%,
-		100% {
-			transform: translateY(-7px) rotate(-3deg);
-		}
-		50% {
-			transform: translateY(8px) rotate(3deg);
-		}
-	}
-
-	@keyframes workspace-glint {
-		0%,
-		52% {
-			transform: translateX(-120%);
-		}
-		72%,
-		100% {
-			transform: translateX(120%);
-		}
-	}
-
-	@media (max-width: 1050px) {
-		.attention-grid,
-		.flow-heading,
-		.depth-section {
-			grid-template-columns: 1fr;
+	@media (max-width: 1000px) {
+		.landing-nav {
+			grid-template-columns: 1fr auto;
 		}
 
-		.attention-copy,
-		.flow-heading > p,
-		.depth-copy > p {
-			max-width: 650px;
-		}
-
-		.flow-canvas {
-			grid-template-columns: 1fr 0.35fr 0.8fr 0.35fr 1fr;
-		}
-
-		.flow-visual figcaption {
-			grid-template-columns: repeat(3, 1fr);
-			gap: 12px;
-			text-align: center;
-		}
-
-		.flow-visual figcaption i {
+		.landing-nav nav {
 			display: none;
 		}
 
-		.flow-inputs {
+		.library-section,
+		.briefs-inner,
+		.share-section,
+		.pricing-inner {
 			grid-template-columns: 1fr;
 		}
 
-		.mini-source:nth-child(n + 3) {
-			display: none;
-		}
-
-		.depth-section {
-			gap: 70px;
-		}
-
-		.agents-copy {
-			grid-template-columns: 1fr;
-			gap: 42px;
-		}
-
-		.agents-story {
+		.section-copy,
+		.briefs-copy,
+		.share-copy,
+		.pricing-copy {
 			max-width: 650px;
 		}
 
-		.privacy-heading {
-			grid-template-columns: 1fr;
-			gap: 32px;
-		}
-
-		.downloads-heading {
-			grid-template-columns: 1fr;
-			align-items: start;
-		}
-
-		.downloads-heading > p {
-			margin-top: 8px;
-		}
-
-		.plan-strip {
-			grid-template-columns: 1fr;
-		}
-
-		.pwa-card {
-			grid-column: 1 / -1;
+		.brief-card {
+			max-width: 760px;
 		}
 	}
 
 	@media (max-width: 720px) {
-		.download-gate {
-			grid-template-columns: 1fr;
+		.section-shell {
+			width: min(100% - 30px, 1280px);
 		}
 
-		.download-gate .button {
-			width: 100%;
-		}
-
-		.landing-nav {
-			padding: 18px 18px;
+		.nav-sign-in {
+			display: none;
 		}
 
 		.landing-brand {
-			font-size: 16px;
+			gap: 8px;
+			font-size: 15px;
 		}
 
 		.landing-brand img {
-			width: 31px;
-			height: 31px;
-			border-radius: 9px;
-		}
-
-		.landing-nav .landing-brand img {
-			width: 42px;
-			height: 42px;
-			border-radius: 12px;
+			width: 32px;
+			height: 32px;
 		}
 
 		.nav-cta {
-			padding: 9px 13px;
+			padding: 9px 12px;
 			font-size: 11px;
 		}
 
-		.hero-scroll {
-			height: 100svh;
-			min-height: 820px;
+		.hero {
+			min-height: 650px;
+			padding: 70px 0 74px;
 		}
 
-		.hero-sticky {
-			min-height: inherit;
-			background:
-				radial-gradient(circle at 72% 70%, rgb(22 77 255 / 16%), transparent 26%),
-				linear-gradient(180deg, #fbf8f0 0%, var(--paper) 100%);
+		.hero h1 {
+			font-size: clamp(47px, 14vw, 68px);
 		}
 
 		.hero-copy {
-			top: 108px;
-			left: 18px;
-			width: calc(100% - 36px);
-		}
-
-		.hero-copy h1 {
-			font-size: clamp(48px, 14vw, 70px);
-			line-height: 0.9;
-		}
-
-		.hero-copy p {
-			max-width: 370px;
-			margin-top: 20px;
-			font-size: 14px;
+			font-size: 16px;
 		}
 
 		.hero-actions {
-			gap: 16px;
-			margin-top: 22px;
-		}
-
-		.button {
-			min-height: 46px;
-			padding: 0 17px;
-			font-size: 12px;
-		}
-
-		.hero-actions .text-link {
-			display: none;
-		}
-
-		.gather-logo {
-			width: 132px;
-		}
-
-		.source-card {
-			display: none;
-			width: 126px;
-			min-height: 102px;
-			padding: 9px;
-			border-radius: 13px;
-		}
-
-		.source-card strong {
-			margin-top: 9px;
-			font-size: 11px;
-		}
-
-		.source-card small {
-			font-size: 8px;
-		}
-
-		.source-author {
-			font-size: 8px;
-		}
-
-		.source-topline {
-			font-size: 8px;
-		}
-
-		.source-icon {
-			width: 19px;
-			height: 19px;
-		}
-
-		.sweep-status {
-			display: none;
-			right: 14px;
-			bottom: 14px;
-			left: 14px;
-			justify-content: space-between;
-		}
-
-		.sweep-hint {
-			display: none;
-		}
-
-		.scroll-cue {
-			display: none;
-		}
-
-		.section-shell {
-			width: calc(100% - 36px);
-		}
-
-		.attention-grid {
-			gap: 45px;
-			margin-top: 42px;
-		}
-
-		.display-heading,
-		.flow-heading h2,
-		.depth-copy h2,
-		.agents-copy h2,
-		.privacy-heading h2,
-		.downloads-heading h2 {
-			font-size: clamp(50px, 15vw, 72px);
-		}
-
-		.flow-canvas {
-			display: flex;
-			min-height: 780px;
 			flex-direction: column;
-			justify-content: center;
-			gap: 34px;
-			padding: 60px 24px;
+			gap: 12px;
 		}
 
-		.flow-visual {
-			width: calc(100% - 20px);
-			border-radius: 21px;
+		.source-rail {
+			margin-top: 46px;
 		}
 
-		.flow-visual img {
-			aspect-ratio: 4 / 3;
-			object-position: center;
+		.paper-shape-lavender {
+			left: -390px;
 		}
 
-		.flow-visual figcaption {
-			padding: 14px 12px;
-			font-size: 7px;
-			line-height: 1.35;
-		}
-
-		.flow-inputs {
-			display: flex;
-			width: 100%;
-			padding: 0;
-		}
-
-		.mini-source {
-			width: 50%;
-			min-height: 64px;
-			justify-content: center;
-		}
-
-		.flow-line {
-			width: 1px;
-			height: 45px;
-			background: linear-gradient(180deg, rgb(80 124 255 / 8%), #4b7dff);
-		}
-
-		.flow-line-out {
-			background: linear-gradient(180deg, #4b7dff, rgb(80 124 255 / 8%));
-		}
-
-		.flow-line::before,
-		.flow-line::after {
-			top: auto;
-			left: -2px;
-		}
-
-		.flow-line::before {
-			top: 15%;
-		}
-
-		.flow-line::after {
-			right: auto;
-			bottom: 15%;
-		}
-
-		.flow-line span {
+		.paper-shape-orange,
+		.hero-leaf {
 			display: none;
 		}
 
-		.shortcut {
-			margin-bottom: 20px;
+		.reads-ahead {
+			font-size: 18px;
 		}
 
-		.flow-output {
-			width: min(100%, 300px);
-			height: 230px;
-			margin: 0;
+		.reader-demo {
+			height: 600px;
+			border-width: 5px;
+			border-radius: 14px;
 		}
 
-		.steps-grid,
-		.privacy-grid {
+		.brief-cover {
+			grid-template-columns: 112px 1fr;
+			gap: 15px;
+		}
+
+		.brief-art {
+			min-height: 150px;
+		}
+
+		.brief-cover h3 {
+			font-size: 29px;
+		}
+
+		.audio-player b {
+			display: none;
+		}
+
+		.brief-flow {
 			grid-template-columns: 1fr;
 		}
 
-		.plan-card {
-			min-height: 315px;
-			padding: 28px 24px;
+		.brief-flow > i {
+			width: 1px;
+			height: 20px;
+			margin-left: 3px;
 		}
 
-		.plan-card h3 {
-			margin-top: 48px;
-			font-size: 31px;
+		.share-card {
+			padding: 24px;
 		}
 
-		.plan-plus h3 {
-			margin-top: 32px;
+		.share-card h3 {
+			margin-top: 40px;
 		}
 
-		.pricing-ladder > div {
-			grid-template-columns: minmax(0, 1fr) auto;
-			gap: 10px;
+		.share-link {
+			margin-top: 40px;
 		}
 
-		.pricing-ladder em {
-			display: none;
+		.pricing-ladder {
+			grid-template-columns: repeat(2, 1fr);
 		}
 
-		.pricing-cta {
-			width: 100%;
+		.pricing-ladder > div:nth-child(2) {
+			border-right: 0;
 		}
 
-		.step-card {
-			min-height: 270px;
+		.pricing-ladder > div:nth-child(-n + 2) {
+			border-bottom: 1px solid var(--line);
 		}
 
-		.step-card h3 {
-			margin-top: 100px;
+		.plan-card ul {
+			grid-template-columns: 1fr;
 		}
 
-		.depth-section {
-			padding-top: 110px;
-			padding-bottom: 110px;
+		.download-gate {
+			grid-template-columns: auto 1fr;
 		}
 
-		.product-demo {
-			padding: 6px;
-			border-radius: 16px;
-			transform: none;
-		}
-
-		.product-demo-toolbar {
-			height: 31px;
-			font-size: 7px;
-		}
-
-		.product-screenshot {
-			border-radius: 11px;
-		}
-
-		.product-depth-picker {
-			grid-template-columns: repeat(4, 1fr);
-			gap: 3px;
-			padding-top: 7px;
-		}
-
-		.product-depth-picker button {
-			height: 47px;
-			flex-direction: column;
-			gap: 4px;
-			padding: 4px 2px;
-			font-size: 7px;
-			text-align: center;
-		}
-
-		.product-depth-picker button span {
-			width: 17px;
-			height: 17px;
-			flex-basis: 17px;
-		}
-
-		.agents-inner {
-			gap: 42px;
-		}
-
-		.agents-visual {
-			border-radius: 18px;
-		}
-
-		.agents-visual img {
-			min-height: 330px;
-			object-fit: cover;
-			object-position: center;
-		}
-
-		.agents-visual figcaption {
-			flex-direction: column;
-			gap: 5px;
-			padding: 13px 15px;
-			font-size: 8px;
-		}
-
-		.privacy-grid article {
-			min-height: 240px;
-		}
-
-		.downloads-section {
-			padding: 110px 0;
-		}
-
-		.final-content h2 {
-			font-size: clamp(58px, 17vw, 82px);
-		}
-
-		.final-sources span:nth-child(1),
-		.final-sources span:nth-child(4) {
-			left: 6%;
-		}
-
-		.final-sources span:nth-child(2),
-		.final-sources span:nth-child(3) {
-			right: 6%;
+		.download-gate .button {
+			grid-column: 1 / -1;
 		}
 
 		.landing-footer {
-			grid-template-columns: 1fr auto;
+			grid-template-columns: 1fr;
 		}
 
-		.landing-footer > p {
-			display: none;
-		}
-
-		.landing-footer > div a {
-			display: none;
-		}
-
-		.landing-footer > div a.footer-legal {
-			display: inline;
+		.landing-footer > div {
+			justify-content: flex-start;
 		}
 	}
 
@@ -3380,23 +1798,7 @@
 		.landing *::before,
 		.landing *::after {
 			scroll-behavior: auto !important;
-			animation-duration: 0.01ms !important;
-			animation-iteration-count: 1 !important;
 			transition-duration: 0.01ms !important;
-		}
-
-		.reveal {
-			opacity: 1;
-			transform: none;
-		}
-
-		.intake-ring {
-			display: none;
-		}
-
-		.hero-sticky,
-		.hero-sticky * {
-			cursor: auto;
 		}
 	}
 </style>

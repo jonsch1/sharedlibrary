@@ -979,7 +979,10 @@
   ondrop={capabilities.capture ? handleFileDrop : undefined}
 />
 
-<div class="app-shell bg-background! bg-none! text-foreground! font-sans!">
+<div
+  class="app-shell bg-background! bg-none! text-foreground! font-sans!"
+  class:web-app={!capabilities.nativeSettings}
+>
   {#if capabilities.capture && draggingPDF}
     <div class="pdf-drop-overlay" role="status">
       <FileText />
