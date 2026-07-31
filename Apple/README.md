@@ -9,7 +9,7 @@ remain intact as the compatibility and product reference during the port.
   sidebar and full-height titlebar layout.
 - SQLite-canonical local library with typed document, topic, channel,
   voice-brief, and attachment records; FTS5 search; revision-checked writes;
-  and Markdown export/checkouts for interoperability.
+  and attachments stored in SQLite.
 - RSS/Atom, podcasts, Reddit, Hacker News, arXiv, ordinary pages, and
   authenticated X capture. Visible and hidden `WKWebView` instances share one
   persistent cookie store. External Safari/default-browser links are for
@@ -22,8 +22,8 @@ remain intact as the compatibility and product reference during the port.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
   the SQLite database file is never synchronized.
 - Configurable system-wide macOS clipboard capture, native File-menu actions,
-  drag-and-drop capture, light/dark/system appearance, and security-scoped
-  workspace persistence.
+  drag-and-drop capture, light/dark/system appearance, and app-local SQLite
+  persistence.
 
 ## Open and run
 
@@ -49,7 +49,8 @@ swift run briefly-migrate '/path/to/Shared Library'
 ```
 
 The importer leaves the Markdown library untouched and creates
-`.briefly/library.sqlite3`.
+`.briefly/library.sqlite3` inside the supplied legacy root. The native apps
+use their app-local SQLite database directly.
 
 ## Checks
 

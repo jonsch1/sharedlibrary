@@ -8,8 +8,11 @@ guard CommandLine.arguments.count == 2 else {
 
 do {
     let root = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
-    let workspace = WorkspaceLibrary(root: root)
-    let count = try await workspace.ingestMarkdownLibrary()
+    let databaseURL = root
+        .appending(path: ".briefly", directoryHint: .isDirectory)
+        .appending(path: "library.sqlite3")
+    let library = SQLiteLibraryStore(databaseURL: databaseURL)
+    let count = try await library.ingestMarkdownLibrary(from: root)
     print("Imported \(count) documents into \(root.path)/.briefly/library.sqlite3")
 } catch {
     FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))

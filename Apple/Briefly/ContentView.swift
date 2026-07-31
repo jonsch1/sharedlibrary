@@ -49,28 +49,26 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 final class LibraryModel {
     private static let managedAICommand =
         "briefly://openrouter/deepseek/deepseek-v4-flash"
-    private static let defaultProcessingCommand: String = {
+    private static let processingDefaultCommand: String = {
         #if os(iOS)
         managedAICommand
         #else
-        defaultWorkspaceProcessingCommand
+        defaultProcessingCommand
         #endif
     }()
     private static let processingCommandKey = "BrieflyProcessingCommand"
     private static let processingPromptKey = "BrieflyProcessingPrompt"
     private static let voiceBriefPromptKey = "BrieflyVoiceBriefPrompt"
     private static let aboutYouKey = "BrieflyAboutYou"
-    private static let agentCommandKey = "BrieflyAgentCommand"
-    private static let workspaceBookmarkKey = "BrieflyWorkspaceBookmark"
     private let backend = BrieflyBackend.shared
     private var cloud: CloudDocumentSync?
     private var started = false
-    private var workspace: WorkspaceLibrary?
-    private var securityScopedWorkspace: URL?
+    private var library: SQLiteLibraryStore?
     private var pendingProcessingIDs = [String]()
     private var pendingSync: Task<Void, Never>?
 
-    var projection = LibraryProjection.demo
+    var isReady = false
+    var projection = LibraryProjection.empty
     var activeSection = LibrarySection.briefs
     var selectedID = ""
     var selectedIDs = Set<String>()
@@ -94,29 +92,33 @@ final class LibraryModel {
     var isRunningVoiceBrief = false
     var isCheckingAccount = false
     var isTestingAI = false
-    var status = "Showing the sample library"
+    var status = "Loading library…"
     var errorMessage: String?
-    var workspacePath: String?
-    var workspaceChannels = [LibraryChannel]()
+    var libraryChannels = [LibraryChannel]()
     var topicsText = ""
     var account = BrieflyAccountStatus.signedOut
     var processingCommand =
         UserDefaults.standard.string(forKey: LibraryModel.processingCommandKey) ??
-        LibraryModel.defaultProcessingCommand
+        LibraryModel.processingDefaultCommand
     var processingPrompt =
         UserDefaults.standard.string(forKey: LibraryModel.processingPromptKey) ??
-        defaultWorkspaceProcessingPrompt
+        defaultProcessingPrompt
     var voiceBriefPrompt =
         UserDefaults.standard.string(forKey: LibraryModel.voiceBriefPromptKey) ??
         defaultVoiceBriefPrompt
     var aboutYou =
         UserDefaults.standard.string(forKey: LibraryModel.aboutYouKey) ?? ""
-    var agentCommand =
-        UserDefaults.standard.string(forKey: LibraryModel.agentCommandKey) ??
-        "/usr/bin/open -a ChatGPT {{workspace}}"
 
     var canEdit: Bool {
-        workspace != nil
+        library != nil
+    }
+
+    private static var cloudKitAvailable: Bool {
+        FileManager.default.fileExists(
+            atPath: Bundle.main.bundleURL
+                .appending(path: "_CodeSignature/CodeResources")
+                .path
+        )
     }
 
     var usesManagedAI: Bool {
@@ -178,7 +180,7 @@ final class LibraryModel {
     }
 
     var channels: [LibraryChannel] {
-        if workspace != nil { return workspaceChannels }
+        if library != nil { return libraryChannels }
         return projection.channelSources.map {
             LibraryChannel(source: $0, title: channelTitle($0))
         }
@@ -208,147 +210,63 @@ final class LibraryModel {
         guard !started else { return }
         started = true
         let usesDemo = ProcessInfo.processInfo.arguments.contains("--demo")
-        if
-            !usesDemo,
-            let bookmark = UserDefaults.standard.data(
-                forKey: Self.workspaceBookmarkKey
-            ),
-            let url = resolveWorkspaceBookmark(bookmark)
-        {
-            await openWorkspace(url)
-            if workspace != nil {
-                await refreshAccount()
-                await runDueVoiceBriefs()
-                return
-            }
-        }
-        #if os(macOS)
-        if
-            !usesDemo,
-            let path = UserDefaults.standard.string(forKey: "BrieflyWorkspacePath")
-        {
-            await openWorkspace(URL(fileURLWithPath: path))
-            if workspace != nil {
-                await refreshAccount()
-                await runDueVoiceBriefs()
-                return
-            }
-        }
-        #endif
-        if !usesDemo {
-            let local = FileManager.default
+        if usesDemo {
+            projection = .demo
+            status = "Showing the sample library"
+        } else {
+            let directory = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appending(path: "Briefly", directoryHint: .isDirectory)
-            await openWorkspace(local)
+            let current = directory.appending(path: "library.sqlite3")
+            let legacy = directory
+                .appending(path: ".briefly", directoryHint: .isDirectory)
+                .appending(path: "library.sqlite3")
+            let databaseURL = FileManager.default.fileExists(atPath: current.path)
+                ? current
+                : FileManager.default.fileExists(atPath: legacy.path) ? legacy : current
+            await openLibrary(databaseURL: databaseURL)
         }
         await selectInitialContent()
         await refreshAccount()
         await runDueVoiceBriefs()
     }
 
-    func openWorkspace(_ url: URL) async {
-        let workspaceURL = url.standardizedFileURL
-        if workspaceURL.startAccessingSecurityScopedResource() {
-            securityScopedWorkspace?.stopAccessingSecurityScopedResource()
-            securityScopedWorkspace = workspaceURL
-        }
+    func openLibrary(databaseURL: URL) async {
         do {
-            let next = WorkspaceLibrary(root: workspaceURL)
+            let next = SQLiteLibraryStore(databaseURL: databaseURL)
             projection = try await next.loadProjection()
-            workspaceChannels = try await next.loadChannels()
+            libraryChannels = try await next.loadChannels()
             highlightsText = try await next.loadHighlights()
             topicsText = try await next.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
-            workspace = next
-            cloud = try CloudDocumentSync(
-                store: await next.documentDatabase(),
-                containerIdentifier: "iCloud.fyi.readbriefly"
-            )
-            workspacePath = workspaceURL.path
-            status = "Opened \(workspaceURL.lastPathComponent)"
-            UserDefaults.standard.set(workspaceURL.path, forKey: "BrieflyWorkspacePath")
-            if let bookmark = try? workspaceBookmark(for: workspaceURL) {
-                UserDefaults.standard.set(bookmark, forKey: Self.workspaceBookmarkKey)
-            }
+            library = next
+            let database = try await next.documentDatabase()
+            cloud = Self.cloudKitAvailable
+                ? CloudDocumentSync(
+                    store: database,
+                    containerIdentifier: "iCloud.fyi.readbriefly"
+                )
+                : nil
+            status = "Opened local SQLite library"
             await selectInitialContent()
-            #if os(iOS)
+            isReady = true
             await sync()
-            #endif
         } catch {
-            workspace = nil
-            workspaceChannels = []
-            workspacePath = nil
+            library = nil
+            libraryChannels = []
+            isReady = true
             errorMessage = error.localizedDescription
         }
     }
 
-    #if os(macOS)
-    func chooseWorkspace() {
-        let panel = NSOpenPanel()
-        panel.title = "Choose Briefly Workspace"
-        panel.message = "Choose the folder that contains your Briefly database."
-        panel.prompt = "Choose"
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = workspacePath.map(URL.init(fileURLWithPath:))
-        panel.begin { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            Task { @MainActor [weak self] in
-                await self?.openWorkspace(url)
-            }
-        }
-    }
-    #endif
-
-    private func workspaceBookmark(for url: URL) throws -> Data {
-        #if os(macOS)
-        try url.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-        #else
-        try url.bookmarkData(
-            options: .minimalBookmark,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-        #endif
-    }
-
-    private func resolveWorkspaceBookmark(_ data: Data) -> URL? {
-        var stale = false
-        #if os(macOS)
-        let options = URL.BookmarkResolutionOptions.withSecurityScope
-        #else
-        let options: URL.BookmarkResolutionOptions = []
-        #endif
-        guard
-            let url = try? URL(
-                resolvingBookmarkData: data,
-                options: options,
-                relativeTo: nil,
-                bookmarkDataIsStale: &stale
-            )
-        else {
-            return nil
-        }
-        if stale, let bookmark = try? workspaceBookmark(for: url) {
-            UserDefaults.standard.set(bookmark, forKey: Self.workspaceBookmarkKey)
-        }
-        return url
-    }
-
-    func refreshWorkspace(selecting entryID: String? = nil) async {
-        guard let workspace else { return }
+    func refreshLibrary(selecting entryID: String? = nil) async {
+        guard let library else { return }
         do {
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
-            highlightsText = try await workspace.loadHighlights()
-            topicsText = try await workspace.topicDefinitions()
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
+            highlightsText = try await library.loadHighlights()
+            topicsText = try await library.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
             status = "Refreshed the local database"
@@ -359,7 +277,7 @@ final class LibraryModel {
     }
 
     func capture(_ text: String) async {
-        guard let workspace else {
+        guard let library else {
             errorMessage = "Open a Briefly library before capturing."
             return
         }
@@ -378,14 +296,14 @@ final class LibraryModel {
             if let url {
                 status = "Extracting the signed-in page…"
                 do {
-                    id = try await ingestURL(url, in: workspace)
+                    id = try await ingestURL(url, in: library)
                 } catch {
-                    id = try await workspace.capture(trimmed)
+                    id = try await library.capture(trimmed)
                 }
             } else {
-                id = try await workspace.capture(trimmed)
+                id = try await library.capture(trimmed)
             }
-            await refreshWorkspace(selecting: id)
+            await refreshLibrary(selecting: id)
             activeSection = .items
             status = "Captured. Preparing summaries…"
             isIngesting = false
@@ -404,14 +322,14 @@ final class LibraryModel {
     }
 
     func captureWebPage(url: URL, page: SignedInChannelPage) async {
-        guard let workspace else {
+        guard let library else {
             errorMessage = "Open a Briefly library before saving web pages."
             return
         }
         isIngesting = true
         defer { isIngesting = false }
         do {
-            let id = try await workspace.captureWebPage(
+            let id = try await library.captureWebPage(
                 title: page.title,
                 content: page.text,
                 sourceURL: url,
@@ -419,7 +337,7 @@ final class LibraryModel {
                 faviconData: page.faviconData,
                 faviconFileExtension: page.faviconFileExtension
             )
-            await refreshWorkspace(selecting: id)
+            await refreshLibrary(selecting: id)
             status = "Saved the signed-in page. Preparing summaries…"
             isIngesting = false
             await enqueueProcessing(id)
@@ -430,8 +348,8 @@ final class LibraryModel {
     }
 
     func capturePDF(_ url: URL) async {
-        guard let workspace else {
-            errorMessage = "Choose a local Briefly workspace before importing a PDF."
+        guard let library else {
+            errorMessage = "Choose a local Briefly library before importing a PDF."
             return
         }
         isIngesting = true
@@ -451,11 +369,11 @@ final class LibraryModel {
             PDFDocumentAttribute.titleAttribute
         ] as? String ?? url.deletingPathExtension().lastPathComponent
         do {
-            let entryID = try await workspace.captureDocument(
+            let entryID = try await library.captureDocument(
                 title: title,
                 content: text
             )
-            await refreshWorkspace(selecting: entryID)
+            await refreshLibrary(selecting: entryID)
             status = "PDF captured. Preparing summaries…"
             isIngesting = false
             await enqueueProcessing(entryID)
@@ -470,14 +388,14 @@ final class LibraryModel {
         entryID: String,
         variant: LibraryVariant
     ) async {
-        guard let workspace, !entryID.isEmpty else { return }
+        guard let library, !entryID.isEmpty else { return }
         do {
-            try await workspace.writeText(
+            try await library.writeText(
                 entryID: entryID,
                 variant: variant,
                 text: text
             )
-            projection = try await workspace.loadProjection()
+            projection = try await library.loadProjection()
             if selectedID == entryID, selectedVariant == variant {
                 selectedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -489,14 +407,14 @@ final class LibraryModel {
     }
 
     func addHighlight(_ text: String) async {
-        guard let workspace, !selectedID.isEmpty else { return }
+        guard let library, !selectedID.isEmpty else { return }
         do {
-            try await workspace.addHighlight(
+            try await library.addHighlight(
                 entryID: selectedID,
                 variant: selectedVariant,
                 text: text
             )
-            highlightsText = try await workspace.loadHighlights()
+            highlightsText = try await library.loadHighlights()
             status = "Added to Highlights"
             requestSync()
         } catch {
@@ -505,10 +423,10 @@ final class LibraryModel {
     }
 
     func removeHighlight(_ text: String) async {
-        guard let workspace else { return }
+        guard let library else { return }
         do {
-            guard try await workspace.removeHighlight(text) else { return }
-            highlightsText = try await workspace.loadHighlights()
+            guard try await library.removeHighlight(text) else { return }
+            highlightsText = try await library.loadHighlights()
             status = "Removed from Highlights"
             requestSync()
         } catch {
@@ -533,16 +451,16 @@ final class LibraryModel {
     }
 
     func trashSelected() async {
-        guard let workspace else { return }
+        guard let library else { return }
         let ids = selectedEntryIDs(fallback: selectedID)
         guard !ids.isEmpty else { return }
         do {
             for id in ids {
-                try await workspace.moveToTrash(entryID: id)
+                try await library.moveToTrash(entryID: id)
             }
             selectedID = ""
             selectedIDs = []
-            await refreshWorkspace()
+            await refreshLibrary()
             status = ids.count == 1
                 ? "The document and its summaries were moved to Trash"
                 : "\(ids.count) documents and their summaries were moved to Trash"
@@ -554,14 +472,14 @@ final class LibraryModel {
 
     @discardableResult
     func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
-        guard let workspace else {
+        guard let library else {
             errorMessage = "Open a Briefly library before editing voice briefs."
             return nil
         }
         do {
-            let id = try await workspace.saveVoiceBrief(draft)
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            let id = try await library.saveVoiceBrief(draft)
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             activeSection = .briefs
             selectedID = ""
             selectedIDs = []
@@ -578,16 +496,16 @@ final class LibraryModel {
 
     func trashSelectedVoiceBrief() async {
         guard
-            let workspace,
+            let library,
             !selectedVoiceBriefID.isEmpty,
             selectedVoiceBriefID != "new"
         else {
             return
         }
         do {
-            try await workspace.moveVoiceBriefToTrash(id: selectedVoiceBriefID)
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            try await library.moveVoiceBriefToTrash(id: selectedVoiceBriefID)
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             selectedVoiceBriefID = projection.voiceBriefDefinitions.first?.id ?? ""
             selectedID = ""
             selectedIDs = []
@@ -598,34 +516,18 @@ final class LibraryModel {
         }
     }
 
-    func selectedVoiceBriefFileURL() async -> URL? {
-        guard
-            let workspace,
-            !selectedVoiceBriefID.isEmpty,
-            selectedVoiceBriefID != "new"
-        else {
-            return nil
-        }
-        do {
-            return try await workspace.voiceBriefFileURL(id: selectedVoiceBriefID)
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
     func addChannel(_ source: String) async {
-        guard let workspace else {
+        guard let library else {
             errorMessage = "Open a Briefly library before adding channels."
             return
         }
         do {
-            try await workspace.addChannel(source)
-            workspaceChannels = try await workspace.loadChannels()
-            guard let added = workspaceChannels.first(where: {
+            try await library.addChannel(source)
+            libraryChannels = try await library.loadChannels()
+            guard let added = libraryChannels.first(where: {
                 $0.source == source.trimmingCharacters(in: .whitespacesAndNewlines)
             }) else {
-                throw WorkspaceError.missingChannel
+                throw LibraryError.missingChannel
             }
             selectedChannelSource = added.source
             expandedChannelSources.insert(added.source)
@@ -636,13 +538,13 @@ final class LibraryModel {
     }
 
     func updateSelectedChannel(retrievalCount: Int) async {
-        guard let workspace, let channel = selectedChannel else { return }
+        guard let library, let channel = selectedChannel else { return }
         do {
-            try await workspace.updateChannel(
+            try await library.updateChannel(
                 channel.source,
                 retrievalCount: retrievalCount
             )
-            workspaceChannels = try await workspace.loadChannels()
+            libraryChannels = try await library.loadChannels()
             status = "Channel settings saved"
         } catch {
             errorMessage = error.localizedDescription
@@ -651,7 +553,7 @@ final class LibraryModel {
 
     func checkSelectedChannel(loadMore: Bool = false) async {
         guard
-            let workspace,
+            let library,
             let channel = selectedChannel,
             !isCheckingChannel
         else {
@@ -663,12 +565,12 @@ final class LibraryModel {
         do {
             let result: LibraryChannelRefresh
             result = try await retrieveChannel(
-                workspace,
+                library,
                 source: channel.source,
                 loadMore: loadMore
             )
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             selectedChannelSource = result.channel.source
             expandedChannelSources.insert(result.channel.source)
             status = result.newEntryIDs.isEmpty
@@ -684,13 +586,13 @@ final class LibraryModel {
     }
 
     func removeSelectedChannel() async {
-        guard let workspace, let channel = selectedChannel else { return }
+        guard let library, let channel = selectedChannel else { return }
         do {
-            try await workspace.removeChannel(channel.source)
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            try await library.removeChannel(channel.source)
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             expandedChannelSources.remove(channel.source)
-            selectedChannelSource = workspaceChannels.first?.source ?? ""
+            selectedChannelSource = libraryChannels.first?.source ?? ""
             selectedID = ""
             selectedIDs = []
             status = "Channel removed"
@@ -701,7 +603,7 @@ final class LibraryModel {
 
     func checkSelectedVoiceBriefChannels() async {
         guard
-            let workspace,
+            let library,
             let brief = selectedVoiceBrief,
             !isRunningVoiceBrief
         else {
@@ -714,11 +616,11 @@ final class LibraryModel {
                 (brief.sources.count == 1 ? "channel…" : "channels…")
             var newEntryIDs = [String]()
             for source in brief.sources {
-                let result = try await retrieveChannel(workspace, source: source)
+                let result = try await retrieveChannel(library, source: source)
                 newEntryIDs += result.newEntryIDs
             }
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             for entryID in newEntryIDs {
                 await enqueueProcessing(entryID)
             }
@@ -737,16 +639,16 @@ final class LibraryModel {
     }
 
     func runDueVoiceBriefs() async {
-        guard let workspace, !isRunningVoiceBrief else { return }
+        guard let library, !isRunningVoiceBrief else { return }
         do {
-            let due = try await workspace.dueVoiceBriefIDs()
+            let due = try await library.dueVoiceBriefIDs()
             for id in due {
                 guard let brief = projection.voiceBriefDefinitions.first(where: {
                     $0.id == id
                 }) else {
                     continue
                 }
-                try await workspace.markVoiceBriefAttempt(id: id)
+                try await library.markVoiceBriefAttempt(id: id)
                 await generateVoiceBrief(
                     brief,
                     selectEpisode: false,
@@ -763,7 +665,7 @@ final class LibraryModel {
         selectEpisode: Bool,
         reportErrors: Bool
     ) async {
-        guard let workspace, !isRunningVoiceBrief else { return }
+        guard let library, !isRunningVoiceBrief else { return }
         isRunningVoiceBrief = true
         defer { isRunningVoiceBrief = false }
         let audioURL = FileManager.default.temporaryDirectory.appending(
@@ -775,19 +677,19 @@ final class LibraryModel {
             var newEntryIDs = [String]()
             for source in brief.sources {
                 newEntryIDs += try await retrieveChannel(
-                    workspace,
+                    library,
                     source: source
                 ).newEntryIDs
             }
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             for entryID in newEntryIDs {
                 await enqueueProcessing(entryID)
             }
             status = "Writing \(brief.title)…"
             let episode: LibraryVoiceBriefEpisodeResult
             if usesManagedAI {
-                episode = try await workspace.runVoiceBrief(
+                episode = try await library.runVoiceBrief(
                     id: brief.id,
                     command: processingCommand,
                     promptTemplate: voiceBriefPrompt,
@@ -799,7 +701,7 @@ final class LibraryModel {
                     )
                 }
             } else {
-                episode = try await workspace.runVoiceBrief(
+                episode = try await library.runVoiceBrief(
                     id: brief.id,
                     command: processingCommand,
                     promptTemplate: voiceBriefPrompt,
@@ -811,9 +713,9 @@ final class LibraryModel {
                 spokenVoiceBriefText(episode.script),
                 to: audioURL
             )
-            try await workspace.attachAudio(entryID: episode.entryID, file: audioURL)
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
+            try await library.attachAudio(entryID: episode.entryID, file: audioURL)
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
             expandedVoiceBriefIDs.insert(brief.id)
             if selectEpisode {
                 selectedVoiceBriefID = brief.id
@@ -833,70 +735,6 @@ final class LibraryModel {
     func processSelected() async {
         guard !selectedID.isEmpty else { return }
         await enqueueProcessing(selectedID)
-    }
-
-    func openAgent() {
-        guard let workspacePath else {
-            errorMessage = "Open a Briefly library before opening an agent."
-            return
-        }
-        #if os(macOS)
-        let normalized = agentCommand.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        if normalized.hasPrefix("claude://") {
-            let encoded = workspacePath.addingPercentEncoding(
-                withAllowedCharacters: .urlQueryAllowed
-            ) ?? workspacePath
-            guard let url = URL(
-                string: normalized.replacingOccurrences(
-                    of: "{{workspace}}",
-                    with: encoded
-                )
-            ) else {
-                errorMessage = "The agent URL is invalid."
-                return
-            }
-            NSWorkspace.shared.open(url)
-            status = "Opened the agent at the library workspace"
-            return
-        }
-        if normalized == "/usr/bin/open -a ChatGPT {{workspace}}" {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-a", "ChatGPT", workspacePath]
-            do {
-                try process.run()
-                status = "Opened ChatGPT at the library workspace"
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            return
-        }
-        let quotedWorkspace =
-            "'\(workspacePath.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
-        let command = (normalized.contains("{{workspace}}")
-            ? normalized
-            : "cd {{workspace}} && \(normalized)")
-            .replacingOccurrences(of: "{{workspace}}", with: quotedWorkspace)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        let script = """
-        tell application "Terminal"
-          activate
-          do script "\(appleScriptEscaped(command))"
-        end tell
-        """
-        process.arguments = ["-e", script]
-        do {
-            try process.run()
-            status = "Opened the agent at the library workspace"
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        #else
-        UIApplication.shared.open(URL(string: "https://chatgpt.com")!)
-        #endif
     }
 
     func saveProcessingSettings() {
@@ -927,19 +765,6 @@ final class LibraryModel {
         status = "AI processing settings saved"
     }
 
-    func saveAgentSettings() {
-        let command = agentCommand.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        guard !command.isEmpty, command.count <= 4_000 else {
-            errorMessage = "The agent command must contain 1–4,000 characters."
-            return
-        }
-        agentCommand = command
-        UserDefaults.standard.set(command, forKey: Self.agentCommandKey)
-        status = "Agent settings saved"
-    }
-
     func testProcessingCommand() async {
         guard !isTestingAI else { return }
         isTestingAI = true
@@ -951,13 +776,13 @@ final class LibraryModel {
                 output = try await backend.runManagedAI(prompt: prompt, format: "text")
             } else {
                 #if os(macOS)
-                output = try await runWorkspaceProcessingCommand(
+                output = try await runProcessingCommand(
                     processingCommand,
                     prompt: prompt,
                     timeout: 60
                 )
                 #else
-                throw WorkspaceError.processingUnavailable
+                throw LibraryError.processingUnavailable
                 #endif
             }
             guard output.localizedCaseInsensitiveContains("Briefly is ready") else {
@@ -972,7 +797,7 @@ final class LibraryModel {
     func useManagedAI(_ enabled: Bool) {
         processingCommand = enabled
             ? Self.managedAICommand
-            : defaultWorkspaceProcessingCommand
+            : defaultProcessingCommand
     }
 
     func savePersonalizationSettings() {
@@ -1001,7 +826,7 @@ final class LibraryModel {
     }
 
     func saveTopics() async {
-        guard let workspace else { return }
+        guard let library else { return }
         do {
             let definitions = try topicsText
                 .components(separatedBy: .newlines)
@@ -1020,10 +845,10 @@ final class LibraryModel {
                             .trimmingCharacters(in: .whitespaces)
                     )
                 }
-            let saved = try await workspace.replaceTopicDefinitions(definitions)
+            let saved = try await library.replaceTopicDefinitions(definitions)
             topicsText = saved.map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
-            projection = try await workspace.loadProjection()
+            projection = try await library.loadProjection()
             status = "Topics saved"
             requestSync()
         } catch {
@@ -1064,12 +889,7 @@ final class LibraryModel {
         guard let captureID = entry.captureID else {
             throw BrieflyBackendError.message("This document cannot be published.")
         }
-        let filename: String
-        if let workspace {
-            filename = try await workspace.fileURL(entryID: entry.id).lastPathComponent
-        } else {
-            filename = "\(captureID).md"
-        }
+        let filename = captureID
         var texts = [BrieflyShareSource.Text]()
         for reference in entry.texts where reference.variant != .source {
             let markdown = (reference.text ?? "")
@@ -1115,53 +935,10 @@ final class LibraryModel {
         try await backend.revokeShare(token: token)
     }
 
-    func selectedFileURL() async -> URL? {
-        guard let workspace, !selectedID.isEmpty else { return nil }
-        do {
-            return try await workspace.fileURL(entryID: selectedID)
-        } catch {
-            errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
-    func copyFilePaths(for entryID: String) async {
-        guard let workspace else { return }
-        do {
-            var paths = [String]()
-            for id in selectedEntryIDs(fallback: entryID) {
-                paths.append(try await workspace.fileURL(entryID: id).path)
-            }
-            #if os(macOS)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
-            #else
-            UIPasteboard.general.string = paths.joined(separator: "\n")
-            #endif
-            status = paths.count == 1 ? "Path copied" : "\(paths.count) paths copied"
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func selectedFileURLs(for entryID: String) async -> [URL] {
-        guard let workspace else { return [] }
-        do {
-            var urls = [URL]()
-            for id in selectedEntryIDs(fallback: entryID) {
-                urls.append(try await workspace.fileURL(entryID: id))
-            }
-            return urls
-        } catch {
-            errorMessage = error.localizedDescription
-            return []
-        }
-    }
-
     func audioURL(for entryID: String) async -> URL? {
         do {
-            if let workspace {
-                return try await workspace.audioURL(entryID: entryID)
+            if let library {
+                return try await library.audioURL(entryID: entryID)
             }
             return nil
         } catch {
@@ -1171,8 +948,8 @@ final class LibraryModel {
     }
 
     func faviconURL(for entryID: String) async -> URL? {
-        if let workspace {
-            return try? await workspace.faviconURL(entryID: entryID)
+        if let library {
+            return try? await library.faviconURL(entryID: entryID)
         }
         return nil
     }
@@ -1283,17 +1060,19 @@ final class LibraryModel {
             syncTotal = 0
         }
         do {
-            guard let workspace, let cloud else {
-                throw NativeLibraryError.emptyICloudLibrary
+            guard let library else { return }
+            guard let cloud else {
+                status = "Using the local SQLite library"
+                return
             }
             guard try await cloud.accountStatus() == .available else {
                 throw NativeLibraryError.iCloudUnavailable
             }
             status = "Synchronizing records…"
             try await cloud.synchronize()
-            projection = try await workspace.loadProjection()
-            workspaceChannels = try await workspace.loadChannels()
-            highlightsText = try await workspace.loadHighlights()
+            projection = try await library.loadProjection()
+            libraryChannels = try await library.loadChannels()
+            highlightsText = try await library.loadHighlights()
             status = "Everything is up to date"
             await restoreSelection()
         } catch {
@@ -1330,18 +1109,18 @@ final class LibraryModel {
     }
 
     private func retrieveChannel(
-        _ workspace: WorkspaceLibrary,
+        _ library: SQLiteLibraryStore,
         source: String,
         loadMore: Bool = false
     ) async throws -> LibraryChannelRefresh {
         let ingest: @Sendable (LibraryChannelCandidate) async throws -> String = {
             candidate in
             guard let url = URL(string: candidate.url) else {
-                throw WorkspaceError.invalidChannel
+                throw LibraryError.invalidChannel
             }
             return try await self.ingestURL(
                 url,
-                in: workspace,
+                in: library,
                 candidate: candidate,
                 asVoiceBriefSource: true
             )
@@ -1349,11 +1128,11 @@ final class LibraryModel {
         let host = URL(string: source)?.host?.lowercased() ?? ""
         if host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com") {
             guard let url = URL(string: source) else {
-                throw WorkspaceError.invalidChannel
+                throw LibraryError.invalidChannel
             }
             let page = try await ChannelBrowserSession.shared.extractPage(from: url)
             if !page.items.isEmpty {
-                return try await workspace.captureSignedInChannelItems(
+                return try await library.captureSignedInChannelItems(
                     source: source,
                     title: page.title,
                     items: page.items.map {
@@ -1368,7 +1147,7 @@ final class LibraryModel {
                     ingest: ingest
                 )
             }
-            return try await workspace.captureSignedInChannelPage(
+            return try await library.captureSignedInChannelPage(
                 source: source,
                 title: page.title,
                 content: page.text,
@@ -1376,20 +1155,20 @@ final class LibraryModel {
             )
         }
         if loadMore {
-            return try await workspace.loadMoreChannel(source, ingest: ingest)
+            return try await library.loadMoreChannel(source, ingest: ingest)
         }
-        return try await workspace.checkChannel(source, ingest: ingest)
+        return try await library.checkChannel(source, ingest: ingest)
     }
 
     private func ingestURL(
         _ url: URL,
-        in workspace: WorkspaceLibrary,
+        in library: SQLiteLibraryStore,
         candidate: LibraryChannelCandidate? = nil,
         asVoiceBriefSource: Bool = false
     ) async throws -> String {
         do {
             let page = try await ChannelBrowserSession.shared.extractPage(from: url)
-            return try await workspace.captureWebPage(
+            return try await library.captureWebPage(
                 title: page.title,
                 content: page.text,
                 sourceURL: url,
@@ -1406,7 +1185,7 @@ final class LibraryModel {
             else {
                 throw error
             }
-            return try await workspace.captureWebPage(
+            return try await library.captureWebPage(
                 title: candidate.title,
                 content: candidate.content,
                 sourceURL: url,
@@ -1416,10 +1195,10 @@ final class LibraryModel {
     }
 
     private func process(_ entryID: String) async {
-        guard let workspace else { return }
+        guard let library else { return }
         do {
             status = "Preparing summaries…"
-            let prompt = try await workspace.processingPrompt(
+            let prompt = try await library.processingPrompt(
                 entryID: entryID,
                 template: processingPrompt
             )
@@ -1431,20 +1210,20 @@ final class LibraryModel {
                 )
             } else {
                 #if os(macOS)
-                output = try await runWorkspaceProcessingCommand(
+                output = try await runProcessingCommand(
                     processingCommand,
                     prompt: prompt
                 )
                 #else
-                throw WorkspaceError.processingUnavailable
+                throw LibraryError.processingUnavailable
                 #endif
             }
-            let suggestion = try WorkspaceProcessingSuggestion.decode(output)
-            let processedID = try await workspace.applyProcessingSuggestion(
+            let suggestion = try ProcessingSuggestion.decode(output)
+            let processedID = try await library.applyProcessingSuggestion(
                 entryID: entryID,
                 suggestion: suggestion
             )
-            await refreshWorkspace(selecting: processedID)
+            await refreshLibrary(selecting: processedID)
             status = "Summaries ready"
             requestSync()
         } catch {
@@ -1526,8 +1305,8 @@ final class LibraryModel {
     }
 
     private func loadHighlights() async {
-        if let workspace {
-            highlightsText = (try? await workspace.loadHighlights()) ?? ""
+        if let library {
+            highlightsText = (try? await library.loadHighlights()) ?? ""
             return
         }
         highlightsText = ""
@@ -1695,7 +1474,6 @@ struct ContentView: View {
     @Bindable var model: LibraryModel
     @State private var showsChannelBrowser = false
     @State private var showsSettings = false
-    @State private var showsWorkspaceImporter = false
     @State private var showsPDFImporter = false
     @State private var sidebarVisible = true
     @State private var windowControlsVisible = true
@@ -1706,13 +1484,13 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            #if os(macOS)
-            HStack(spacing: 6) {
+            if model.isReady {
+                #if os(macOS)
+                HStack(spacing: 6) {
                 if sidebarVisible {
                     LibrarySidebar(
                         model: model,
                         showsSettings: $showsSettings,
-                        showsWorkspaceImporter: $showsWorkspaceImporter,
                         sidebarVisible: $sidebarVisible,
                         reservesWindowControls: windowControlsVisible
                     )
@@ -1744,35 +1522,38 @@ struct ContentView: View {
                         .help("Show sidebar")
                     }
                 }
+                }
+                .padding(6)
+                .background(appBackground)
+                .ignoresSafeArea(.container, edges: .top)
+                .background(
+                    WindowControlPositioner(
+                        x: 10,
+                        y: -12,
+                        controlsVisible: $windowControlsVisible
+                    )
+                )
+                #else
+                NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+                    LibrarySidebar(
+                        model: model,
+                        showsSettings: $showsSettings,
+                        sidebarVisible: .constant(true),
+                        onOpenDetail: { preferredCompactColumn = .detail }
+                    )
+                    .navigationSplitViewColumnWidth(min: 285, ideal: 326)
+                } detail: {
+                    LibraryDetail(
+                        model: model,
+                        showsChannelBrowser: $showsChannelBrowser,
+                        audioPlayer: audioPlayer
+                    )
+                }
+                #endif
+            } else {
+                ProgressView(model.status)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(6)
-            .background(appBackground)
-            .ignoresSafeArea(.container, edges: .top)
-            .background(
-                WindowControlPositioner(
-                    x: 10,
-                    y: -12,
-                    controlsVisible: $windowControlsVisible
-                )
-            )
-            #else
-            NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-                LibrarySidebar(
-                    model: model,
-                    showsSettings: $showsSettings,
-                    showsWorkspaceImporter: $showsWorkspaceImporter,
-                    sidebarVisible: .constant(true),
-                    onOpenDetail: { preferredCompactColumn = .detail }
-                )
-                .navigationSplitViewColumnWidth(min: 285, ideal: 326)
-            } detail: {
-                LibraryDetail(
-                    model: model,
-                    showsChannelBrowser: $showsChannelBrowser,
-                    audioPlayer: audioPlayer
-                )
-            }
-            #endif
         }
         .task { await model.start() }
         .task {
@@ -1809,17 +1590,6 @@ struct ContentView: View {
             SettingsView(
                 model: model
             )
-        }
-        .fileImporter(
-            isPresented: $showsWorkspaceImporter,
-            allowedContentTypes: [.folder]
-        ) { result in
-            switch result {
-            case .success(let url):
-                Task { await model.openWorkspace(url) }
-            case .failure(let error):
-                model.errorMessage = error.localizedDescription
-            }
         }
         .fileImporter(
             isPresented: $showsPDFImporter,
@@ -1892,11 +1662,6 @@ struct ContentView: View {
             Task { await model.capture(text) }
         }
         .onReceive(
-            NotificationCenter.default.publisher(for: .brieflyChooseWorkspace)
-        ) { _ in
-            model.chooseWorkspace()
-        }
-        .onReceive(
             NotificationCenter.default.publisher(for: .brieflyImportPDF)
         ) { _ in
             showsPDFImporter = true
@@ -1904,7 +1669,7 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)
         ) { _ in
-            Task<Void, Never> { await model.refreshWorkspace() }
+            Task<Void, Never> { await model.refreshLibrary() }
         }
         #endif
         .preferredColorScheme(
@@ -2304,7 +2069,6 @@ private struct WindowControlPositioner: NSViewRepresentable {
 private struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
-    @Binding var showsWorkspaceImporter: Bool
     @Binding var sidebarVisible: Bool
     var reservesWindowControls = false
     var onOpenDetail: () -> Void = {}
@@ -2425,32 +2189,14 @@ private struct LibrarySidebar: View {
             #if os(macOS)
             HStack(spacing: 0) {
                 Button {
-                    if model.canEdit {
-                        model.openAgent()
-                    } else {
-                        model.chooseWorkspace()
-                    }
-                } label: {
-                    Label(
-                        model.canEdit ? "AI" : "Choose Workspace",
-                        systemImage: model.canEdit ? "sparkles" : "folder"
-                    )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Button {
                     showsSettings = true
                 } label: {
-                    Image(systemName: "gearshape")
+                    Label("Settings", systemImage: "gearshape")
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Settings")
             }
             .font(.system(size: 13, weight: .semibold))
             #endif
@@ -2606,6 +2352,7 @@ private struct ReadingDepthStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
+        .mobileGlass(in: Capsule())
     }
 }
 #endif
@@ -2703,7 +2450,7 @@ private struct ItemRows: View {
                     icon: entry.origin == .shared ? "person.2" : "doc.text",
                     title: entry.title,
                     selected: model.selectedIDs.contains(entry.id),
-                    imageURL: localFaviconURL(for: entry, workspacePath: model.workspacePath)
+                    imageURL: localFaviconURL(for: entry)
                 ) {
                     Task {
                         await model.select(entry.id, extending: extendsSidebarSelection())
@@ -2903,8 +2650,7 @@ private struct ChannelRows: View {
                                 selected: model.selectedIDs.contains(entry.id),
                                 inset: true,
                                 imageURL: localFaviconURL(
-                                    for: entry,
-                                    workspacePath: model.workspacePath
+                                    for: entry
                                 )
                             ) {
                                 Task {
@@ -2998,16 +2744,6 @@ private struct EntryContextMenu: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contextMenu {
-            if model.canEdit {
-                Button {
-                    Task { await model.copyFilePaths(for: entry.id) }
-                } label: {
-                    Label(
-                        model.selectionCount(for: entry.id) > 1 ? "Copy Paths" : "Copy Path",
-                        systemImage: "doc.on.doc"
-                    )
-                }
-            }
             if let source = entry.sourceURL, let url = URL(string: source) {
                 Link(destination: url) {
                     Label("Open original", systemImage: "arrow.up.right")
@@ -3023,21 +2759,6 @@ private struct EntryContextMenu: ViewModifier {
                     Label("Regenerate summaries", systemImage: "sparkles")
                 }
                 .disabled(model.isProcessing)
-                #if os(macOS)
-                Button {
-                    Task {
-                        if !model.selectedIDs.contains(entry.id) {
-                            await model.select(entry.id)
-                        }
-                        let urls = await model.selectedFileURLs(for: entry.id)
-                        if !urls.isEmpty {
-                            NSWorkspace.shared.activateFileViewerSelecting(urls)
-                        }
-                    }
-                } label: {
-                    Label("Reveal in Finder", systemImage: "folder")
-                }
-                #endif
                 Divider()
                 Button(role: .destructive) {
                     Task {
@@ -4070,20 +3791,6 @@ private struct LibraryDocument: View {
                         )
                         .help(isEditing ? "Finish editing" : "Edit document")
 
-                        #if os(macOS)
-                        Button {
-                            Task {
-                                if let url = await model.selectedFileURL() {
-                                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "folder")
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Reveal in Finder")
-                        #endif
                     }
 
                     if hasAudio && !usesMobileVoiceBriefControls {
@@ -4163,15 +3870,6 @@ private struct LibraryDocument: View {
                     Task { await model.processSelected() }
                 }
                 .disabled(model.isProcessing)
-                #if os(macOS)
-                Button("Reveal in Finder") {
-                    Task {
-                        if let url = await model.selectedFileURL() {
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }
-                    }
-                }
-                #endif
                 Divider()
                 Button("Move to Trash", role: .destructive) {
                     Task { await model.trashSelected() }
@@ -4646,18 +4344,6 @@ private struct VoiceBriefConfiguration: View {
                         .lineLimit(1)
 
                     if model.selectedVoiceBrief != nil {
-                        #if os(macOS)
-                        Button {
-                            Task {
-                                if let url = await model.selectedVoiceBriefFileURL() {
-                                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                                }
-                            }
-                        } label: {
-                            Label("File", systemImage: "doc")
-                        }
-                        #endif
-
                         Button {
                             Task { await model.checkSelectedVoiceBriefChannels() }
                         } label: {
@@ -5014,7 +4700,6 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
     case personalization
     case topics
     case ai
-    case agent
 
     var id: Self { self }
 
@@ -5027,7 +4712,6 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
         case .personalization: "Personalization"
         case .topics: "Topics"
         case .ai: "AI Processing"
-        case .agent: "Open Agent"
         }
     }
 
@@ -5040,7 +4724,6 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
         case .personalization: "person.text.rectangle"
         case .topics: "number"
         case .ai: "sparkles"
-        case .agent: "terminal"
         }
     }
 }
@@ -5058,16 +4741,11 @@ private struct SettingsView: View {
     @State private var showsChannelBrowser = false
     @State private var showsAccountBrowser = false
     @State private var accountBrowserURL = BrieflyBackend.shared.accountURL
-    @State private var showsWorkspaceImporter = false
     @State private var showsPDFImporter = false
     @State private var selectedSection: BrieflySettingsSection? = .general
 
     private var availableSections: [BrieflySettingsSection] {
-        #if os(macOS)
         BrieflySettingsSection.allCases
-        #else
-        BrieflySettingsSection.allCases.filter { $0 != .agent }
-        #endif
     }
 
     var body: some View {
@@ -5096,10 +4774,7 @@ private struct SettingsView: View {
 
                     case .library:
                 Section("Library") {
-                    LabeledContent(
-                        "Workspace",
-                        value: model.workspacePath ?? "Cloud library"
-                    )
+                    LabeledContent("Storage", value: "Local SQLite database")
                     LabeledContent("Status", value: model.status)
                     if model.isSyncing {
                         if model.syncTotal > 0 {
@@ -5111,20 +4786,11 @@ private struct SettingsView: View {
                             ProgressView()
                         }
                     }
-                    Button {
-                        #if os(macOS)
-                        model.chooseWorkspace()
-                        #else
-                        showsWorkspaceImporter = true
-                        #endif
-                    } label: {
-                        Label("Choose Briefly library", systemImage: "folder")
-                    }
                     if model.canEdit {
                         Button {
-                            Task { await model.refreshWorkspace() }
+                            Task { await model.refreshLibrary() }
                         } label: {
-                            Label("Refresh workspace", systemImage: "arrow.clockwise")
+                            Label("Refresh library", systemImage: "arrow.clockwise")
                         }
                     }
                     Button {
@@ -5298,7 +4964,7 @@ private struct SettingsView: View {
                     }
                 } else {
                     ContentUnavailableView(
-                        "Topics need a workspace",
+                        "Topics need a library",
                         systemImage: "folder",
                         description: Text("Open a Briefly library to edit topics.")
                     )
@@ -5318,7 +4984,7 @@ private struct SettingsView: View {
                         Menu("Choose processing preset") {
                             Button("Codex") {
                                 model.processingCommand =
-                                    defaultWorkspaceProcessingCommand
+                                    defaultProcessingCommand
                             }
                             Button("Claude") {
                                 model.processingCommand =
@@ -5348,7 +5014,7 @@ private struct SettingsView: View {
                         .frame(minHeight: 150)
                     HStack {
                         Button("Restore default prompt") {
-                            model.processingPrompt = defaultWorkspaceProcessingPrompt
+                            model.processingPrompt = defaultProcessingPrompt
                         }
                         #if os(macOS)
                         Button {
@@ -5371,55 +5037,6 @@ private struct SettingsView: View {
                     }
                 }
 
-                    case .agent:
-                #if os(macOS)
-                Section("Open agent") {
-                    Menu("Choose agent preset") {
-                        Button("ChatGPT app") {
-                            model.agentCommand =
-                                "/usr/bin/open -a ChatGPT {{workspace}}"
-                        }
-                        Button("Claude app") {
-                            model.agentCommand =
-                                "claude://code/new?folder={{workspace}}"
-                        }
-                        Button("Codex") {
-                            model.agentCommand = "cd {{workspace}} && codex"
-                        }
-                        Button("Claude Code") {
-                            model.agentCommand = "cd {{workspace}} && claude"
-                        }
-                        Button("Pi") {
-                            model.agentCommand = "cd {{workspace}} && pi"
-                        }
-                        Button("OpenCode") {
-                            model.agentCommand = "cd {{workspace}} && opencode"
-                        }
-                    }
-                    TextField(
-                        "Command",
-                        text: $model.agentCommand,
-                        axis: .vertical
-                    )
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(2...5)
-                    Text("Use {{workspace}} where the Briefly library path belongs.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button("Open now") {
-                            model.openAgent()
-                        }
-                        Spacer()
-                        Button("Save") {
-                            model.saveAgentSettings()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-                #else
-                EmptyView()
-                #endif
                     }
                 }
                 .formStyle(.grouped)
@@ -5448,20 +5065,6 @@ private struct SettingsView: View {
             shortcutRegistered = notification.object as? Bool ?? false
         }
         #endif
-        .fileImporter(
-            isPresented: $showsWorkspaceImporter,
-            allowedContentTypes: [.folder]
-        ) { result in
-            switch result {
-            case .success(let url):
-                Task {
-                    await model.openWorkspace(url)
-                    dismiss()
-                }
-            case .failure(let error):
-                model.errorMessage = error.localizedDescription
-            }
-        }
         .fileImporter(
             isPresented: $showsPDFImporter,
             allowedContentTypes: [.pdf]
@@ -5510,23 +5113,10 @@ private func channelTitle(_ source: String) -> String {
 }
 
 private func localFaviconURL(
-    for entry: LibraryEntry,
-    workspacePath: String?
+    for entry: LibraryEntry
 ) -> URL? {
-    if let workspacePath, let filename = entry.faviconFile {
-        let url = URL(fileURLWithPath: workspacePath)
-            .appending(path: "library", directoryHint: .isDirectory)
-            .appending(path: "favicons", directoryHint: .isDirectory)
-            .appending(path: filename)
-        if FileManager.default.fileExists(atPath: url.path) { return url }
-    }
     guard let favicon = entry.favicon else { return nil }
-    let root = FileManager.default
-        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appending(path: "Briefly", directoryHint: .isDirectory)
-        .appending(path: "media", directoryHint: .isDirectory)
-    let fileExtension = URL(fileURLWithPath: favicon.path).pathExtension
-    let url = root.appending(path: "\(favicon.contentHash).\(fileExtension)")
+    let url = URL(fileURLWithPath: favicon.path)
     return FileManager.default.fileExists(atPath: url.path) ? url : nil
 }
 
@@ -5534,13 +5124,6 @@ private func audioTime(_ value: Double) -> String {
     guard value.isFinite, value >= 0 else { return "0:00" }
     let seconds = Int(value)
     return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
-}
-
-private func appleScriptEscaped(_ value: String) -> String {
-    value
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-        .replacingOccurrences(of: "\n", with: "\\n")
 }
 
 #if os(macOS)
@@ -5596,7 +5179,6 @@ private enum NativeLibraryError: LocalizedError {
     case audioGenerationFailed
     case emptySpeech
     case iCloudUnavailable
-    case emptyICloudLibrary
     case unexpectedAIResponse
 
     var errorDescription: String? {
@@ -5607,8 +5189,6 @@ private enum NativeLibraryError: LocalizedError {
             "The voice brief does not contain text to speak."
         case .iCloudUnavailable:
             "Sign in to iCloud and enable iCloud Drive for Briefly."
-        case .emptyICloudLibrary:
-            "iCloud is connected, but no Briefly library has been uploaded yet."
         case .unexpectedAIResponse:
             "The command ran, but returned an unexpected response."
         }

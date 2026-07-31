@@ -419,6 +419,14 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
         return projection
     }()
 
+    public static let empty = LibraryProjection(
+        schemaVersion: 1,
+        generatedAt: "",
+        files: [],
+        entries: [],
+        voiceBriefs: []
+    )
+
     public var topics: [String] {
         Array(Set(entries.flatMap(\.topicNames))).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending

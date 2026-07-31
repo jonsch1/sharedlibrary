@@ -46,6 +46,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
     }
 
     public func synchronize() async throws {
+        try store.enqueueInitialCloudUploadIfNeeded()
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
         let pending = try store.outbox().map { item in
             CKSyncEngine.PendingRecordZoneChange.saveRecord(
@@ -55,6 +56,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         engine.state.add(pendingRecordZoneChanges: pending)
         try await engine.fetchChanges()
         try await engine.sendChanges()
+        try store.markInitialCloudUploadCompleted()
     }
 
     public func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {

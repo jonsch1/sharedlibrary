@@ -165,7 +165,7 @@ public enum SQLiteLibraryError: LocalizedError, Equatable {
 }
 
 /// SQLite is the only writable document store. Markdown is parsed only by the explicit
-/// one-time importer and generated only by `checkout`.
+/// one-time importer.
 public final class SQLiteLibrary: @unchecked Sendable {
     private let connection: OpaquePointer
     private let lock = NSRecursiveLock()
@@ -356,7 +356,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
                 return LibraryVoiceBrief(
                     id: id,
-                    filename: "\(id).md",
+                    filename: id,
                     title: title,
                     schedule: schedule,
                     length: length,
@@ -671,6 +671,74 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     operation: columnText(statement, 3)
                 )
             }
+        }
+    }
+
+    public func enqueueInitialCloudUploadIfNeeded() throws {
+        try locked {
+            let alreadyQueued = try query(
+                "SELECT 1 FROM sync_state WHERE key = 'briefly-initial-upload' LIMIT 1"
+            ) { _ in true }.first == true
+            guard !alreadyQueued else { return }
+            try transaction {
+                let documents = try query(
+                    "SELECT id, revision, deleted FROM documents"
+                ) {
+                    (columnText($0, 0), sqlite3_column_int64($0, 1), sqlite3_column_int($0, 2) != 0)
+                }
+                for (id, revision, deleted) in documents {
+                    try enqueue(
+                        id: id,
+                        revision: revision,
+                        operation: deleted ? "delete" : "save"
+                    )
+                }
+
+                let logicalTables = [
+                    ("topic", "topics"),
+                    ("channel", "channels"),
+                    ("voice_brief", "voice_briefs")
+                ]
+                for (recordType, table) in logicalTables {
+                    let records = try query(
+                        "SELECT id, revision, deleted_at IS NOT NULL FROM \(table)"
+                    ) {
+                        (columnText($0, 0), sqlite3_column_int64($0, 1), sqlite3_column_int($0, 2) != 0)
+                    }
+                    for (id, revision, deleted) in records {
+                        try enqueue(
+                            recordType: recordType,
+                            id: id,
+                            revision: revision,
+                            operation: deleted ? "delete" : "save"
+                        )
+                    }
+                }
+
+                let attachments = try query(
+                    "SELECT id, revision FROM attachments WHERE deleted_at IS NULL"
+                ) {
+                    (columnText($0, 0), sqlite3_column_int64($0, 1))
+                }
+                for (id, revision) in attachments {
+                    try enqueue(
+                        recordType: "attachment",
+                        id: id,
+                        revision: revision,
+                        operation: "save"
+                    )
+                }
+            }
+        }
+    }
+
+    public func markInitialCloudUploadCompleted() throws {
+        try locked {
+            try run(
+                "INSERT INTO sync_state(key, value) VALUES('briefly-initial-upload', ?) " +
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                bindings: [.blob(Data([1]))]
+            )
         }
     }
 
@@ -992,17 +1060,6 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 columnBlob(statement, 0)
             }.first
         }
-    }
-
-    public func checkout(_ id: String, to directory: URL) throws -> URL {
-        let document = try getDocument(id)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let base = document.title.lowercased()
-            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let url = directory.appending(path: "\(base.isEmpty ? document.captureID : base).md")
-        try Data((document.texts[.source] ?? "").utf8).write(to: url, options: .atomic)
-        return url
     }
 
     @discardableResult

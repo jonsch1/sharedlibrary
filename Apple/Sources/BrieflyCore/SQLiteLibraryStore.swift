@@ -40,11 +40,11 @@ public func renderVoiceBriefPrompt(
     let present = placeholders.filter(specific.contains)
     guard present.isEmpty || present.count == placeholders.count else {
         let missing = placeholders.first { !specific.contains($0) }!
-        throw WorkspaceError.invalidVoiceBriefPromptPlaceholder(missing)
+        throw LibraryError.invalidVoiceBriefPromptPlaceholder(missing)
     }
     let selectedTemplate = present.isEmpty ? template : specific
     if let missing = placeholders.first(where: { !selectedTemplate.contains($0) }) {
-        throw WorkspaceError.invalidVoiceBriefPromptPlaceholder(missing)
+        throw LibraryError.invalidVoiceBriefPromptPlaceholder(missing)
     }
     var rendered = selectedTemplate
         .replacingOccurrences(of: "{{voice_brief_title}}", with: title)
@@ -84,10 +84,10 @@ public func spokenVoiceBriefText(_ markdown: String) -> String {
     return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-public let defaultWorkspaceProcessingCommand =
+public let defaultProcessingCommand =
     "codex exec --ephemeral --ignore-user-config --sandbox read-only " +
     "--skip-git-repo-check --color never -"
-public let defaultWorkspaceProcessingPrompt = """
+public let defaultProcessingPrompt = """
 You are preparing one captured source for a local knowledge library.
 
 Return only one JSON object with the required fields below.
@@ -112,7 +112,7 @@ Source:
 {{source}}
 """
 
-public struct WorkspaceProcessingSuggestion: Codable, Equatable, Sendable {
+public struct ProcessingSuggestion: Codable, Equatable, Sendable {
     public struct Summaries: Codable, Equatable, Sendable {
         public var brief: String
         public var concise: String
@@ -163,12 +163,12 @@ public struct WorkspaceProcessingSuggestion: Codable, Equatable, Sendable {
             pattern: #"^```(?:json)?\s*([\s\S]*?)\s*```$"#
         ) ?? trimmed
         guard let data = payload.data(using: .utf8) else {
-            throw WorkspaceError.invalidProcessingOutput
+            throw LibraryError.invalidProcessingOutput
         }
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         guard let value = try? decoder.decode(Self.self, from: data) else {
-            throw WorkspaceError.invalidProcessingOutput
+            throw LibraryError.invalidProcessingOutput
         }
         let summaries = [
             value.summaries.brief,
@@ -183,13 +183,13 @@ public struct WorkspaceProcessingSuggestion: Codable, Equatable, Sendable {
                 !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             })
         else {
-            throw WorkspaceError.invalidProcessingOutput
+            throw LibraryError.invalidProcessingOutput
         }
         return value
     }
 }
 
-public func runWorkspaceProcessingCommand(
+public func runProcessingCommand(
     _ command: String,
     prompt: String,
     timeout: TimeInterval = 300
@@ -197,7 +197,7 @@ public func runWorkspaceProcessingCommand(
     #if os(macOS)
     let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty, normalized.count <= 4_000 else {
-        throw WorkspaceError.invalidProcessingCommand
+        throw LibraryError.invalidProcessingCommand
     }
     let fileManager = FileManager.default
     let directory = fileManager.temporaryDirectory.appending(
@@ -212,7 +212,7 @@ public func runWorkspaceProcessingCommand(
         fileManager.createFile(atPath: outputURL.path, contents: nil),
         fileManager.createFile(atPath: errorURL.path, contents: nil)
     else {
-        throw WorkspaceError.processingFailed("Briefly could not prepare AI output files.")
+        throw LibraryError.processingFailed("Briefly could not prepare AI output files.")
     }
     let outputHandle = try FileHandle(forWritingTo: outputURL)
     let errorHandle = try FileHandle(forWritingTo: errorURL)
@@ -295,31 +295,31 @@ public func runWorkspaceProcessingCommand(
     case .finished:
         break
     case .timedOut:
-        throw WorkspaceError.processingTimedOut
+        throw LibraryError.processingTimedOut
     case .outputTooLarge:
-        throw WorkspaceError.processingOutputTooLarge
+        throw LibraryError.processingOutputTooLarge
     case .inputFailed(let message):
-        throw WorkspaceError.processingFailed(message)
+        throw LibraryError.processingFailed(message)
     }
     let outputSize = try fileSize(outputURL)
     guard outputSize <= 10_000_000 else {
-        throw WorkspaceError.processingOutputTooLarge
+        throw LibraryError.processingOutputTooLarge
     }
     let output = try String(contentsOf: outputURL, encoding: .utf8)
         .trimmingCharacters(in: .whitespacesAndNewlines)
     guard process.terminationStatus == 0 else {
-        throw WorkspaceError.processingFailed(
+        throw LibraryError.processingFailed(
             try conciseProcessError(errorURL)
         )
     }
     guard !output.isEmpty else {
-        throw WorkspaceError.processingFailed(
+        throw LibraryError.processingFailed(
             "The AI command returned no output."
         )
     }
     return output
     #else
-    throw WorkspaceError.processingUnavailable
+    throw LibraryError.processingUnavailable
     #endif
 }
 
@@ -421,32 +421,18 @@ struct DiscoveredChannel {
     var items: [Item]
 }
 
-public actor WorkspaceLibrary {
-    public static let highlightsPath = "library/highlights/all.md"
-
-    private struct IndexedEntry {
-        let source: URL
-        let audio: URL?
-        let favicon: URL?
-        let variants: [LibraryVariant: URL]
-    }
-
-    public let root: URL
+public actor SQLiteLibraryStore {
+    public let databaseURL: URL
     private let fileManager = FileManager.default
-    private var indexed = [String: IndexedEntry]()
     private var sqliteLibrary: SQLiteLibrary?
 
-    public init(root: URL) {
-        self.root = root.standardizedFileURL
+    public init(databaseURL: URL) {
+        self.databaseURL = databaseURL.standardizedFileURL
     }
 
     private func database() throws -> SQLiteLibrary {
         if let sqliteLibrary { return sqliteLibrary }
-        let database = try SQLiteLibrary(
-            databaseURL: root
-                .appending(path: ".briefly", directoryHint: .isDirectory)
-                .appending(path: "library.sqlite3")
-        )
+        let database = try SQLiteLibrary(databaseURL: databaseURL)
         sqliteLibrary = database
         return database
     }
@@ -514,7 +500,7 @@ public actor WorkspaceLibrary {
     @discardableResult
     public func capture(_ value: String) throws -> String {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw WorkspaceError.emptyCapture }
+        guard !text.isEmpty else { throw LibraryError.emptyCapture }
         let sourceURL = httpURL(text)
         let title = sourceURL?.host?
             .replacingOccurrences(of: "www.", with: "") ??
@@ -537,10 +523,10 @@ public actor WorkspaceLibrary {
         faviconFileExtension: String? = nil
     ) throws -> String {
         guard sourceURL.scheme == "http" || sourceURL.scheme == "https" else {
-            throw WorkspaceError.invalidChannel
+            throw LibraryError.invalidChannel
         }
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw WorkspaceError.emptyCapture }
+        guard !text.isEmpty else { throw LibraryError.emptyCapture }
         return try saveCapture(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? sourceURL.host ?? "Web capture"
@@ -556,7 +542,7 @@ public actor WorkspaceLibrary {
     @discardableResult
     public func captureDocument(title: String, content: String) throws -> String {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw WorkspaceError.emptyDocument }
+        guard !text.isEmpty else { throw LibraryError.emptyDocument }
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return try saveCapture(
             title: name.isEmpty ? "PDF document" : String(name.prefix(200)),
@@ -584,12 +570,12 @@ public actor WorkspaceLibrary {
     public func updateChannel(_ value: String, retrievalCount: Int) throws {
         let source = try normalizedChannelSource(value)
         guard (1...100).contains(retrievalCount) else {
-            throw WorkspaceError.invalidChannelRetrievalCount
+            throw LibraryError.invalidChannelRetrievalCount
         }
         var state = readChannelState()
         let isDefined = try readVoiceBriefs().contains { $0.sources.contains(source) }
         guard state.sources[source] != nil || isDefined else {
-            throw WorkspaceError.missingChannel
+            throw LibraryError.missingChannel
         }
         var current = state.sources[source] ?? .init(seen: [], items: [])
         current.retrievalCount = retrievalCount
@@ -602,7 +588,7 @@ public actor WorkspaceLibrary {
         var state = readChannelState()
         let owners = try readVoiceBriefs().filter { $0.sources.contains(source) }
         guard state.sources[source] != nil || !owners.isEmpty else {
-            throw WorkspaceError.missingChannel
+            throw LibraryError.missingChannel
         }
         for brief in owners {
             _ = try saveVoiceBrief(
@@ -631,7 +617,7 @@ public actor WorkspaceLibrary {
         var state = readChannelState()
         let isDefined = try readVoiceBriefs().contains { $0.sources.contains(source) }
         guard state.sources[source] != nil || isDefined else {
-            throw WorkspaceError.missingChannel
+            throw LibraryError.missingChannel
         }
         var current = state.sources[source] ?? .init(seen: [], items: [])
         let limit = min(100, max(1, maximumItems ?? current.retrievalCount ?? 5))
@@ -652,7 +638,7 @@ public actor WorkspaceLibrary {
         state.sources[source] = current
         try writeChannelState(state)
         let channel = try buildChannels(from: state).first { $0.source == source }
-        guard let channel else { throw WorkspaceError.missingChannel }
+        guard let channel else { throw LibraryError.missingChannel }
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
     }
 
@@ -663,7 +649,7 @@ public actor WorkspaceLibrary {
         ingest: @Sendable (LibraryChannelCandidate) async throws -> String
     ) async throws -> LibraryChannelRefresh {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw WorkspaceError.emptyCapture }
+        guard !text.isEmpty else { throw LibraryError.emptyCapture }
         return try await captureSignedInChannelItems(
             source: value,
             title: title,
@@ -691,11 +677,11 @@ public actor WorkspaceLibrary {
                 httpURL($0.url) != nil &&
                 !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        guard !candidates.isEmpty else { throw WorkspaceError.emptyCapture }
+        guard !candidates.isEmpty else { throw LibraryError.emptyCapture }
         var state = readChannelState()
         let isDefined = try readVoiceBriefs().contains { $0.sources.contains(source) }
         guard state.sources[source] != nil || isDefined else {
-            throw WorkspaceError.missingChannel
+            throw LibraryError.missingChannel
         }
         var current = state.sources[source] ?? .init(seen: [], items: [])
         let discovered = DiscoveredChannel(
@@ -729,7 +715,7 @@ public actor WorkspaceLibrary {
         state.sources[source] = current
         try writeChannelState(state)
         let channel = try buildChannels(from: state).first { $0.source == source }
-        guard let channel else { throw WorkspaceError.missingChannel }
+        guard let channel else { throw LibraryError.missingChannel }
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
     }
 
@@ -758,7 +744,7 @@ public actor WorkspaceLibrary {
         runner: ((String) async throws -> String)? = nil
     ) async throws -> LibraryVoiceBriefEpisodeResult {
         guard let brief = try readVoiceBriefs().first(where: { $0.id == id }) else {
-            throw WorkspaceError.missingVoiceBrief
+            throw LibraryError.missingVoiceBrief
         }
         var state = readChannelState()
         var run = state.voiceBriefs[id] ?? .init()
@@ -771,7 +757,7 @@ public actor WorkspaceLibrary {
                 .filter { !consumed.contains(voiceBriefItemKey(source, $0.id)) }
                 .map { (source, $0) }
         }
-        guard !pending.isEmpty else { throw WorkspaceError.noVoiceBriefItems }
+        guard !pending.isEmpty else { throw LibraryError.noVoiceBriefItems }
 
         let projection = try loadProjection()
         let entries = Dictionary(uniqueKeysWithValues: projection.entries.map { ($0.id, $0) })
@@ -798,7 +784,7 @@ public actor WorkspaceLibrary {
             selected.append((source, item))
             characterCount += fitted.count
         }
-        guard !packets.isEmpty else { throw WorkspaceError.noVoiceBriefItems }
+        guard !packets.isEmpty else { throw LibraryError.noVoiceBriefItems }
 
         run.status = "generating"
         run.message = "Generating \(brief.title)"
@@ -817,13 +803,13 @@ public actor WorkspaceLibrary {
             if let runner {
                 generated = try await runner(prompt)
             } else {
-                generated = try await runWorkspaceProcessingCommand(
+                generated = try await runProcessingCommand(
                     command,
                     prompt: prompt
                 )
             }
             let script = generated.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !script.isEmpty else { throw WorkspaceError.invalidVoiceBriefScript }
+            guard !script.isEmpty else { throw LibraryError.invalidVoiceBriefScript }
             let entryID = try saveVoiceBriefEpisode(
                 brief: brief,
                 script: script,
@@ -863,7 +849,7 @@ public actor WorkspaceLibrary {
 
     public func markVoiceBriefAttempt(id: String, at date: Date = Date()) throws {
         guard try readVoiceBriefs().contains(where: { $0.id == id }) else {
-            throw WorkspaceError.missingVoiceBrief
+            throw LibraryError.missingVoiceBrief
         }
         var state = readChannelState()
         var run = state.voiceBriefs[id] ?? .init()
@@ -875,11 +861,11 @@ public actor WorkspaceLibrary {
     public func attachAudio(entryID: String, file source: URL) throws {
         let fileExtension = source.pathExtension.lowercased()
         guard ["m4a", "wav"].contains(fileExtension) else {
-            throw WorkspaceError.invalidAudio
+            throw LibraryError.invalidAudio
         }
         let data = try Data(contentsOf: source, options: .mappedIfSafe)
         guard !data.isEmpty, data.count <= 100_000_000 else {
-            throw WorkspaceError.invalidAudio
+            throw LibraryError.invalidAudio
         }
         _ = try database().getDocument(entryID)
         try database().saveAttachment(
@@ -892,14 +878,14 @@ public actor WorkspaceLibrary {
 
     public func processingPrompt(
         entryID: String,
-        template: String = defaultWorkspaceProcessingPrompt
+        template: String = defaultProcessingPrompt
     ) throws -> String {
         let normalized = template.trimmingCharacters(in: .whitespacesAndNewlines)
         guard
             normalized.contains("{{topics}}"),
             normalized.contains("{{source}}")
         else {
-            throw WorkspaceError.invalidProcessingPrompt
+            throw LibraryError.invalidProcessingPrompt
         }
         let document = try database().getDocument(entryID)
         var source: [String: Any] = [
@@ -926,7 +912,7 @@ public actor WorkspaceLibrary {
     @discardableResult
     public func applyProcessingSuggestion(
         entryID: String,
-        suggestion: WorkspaceProcessingSuggestion
+        suggestion: ProcessingSuggestion
     ) throws -> String {
         let document = try database().getDocument(entryID)
         let topicID = try ensureTopic(named: suggestion.topicName)
@@ -943,7 +929,7 @@ public actor WorkspaceLibrary {
                     .trimmingCharacters(in: .whitespacesAndNewlines),
                 !summary.isEmpty
             else {
-                throw WorkspaceError.invalidProcessingOutput
+                throw LibraryError.invalidProcessingOutput
             }
             texts[variant] = summary
         }
@@ -999,7 +985,7 @@ public actor WorkspaceLibrary {
     ) throws {
         let document = try database().getDocument(entryID)
         guard document.texts[variant] != nil else {
-            throw WorkspaceError.missingVariant
+            throw LibraryError.missingVariant
         }
         try database().commitDocument(SQLiteDocumentCommit(
             id: entryID,
@@ -1037,9 +1023,9 @@ public actor WorkspaceLibrary {
     }
 
     @discardableResult
-    public func ingestMarkdownLibrary() throws -> Int {
+    public func ingestMarkdownLibrary(from root: URL) throws -> Int {
         let database = try database()
-        let topics = try readTopics().map {
+        let topics = try readTopics(from: root).map {
             LibraryTopicDefinition(id: $0.key, title: $0.value)
         }
         if !topics.isEmpty { try database.replaceTopicDefinitions(topics) }
@@ -1065,7 +1051,7 @@ public actor WorkspaceLibrary {
             }
         }
         if
-            let data = try? Data(contentsOf: channelStateURL),
+            let data = try? Data(contentsOf: channelStateURL(for: root)),
             let state = try? JSONDecoder().decode(VoiceBriefWatcherState.self, from: data),
             state.schemaVersion == 1
         {
@@ -1084,8 +1070,8 @@ public actor WorkspaceLibrary {
         text: String
     ) throws {
         let highlighted = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !highlighted.isEmpty else { throw WorkspaceError.emptyHighlight }
-        guard highlighted.count <= 50_000 else { throw WorkspaceError.highlightTooLong }
+        guard !highlighted.isEmpty else { throw LibraryError.emptyHighlight }
+        guard highlighted.count <= 50_000 else { throw LibraryError.highlightTooLong }
 
         let document = try database().getDocument(entryID)
         let title = document.title
@@ -1161,11 +1147,11 @@ public actor WorkspaceLibrary {
     public func saveVoiceBrief(_ value: LibraryVoiceBriefDraft) throws -> String {
         let title = value.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, title.count <= 120 else {
-            throw WorkspaceError.invalidVoiceBriefTitle
+            throw LibraryError.invalidVoiceBriefTitle
         }
         let prompt = value.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, prompt.count <= 50_000 else {
-            throw WorkspaceError.invalidVoiceBriefPrompt
+            throw LibraryError.invalidVoiceBriefPrompt
         }
         _ = try renderVoiceBriefPrompt(
             prompt: prompt,
@@ -1175,10 +1161,10 @@ public actor WorkspaceLibrary {
         )
         let schedule = value.schedule.trimmingCharacters(in: .whitespacesAndNewlines)
         guard validSchedule(schedule.isEmpty ? "manual" : schedule) else {
-            throw WorkspaceError.invalidVoiceBriefSchedule
+            throw LibraryError.invalidVoiceBriefSchedule
         }
         guard value.length.count <= 120 else {
-            throw WorkspaceError.invalidVoiceBriefLength
+            throw LibraryError.invalidVoiceBriefLength
         }
         let sources = Array(
             Set(value.sources.map {
@@ -1186,7 +1172,7 @@ public actor WorkspaceLibrary {
             }.filter { !$0.isEmpty })
         ).sorted()
         guard sources.count <= 200, sources.allSatisfy(validChannelSource) else {
-            throw WorkspaceError.invalidChannel
+            throw LibraryError.invalidChannel
         }
 
         return try database().saveVoiceBrief(LibraryVoiceBriefDraft(
@@ -1202,21 +1188,9 @@ public actor WorkspaceLibrary {
 
     public func moveVoiceBriefToTrash(id: String) throws {
         guard try readVoiceBriefs().contains(where: { $0.id == id }) else {
-            throw WorkspaceError.missingVoiceBrief
+            throw LibraryError.missingVoiceBrief
         }
         try database().deleteVoiceBrief(id)
-    }
-
-    public func voiceBriefFileURL(id: String) throws -> URL {
-        guard let brief = try readVoiceBriefs().first(where: { $0.id == id }) else {
-            throw WorkspaceError.missingVoiceBrief
-        }
-        let directory = fileManager.temporaryDirectory
-            .appending(path: "briefly-checkouts", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "\(slug(brief.title)).md")
-        try Data((brief.prompt ?? defaultVoiceBriefPrompt).utf8).write(to: url, options: .atomic)
-        return url
     }
 
     public func moveToTrash(entryID: String) throws {
@@ -1226,12 +1200,6 @@ public actor WorkspaceLibrary {
             baseRevision: document.revision,
             deleted: true
         ))
-    }
-
-    public func fileURL(entryID: String) throws -> URL {
-        let directory = fileManager.temporaryDirectory
-            .appending(path: "briefly-checkouts", directoryHint: .isDirectory)
-        return try database().checkout(entryID, to: directory)
     }
 
     public func audioURL(entryID: String) throws -> URL? {
@@ -1274,12 +1242,12 @@ public actor WorkspaceLibrary {
                 .split(whereSeparator: \.isWhitespace)
                 .joined(separator: " ")
             guard !title.isEmpty, title.count <= 48 else {
-                throw WorkspaceError.invalidTopicDefinitions(
+                throw LibraryError.invalidTopicDefinitions(
                     "Every topic needs a title of 48 characters or fewer."
                 )
             }
             guard titles.insert(title.lowercased()).inserted else {
-                throw WorkspaceError.invalidTopicDefinitions(
+                throw LibraryError.invalidTopicDefinitions(
                     "The topic “\(title)” is duplicated."
                 )
             }
@@ -1300,7 +1268,7 @@ public actor WorkspaceLibrary {
                 ) != nil,
                 ids.insert(id).inserted
             else {
-                throw WorkspaceError.invalidTopicDefinitions(
+                throw LibraryError.invalidTopicDefinitions(
                     "Topic IDs must be unique and contain only letters, numbers, dots, dashes, or underscores."
                 )
             }
@@ -1309,7 +1277,7 @@ public actor WorkspaceLibrary {
         if let used = usedIDs.first(where: {
             currentIDs.contains($0) && !ids.contains($0)
         }) {
-            throw WorkspaceError.invalidTopicDefinitions(
+            throw LibraryError.invalidTopicDefinitions(
                 "The topic “\(used)” is still used by library items. Rename it instead."
             )
         }
@@ -1317,52 +1285,7 @@ public actor WorkspaceLibrary {
         return normalized
     }
 
-    private func requireEntry(_ id: String) throws -> IndexedEntry {
-        if indexed.isEmpty {
-            _ = try loadProjection()
-        }
-        guard let entry = indexed[id] else { throw WorkspaceError.missingEntry }
-        return entry
-    }
-
-    private var highlightsURL: URL {
-        root.appending(path: Self.highlightsPath)
-    }
-
-    private func relativePath(for url: URL) -> String? {
-        let rootPath = root.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path.hasPrefix("\(rootPath)/") else { return nil }
-        return String(path.dropFirst(rootPath.count + 1))
-    }
-
-    private func moveToWorkspaceTrash(_ url: URL) throws {
-        let relative = relativePath(for: url)?
-            .replacingOccurrences(of: "/", with: "--") ?? url.lastPathComponent
-        let directory = root.appending(path: ".Trash", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        try fileManager.moveItem(
-            at: url,
-            to: directory.appending(
-                path: "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString)-\(relative)"
-            )
-        )
-    }
-
-    private func ensureWorkspace() throws {
-        let library = root.appending(path: "library", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: library, withIntermediateDirectories: true)
-        for variant in ["brief", "concise", "detailed", "comprehensive"] {
-            try fileManager.createDirectory(
-                at: library
-                    .appending(path: "summaries", directoryHint: .isDirectory)
-                    .appending(path: variant, directoryHint: .isDirectory),
-                withIntermediateDirectories: true
-            )
-        }
-    }
-
-    private func readTopics() throws -> [String: String] {
+    private func readTopics(from root: URL) throws -> [String: String] {
         let url = root.appending(path: "topics.md")
         guard fileManager.fileExists(atPath: url.path) else { return [:] }
         let lines = try String(contentsOf: url, encoding: .utf8)
@@ -1389,7 +1312,7 @@ public actor WorkspaceLibrary {
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         guard !title.isEmpty, title.count <= 48 else {
-            throw WorkspaceError.invalidTopic
+            throw LibraryError.invalidTopic
         }
         var topics = try database().topicDefinitions()
         if let existing = topics.first(where: {
@@ -1564,7 +1487,7 @@ public actor WorkspaceLibrary {
         })
     }
 
-    private var channelStateURL: URL {
+    private func channelStateURL(for root: URL) -> URL {
         root
             .appending(path: ".shared-library", directoryHint: .isDirectory)
             .appending(path: "voice-brief-state.json")
@@ -1597,48 +1520,9 @@ public actor WorkspaceLibrary {
         }
     }
 
-    private func availableFilename(_ base: String) throws -> String {
-        let directory = root.appending(path: "library", directoryHint: .isDirectory)
-        for suffix in 0...Int.max {
-            let name = "\(base)\(suffix == 0 ? "" : "-\(suffix + 1)").md"
-            if !fileManager.fileExists(atPath: directory.appending(path: name).path) {
-                return name
-            }
-        }
-        throw WorkspaceError.cannotCreateFile
-    }
-
-    private func audioURL(_ path: String?, library: URL) -> URL? {
-        guard
-            let path,
-            path.range(
-                of: #"^audio/[A-Za-z0-9-]+\.(aac|flac|m4a|mp3|ogg|opus|wav|webm)$"#,
-                options: .regularExpression
-            ) != nil
-        else {
-            return nil
-        }
-        let url = library.appending(path: path)
-        return fileManager.fileExists(atPath: url.path) ? url : nil
-    }
-
-    private func faviconURL(_ path: String?, library: URL) -> URL? {
-        guard
-            let path,
-            path.range(
-                of: #"^favicons/[a-f0-9]{64}\.(gif|ico|jpg|png|webp)$"#,
-                options: .regularExpression
-            ) != nil
-        else {
-            return nil
-        }
-        let url = library.appending(path: path)
-        return fileManager.fileExists(atPath: url.path) ? url : nil
-    }
 }
 
-public enum WorkspaceError: LocalizedError {
-    case cannotCreateFile
+public enum LibraryError: LocalizedError {
     case emptyCapture
     case emptyDocument
     case emptyHighlight
@@ -1671,7 +1555,6 @@ public enum WorkspaceError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .cannotCreateFile: "Briefly could not create a unique Markdown filename."
         case .emptyCapture: "The clipboard does not contain text."
         case .emptyDocument: "The PDF does not contain extractable text."
         case .emptyHighlight: "Select some document text before highlighting."
@@ -1828,7 +1711,7 @@ private func json(_ value: Any) throws -> String {
         options: [.prettyPrinted, .sortedKeys]
     )
     guard let text = String(data: data, encoding: .utf8) else {
-        throw WorkspaceError.invalidProcessingPrompt
+        throw LibraryError.invalidProcessingPrompt
     }
     return text
 }
@@ -1953,14 +1836,6 @@ private func titleize(_ value: String) -> String {
         .capitalized
 }
 
-private func availableVoiceBriefFilename(_ base: String, used: Set<String>) -> String {
-    for suffix in 0...Int.max {
-        let name = "\(base)\(suffix == 0 ? "" : "-\(suffix + 1)").md"
-        if !used.contains(name) { return name }
-    }
-    return "\(UUID().uuidString).md"
-}
-
 private func normalizedChannelSource(_ value: String) throws -> String {
     let source = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard
@@ -1968,7 +1843,7 @@ private func normalizedChannelSource(_ value: String) throws -> String {
         source.count <= 2_048,
         validChannelSource(source)
     else {
-        throw WorkspaceError.invalidChannel
+        throw LibraryError.invalidChannel
     }
     return source
 }
@@ -2004,7 +1879,7 @@ private func discoverChannel(
         ]
         requestURL = components.url!
     } else {
-        guard let url = httpURL(source) else { throw WorkspaceError.invalidChannel }
+        guard let url = httpURL(source) else { throw LibraryError.invalidChannel }
         if
             url.host?.lowercased().hasSuffix("reddit.com") == true,
             url.path.range(of: #"/r/[^/]+/?$"#, options: .regularExpression) != nil
@@ -2082,7 +1957,7 @@ private func discoverChannel(
     ).map(decodeHTML) ?? channelDisplayTitle(source)
     let content = stripHTML(html)
     guard !content.isEmpty else {
-        throw WorkspaceError.channelFailed(
+        throw LibraryError.channelFailed(
             "The channel did not contain a feed or readable page."
         )
     }
@@ -2143,10 +2018,10 @@ private func fetchChannelURL(_ url: URL) async throws -> (Data, HTTPURLResponse)
         let response = response as? HTTPURLResponse,
         (200..<300).contains(response.statusCode)
     else {
-        throw WorkspaceError.channelFailed("The channel returned an invalid response.")
+        throw LibraryError.channelFailed("The channel returned an invalid response.")
     }
     guard data.count <= 12_000_000 else {
-        throw WorkspaceError.channelFailed("The channel response is larger than 12 MB.")
+        throw LibraryError.channelFailed("The channel response is larger than 12 MB.")
     }
     return (data, response)
 }
@@ -2320,7 +2195,7 @@ func parseFeed(
     let parser = XMLParser(data: data)
     parser.delegate = delegate
     guard parser.parse(), !delegate.items.isEmpty else {
-        throw WorkspaceError.channelFailed(
+        throw LibraryError.channelFailed(
             parser.parserError?.localizedDescription ??
                 "The feed did not contain any items."
         )

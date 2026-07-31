@@ -36,7 +36,7 @@ final class LibraryContractTests: XCTestCase {
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: temporary) }
         #if os(macOS)
-        let commandOutput = try await runWorkspaceProcessingCommand(
+        let commandOutput = try await runProcessingCommand(
             "/bin/cat",
             prompt: "native command boundary",
             timeout: 5
@@ -47,12 +47,17 @@ final class LibraryContractTests: XCTestCase {
         )
         #endif
 
-        let workspaceRoot = temporary.appending(
-            path: "workspace",
-            directoryHint: .isDirectory
-        )
-        let workspace = WorkspaceLibrary(root: workspaceRoot)
+        let databaseURL = temporary.appending(path: "library.sqlite3")
+        let workspace = SQLiteLibraryStore(databaseURL: databaseURL)
         let capturedID = try await workspace.capture("# Native capture\n\nEditable text.")
+        let database = try await workspace.documentDatabase()
+        try database.enqueueInitialCloudUploadIfNeeded()
+        XCTAssertTrue(
+            try database.outbox().contains {
+                $0.recordType == "document" && $0.documentID == capturedID
+            }
+        )
+        try database.markInitialCloudUploadCompleted()
         var workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.entries.first?.id, capturedID)
         XCTAssertEqual(
@@ -92,7 +97,7 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(highlightDocument.type, "highlights")
         let prompt = try await workspace.processingPrompt(entryID: capturedID)
         XCTAssertTrue(prompt.contains("Updated capture"))
-        let suggestion = try WorkspaceProcessingSuggestion.decode(
+        let suggestion = try ProcessingSuggestion.decode(
             """
             ```json
             {
@@ -173,8 +178,6 @@ final class LibraryContractTests: XCTestCase {
         )
         workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.voiceBriefDefinitions.first?.id, voiceBriefID)
-        let voiceBriefFileURL = try await workspace.voiceBriefFileURL(id: voiceBriefID)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: voiceBriefFileURL.path))
         XCTAssertEqual(
             workspaceProjection.voiceBriefDefinitions.first?.prompt,
             "Connect the most useful updates."
@@ -192,7 +195,7 @@ final class LibraryContractTests: XCTestCase {
         let ingestChannelItem: @Sendable (LibraryChannelCandidate) async throws -> String = {
             item in
             guard let url = URL(string: item.url) else {
-                throw WorkspaceError.invalidChannel
+                throw LibraryError.invalidChannel
             }
             return try await workspace.captureWebPage(
                 title: item.title,
@@ -330,37 +333,6 @@ final class LibraryContractTests: XCTestCase {
         )
 
         #if os(macOS)
-        let stateDirectory = workspaceRoot.appending(
-            path: ".shared-library",
-            directoryHint: .isDirectory
-        )
-        try FileManager.default.createDirectory(
-            at: stateDirectory,
-            withIntermediateDirectories: true
-        )
-        let channelState = """
-        {
-          "schemaVersion": 1,
-          "sources": {
-            "https://example.com/feed": {
-              "retrievalCount": 12,
-              "seen": ["one"],
-              "items": [{
-                "id": "one",
-                "title": "Native source",
-                "url": "https://example.com/one",
-                "entryID": "\(capturedID)",
-                "ingestedAt": "2026-07-31T09:00:00Z"
-              }]
-            }
-          },
-          "voiceBriefs": {}
-        }
-        """
-        try Data(channelState.utf8).write(
-            to: stateDirectory.appending(path: "voice-brief-state.json"),
-            options: .atomic
-        )
         let episode = try await workspace.runVoiceBrief(
             id: voiceBriefID,
             command: "/bin/cat",
@@ -431,11 +403,6 @@ final class LibraryContractTests: XCTestCase {
         }
         let results = try await workspace.search("revision checked")
         XCTAssertEqual(results.first?.id, capturedID)
-        let checkout = try await workspace.fileURL(entryID: capturedID)
-        XCTAssertEqual(
-            try String(contentsOf: checkout, encoding: .utf8),
-            "# SQLite canonical\n\nRevision checked."
-        )
         let outbox = try await workspace.documentDatabase().outbox()
         XCTAssertTrue(outbox.contains {
             $0.recordType == "document" && $0.documentID == capturedID

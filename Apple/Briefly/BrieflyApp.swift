@@ -27,13 +27,6 @@ struct BrieflyApp: App {
                     )
                 }
                 .keyboardShortcut("g", modifiers: .command)
-                Button("Choose Workspace…") {
-                    NotificationCenter.default.post(
-                        name: .brieflyChooseWorkspace,
-                        object: nil
-                    )
-                }
-                .keyboardShortcut("o", modifiers: .command)
                 Button("Import PDF…") {
                     NotificationCenter.default.post(
                         name: .brieflyImportPDF,
@@ -120,7 +113,6 @@ extension Notification.Name {
     static let brieflyCaptureShortcutChanged = Self("BrieflyCaptureShortcutChanged")
     static let brieflyCaptureShortcutRegistrationChanged =
         Self("BrieflyCaptureShortcutRegistrationChanged")
-    static let brieflyChooseWorkspace = Self("BrieflyChooseWorkspace")
     static let brieflyImportPDF = Self("BrieflyImportPDF")
     static let brieflyRefreshLibrary = Self("BrieflyRefreshLibrary")
 }
