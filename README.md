@@ -46,6 +46,15 @@ npm run test:worker
 npm run build
 ```
 
+Build the native Apple app:
+
+```bash
+cd Apple
+swift test
+xcodebuild -project Briefly.xcodeproj -scheme Briefly \
+  -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
+```
+
 For desktop development, run `npm run dev` from `Electron/`.
 
 ## Capture library
@@ -153,6 +162,7 @@ when the user manages sync.
 | Slice | Files |
 | --- | --- |
 | Cross-platform desktop app | `Electron/` |
+| Native macOS and iOS app | `Apple/` |
 | Desktop services and local library | `Electron/src/main/` |
 | Desktop UI | `Electron/src/renderer/` |
 | Capture extraction | `Tools/extractor/` |

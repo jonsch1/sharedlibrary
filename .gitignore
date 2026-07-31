@@ -17,6 +17,10 @@ Electron/release/
 Electron/playwright-report/
 Electron/test-results/
 
+# Native Apple apps
+Apple/.build/
+Apple/.swiftpm/
+
 # macOS
 .DS_Store
 

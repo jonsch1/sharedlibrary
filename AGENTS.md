@@ -6,6 +6,9 @@
   Do not deploy from a local checkout. Pushing completed changes to `main`
   triggers `.github/workflows/deploy-web.yml`, which applies D1 migrations and
   deploys to Cloudflare.
+- After changing `Apple/`, run `swift test` there and build the `Briefly` scheme
+  for macOS and the generic iOS Simulator destination. The iOS build requires
+  the matching Xcode platform component to be installed.
 
 ## Test strategy
 
