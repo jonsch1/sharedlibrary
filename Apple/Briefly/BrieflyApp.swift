@@ -6,15 +6,16 @@ import Carbon.HIToolbox
 
 @main
 struct BrieflyApp: App {
+    @State private var model = LibraryModel()
     #if os(macOS)
     @NSApplicationDelegateAdaptor(BrieflyAppDelegate.self) private var appDelegate
     #endif
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
         #if os(macOS)
+        Window("Briefly", id: "main") {
+            ContentView(model: model)
+        }
         .defaultSize(width: 1180, height: 760)
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -50,11 +51,70 @@ struct BrieflyApp: App {
                 .keyboardShortcut("r", modifiers: .command)
             }
         }
+
+        MenuBarExtra {
+            BrieflyMenuBar(model: model)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: model.menuBarIcon)
+                if let activity = model.menuBarActivity {
+                    Text(activity)
+                }
+            }
+            .accessibilityLabel(
+                model.menuBarActivity.map { "Briefly, \($0)" } ?? "Briefly"
+            )
+        }
+        .menuBarExtraStyle(.menu)
+        #else
+        WindowGroup("Briefly", id: "main") {
+            ContentView(model: model)
+        }
         #endif
     }
 }
 
 #if os(macOS)
+private struct BrieflyMenuBar: View {
+    @Environment(\.openWindow) private var openWindow
+    @Bindable var model: LibraryModel
+
+    var body: some View {
+        Text(model.isWorking ? model.status : "Briefly is idle")
+
+        Divider()
+
+        Button("Open Briefly") {
+            if let window = NSApp.windows.first(where: \.canBecomeMain) {
+                window.deminiaturize(nil)
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+            } else {
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+
+        if model.canEdit {
+            Button("Capture Clipboard") {
+                let text = NSPasteboard.general.string(forType: .string) ?? ""
+                Task { await model.capture(text) }
+            }
+        }
+
+        Button("Sync Now") {
+            Task { await model.sync() }
+        }
+        .disabled(model.isSyncing)
+
+        Divider()
+
+        Button("Quit Briefly") {
+            NSApp.terminate(nil)
+        }
+    }
+}
+
 extension Notification.Name {
     static let brieflyCaptureClipboard = Self("BrieflyCaptureClipboard")
     static let brieflyCaptureShortcutChanged = Self("BrieflyCaptureShortcutChanged")

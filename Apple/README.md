@@ -12,7 +12,9 @@ remain intact as the compatibility and product reference during the port.
   channels, voice-brief definitions, generated scripts, audio, and favicons.
 - RSS/Atom, podcasts, Reddit, Hacker News, arXiv, ordinary pages, and
   authenticated X capture. Visible and hidden `WKWebView` instances share one
-  persistent cookie store.
+  persistent cookie store. External Safari/default-browser links are for
+  viewing only; authenticated extraction stays in-app so the session remains
+  available to Briefly.
 - Briefly account sessions, managed AI, personal context, editable processing
   and voice-brief prompts, custom macOS AI/agent commands, and share links.
 - Native audio generation and playback with resume position, seeking, speed,

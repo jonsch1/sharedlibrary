@@ -85,9 +85,12 @@ final class LibraryModel {
     var expandedChannelSources = Set<String>()
     var selectedVariant = LibraryVariant.concise
     var selectedText = ""
+    var highlightsText = ""
+    var showingHighlights = false
     var query = ""
     var selectedTopic = "All"
     var isLoadingText = false
+    var isIngesting = false
     var isSyncing = false
     var isProcessing = false
     var isCheckingChannel = false
@@ -123,8 +126,35 @@ final class LibraryModel {
         processingCommand == Self.managedAICommand
     }
 
+    var isWorking: Bool {
+        isIngesting || isCheckingChannel || isProcessing || isRunningVoiceBrief ||
+            isSyncing || isTestingAI
+    }
+
+    var menuBarActivity: String? {
+        if isRunningVoiceBrief { return "Creating brief" }
+        if isProcessing { return "Processing" }
+        if isIngesting || isCheckingChannel { return "Ingesting" }
+        if isSyncing { return "Syncing" }
+        if isTestingAI { return "Testing" }
+        return nil
+    }
+
+    var menuBarIcon: String {
+        if isRunningVoiceBrief { return "waveform" }
+        if isProcessing || isTestingAI { return "sparkles" }
+        if isIngesting || isCheckingChannel { return "square.and.arrow.down" }
+        if isSyncing { return "arrow.triangle.2.circlepath" }
+        return "doc.text"
+    }
+
     var selectedEntry: LibraryEntry? {
         projection.entries.first { $0.id == selectedID }
+    }
+
+    var highlightCount: Int {
+        highlightsText.components(separatedBy: .newlines)
+            .count { $0.hasPrefix("## ") }
     }
 
     var selectedVoiceBrief: LibraryVoiceBrief? {
@@ -212,6 +242,7 @@ final class LibraryModel {
             do {
                 if let cached = try await cache.loadProjection() {
                     projection = cached
+                    await loadHighlights()
                     status = "Opened the offline library"
                 }
             } catch {
@@ -233,6 +264,7 @@ final class LibraryModel {
             let next = WorkspaceLibrary(root: workspaceURL)
             projection = try await next.loadProjection()
             workspaceChannels = try await next.loadChannels()
+            highlightsText = try await next.loadHighlights()
             topicsText = try await next.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
@@ -251,6 +283,26 @@ final class LibraryModel {
             errorMessage = error.localizedDescription
         }
     }
+
+    #if os(macOS)
+    func chooseWorkspace() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Briefly Workspace"
+        panel.message = "Choose the folder that contains your Briefly Markdown library."
+        panel.prompt = "Choose"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = workspacePath.map(URL.init(fileURLWithPath:))
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor [weak self] in
+                await self?.openWorkspace(url)
+            }
+        }
+    }
+    #endif
 
     private func workspaceBookmark(for url: URL) throws -> Data {
         #if os(macOS)
@@ -296,16 +348,12 @@ final class LibraryModel {
         do {
             projection = try await workspace.loadProjection()
             workspaceChannels = try await workspace.loadChannels()
+            highlightsText = try await workspace.loadHighlights()
             topicsText = try await workspace.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
             status = "Refreshed the Markdown workspace"
-            let nextID = entryID ?? selectedID
-            if projection.entries.contains(where: { $0.id == nextID }) {
-                await select(nextID)
-            } else {
-                await selectInitialContent()
-            }
+            await restoreSelection(preferredEntryID: entryID)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -316,6 +364,8 @@ final class LibraryModel {
             errorMessage = "Choose a Markdown workspace before capturing."
             return
         }
+        isIngesting = true
+        defer { isIngesting = false }
         do {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = URL(string: trimmed).flatMap {
@@ -329,14 +379,7 @@ final class LibraryModel {
             if let url {
                 status = "Extracting the signed-in page…"
                 do {
-                    let page = try await ChannelBrowserSession.shared.extractPage(from: url)
-                    id = try await workspace.captureWebPage(
-                        title: page.title,
-                        content: page.text,
-                        sourceURL: url,
-                        faviconData: page.faviconData,
-                        faviconFileExtension: page.faviconFileExtension
-                    )
+                    id = try await ingestURL(url, in: workspace)
                 } catch {
                     id = try await workspace.capture(trimmed)
                 }
@@ -346,10 +389,18 @@ final class LibraryModel {
             await refreshWorkspace(selecting: id)
             activeSection = .items
             status = "Captured. Preparing summaries…"
+            isIngesting = false
             await enqueueProcessing(id)
             requestSync()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func setBrowserIngesting(_ ingesting: Bool) {
+        isIngesting = ingesting
+        if ingesting {
+            status = "Extracting the signed-in page…"
         }
     }
 
@@ -358,6 +409,8 @@ final class LibraryModel {
             errorMessage = "Choose a Markdown workspace before saving web pages."
             return
         }
+        isIngesting = true
+        defer { isIngesting = false }
         do {
             let id = try await workspace.captureWebPage(
                 title: page.title,
@@ -369,6 +422,7 @@ final class LibraryModel {
             )
             await refreshWorkspace(selecting: id)
             status = "Saved the signed-in page. Preparing summaries…"
+            isIngesting = false
             await enqueueProcessing(id)
             requestSync()
         } catch {
@@ -381,6 +435,8 @@ final class LibraryModel {
             errorMessage = "Choose a local Briefly workspace before importing a PDF."
             return
         }
+        isIngesting = true
+        defer { isIngesting = false }
         let hasAccess = url.startAccessingSecurityScopedResource()
         defer {
             if hasAccess { url.stopAccessingSecurityScopedResource() }
@@ -402,6 +458,7 @@ final class LibraryModel {
             )
             await refreshWorkspace(selecting: entryID)
             status = "PDF captured. Preparing summaries…"
+            isIngesting = false
             await enqueueProcessing(entryID)
             requestSync()
         } catch {
@@ -409,19 +466,70 @@ final class LibraryModel {
         }
     }
 
-    func saveSelectedText(_ text: String) async {
-        guard let workspace, !selectedID.isEmpty else { return }
+    func saveText(
+        _ text: String,
+        entryID: String,
+        variant: LibraryVariant
+    ) async {
+        guard let workspace, !entryID.isEmpty else { return }
         do {
             try await workspace.writeText(
-                entryID: selectedID,
-                variant: selectedVariant,
+                entryID: entryID,
+                variant: variant,
                 text: text
             )
-            await refreshWorkspace(selecting: selectedID)
+            projection = try await workspace.loadProjection()
+            if selectedID == entryID, selectedVariant == variant {
+                selectedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             status = "Document saved"
             requestSync()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func addHighlight(_ text: String) async {
+        guard let workspace, !selectedID.isEmpty else { return }
+        do {
+            try await workspace.addHighlight(
+                entryID: selectedID,
+                variant: selectedVariant,
+                text: text
+            )
+            highlightsText = try await workspace.loadHighlights()
+            status = "Added to Highlights"
+            requestSync()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func removeHighlight(_ text: String) async {
+        guard let workspace else { return }
+        do {
+            guard try await workspace.removeHighlight(text) else { return }
+            highlightsText = try await workspace.loadHighlights()
+            status = "Removed from Highlights"
+            requestSync()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func showHighlights() {
+        activeSection = .items
+        selectedID = ""
+        selectedIDs = []
+        selectedText = ""
+        showingHighlights = true
+    }
+
+    func showTopic(_ topic: String) async {
+        selectedTopic = topic
+        showingHighlights = false
+        if !filteredEntries.contains(where: { $0.id == selectedID }) {
+            await select(filteredEntries.first?.id ?? "")
         }
     }
 
@@ -445,10 +553,11 @@ final class LibraryModel {
         }
     }
 
-    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async {
+    @discardableResult
+    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
         guard let workspace else {
             errorMessage = "Choose a Markdown workspace before editing voice briefs."
-            return
+            return nil
         }
         do {
             let id = try await workspace.saveVoiceBrief(draft)
@@ -461,8 +570,10 @@ final class LibraryModel {
             expandedVoiceBriefIDs.insert(id)
             status = "Voice brief saved"
             requestSync()
+            return id
         } catch {
             errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -485,6 +596,22 @@ final class LibraryModel {
             requestSync()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    func selectedVoiceBriefFileURL() async -> URL? {
+        guard
+            let workspace,
+            !selectedVoiceBriefID.isEmpty,
+            selectedVoiceBriefID != "new"
+        else {
+            return nil
+        }
+        do {
+            return try await workspace.voiceBriefFileURL(id: selectedVoiceBriefID)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -1073,6 +1200,7 @@ final class LibraryModel {
 
     func show(_ section: LibrarySection) async {
         activeSection = section
+        showingHighlights = false
         query = ""
         selectedID = ""
         selectedIDs = []
@@ -1091,6 +1219,7 @@ final class LibraryModel {
     }
 
     func select(_ id: String, extending: Bool = false) async {
+        showingHighlights = false
         if extending {
             if selectedIDs.remove(id) != nil {
                 if selectedID == id {
@@ -1128,6 +1257,7 @@ final class LibraryModel {
     }
 
     func selectVoiceBrief(_ id: String) {
+        showingHighlights = false
         selectedID = ""
         selectedIDs = []
         selectedVoiceBriefID = id
@@ -1139,6 +1269,7 @@ final class LibraryModel {
     }
 
     func selectChannel(_ source: String) {
+        showingHighlights = false
         selectedID = ""
         selectedIDs = []
         selectedChannelSource = source
@@ -1182,6 +1313,7 @@ final class LibraryModel {
                 try await workspace.saveSyncBaseline(mirror.projection.files)
                 projection = try await workspace.loadProjection()
                 workspaceChannels = try await workspace.loadChannels()
+                highlightsText = try await workspace.loadHighlights()
                 let total = downloaded + uploaded.changed
                 status = conflicts > 0
                     ? "Synced with \(conflicts) conflict " +
@@ -1202,13 +1334,10 @@ final class LibraryModel {
                 try await cache.saveProjection(incoming)
                 try await cache.removeFiles(notIn: incoming)
                 projection = incoming
+                await loadHighlights()
                 status = "Synced with iCloud"
             }
-            if projection.entries.contains(where: { $0.id == selectedID }) {
-                await select(selectedID)
-            } else {
-                await selectInitialContent()
-            }
+            await restoreSelection()
         } catch {
             errorMessage = error.localizedDescription
             status = "Using the last complete offline library"
@@ -1247,6 +1376,18 @@ final class LibraryModel {
         source: String,
         loadMore: Bool = false
     ) async throws -> LibraryChannelRefresh {
+        let ingest: @Sendable (LibraryChannelCandidate) async throws -> String = {
+            candidate in
+            guard let url = URL(string: candidate.url) else {
+                throw WorkspaceError.invalidChannel
+            }
+            return try await self.ingestURL(
+                url,
+                in: workspace,
+                candidate: candidate,
+                asVoiceBriefSource: true
+            )
+        }
         let host = URL(string: source)?.host?.lowercased() ?? ""
         if host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com") {
             guard let url = URL(string: source) else {
@@ -1265,19 +1406,55 @@ final class LibraryModel {
                             publishedAt: $0.publishedAt,
                             content: $0.content
                         )
-                    }
+                    },
+                    ingest: ingest
                 )
             }
             return try await workspace.captureSignedInChannelPage(
                 source: source,
                 title: page.title,
-                content: page.text
+                content: page.text,
+                ingest: ingest
             )
         }
         if loadMore {
-            return try await workspace.loadMoreChannel(source)
+            return try await workspace.loadMoreChannel(source, ingest: ingest)
         }
-        return try await workspace.checkChannel(source)
+        return try await workspace.checkChannel(source, ingest: ingest)
+    }
+
+    private func ingestURL(
+        _ url: URL,
+        in workspace: WorkspaceLibrary,
+        candidate: LibraryChannelCandidate? = nil,
+        asVoiceBriefSource: Bool = false
+    ) async throws -> String {
+        do {
+            let page = try await ChannelBrowserSession.shared.extractPage(from: url)
+            return try await workspace.captureWebPage(
+                title: page.title,
+                content: page.text,
+                sourceURL: url,
+                asVoiceBriefSource: asVoiceBriefSource,
+                faviconData: page.faviconData,
+                faviconFileExtension: page.faviconFileExtension
+            )
+        } catch {
+            guard
+                let candidate,
+                !candidate.content.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty
+            else {
+                throw error
+            }
+            return try await workspace.captureWebPage(
+                title: candidate.title,
+                content: candidate.content,
+                sourceURL: url,
+                asVoiceBriefSource: asVoiceBriefSource
+            )
+        }
     }
 
     private func process(_ entryID: String) async {
@@ -1319,6 +1496,7 @@ final class LibraryModel {
     }
 
     private func selectInitialContent() async {
+        showingHighlights = false
         expandedVoiceBriefIDs = Set(projection.voiceBriefDefinitions.map(\.id))
         expandedChannelSources = Set(channels.map(\.source))
         let briefWithEpisode = projection.voiceBriefDefinitions.lazy.compactMap { brief in
@@ -1331,6 +1509,41 @@ final class LibraryModel {
         } else {
             activeSection = .items
             await select(projection.entries.first(where: \.isMainLibraryEntry)?.id ?? "")
+        }
+    }
+
+    private func restoreSelection(preferredEntryID: String? = nil) async {
+        if showingHighlights {
+            selectedID = ""
+            selectedIDs = []
+            selectedText = ""
+            return
+        }
+        let entryID = preferredEntryID ?? selectedID
+        if projection.entries.contains(where: { $0.id == entryID }) {
+            await select(entryID)
+            return
+        }
+
+        selectedID = ""
+        selectedIDs = []
+        switch activeSection {
+        case .items:
+            await select(filteredEntries.first?.id ?? "")
+        case .channels:
+            if selectedChannelSource != "new" &&
+                !channels.contains(where: { $0.source == selectedChannelSource })
+            {
+                selectedChannelSource = channels.first?.source ?? ""
+            }
+        case .briefs:
+            if selectedVoiceBriefID != "new" &&
+                !projection.voiceBriefDefinitions.contains(where: {
+                    $0.id == selectedVoiceBriefID
+                })
+            {
+                selectedVoiceBriefID = projection.voiceBriefDefinitions.first?.id ?? ""
+            }
         }
     }
 
@@ -1350,6 +1563,25 @@ final class LibraryModel {
             errorMessage = error.localizedDescription
             selectedText = ""
         }
+    }
+
+    private func loadHighlights() async {
+        if let workspace {
+            highlightsText = (try? await workspace.loadHighlights()) ?? ""
+            return
+        }
+        guard let file = projection.files.first(where: {
+            $0.path == WorkspaceLibrary.highlightsPath
+        }) else {
+            highlightsText = ""
+            return
+        }
+        highlightsText = (try? await cache.text(for: LibraryText(
+            variant: .source,
+            path: file.path,
+            contentHash: file.contentHash,
+            wordCount: 0
+        ))) ?? ""
     }
 }
 
@@ -1511,19 +1743,15 @@ private extension Double {
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("BrieflyAppearance") private var appearance = "system"
-    @State private var model = LibraryModel()
+    @Bindable var model: LibraryModel
     @State private var showsChannelBrowser = false
     @State private var showsSettings = false
-    @State private var showsAccountBrowser = false
-    @State private var accountBrowserURL = BrieflyBackend.shared.accountURL
     @State private var showsWorkspaceImporter = false
     @State private var showsPDFImporter = false
     @State private var sidebarVisible = true
     @State private var windowControlsVisible = true
 
     var body: some View {
-        @Bindable var model = model
-
         Group {
             #if os(macOS)
             HStack(spacing: 6) {
@@ -1604,31 +1832,22 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
-            ChannelLoginView(
-                initialAddress: model.selectedChannelSource,
-                onCapture: model.canEdit
-                    ? { url, page in
-                        Task { await model.captureWebPage(url: url, page: page) }
-                    }
-                    : nil
-            )
+            if model.canEdit {
+                ChannelLoginView(
+                    initialAddress: model.selectedChannelSource,
+                    onCapture: { url, page in
+                        await model.captureWebPage(url: url, page: page)
+                    },
+                    onActivity: model.setBrowserIngesting
+                )
+            } else {
+                ChannelLoginView(initialAddress: model.selectedChannelSource)
+            }
         }
         .sheet(isPresented: $showsSettings) {
             SettingsView(
-                model: model,
-                showsChannelBrowser: $showsChannelBrowser,
-                showsAccountBrowser: $showsAccountBrowser,
-                accountBrowserURL: $accountBrowserURL
+                model: model
             )
-        }
-        .sheet(isPresented: $showsAccountBrowser) {
-            ChannelLoginView(
-                initialAddress: accountBrowserURL.absoluteString,
-                navigationTitle: "Briefly account"
-            )
-            .onDisappear {
-                Task { await model.refreshAccount(reportErrors: true) }
-            }
         }
         .fileImporter(
             isPresented: $showsWorkspaceImporter,
@@ -1704,7 +1923,7 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyChooseWorkspace)
         ) { _ in
-            showsWorkspaceImporter = true
+            model.chooseWorkspace()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyImportPDF)
@@ -1714,7 +1933,7 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)
         ) { _ in
-            Task { await model.refreshWorkspace() }
+            Task<Void, Never> { await model.refreshWorkspace() }
         }
         #endif
         .preferredColorScheme(
@@ -1968,12 +2187,20 @@ private struct LibrarySidebar: View {
                     if model.canEdit {
                         model.openAgent()
                     } else {
+                        #if os(macOS)
+                        model.chooseWorkspace()
+                        #else
                         showsWorkspaceImporter = true
+                        #endif
                     }
                 } label: {
-                    Label("AI", systemImage: "sparkles")
+                    Label(
+                        model.canEdit ? "AI" : "Choose Workspace",
+                        systemImage: model.canEdit ? "sparkles" : "folder"
+                    )
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -1983,6 +2210,7 @@ private struct LibrarySidebar: View {
                     Image(systemName: "gearshape")
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Settings")
@@ -2004,12 +2232,26 @@ private struct TopicStrip: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                TopicButton(title: "All", selected: model.selectedTopic == "All") {
-                    model.selectedTopic = "All"
+                TopicButton(
+                    title: "All",
+                    selected: model.selectedTopic == "All" && !model.showingHighlights
+                ) {
+                    Task { await model.showTopic("All") }
                 }
-                ForEach(model.projection.topics, id: \.self) { topic in
-                    TopicButton(title: topic, selected: model.selectedTopic == topic) {
-                        model.selectedTopic = topic
+                TopicButton(
+                    title: model.highlightCount == 0
+                        ? "Highlights"
+                        : "Highlights \(model.highlightCount)",
+                    selected: model.showingHighlights
+                ) {
+                    model.showHighlights()
+                }
+                ForEach(model.projection.documentTopics, id: \.self) { topic in
+                    TopicButton(
+                        title: topic,
+                        selected: model.selectedTopic == topic && !model.showingHighlights
+                    ) {
+                        Task { await model.showTopic(topic) }
                     }
                 }
             }
@@ -2025,14 +2267,18 @@ private struct TopicButton: View {
     let action: () -> Void
 
     var body: some View {
-        Button(title, action: action)
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
-            .padding(.horizontal, 10)
-            .frame(height: 27)
-            .background(selected ? Color.accentColor : Color.primary.opacity(0.055))
-            .foregroundStyle(selected ? Color.white : Color.primary)
-            .clipShape(Capsule())
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 10)
+                .frame(height: 27)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background(selected ? Color.accentColor : Color.primary.opacity(0.055))
+        .foregroundStyle(selected ? Color.white : Color.primary)
+        .clipShape(Capsule())
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -2041,7 +2287,14 @@ private struct ItemRows: View {
 
     var body: some View {
         if model.filteredEntries.isEmpty {
-            SidebarEmpty(icon: "doc.text", title: "No matching documents")
+            SidebarEmpty(
+                icon: "doc.text",
+                title: model.query.isEmpty
+                    ? model.selectedTopic == "All"
+                        ? "No documents yet"
+                        : "No documents in \(model.selectedTopic)"
+                    : "No matching documents"
+            )
         } else {
             ForEach(model.filteredEntries) { entry in
                 SidebarRow(
@@ -2079,10 +2332,18 @@ private struct VoiceBriefRows: View {
         .foregroundStyle(Color.accentColor)
         .background {
             RoundedRectangle(cornerRadius: 9)
+                .fill(
+                    model.selectedVoiceBriefID == "new"
+                        ? Color.accentColor.opacity(0.1)
+                        : Color.clear
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9)
                 .stroke(
                     Color.primary.opacity(0.17),
                     style: StrokeStyle(lineWidth: 1, dash: [4, 3])
                 )
+                }
         }
         .padding(.bottom, 6)
 
@@ -2124,6 +2385,43 @@ private struct VoiceBriefRows: View {
     }
 }
 
+private struct ChannelDomainGroup: Identifiable {
+    let domain: String
+    let channels: [LibraryChannel]
+
+    var id: String { domain }
+}
+
+private func channelDomainGroups(
+    _ channels: [LibraryChannel]
+) -> [ChannelDomainGroup] {
+    Dictionary(grouping: channels, by: { channelDomain($0.source) })
+        .map { domain, channels in
+            ChannelDomainGroup(
+                domain: domain,
+                channels: channels.sorted {
+                    $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
+            )
+        }
+        .sorted {
+            $0.domain.localizedCaseInsensitiveCompare($1.domain) == .orderedAscending
+        }
+}
+
+private func channelDomain(_ source: String) -> String {
+    if source.lowercased().hasPrefix("arxiv:") { return "arxiv.org" }
+    let host = URL(string: source)?.host?.lowercased()
+        .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) ??
+        "other"
+    if host == "x.com" || host == "twitter.com" { return "x.com" }
+    if host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com") {
+        return "youtube.com"
+    }
+    if host == "reddit.com" || host.hasSuffix(".reddit.com") { return "reddit.com" }
+    return host
+}
+
 private struct ChannelRows: View {
     @Bindable var model: LibraryModel
 
@@ -2143,48 +2441,67 @@ private struct ChannelRows: View {
         .foregroundStyle(Color.accentColor)
         .background {
             RoundedRectangle(cornerRadius: 9)
+                .fill(
+                    model.selectedChannelSource == "new"
+                        ? Color.accentColor.opacity(0.1)
+                        : Color.clear
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9)
                 .stroke(
                     Color.primary.opacity(0.17),
                     style: StrokeStyle(lineWidth: 1, dash: [4, 3])
                 )
+                }
         }
         .padding(.bottom, 6)
 
         if model.filteredChannels.isEmpty {
             SidebarEmpty(icon: "dot.radiowaves.left.and.right", title: "No channels")
         } else {
-            ForEach(model.filteredChannels) { channel in
-                SidebarRow(
-                    icon: model.expandedChannelSources.contains(channel.source)
-                        ? "folder.fill"
-                        : "folder",
-                    title: channel.title,
-                    selected: model.selectedChannelSource == channel.source &&
-                        model.selectedID.isEmpty
-                ) {
-                    model.selectChannel(channel.source)
-                }
+            ForEach(channelDomainGroups(model.filteredChannels)) { group in
+                Label(group.domain, systemImage: "globe")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 8)
+                    .padding(.bottom, 3)
 
-                if model.expandedChannelSources.contains(channel.source) {
-                    ForEach(model.channelEntries(for: channel.source)) { entry in
-                        SidebarRow(
-                            icon: "doc.text",
-                            title: entry.title,
-                            selected: model.selectedIDs.contains(entry.id),
-                            inset: true,
-                            imageURL: localFaviconURL(
-                                for: entry,
-                                workspacePath: model.workspacePath
-                            )
-                        ) {
-                            Task {
-                                await model.select(
-                                    entry.id,
-                                    extending: extendsSidebarSelection()
+                ForEach(group.channels) { channel in
+                    SidebarRow(
+                        icon: model.expandedChannelSources.contains(channel.source)
+                            ? "folder.fill"
+                            : "folder",
+                        title: channel.title,
+                        selected: model.selectedChannelSource == channel.source &&
+                            model.selectedID.isEmpty
+                    ) {
+                        model.selectChannel(channel.source)
+                    }
+
+                    if model.expandedChannelSources.contains(channel.source) {
+                        ForEach(model.channelEntries(for: channel.source)) { entry in
+                            SidebarRow(
+                                icon: "doc.text",
+                                title: entry.title,
+                                selected: model.selectedIDs.contains(entry.id),
+                                inset: true,
+                                imageURL: localFaviconURL(
+                                    for: entry,
+                                    workspacePath: model.workspacePath
                                 )
+                            ) {
+                                Task {
+                                    await model.select(
+                                        entry.id,
+                                        extending: extendsSidebarSelection()
+                                    )
+                                }
                             }
+                            .modifier(EntryContextMenu(model: model, entry: entry))
                         }
-                        .modifier(EntryContextMenu(model: model, entry: entry))
                     }
                 }
             }
@@ -2373,7 +2690,9 @@ private struct LibraryDetail: View {
 
     var body: some View {
         Group {
-            if let entry = model.selectedEntry {
+            if model.showingHighlights {
+                HighlightsDocument(model: model)
+            } else if let entry = model.selectedEntry {
                 LibraryDocument(model: model, entry: entry)
             } else if model.activeSection == .briefs {
                 VoiceBriefConfiguration(model: model)
@@ -2381,6 +2700,24 @@ private struct LibraryDetail: View {
                 ChannelConfiguration(
                     model: model,
                     showsChannelBrowser: $showsChannelBrowser
+                )
+            } else if model.activeSection == .items && model.filteredEntries.isEmpty {
+                ContentUnavailableView(
+                    model.query.isEmpty
+                        ? model.selectedTopic == "All"
+                            ? "No documents yet"
+                            : "No documents in \(model.selectedTopic)"
+                        : "No matching documents",
+                    systemImage: model.query.isEmpty
+                        ? "doc.text"
+                        : "doc.text.magnifyingglass",
+                    description: Text(
+                        model.query.isEmpty
+                            ? model.selectedTopic == "All"
+                                ? "Add a document to start your library."
+                                : "Choose another topic or add a document."
+                            : "Try another search."
+                    )
                 )
             } else {
                 ContentUnavailableView(
@@ -2390,63 +2727,735 @@ private struct LibraryDetail: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(readerBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.primary.opacity(0.08))
-                .allowsHitTesting(false)
+    }
+}
+
+private struct HighlightsDocument: View {
+    @Bindable var model: LibraryModel
+
+    var body: some View {
+        GeometryReader { geometry in
+            if model.highlightsText.isEmpty {
+                ZStack {
+                    ContentUnavailableView(
+                        "No highlights yet",
+                        systemImage: "highlighter",
+                        description: Text(
+                            "Select a passage in any document, then choose Highlight."
+                        )
+                    )
+                }
+            } else {
+                ScrollView {
+                    MarkdownArticle(model.highlightsText)
+                        .frame(maxWidth: 844, alignment: .leading)
+                        .padding(.horizontal, 32)
+                        .padding(.top, 56)
+                        .padding(.bottom, 80)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: geometry.size.height, alignment: .top)
+                }
+            }
         }
     }
 }
 
-private struct LibraryDocument: View {
-    @Bindable var model: LibraryModel
-    let entry: LibraryEntry
-    @State private var audioExpanded = false
-    @State private var audioPlayer = NativeAudioPlayer()
-    @State private var isEditing = false
-    @State private var draft = ""
-    @State private var showsSharing = false
+private struct ReadingDepthIcon: View {
+    let variant: LibraryVariant
 
-    private var wordCount: Int {
-        model.selectedText.split(whereSeparator: \.isWhitespace).count
+    private var lineWidths: [CGFloat] {
+        switch variant {
+        case .brief: [18]
+        case .concise: [18, 12]
+        case .detailed: [18, 18, 12]
+        case .comprehensive: [16, 16, 16, 10]
+        case .source: []
+        }
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            RuledPaper()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("\(wordCount.formatted()) words")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, 24)
-
-                    if isEditing {
-                        TextEditor(text: $draft)
-                            .font(.system(size: 17, design: .monospaced))
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 520)
-                    } else if model.isLoadingText {
-                        ProgressView("Loading document…")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if model.selectedText.isEmpty {
-                        ContentUnavailableView(
-                            "Document unavailable",
-                            systemImage: "icloud.slash",
-                            description: Text("Sync the library to download this document.")
-                        )
-                    } else {
-                        MarkdownArticle(model.selectedText)
-                    }
+        if variant == .source {
+            Image(systemName: "doc.text")
+                .font(.system(size: 17, weight: .medium))
+        } else {
+            VStack(alignment: .leading, spacing: 2.5) {
+                ForEach(Array(lineWidths.enumerated()), id: \.offset) { _, width in
+                    Capsule()
+                        .frame(width: width, height: 2)
                 }
-                .frame(maxWidth: 844, alignment: .leading)
-                .padding(.horizontal, 32)
-                .padding(.top, 56)
-                .padding(.bottom, 125)
-                .frame(maxWidth: .infinity)
+            }
+            .frame(width: 18, height: 21, alignment: .center)
+        }
+    }
+}
+
+private enum MarkdownRunStyle {
+    case hidden
+    case bold
+    case italic
+    case code
+    case link
+    case quote
+    case heading(Int)
+}
+
+private func markdownRuns(in text: String) -> [(NSRange, MarkdownRunStyle)] {
+    let fullRange = NSRange(location: 0, length: text.utf16.count)
+    var runs = [(NSRange, MarkdownRunStyle)]()
+
+    func matches(_ pattern: String) -> [NSTextCheckingResult] {
+        (try? NSRegularExpression(pattern: pattern))?.matches(
+            in: text,
+            range: fullRange
+        ) ?? []
+    }
+
+    func addWrapped(_ match: NSTextCheckingResult, content: NSRange) {
+        guard content.location != NSNotFound else { return }
+        let prefix = NSRange(
+            location: match.range.location,
+            length: content.location - match.range.location
+        )
+        let suffix = NSRange(
+            location: NSMaxRange(content),
+            length: NSMaxRange(match.range) - NSMaxRange(content)
+        )
+        if prefix.length > 0 { runs.append((prefix, .hidden)) }
+        if suffix.length > 0 { runs.append((suffix, .hidden)) }
+    }
+
+    for match in matches(#"\*\*([^*\n]+)\*\*|__([^_\n]+)__"#) {
+        let content = match.range(at: 1).location == NSNotFound
+            ? match.range(at: 2)
+            : match.range(at: 1)
+        runs.append((content, .bold))
+        addWrapped(match, content: content)
+    }
+    for match in matches(#"(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)"#) {
+        let content = match.range(at: 1).location == NSNotFound
+            ? match.range(at: 2)
+            : match.range(at: 1)
+        runs.append((content, .italic))
+        addWrapped(match, content: content)
+    }
+    for match in matches(#"`([^`\n]+)`"#) {
+        let content = match.range(at: 1)
+        runs.append((content, .code))
+        addWrapped(match, content: content)
+    }
+    for match in matches(#"\[([^\]\n]+)\]\(([^)\n]+)\)"#) {
+        let label = match.range(at: 1)
+        runs.append((label, .link))
+        addWrapped(match, content: label)
+    }
+    for match in matches(#"(?m)^>[ \t]+([^\n]*)$"#) {
+        let content = match.range(at: 1)
+        runs.append((content, .quote))
+        let prefix = NSRange(
+            location: match.range.location,
+            length: content.location - match.range.location
+        )
+        runs.append((prefix, .hidden))
+    }
+    for match in matches(#"(?m)^(#{1,3})[ \t]+([^\n]+)$"#) {
+        let marker = match.range(at: 1)
+        let content = match.range(at: 2)
+        runs.append((content, .heading(marker.length)))
+        let prefix = NSRange(
+            location: match.range.location,
+            length: content.location - match.range.location
+        )
+        runs.append((prefix, .hidden))
+    }
+    return runs
+}
+
+private func highlightedPassages(in markdown: String) -> [String] {
+    var passages = [String]()
+    var quote = [String]()
+    for line in markdown.components(separatedBy: .newlines) + [""] {
+        if line.hasPrefix("> ") {
+            quote.append(String(line.dropFirst(2)))
+        } else if !quote.isEmpty {
+            passages.append(quote.joined(separator: "\n"))
+            quote.removeAll(keepingCapacity: true)
+        }
+    }
+    return passages
+}
+
+private func highlightedPassage(
+    in source: NSString,
+    passages: [String],
+    intersecting selection: NSRange
+) -> String? {
+    for passage in passages where !passage.isEmpty {
+        var searchRange = NSRange(location: 0, length: source.length)
+        while searchRange.length > 0 {
+            let found = source.range(of: passage, options: [], range: searchRange)
+            guard found.location != NSNotFound else { break }
+            if NSIntersectionRange(found, selection).length > 0 { return passage }
+            let next = NSMaxRange(found)
+            searchRange = NSRange(location: next, length: source.length - next)
+        }
+    }
+    return nil
+}
+
+private struct DocumentEditor: View {
+    @Bindable var model: LibraryModel
+    let entryID: String
+    let variant: LibraryVariant
+    let sourceText: String
+    let highlightedPassages: [String]
+    let isEditing: Bool
+    @State private var draft: String
+    @State private var pendingSave: Task<Void, Never>?
+
+    init(
+        model: LibraryModel,
+        entryID: String,
+        variant: LibraryVariant,
+        sourceText: String,
+        highlightedPassages: [String],
+        isEditing: Bool
+    ) {
+        self.model = model
+        self.entryID = entryID
+        self.variant = variant
+        self.sourceText = sourceText
+        self.highlightedPassages = highlightedPassages
+        self.isEditing = isEditing
+        _draft = State(initialValue: sourceText)
+    }
+
+    var body: some View {
+        EditableDocumentTextView(
+            text: $draft,
+            isEditable: model.canEdit && isEditing,
+            highlightedPassages: highlightedPassages,
+            onHighlight: model.canEdit ? { text in
+                Task { await model.addHighlight(text) }
+            } : nil,
+            onRemoveHighlight: model.canEdit ? { text in
+                Task { await model.removeHighlight(text) }
+            } : nil
+        )
+        .onChange(of: sourceText) { oldValue, newValue in
+            if draft == oldValue { draft = newValue }
+        }
+        .onChange(of: draft) {
+            guard model.canEdit, isEditing, draft != sourceText else { return }
+            pendingSave?.cancel()
+            let text = draft
+            pendingSave = Task {
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                await model.saveText(text, entryID: entryID, variant: variant)
+            }
+        }
+    }
+}
+
+#if os(macOS)
+private struct EditableDocumentTextView: NSViewRepresentable {
+    @Binding var text: String
+    let isEditable: Bool
+    let highlightedPassages: [String]
+    let onHighlight: ((String) -> Void)?
+    let onRemoveHighlight: ((String) -> Void)?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let textView = MarkdownTextView()
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+        textView.delegate = context.coordinator
+        textView.isRichText = true
+        textView.importsGraphics = false
+        textView.allowsImageEditing = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
+        textView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = NSSize(width: 32, height: 90)
+        textView.highlightAction = onHighlight
+        textView.removeHighlightAction = onRemoveHighlight
+        textView.highlightedPassages = highlightedPassages
+        textView.isSelectable = true
+        textView.isEditable = isEditable
+        textView.setMarkdown(text)
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? MarkdownTextView else {
+            return
+        }
+        textView.isSelectable = true
+        textView.isEditable = isEditable
+        textView.highlightAction = onHighlight
+        textView.removeHighlightAction = onRemoveHighlight
+        textView.highlightedPassages = highlightedPassages
+        if textView.string != text { textView.setMarkdown(text) }
+        else { textView.renderMarkdown() }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: EditableDocumentTextView
+
+        init(_ parent: EditableDocumentTextView) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? MarkdownTextView else {
+                return
+            }
+            parent.text = textView.string
+            textView.renderMarkdown()
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? MarkdownTextView else {
+                return
+            }
+            textView.showHighlightButton(for: textView.selectedRange())
+        }
+    }
+}
+
+private final class HighlightButton: NSButton {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .arrow)
+    }
+}
+
+private final class MarkdownTextView: NSTextView {
+    var highlightAction: ((String) -> Void)?
+    var removeHighlightAction: ((String) -> Void)?
+    var highlightedPassages = [String]()
+    private var highlightButton: NSButton?
+    private var highlightedText = ""
+    private var removesHighlight = false
+    private var isRendering = false
+
+    func setMarkdown(_ text: String) {
+        string = text
+        renderMarkdown()
+    }
+
+    func renderMarkdown() {
+        guard !isRendering, let storage = textStorage else { return }
+        isRendering = true
+        defer { isRendering = false }
+        let range = NSRange(location: 0, length: string.utf16.count)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 32
+        paragraph.maximumLineHeight = 32
+        let body = NSFont(name: "NewYork-Regular", size: 19) ??
+            .systemFont(ofSize: 19)
+        let bold = NSFont(name: "NewYork-Bold", size: 19) ??
+            .boldSystemFont(ofSize: 19)
+        let italic = NSFontManager.shared.convert(body, toHaveTrait: .italicFontMask)
+        let hidden = NSFont.systemFont(ofSize: 0.1)
+
+        storage.beginEditing()
+        storage.setAttributes(
+            [
+                .font: body,
+                .foregroundColor: NSColor.textColor,
+                .paragraphStyle: paragraph
+            ],
+            range: range
+        )
+        for (range, style) in markdownRuns(in: string) {
+            let attributes: [NSAttributedString.Key: Any]
+            switch style {
+            case .hidden:
+                attributes = [.font: hidden, .foregroundColor: NSColor.clear]
+            case .bold:
+                attributes = [.font: bold]
+            case .italic:
+                attributes = [.font: italic]
+            case .code:
+                attributes = [
+                    .font: NSFont.monospacedSystemFont(ofSize: 17, weight: .regular),
+                    .backgroundColor: NSColor.quaternaryLabelColor
+                ]
+            case .link:
+                attributes = [
+                    .foregroundColor: NSColor.controlAccentColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ]
+            case .quote:
+                attributes = [
+                    .font: italic,
+                    .foregroundColor: NSColor.secondaryLabelColor
+                ]
+            case let .heading(level):
+                let size = level == 1 ? 28.0 : level == 2 ? 23.0 : 19.0
+                attributes = [
+                    .font: NSFont(name: "NewYork-Bold", size: size) ??
+                        .boldSystemFont(ofSize: size)
+                ]
+            }
+            storage.addAttributes(attributes, range: range)
+        }
+        let source = string as NSString
+        for passage in highlightedPassages where !passage.isEmpty {
+            var searchRange = NSRange(location: 0, length: source.length)
+            while searchRange.length > 0 {
+                let found = source.range(of: passage, options: [], range: searchRange)
+                guard found.location != NSNotFound else { break }
+                storage.addAttribute(
+                    .backgroundColor,
+                    value: NSColor.systemYellow.withAlphaComponent(0.34),
+                    range: found
+                )
+                let next = NSMaxRange(found)
+                searchRange = NSRange(location: next, length: source.length - next)
+            }
+        }
+        storage.endEditing()
+        typingAttributes = [
+            .font: body,
+            .foregroundColor: NSColor.textColor,
+            .paragraphStyle: paragraph
+        ]
+        needsDisplay = true
+    }
+
+    func showHighlightButton(for range: NSRange) {
+        guard
+            range.length > 0,
+            highlightAction != nil,
+            let textRange = Range(range, in: string)
+        else {
+            highlightButton?.removeFromSuperview()
+            highlightButton = nil
+            return
+        }
+        let text = String(string[textRange])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            highlightButton?.removeFromSuperview()
+            highlightButton = nil
+            return
+        }
+        let existingHighlight = highlightedPassage(
+            in: string as NSString,
+            passages: highlightedPassages,
+            intersecting: range
+        )
+        removesHighlight = existingHighlight != nil
+        highlightedText = existingHighlight ?? text
+
+        let button = highlightButton ?? HighlightButton(
+            title: "",
+            target: self,
+            action: #selector(toggleHighlight)
+        )
+        button.title = ""
+        button.image = NSImage(
+            systemSymbolName: removesHighlight ? "eraser" : "highlighter",
+            accessibilityDescription: nil
+        )
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.isBordered = false
+        button.setButtonType(.momentaryPushIn)
+        button.focusRingType = .none
+        button.contentTintColor = removesHighlight
+            ? NSColor(calibratedRed: 0.78, green: 0.12, blue: 0.12, alpha: 1)
+            : NSColor(calibratedRed: 0.58, green: 0.36, blue: 0.02, alpha: 1)
+        button.wantsLayer = true
+        button.layer?.backgroundColor = NSColor.white.cgColor
+        button.layer?.borderColor = NSColor(
+            calibratedWhite: 0.78,
+            alpha: 1
+        ).cgColor
+        button.layer?.borderWidth = 1
+        button.layer?.cornerRadius = 9
+        button.layer?.shadowColor = NSColor.black.cgColor
+        button.layer?.shadowOpacity = 0.16
+        button.layer?.shadowRadius = 5
+        button.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        button.setAccessibilityLabel(
+            removesHighlight
+                ? "Remove selection from Highlights"
+                : "Add selection to Highlights"
+        )
+        button.toolTip = removesHighlight
+            ? "Remove selection from Highlights"
+            : "Add selection to Highlights"
+        if highlightButton == nil {
+            addSubview(button, positioned: .above, relativeTo: nil)
+            highlightButton = button
+        }
+
+        guard let layoutManager, let textContainer else { return }
+        let glyphs = layoutManager.glyphRange(
+            forCharacterRange: range,
+            actualCharacterRange: nil
+        )
+        var selectionRect = layoutManager.boundingRect(
+            forGlyphRange: glyphs,
+            in: textContainer
+        )
+        selectionRect.origin.x += textContainerOrigin.x
+        selectionRect.origin.y += textContainerOrigin.y
+        let size = NSSize(width: 34, height: 34)
+        let x = min(
+            max(selectionRect.midX - size.width / 2, visibleRect.minX + 6),
+            visibleRect.maxX - size.width - 6
+        )
+        let above = selectionRect.minY - size.height - 10
+        let y = above >= visibleRect.minY + 4
+            ? above
+            : min(selectionRect.maxY + 10, visibleRect.maxY - size.height - 4)
+        button.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+    }
+
+    @objc private func toggleHighlight() {
+        if removesHighlight {
+            removeHighlightAction?(highlightedText)
+        } else {
+            highlightAction?(highlightedText)
+        }
+        highlightButton?.removeFromSuperview()
+        highlightButton = nil
+    }
+}
+#elseif os(iOS)
+private struct EditableDocumentTextView: UIViewRepresentable {
+    @Binding var text: String
+    let isEditable: Bool
+    let highlightedPassages: [String]
+    let onHighlight: ((String) -> Void)?
+    let onRemoveHighlight: ((String) -> Void)?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> MarkdownTextView {
+        let textView = MarkdownTextView()
+        textView.delegate = context.coordinator
+        textView.isEditable = isEditable
+        textView.isSelectable = true
+        textView.backgroundColor = .clear
+        textView.alwaysBounceVertical = true
+        textView.textContainerInset = UIEdgeInsets(
+            top: 90,
+            left: 32,
+            bottom: 125,
+            right: 32
+        )
+        textView.textContainer.lineFragmentPadding = 0
+        textView.highlightedPassages = highlightedPassages
+        textView.setMarkdown(text)
+        return textView
+    }
+
+    func updateUIView(_ textView: MarkdownTextView, context: Context) {
+        context.coordinator.parent = self
+        textView.isEditable = isEditable
+        textView.isSelectable = true
+        textView.highlightedPassages = highlightedPassages
+        if textView.text != text { textView.setMarkdown(text) }
+        else { textView.renderMarkdown() }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: EditableDocumentTextView
+
+        init(_ parent: EditableDocumentTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text
+            (textView as? MarkdownTextView)?.renderMarkdown()
+        }
+
+        func textView(
+            _ textView: UITextView,
+            editMenuForTextIn range: NSRange,
+            suggestedActions: [UIMenuElement]
+        ) -> UIMenu? {
+            guard
+                range.length > 0,
+                parent.onHighlight != nil
+            else { return UIMenu(children: suggestedActions) }
+            let text = (textView.text as NSString).substring(with: range)
+            let existingHighlight = highlightedPassage(
+                in: textView.text as NSString,
+                passages: parent.highlightedPassages,
+                intersecting: range
+            )
+            let action = UIAction(
+                title: existingHighlight == nil ? "Highlight" : "Remove Highlight",
+                image: UIImage(
+                    systemName: existingHighlight == nil ? "highlighter" : "eraser"
+                )
+            ) { _ in
+                if let existingHighlight {
+                    self.parent.onRemoveHighlight?(existingHighlight)
+                } else {
+                    self.parent.onHighlight?(text)
+                }
+            }
+            return UIMenu(children: [action] + suggestedActions)
+        }
+    }
+}
+
+private final class MarkdownTextView: UITextView {
+    var highlightedPassages = [String]()
+    private var isRendering = false
+
+    func setMarkdown(_ markdown: String) {
+        text = markdown
+        renderMarkdown()
+    }
+
+    func renderMarkdown() {
+        guard !isRendering else { return }
+        isRendering = true
+        defer { isRendering = false }
+        let range = NSRange(location: 0, length: text.utf16.count)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 32
+        paragraph.maximumLineHeight = 32
+        let body = UIFont(name: "NewYork-Regular", size: 19) ??
+            .systemFont(ofSize: 19)
+        let bold = UIFont(name: "NewYork-Bold", size: 19) ??
+            .boldSystemFont(ofSize: 19)
+        let italic = UIFont.italicSystemFont(ofSize: 19)
+        let hidden = UIFont.systemFont(ofSize: 0.1)
+
+        textStorage.beginEditing()
+        textStorage.setAttributes(
+            [
+                .font: body,
+                .foregroundColor: UIColor.label,
+                .paragraphStyle: paragraph
+            ],
+            range: range
+        )
+        for (range, style) in markdownRuns(in: text) {
+            let attributes: [NSAttributedString.Key: Any]
+            switch style {
+            case .hidden:
+                attributes = [.font: hidden, .foregroundColor: UIColor.clear]
+            case .bold:
+                attributes = [.font: bold]
+            case .italic:
+                attributes = [.font: italic]
+            case .code:
+                attributes = [
+                    .font: UIFont.monospacedSystemFont(ofSize: 17, weight: .regular),
+                    .backgroundColor: UIColor.quaternarySystemFill
+                ]
+            case .link:
+                attributes = [
+                    .foregroundColor: UIColor.tintColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ]
+            case .quote:
+                attributes = [
+                    .font: italic,
+                    .foregroundColor: UIColor.secondaryLabel
+                ]
+            case let .heading(level):
+                let size = level == 1 ? 28.0 : level == 2 ? 23.0 : 19.0
+                attributes = [
+                    .font: UIFont(name: "NewYork-Bold", size: size) ??
+                        .boldSystemFont(ofSize: size)
+                ]
+            }
+            textStorage.addAttributes(attributes, range: range)
+        }
+        let source = text as NSString
+        for passage in highlightedPassages where !passage.isEmpty {
+            var searchRange = NSRange(location: 0, length: source.length)
+            while searchRange.length > 0 {
+                let found = source.range(of: passage, options: [], range: searchRange)
+                guard found.location != NSNotFound else { break }
+                textStorage.addAttribute(
+                    .backgroundColor,
+                    value: UIColor.systemYellow.withAlphaComponent(0.34),
+                    range: found
+                )
+                let next = NSMaxRange(found)
+                searchRange = NSRange(location: next, length: source.length - next)
+            }
+        }
+        textStorage.endEditing()
+        typingAttributes = [
+            .font: body,
+            .foregroundColor: UIColor.label,
+            .paragraphStyle: paragraph
+        ]
+        setNeedsDisplay()
+    }
+
+}
+#endif
+
+private struct LibraryDocument: View {
+    @Bindable var model: LibraryModel
+    let entry: LibraryEntry
+    @State private var isEditing = false
+    @State private var audioExpanded = false
+    @State private var audioPlayer = NativeAudioPlayer()
+    @State private var showsSharing = false
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            if model.isLoadingText {
+                ProgressView("Loading document…")
+            } else if model.selectedText.isEmpty && !model.canEdit {
+                ContentUnavailableView(
+                    "Document unavailable",
+                    systemImage: "icloud.slash",
+                    description: Text(
+                        "Sync the library to download this document."
+                    )
+                )
+            } else {
+                DocumentEditor(
+                    model: model,
+                    entryID: entry.id,
+                    variant: model.selectedVariant,
+                    sourceText: model.selectedText,
+                    highlightedPassages: highlightedPassages(
+                        in: model.highlightsText
+                    ),
+                    isEditing: isEditing
+                )
+                .id("\(entry.id):\(model.selectedVariant.rawValue)")
             }
 
             if audioExpanded {
@@ -2552,10 +3561,8 @@ private struct LibraryDocument: View {
                             Button {
                                 Task { await model.selectVariant(variant) }
                             } label: {
-                                Text(variant.title)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .padding(.horizontal, 10)
-                                    .frame(height: 44)
+                                ReadingDepthIcon(variant: variant)
+                                    .frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -2564,6 +3571,15 @@ private struct LibraryDocument: View {
                                     ? Color.accentColor
                                     : Color.primary
                             )
+                            .background(
+                                model.selectedVariant == variant
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear
+                            )
+                            .accessibilityLabel(
+                                variant == .source ? "Original" : variant.title
+                            )
+                            .help(variant == .source ? "Original" : variant.title)
                         }
                     }
                     .background(readerBackground)
@@ -2576,7 +3592,9 @@ private struct LibraryDocument: View {
                         )
                     )
                     .overlay(alignment: .top) {
-                        Divider()
+                        Rectangle()
+                            .fill(.primary.opacity(0.08))
+                            .frame(height: 1)
                     }
                 }
 
@@ -2585,21 +3603,21 @@ private struct LibraryDocument: View {
                 HStack(spacing: 0) {
                     if model.canEdit {
                         Button {
-                            if isEditing {
-                                Task {
-                                    await model.saveSelectedText(draft)
-                                    isEditing = false
-                                }
-                            } else {
-                                draft = model.selectedText
-                                isEditing = true
-                            }
+                            isEditing.toggle()
                         } label: {
                             Image(systemName: isEditing ? "checkmark" : "pencil")
                                 .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(isEditing ? "Save document" : "Edit document")
+                        .foregroundStyle(isEditing ? Color.accentColor : Color.primary)
+                        .background(
+                            isEditing ? Color.accentColor.opacity(0.12) : Color.clear
+                        )
+                        .accessibilityLabel(
+                            isEditing ? "Finish editing" : "Edit document"
+                        )
+                        .help(isEditing ? "Finish editing" : "Edit document")
 
                         #if os(macOS)
                         Button {
@@ -2674,22 +3692,19 @@ private struct LibraryDocument: View {
                     )
                 )
                 .overlay(alignment: .top) {
-                    Divider()
+                    Rectangle()
+                        .fill(.primary.opacity(0.08))
+                        .frame(height: 1)
                 }
             }
         }
         .onChange(of: entry.id) {
+            isEditing = false
             audioPlayer.stop()
             audioExpanded = false
-            isEditing = false
-            draft = ""
         }
         .contextMenu {
             if model.canEdit {
-                Button("Edit") {
-                    draft = model.selectedText
-                    isEditing = true
-                }
                 Button("Regenerate summaries") {
                     Task { await model.processSelected() }
                 }
@@ -2853,27 +3868,6 @@ private struct ShareDocumentView: View {
     }
 }
 
-private struct RuledPaper: View {
-    var body: some View {
-        Canvas { context, size in
-            var y: CGFloat = 51
-            while y < size.height {
-                var line = Path()
-                line.move(to: CGPoint(x: 0, y: y))
-                line.addLine(to: CGPoint(x: size.width, y: y))
-                context.stroke(
-                    line,
-                    with: .color(.primary.opacity(0.055)),
-                    lineWidth: 1
-                )
-                y += 32
-            }
-        }
-        .background(readerBackground)
-        .allowsHitTesting(false)
-    }
-}
-
 private struct MarkdownArticle: View {
     let lines: [String]
 
@@ -2961,6 +3955,20 @@ private struct VoiceBriefConfiguration: View {
     @State private var length = ""
     @State private var sources = ""
     @State private var prioritizeForMe = false
+    @State private var confirmsTrash = false
+
+    private var selectedSources: Set<String> {
+        Set(
+            sources.components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         ScrollView {
@@ -2970,37 +3978,7 @@ private struct VoiceBriefConfiguration: View {
                 VStack(alignment: .leading, spacing: 28) {
                     TextField("Voice brief title", text: $title)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 34, weight: .bold, design: .serif))
-
-                    if model.selectedVoiceBrief != nil {
-                        HStack {
-                            Button {
-                                Task { await model.checkSelectedVoiceBriefChannels() }
-                            } label: {
-                                Label("Check channels", systemImage: "arrow.clockwise")
-                            }
-                            Button {
-                                Task { await model.runSelectedVoiceBrief() }
-                            } label: {
-                                if model.isRunningVoiceBrief {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Label("Generate now", systemImage: "play.fill")
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(
-                                model.isRunningVoiceBrief ||
-                                    model.selectedVoiceBrief?.sources.isEmpty != false
-                            )
-                            Spacer()
-                            Text(model.status)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
+                        .font(.system(size: 42, weight: .bold, design: .serif))
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Editorial direction")
@@ -3031,22 +4009,90 @@ private struct VoiceBriefConfiguration: View {
                     }
                     .toggleStyle(.switch)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Channels")
-                            .font(.headline)
-                        Text("One HTTP(S) URL or arXiv query per line.")
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .bottom) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Channels")
+                                    .font(.headline)
+                                Text("Choose from your configured Channel library.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("\(selectedSources.count) selected")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if model.channels.isEmpty {
+                            Label(
+                                "Add channels in the Channel tab, then choose them here.",
+                                systemImage: "dot.radiowaves.left.and.right"
+                            )
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                        TextEditor(text: $sources)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 110)
-                            .padding(8)
-                            .background(.background)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .frame(maxWidth: .infinity, minHeight: 86)
+                            .background(.primary.opacity(0.025))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
                             .overlay {
-                                RoundedRectangle(cornerRadius: 8)
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(
+                                        .primary.opacity(0.14),
+                                        style: StrokeStyle(dash: [4])
+                                    )
+                            }
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(model.channels) { channel in
+                                    Button {
+                                        toggleSource(channel.source)
+                                    } label: {
+                                        HStack(spacing: 11) {
+                                            Image(
+                                                systemName: selectedSources.contains(channel.source)
+                                                    ? "checkmark.circle.fill"
+                                                    : "circle"
+                                            )
+                                            .foregroundStyle(
+                                                selectedSources.contains(channel.source)
+                                                    ? Color.accentColor
+                                                    : Color.secondary
+                                            )
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(channel.title)
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                Text(channel.source)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                            Spacer(minLength: 12)
+                                            Text("\(channel.items.count)")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .frame(minHeight: 52)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .background(
+                                        selectedSources.contains(channel.source)
+                                            ? Color.accentColor.opacity(0.1)
+                                            : Color.clear
+                                    )
+
+                                    if channel.id != model.channels.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
                                     .stroke(.primary.opacity(0.14))
                             }
+                        }
                     }
 
                     HStack(spacing: 18) {
@@ -3064,40 +4110,17 @@ private struct VoiceBriefConfiguration: View {
 
                     HStack {
                         if model.selectedVoiceBrief != nil {
-                            Button("Move to Trash", role: .destructive) {
-                                Task { await model.trashSelectedVoiceBrief() }
+                            Button("Move voice brief to Trash", role: .destructive) {
+                                confirmsTrash = true
                             }
                         }
                         Spacer()
-                        Button {
-                            Task {
-                                await model.saveVoiceBrief(
-                                    LibraryVoiceBriefDraft(
-                                        id: model.selectedVoiceBrief?.id,
-                                        title: title,
-                                        schedule: schedule,
-                                        length: length,
-                                        sources: sources
-                                            .components(separatedBy: .newlines),
-                                        prompt: prompt,
-                                        prioritizeForMe: prioritizeForMe
-                                    )
-                                )
-                            }
-                        } label: {
-                            Label("Save voice brief", systemImage: "checkmark")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(
-                            title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                                prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        )
                     }
                 }
-                .frame(maxWidth: 760, alignment: .leading)
                 .padding(.horizontal, 34)
                 .padding(.vertical, 58)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 900, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
             } else if let brief = model.selectedVoiceBrief {
                 ConfigurationCard(
                     eyebrow: "VOICE BRIEF",
@@ -3116,9 +4139,101 @@ private struct VoiceBriefConfiguration: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if model.canEdit &&
+                (model.selectedVoiceBrief != nil || model.selectedVoiceBriefID == "new")
+            {
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+                    Text(model.status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if model.selectedVoiceBrief != nil {
+                        #if os(macOS)
+                        Button {
+                            Task {
+                                if let url = await model.selectedVoiceBriefFileURL() {
+                                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                                }
+                            }
+                        } label: {
+                            Label("File", systemImage: "doc")
+                        }
+                        #endif
+
+                        Button {
+                            Task { await model.checkSelectedVoiceBriefChannels() }
+                        } label: {
+                            Label("Check", systemImage: "arrow.clockwise")
+                        }
+
+                        Button {
+                            Task { await model.runSelectedVoiceBrief() }
+                        } label: {
+                            if model.isRunningVoiceBrief {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Generate", systemImage: "sparkles")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(
+                            model.isRunningVoiceBrief ||
+                                model.selectedVoiceBrief?.sources.isEmpty != false
+                        )
+                    }
+
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        Label("Save", systemImage: "checkmark")
+                    }
+                    .disabled(!canSave)
+                }
+                .padding(.horizontal, 18)
+                .frame(height: 56)
+                .background(readerBackground)
+                .overlay(alignment: .bottom) { Divider() }
+            }
+        }
         .task(id: model.selectedVoiceBriefID) {
             loadDraft()
         }
+        .confirmationDialog(
+            "Move this voice brief to Trash?",
+            isPresented: $confirmsTrash
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                Task { await model.trashSelectedVoiceBrief() }
+            }
+        }
+    }
+
+    private func save() async {
+        await model.saveVoiceBrief(
+            LibraryVoiceBriefDraft(
+                id: model.selectedVoiceBrief?.id,
+                title: title,
+                schedule: schedule,
+                length: length,
+                sources: Array(selectedSources),
+                prompt: prompt,
+                prioritizeForMe: prioritizeForMe
+            )
+        )
+    }
+
+    private func toggleSource(_ source: String) {
+        var selected = selectedSources
+        if selected.remove(source) == nil {
+            selected.insert(source)
+        }
+        sources = model.channels.compactMap {
+            selected.contains($0.source) ? $0.source : nil
+        }.joined(separator: "\n")
     }
 
     private func loadDraft() {
@@ -3161,6 +4276,7 @@ private struct ChannelConfiguration: View {
     @Binding var showsChannelBrowser: Bool
     @State private var source = ""
     @State private var retrievalCount = 5
+    @State private var confirmsRemoval = false
 
     var body: some View {
         ScrollView {
@@ -3272,7 +4388,7 @@ private struct ChannelConfiguration: View {
                     }
                     Divider()
                     Button("Remove channel", role: .destructive) {
-                        Task { await model.removeSelectedChannel() }
+                        confirmsRemoval = true
                     }
                 }
             } else {
@@ -3288,6 +4404,14 @@ private struct ChannelConfiguration: View {
                 ? ""
                 : model.selectedChannelSource
             retrievalCount = model.selectedChannel?.retrievalCount ?? 5
+        }
+        .confirmationDialog(
+            "Remove this channel? Existing voice briefs keep their source reference.",
+            isPresented: $confirmsRemoval
+        ) {
+            Button("Remove Channel", role: .destructive) {
+                Task { await model.removeSelectedChannel() }
+            }
         }
     }
 }
@@ -3388,6 +4512,45 @@ private struct ShortcutRecorder: NSViewRepresentable {
 }
 #endif
 
+private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
+    case general
+    case library
+    case capture
+    case account
+    case personalization
+    case topics
+    case ai
+    case agent
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .library: "Library & Sync"
+        case .capture: "Capture"
+        case .account: "Account"
+        case .personalization: "Personalization"
+        case .topics: "Topics"
+        case .ai: "AI Processing"
+        case .agent: "Open Agent"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: "gearshape"
+        case .library: "folder"
+        case .capture: "keyboard"
+        case .account: "person.crop.circle"
+        case .personalization: "person.text.rectangle"
+        case .topics: "number"
+        case .ai: "sparkles"
+        case .agent: "terminal"
+        }
+    }
+}
+
 private struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("BrieflyAppearance") private var appearance = "system"
@@ -3398,15 +4561,36 @@ private struct SettingsView: View {
     )
     #endif
     @Bindable var model: LibraryModel
-    @Binding var showsChannelBrowser: Bool
-    @Binding var showsAccountBrowser: Bool
-    @Binding var accountBrowserURL: URL
+    @State private var showsChannelBrowser = false
+    @State private var showsAccountBrowser = false
+    @State private var accountBrowserURL = BrieflyBackend.shared.accountURL
     @State private var showsWorkspaceImporter = false
     @State private var showsPDFImporter = false
+    @State private var selectedSection: BrieflySettingsSection? = .general
+
+    private var availableSections: [BrieflySettingsSection] {
+        #if os(macOS)
+        BrieflySettingsSection.allCases
+        #else
+        BrieflySettingsSection.allCases.filter { $0 != .agent }
+        #endif
+    }
 
     var body: some View {
-        NavigationStack {
-            Form {
+        NavigationSplitView {
+            List(availableSections, selection: $selectedSection) { section in
+                Label(section.title, systemImage: section.icon)
+                    .tag(section)
+            }
+            .navigationTitle("Briefly Settings")
+            #if os(macOS)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+            #endif
+        } detail: {
+            NavigationStack {
+                Form {
+                    switch selectedSection ?? .general {
+                    case .general:
                 Section("Appearance") {
                     Picker("Mode", selection: $appearance) {
                         Text("System").tag("system")
@@ -3416,6 +4600,7 @@ private struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
 
+                    case .library:
                 Section("Library") {
                     LabeledContent(
                         "Workspace",
@@ -3423,7 +4608,11 @@ private struct SettingsView: View {
                     )
                     LabeledContent("Status", value: model.status)
                     Button {
+                        #if os(macOS)
+                        model.chooseWorkspace()
+                        #else
                         showsWorkspaceImporter = true
+                        #endif
                     } label: {
                         Label("Choose Markdown workspace", systemImage: "folder")
                     }
@@ -3432,24 +4621,6 @@ private struct SettingsView: View {
                             Task { await model.refreshWorkspace() }
                         } label: {
                             Label("Refresh workspace", systemImage: "arrow.clockwise")
-                        }
-                        #if os(macOS)
-                        Button {
-                            let text = NSPasteboard.general.string(forType: .string) ?? ""
-                            Task { await model.capture(text) }
-                        } label: {
-                            Label("Capture clipboard", systemImage: "clipboard")
-                        }
-                        #endif
-                        Button {
-                            showsPDFImporter = true
-                        } label: {
-                            Label("Import PDF", systemImage: "doc.richtext")
-                        }
-                        Button {
-                            model.openAgent()
-                        } label: {
-                            Label("Open agent", systemImage: "sparkles")
                         }
                     }
                     Button {
@@ -3464,6 +4635,7 @@ private struct SettingsView: View {
                     .disabled(model.isSyncing)
                 }
 
+                    case .capture:
                 #if os(macOS)
                 Section("Capture shortcut") {
                     HStack {
@@ -3484,15 +4656,32 @@ private struct SettingsView: View {
                 }
                 #endif
 
-                Section("Channels") {
+                Section("Capture tools") {
+                    #if os(macOS)
+                    if model.canEdit {
+                        Button {
+                            let text = NSPasteboard.general.string(forType: .string) ?? ""
+                            Task { await model.capture(text) }
+                        } label: {
+                            Label("Capture clipboard", systemImage: "clipboard")
+                        }
+                    }
+                    #endif
+                    if model.canEdit {
+                        Button {
+                            showsPDFImporter = true
+                        } label: {
+                            Label("Import PDF", systemImage: "doc.richtext")
+                        }
+                    }
                     Button {
-                        dismiss()
                         showsChannelBrowser = true
                     } label: {
                         Label("Signed-in browser", systemImage: "globe")
                     }
                 }
 
+                    case .account:
                 Section("Briefly account") {
                     LabeledContent(
                         "Status",
@@ -3531,7 +4720,6 @@ private struct SettingsView: View {
                         if model.account.authenticated {
                             Button("Manage account") {
                                 accountBrowserURL = BrieflyBackend.shared.accountURL
-                                dismiss()
                                 showsAccountBrowser = true
                             }
                             Button("Sign out", role: .destructive) {
@@ -3542,14 +4730,12 @@ private struct SettingsView: View {
                                 accountBrowserURL = BrieflyBackend.shared.signInURL(
                                     provider: "apple"
                                 )
-                                dismiss()
                                 showsAccountBrowser = true
                             }
                             Button("Sign in with Google") {
                                 accountBrowserURL = BrieflyBackend.shared.signInURL(
                                     provider: "google"
                                 )
-                                dismiss()
                                 showsAccountBrowser = true
                             }
                         }
@@ -3567,6 +4753,7 @@ private struct SettingsView: View {
                     }
                 }
 
+                    case .personalization:
                 Section("Personalization") {
                     TextField(
                         "About you",
@@ -3592,6 +4779,7 @@ private struct SettingsView: View {
                     }
                 }
 
+                    case .topics:
                 if model.canEdit {
                     Section("Topics") {
                         Text("One reusable topic per line, written as “id: Title”.")
@@ -3608,8 +4796,15 @@ private struct SettingsView: View {
                             .buttonStyle(.borderedProminent)
                         }
                     }
+                } else {
+                    ContentUnavailableView(
+                        "Topics need a workspace",
+                        systemImage: "folder",
+                        description: Text("Choose a Markdown workspace to edit topics.")
+                    )
                 }
 
+                    case .ai:
                 Section("AI processing") {
                     #if os(macOS)
                     Toggle(
@@ -3676,6 +4871,7 @@ private struct SettingsView: View {
                     }
                 }
 
+                    case .agent:
                 #if os(macOS)
                 Section("Open agent") {
                     Menu("Choose agent preset") {
@@ -3721,18 +4917,22 @@ private struct SettingsView: View {
                         .buttonStyle(.borderedProminent)
                     }
                 }
+                #else
+                EmptyView()
                 #endif
-            }
-            .formStyle(.grouped)
-            .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    }
+                }
+                .formStyle(.grouped)
+                .navigationTitle((selectedSection ?? .general).title)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
         }
         #if os(macOS)
-        .frame(minWidth: 620, minHeight: 620)
+        .frame(minWidth: 900, minHeight: 650)
         .onChange(of: captureShortcut) {
             captureShortcut.save()
             NotificationCenter.default.post(
@@ -3774,6 +4974,18 @@ private struct SettingsView: View {
                 }
             case .failure(let error):
                 model.errorMessage = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $showsChannelBrowser) {
+            ChannelLoginView()
+        }
+        .sheet(isPresented: $showsAccountBrowser) {
+            ChannelLoginView(
+                initialAddress: accountBrowserURL.absoluteString,
+                navigationTitle: "Briefly account"
+            )
+            .onDisappear {
+                Task { await model.refreshAccount(reportErrors: true) }
             }
         }
         .task { await model.refreshAccount() }

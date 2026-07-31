@@ -283,19 +283,22 @@ public struct LibraryChannelCandidate: Hashable, Sendable {
     public let url: String
     public let publishedAt: String?
     public let content: String
+    public let linkedURL: String?
 
     public init(
         id: String,
         title: String,
         url: String,
         publishedAt: String? = nil,
-        content: String
+        content: String,
+        linkedURL: String? = nil
     ) {
         self.id = id
         self.title = title
         self.url = url
         self.publishedAt = publishedAt
         self.content = content
+        self.linkedURL = linkedURL
     }
 }
 
@@ -419,6 +422,12 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
     public var topics: [String] {
         Array(Set(entries.flatMap(\.topicNames))).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    public var documentTopics: [String] {
+        topics.filter { topic in
+            entries.contains { $0.isMainLibraryEntry && $0.topicNames.contains(topic) }
         }
     }
 

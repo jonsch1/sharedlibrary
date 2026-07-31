@@ -12,6 +12,22 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(projection.episodes(for: "hacker-news").count, 1)
         XCTAssertTrue(projection.channelSources.contains("https://news.ycombinator.com"))
 
+        var projectionJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(projection))
+                as? [String: Any]
+        )
+        var projectionEntries = try XCTUnwrap(projectionJSON["entries"] as? [[String: Any]])
+        let episodeIndex = try XCTUnwrap(
+            projectionEntries.firstIndex { $0["entryType"] as? String == "voice_brief_episode" }
+        )
+        projectionEntries[episodeIndex]["topicNames"] = ["Episode only"]
+        projectionJSON["entries"] = projectionEntries
+        let mixedProjection = try LibraryProjection.decode(
+            JSONSerialization.data(withJSONObject: projectionJSON)
+        )
+        XCTAssertTrue(mixedProjection.topics.contains("Episode only"))
+        XCTAssertFalse(mixedProjection.documentTopics.contains("Episode only"))
+
         let invalid = Data("""
         {"schemaVersion":99,"generatedAt":"2026-07-31T08:00:00Z","files":[],"entries":[]}
         """.utf8)
@@ -71,6 +87,31 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(
             workspaceProjection.entries.first?.text(for: .source)?.text,
             "# Updated capture\n\nSaved by Swift."
+        )
+        try await workspace.addHighlight(
+            entryID: capturedID,
+            variant: .source,
+            text: "Saved by Swift."
+        )
+        try await workspace.addHighlight(
+            entryID: capturedID,
+            variant: .source,
+            text: "Saved by Swift."
+        )
+        let highlights = try await workspace.loadHighlights()
+        XCTAssertTrue(highlights.contains("# Highlights"))
+        XCTAssertTrue(highlights.contains("> Saved by Swift."))
+        let removedHighlight = try await workspace.removeHighlight("Saved by Swift.")
+        let highlightsAfterRemoval = try await workspace.loadHighlights()
+        let removedMissingHighlight = try await workspace.removeHighlight("Saved by Swift.")
+        XCTAssertTrue(removedHighlight)
+        XCTAssertFalse(highlightsAfterRemoval.contains("> Saved by Swift."))
+        XCTAssertFalse(removedMissingHighlight)
+        let highlightMirror = try await workspace.buildCloudMirror()
+        XCTAssertTrue(
+            highlightMirror.projection.files.contains {
+                $0.path == WorkspaceLibrary.highlightsPath
+            }
         )
         let prompt = try await workspace.processingPrompt(entryID: capturedID)
         XCTAssertTrue(prompt.contains("Updated capture"))
@@ -155,6 +196,11 @@ final class LibraryContractTests: XCTestCase {
         )
         workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.voiceBriefDefinitions.first?.id, voiceBriefID)
+        let voiceBriefFileURL = try await workspace.voiceBriefFileURL(id: voiceBriefID)
+        XCTAssertEqual(
+            voiceBriefFileURL.lastPathComponent,
+            workspaceProjection.voiceBriefDefinitions.first?.filename
+        )
         XCTAssertEqual(
             workspaceProjection.voiceBriefDefinitions.first?.prompt,
             "Connect the most useful updates."
@@ -169,6 +215,18 @@ final class LibraryContractTests: XCTestCase {
         )
         channels = try await workspace.loadChannels()
         XCTAssertEqual(channels.first?.retrievalCount, 12)
+        let ingestChannelItem: @Sendable (LibraryChannelCandidate) async throws -> String = {
+            item in
+            guard let url = URL(string: item.url) else {
+                throw WorkspaceError.invalidChannel
+            }
+            return try await workspace.captureWebPage(
+                title: item.title,
+                content: item.content,
+                sourceURL: url,
+                asVoiceBriefSource: true
+            )
+        }
         let signedIn = try await workspace.captureSignedInChannelItems(
             source: "https://example.com/feed",
             title: "Signed-in feed",
@@ -179,7 +237,8 @@ final class LibraryContractTests: XCTestCase {
                     url: "https://example.com/signed-one",
                     content: "Private session content."
                 )
-            ]
+            ],
+            ingest: ingestChannelItem
         )
         XCTAssertEqual(signedIn.newEntryIDs.count, 1)
         let signedInAgain = try await workspace.captureSignedInChannelItems(
@@ -192,9 +251,28 @@ final class LibraryContractTests: XCTestCase {
                     url: "https://example.com/signed-one",
                     content: "Private session content."
                 )
-            ]
+            ],
+            ingest: ingestChannelItem
         )
         XCTAssertTrue(signedInAgain.newEntryIDs.isEmpty)
+        let routed = try await workspace.captureSignedInChannelItems(
+            source: "https://example.com/feed",
+            title: "Signed-in feed",
+            items: [
+                LibraryChannelCandidate(
+                    id: "routed-item",
+                    title: "Routed item",
+                    url: "https://example.com/routed-item",
+                    content: "Discovered content hint."
+                )
+            ],
+            ingest: { _ in capturedID }
+        )
+        XCTAssertEqual(routed.newEntryIDs, [capturedID])
+        XCTAssertEqual(
+            routed.channel.items.first { $0.id == "routed-item" }?.entryID,
+            capturedID
+        )
 
         let feed = try parseFeed(
             Data("""
@@ -216,6 +294,35 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(feed.title, "Native Feed")
         XCTAssertEqual(feed.items.first?.title, "First & best")
         XCTAssertEqual(feed.items.first?.content, "Readable body.")
+        let youtubeFeed = try XCTUnwrap(youtubeFeedURL(
+            in: #"<meta itemprop="channelId" content="UCabcdefghijklmnopqrstuv">"#,
+            relativeTo: URL(string: "https://www.youtube.com/@briefly")!
+        ))
+        XCTAssertEqual(
+            URLComponents(url: youtubeFeed, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "channel_id" }?.value,
+            "UCabcdefghijklmnopqrstuv"
+        )
+        let hackerNews = try XCTUnwrap(parseHackerNews(
+            """
+            <table>
+              <tr class="athing" id="123">
+                <td class="title"><span class="titleline">
+                  <a href="https://example.com/story">A useful story</a>
+                </span></td>
+              </tr>
+              <tr class="athing" id="124">
+                <td class="title"><span class="titleline">
+                  <a href="item?id=124">Ask HN</a>
+                </span></td>
+              </tr>
+            </table>
+            """,
+            sourceURL: URL(string: "https://news.ycombinator.com")!,
+            maximumItems: 2
+        ))
+        XCTAssertEqual(hackerNews.items.map(\.id), ["123", "124"])
+        XCTAssertEqual(hackerNews.items[1].url, "https://news.ycombinator.com/item?id=124")
         let renderedVoicePrompt = try renderVoiceBriefPrompt(
             prompt: defaultVoiceBriefPrompt,
             title: "Native Daily",

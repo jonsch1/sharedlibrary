@@ -423,6 +423,8 @@ struct DiscoveredChannel {
 }
 
 public actor WorkspaceLibrary {
+    public static let highlightsPath = "library/highlights/all.md"
+
     private struct IndexedEntry {
         let source: URL
         let audio: URL?
@@ -668,7 +670,8 @@ public actor WorkspaceLibrary {
 
     public func checkChannel(
         _ value: String,
-        maximumItems: Int? = nil
+        maximumItems: Int? = nil,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
     ) async throws -> LibraryChannelRefresh {
         let source = try normalizedChannelSource(value)
         var state = readChannelState()
@@ -681,10 +684,11 @@ public actor WorkspaceLibrary {
         var newEntryIDs = [String]()
         do {
             let discovered = try await discoverChannel(source, maximumItems: limit)
-            newEntryIDs = try mergeChannel(
+            newEntryIDs = try await mergeChannel(
                 discovered,
                 into: &current,
-                limit: limit
+                limit: limit,
+                ingest: ingest
             )
         } catch {
             current.error = error.localizedDescription
@@ -701,11 +705,12 @@ public actor WorkspaceLibrary {
     public func captureSignedInChannelPage(
         source value: String,
         title: String,
-        content: String
-    ) throws -> LibraryChannelRefresh {
+        content: String,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> LibraryChannelRefresh {
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw WorkspaceError.emptyCapture }
-        return try captureSignedInChannelItems(
+        return try await captureSignedInChannelItems(
             source: value,
             title: title,
             items: [
@@ -715,15 +720,17 @@ public actor WorkspaceLibrary {
                     url: value,
                     content: text
                 )
-            ]
+            ],
+            ingest: ingest
         )
     }
 
     public func captureSignedInChannelItems(
         source value: String,
         title: String,
-        items: [LibraryChannelCandidate]
-    ) throws -> LibraryChannelRefresh {
+        items: [LibraryChannelCandidate],
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> LibraryChannelRefresh {
         let source = try normalizedChannelSource(value)
         let candidates = items.filter {
             !$0.id.isEmpty &&
@@ -751,12 +758,18 @@ public actor WorkspaceLibrary {
                     publishedAt: $0.publishedAt,
                     content: $0.content.trimmingCharacters(
                         in: .whitespacesAndNewlines
-                    )
+                    ),
+                    linkedURL: $0.linkedURL
                 )
             }
         )
         let limit = min(100, max(current.retrievalCount ?? 5, candidates.count))
-        let newEntryIDs = try mergeChannel(discovered, into: &current, limit: limit)
+        let newEntryIDs = try await mergeChannel(
+            discovered,
+            into: &current,
+            limit: limit,
+            ingest: ingest
+        )
         current.lastCheckedAt = Date().iso8601
         current.retrievalCount = current.retrievalCount ?? 5
         state.sources[source] = current
@@ -766,7 +779,10 @@ public actor WorkspaceLibrary {
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
     }
 
-    public func loadMoreChannel(_ value: String) async throws -> LibraryChannelRefresh {
+    public func loadMoreChannel(
+        _ value: String,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> LibraryChannelRefresh {
         let source = try normalizedChannelSource(value)
         let state = readChannelState()
         let current = state.sources[source]
@@ -775,7 +791,8 @@ public actor WorkspaceLibrary {
             maximumItems: min(
                 100,
                 (current?.items.count ?? 0) + (current?.retrievalCount ?? 5)
-            )
+            ),
+            ingest: ingest
         )
     }
 
@@ -1130,6 +1147,72 @@ public actor WorkspaceLibrary {
         indexed.removeAll()
     }
 
+    public func loadHighlights() throws -> String {
+        guard fileManager.fileExists(atPath: highlightsURL.path) else { return "" }
+        return try String(contentsOf: highlightsURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public func addHighlight(
+        entryID: String,
+        variant: LibraryVariant,
+        text: String
+    ) throws {
+        let highlighted = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !highlighted.isEmpty else { throw WorkspaceError.emptyHighlight }
+        guard highlighted.count <= 50_000 else { throw WorkspaceError.highlightTooLong }
+
+        let entry = try requireEntry(entryID)
+        let parsed = parseMarkdown(try String(contentsOf: entry.source, encoding: .utf8))
+        let title = (parsed.scalar("title") ?? firstHeading(parsed.body) ?? "Untitled")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        let quote = highlighted.components(separatedBy: .newlines)
+            .map { "> \($0)" }
+            .joined(separator: "\n")
+        let source = parsed.scalar("source_url").map { "\n\n[Open original](\($0))" } ?? ""
+        let item = """
+        ## \(title)
+
+        \(quote)
+
+        _\(variant.title) · \(Date().formatted(date: .abbreviated, time: .omitted))_\(source)
+        """
+        let existing = try loadHighlights()
+        let output = existing.isEmpty
+            ? "# Highlights\n\n\(item)\n"
+            : "\(existing)\n\n\(item)\n"
+        try writeAtomically(output, to: highlightsURL)
+    }
+
+    @discardableResult
+    public func removeHighlight(_ text: String) throws -> Bool {
+        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return false }
+        let existing = try loadHighlights()
+        let parts = existing.components(separatedBy: "\n\n## ")
+        guard parts.count > 1 else { return false }
+        var kept = [parts[0]]
+        var removed = false
+        for part in parts.dropFirst() {
+            let section = "## \(part)"
+            let quote = section.components(separatedBy: .newlines)
+                .filter { $0.hasPrefix("> ") }
+                .map { String($0.dropFirst(2)) }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if quote == target {
+                removed = true
+            } else {
+                kept.append(section)
+            }
+        }
+        guard removed else { return false }
+        let output = kept.count == 1 ? "" : kept.joined(separator: "\n\n") + "\n"
+        try writeAtomically(output, to: highlightsURL)
+        return true
+    }
+
     @discardableResult
     public func saveVoiceBrief(_ value: LibraryVoiceBriefDraft) throws -> String {
         let title = value.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1208,6 +1291,15 @@ public actor WorkspaceLibrary {
         #else
         try moveToWorkspaceTrash(url)
         #endif
+    }
+
+    public func voiceBriefFileURL(id: String) throws -> URL {
+        guard let brief = try readVoiceBriefs().first(where: { $0.id == id }) else {
+            throw WorkspaceError.missingVoiceBrief
+        }
+        return root
+            .appending(path: "voice-briefs", directoryHint: .isDirectory)
+            .appending(path: brief.filename)
     }
 
     public func moveToTrash(entryID: String) throws {
@@ -1591,6 +1683,10 @@ public actor WorkspaceLibrary {
             .appending(path: "electron-sync-state.json")
     }
 
+    private var highlightsURL: URL {
+        root.appending(path: Self.highlightsPath)
+    }
+
     private func readSyncBaseline() -> [String: String] {
         guard
             let data = try? Data(contentsOf: syncBaselineURL),
@@ -1880,37 +1976,53 @@ public actor WorkspaceLibrary {
     private func mergeChannel(
         _ discovered: DiscoveredChannel,
         into current: inout VoiceBriefWatcherState.Source,
-        limit: Int
-    ) throws -> [String] {
-        let seen = Set(current.seen)
+        limit: Int,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> [String] {
+        if current.kind == .page, discovered.kind != .page {
+            current.items.removeAll()
+            current.seen.removeAll()
+        }
+        var seen = Set(current.seen)
         var newEntryIDs = [String]()
+        var ingestionError: Error?
         for item in discovered.items.prefix(limit).reversed() where !seen.contains(item.id) {
-            guard let itemURL = httpURL(item.url) else { continue }
+            guard httpURL(item.url) != nil else { continue }
             let content = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let entryID = try saveCapture(
+            let candidate = LibraryChannelCandidate(
+                id: item.id,
                 title: item.title,
-                content: (content?.isEmpty == false ? content! : item.title) +
-                    "\n\n[Open original](\(item.url))",
-                sourceURL: itemURL,
-                entryType: "voice_brief_source"
+                url: item.url,
+                publishedAt: item.publishedAt,
+                content: content ?? "",
+                linkedURL: item.linkedURL
             )
-            current.items.removeAll { $0.url == item.url }
-            current.items.insert(
-                LibraryChannelItem(
-                    id: item.id,
-                    title: item.title,
-                    url: item.url,
-                    publishedAt: item.publishedAt,
-                    content: item.content,
-                    linkedURL: item.linkedURL,
-                    entryID: entryID,
-                    ingestedAt: Date().iso8601
-                ),
-                at: 0
-            )
-            current.seen.removeAll { $0 == item.id }
-            current.seen.insert(item.id, at: 0)
-            newEntryIDs.append(entryID)
+            do {
+                let entryID = try await ingest(candidate)
+                let replacedIDs = Set(
+                    current.items.filter { $0.url == item.url }.map(\.id)
+                )
+                current.items.removeAll { $0.url == item.url }
+                current.items.insert(
+                    LibraryChannelItem(
+                        id: item.id,
+                        title: item.title,
+                        url: item.url,
+                        publishedAt: item.publishedAt,
+                        content: item.content,
+                        linkedURL: item.linkedURL,
+                        entryID: entryID,
+                        ingestedAt: Date().iso8601
+                    ),
+                    at: 0
+                )
+                current.seen.removeAll { $0 == item.id || replacedIDs.contains($0) }
+                current.seen.insert(item.id, at: 0)
+                seen.insert(item.id)
+                newEntryIDs.append(entryID)
+            } catch {
+                ingestionError = error
+            }
         }
         current.items = Array(current.items.prefix(100))
         current.seen = Array(NSOrderedSet(array: current.seen).array
@@ -1918,7 +2030,7 @@ public actor WorkspaceLibrary {
             .prefix(100))
         current.title = discovered.title
         current.kind = discovered.kind
-        current.error = nil
+        current.error = ingestionError?.localizedDescription
         current.canLoadMore = discovered.items.count >= limit && limit < 100
         return newEntryIDs
     }
@@ -2023,6 +2135,8 @@ public enum WorkspaceError: LocalizedError {
     case cannotCreateFile
     case emptyCapture
     case emptyDocument
+    case emptyHighlight
+    case highlightTooLong
     case invalidAudio
     case missingEntry
     case missingChannel
@@ -2054,6 +2168,8 @@ public enum WorkspaceError: LocalizedError {
         case .cannotCreateFile: "Briefly could not create a unique Markdown filename."
         case .emptyCapture: "The clipboard does not contain text."
         case .emptyDocument: "The PDF does not contain extractable text."
+        case .emptyHighlight: "Select some document text before highlighting."
+        case .highlightTooLong: "A highlight must be 50,000 characters or fewer."
         case .invalidAudio: "Briefly could not save the generated audio."
         case .missingEntry: "The selected library item no longer exists."
         case .missingChannel: "The selected channel no longer exists."
@@ -2395,14 +2511,57 @@ private func discoverChannel(
         }
     }
 
+    if let feedURL = youtubeFeedURL(in: "", relativeTo: requestURL) {
+        let (feedData, _) = try await fetchChannelURL(feedURL)
+        return limitedChannel(
+            try parseFeed(
+                feedData,
+                fallbackTitle: channelDisplayTitle(source),
+                baseURL: feedURL
+            ),
+            maximumItems: maximumItems
+        )
+    }
+
     let (data, response) = try await fetchChannelURL(requestURL)
+    let finalURL = response.url ?? requestURL
     if looksLikeFeed(data: data, response: response) {
-        return try parseFeed(data, fallbackTitle: channelDisplayTitle(source))
+        return limitedChannel(
+            try parseFeed(
+                data,
+                fallbackTitle: channelDisplayTitle(source),
+                baseURL: finalURL
+            ),
+            maximumItems: maximumItems
+        )
     }
     let html = String(decoding: data, as: UTF8.self)
-    if let feedURL = discoveredFeedURL(in: html, relativeTo: response.url ?? requestURL) {
-        let (feedData, _) = try await fetchChannelURL(feedURL)
-        return try parseFeed(feedData, fallbackTitle: channelDisplayTitle(source))
+    if let hackerNews = parseHackerNews(
+        html,
+        sourceURL: finalURL,
+        maximumItems: maximumItems
+    ) {
+        return hackerNews
+    }
+    let feedURLs = [
+        youtubeFeedURL(in: html, relativeTo: finalURL),
+        await applePodcastFeedURL(for: finalURL),
+        discoveredFeedURL(in: html, relativeTo: finalURL)
+    ].compactMap { $0 }
+    for feedURL in NSOrderedSet(array: feedURLs).array.compactMap({ $0 as? URL }) {
+        do {
+            let (feedData, _) = try await fetchChannelURL(feedURL)
+            return limitedChannel(
+                try parseFeed(
+                    feedData,
+                    fallbackTitle: channelDisplayTitle(source),
+                    baseURL: feedURL
+                ),
+                maximumItems: maximumItems
+            )
+        } catch {
+            continue
+        }
     }
     let title = regexCapture(
         html,
@@ -2418,12 +2577,40 @@ private func discoverChannel(
         title: title,
         kind: .page,
         items: [.init(
-            id: response.url?.absoluteString ?? source,
+            id: contentHash(data),
             title: title,
-            url: response.url?.absoluteString ?? source,
+            url: finalURL.absoluteString,
             content: content
         )]
     )
+}
+
+private func limitedChannel(
+    _ channel: DiscoveredChannel,
+    maximumItems: Int
+) -> DiscoveredChannel {
+    var channel = channel
+    channel.items = channel.items.enumerated()
+        .map { (item: $0.element, index: $0.offset, date: channelDate($0.element.publishedAt)) }
+        .sorted {
+            if let left = $0.date, let right = $1.date { return left > right }
+            return $0.index < $1.index
+        }
+        .prefix(maximumItems)
+        .map(\.item)
+    return channel
+}
+
+private func channelDate(_ value: String?) -> Date? {
+    guard let value else { return nil }
+    if let date = ISO8601DateFormatter().date(from: value) { return date }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    for format in ["EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z"] {
+        formatter.dateFormat = format
+        if let date = formatter.date(from: value) { return date }
+    }
+    return nil
 }
 
 private func fetchChannelURL(_ url: URL) async throws -> (Data, HTTPURLResponse) {
@@ -2432,7 +2619,12 @@ private func fetchChannelURL(_ url: URL) async throws -> (Data, HTTPURLResponse)
         "application/atom+xml, application/rss+xml, application/xml, text/html;q=0.9",
         forHTTPHeaderField: "Accept"
     )
-    request.setValue("Briefly/1.0", forHTTPHeaderField: "User-Agent")
+    request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+    request.setValue(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
+        forHTTPHeaderField: "User-Agent"
+    )
     let (data, response) = try await URLSession.shared.data(for: request)
     guard
         let response = response as? HTTPURLResponse,
@@ -2482,6 +2674,123 @@ private func discoveredFeedURL(in html: String, relativeTo base: URL) -> URL? {
     return nil
 }
 
+func youtubeFeedURL(in html: String, relativeTo pageURL: URL) -> URL? {
+    let host = pageURL.host?.lowercased() ?? ""
+    guard host == "youtube.com" || host.hasSuffix(".youtube.com") else {
+        return nil
+    }
+    let parts = pageURL.path.split(separator: "/").map(String.init)
+    let pathID = parts.first == "channel" ? parts.dropFirst().first : nil
+    let channelID = pathID ?? regexCapture(
+        html,
+        pattern: #"(?is)<meta\b(?=[^>]*\bitemprop=["']channelId["'])[^>]*\bcontent=["']([^"']+)["']"#
+    ) ?? regexCapture(
+        html,
+        pattern: #"["']channelId["']\s*:\s*["']([^"']+)["']"#
+    )
+    guard
+        let channelID,
+        channelID.range(
+            of: #"^[A-Za-z0-9_-]{10,64}$"#,
+            options: .regularExpression
+        ) != nil
+    else {
+        return nil
+    }
+    var components = URLComponents(string: "https://www.youtube.com/feeds/videos.xml")!
+    components.queryItems = [URLQueryItem(name: "channel_id", value: channelID)]
+    return components.url
+}
+
+private func applePodcastFeedURL(for pageURL: URL) async -> URL? {
+    guard
+        pageURL.host?.lowercased() == "podcasts.apple.com",
+        let id = regexCapture(pageURL.path, pattern: #"/id(\d+)(?:/|$)"#)
+    else {
+        return nil
+    }
+    var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+    components.queryItems = [
+        URLQueryItem(name: "id", value: id),
+        URLQueryItem(name: "entity", value: "podcast")
+    ]
+    guard
+        let url = components.url,
+        let (data, _) = try? await fetchChannelURL(url),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let results = object["results"] as? [[String: Any]],
+        let value = results.first(where: { $0["kind"] as? String == "podcast" })?["feedUrl"]
+            as? String,
+        let feedURL = httpURL(value)
+    else {
+        return nil
+    }
+    return feedURL
+}
+
+func parseHackerNews(
+    _ html: String,
+    sourceURL: URL,
+    maximumItems: Int = 5
+) -> DiscoveredChannel? {
+    guard
+        sourceURL.host?.lowercased() == "news.ycombinator.com",
+        ["", "/", "/front"].contains(sourceURL.path),
+        let rows = try? NSRegularExpression(pattern: #"(?is)<tr\b([^>]*)>(.*?)</tr>"#),
+        let links = try? NSRegularExpression(
+            pattern: #"(?is)<span\b[^>]*class=["'][^"']*\btitleline\b[^"']*["'][^>]*>.*?<a\b([^>]*)>(.*?)</a>"#
+        )
+    else {
+        return nil
+    }
+    var items = [DiscoveredChannel.Item]()
+    for row in rows.matches(
+        in: html,
+        range: NSRange(location: 0, length: html.utf16.count)
+    ) {
+        guard
+            row.numberOfRanges == 3,
+            let attributesRange = Range(row.range(at: 1), in: html),
+            let bodyRange = Range(row.range(at: 2), in: html)
+        else {
+            continue
+        }
+        let attributes = String(html[attributesRange])
+        let classes = htmlAttribute("class", in: attributes)
+            .split(whereSeparator: \.isWhitespace)
+        guard classes.contains("athing") else { continue }
+        let body = String(html[bodyRange])
+        guard
+            let link = links.firstMatch(
+                in: body,
+                range: NSRange(location: 0, length: body.utf16.count)
+            ),
+            let linkAttributesRange = Range(link.range(at: 1), in: body),
+            let titleRange = Range(link.range(at: 2), in: body),
+            let href = htmlAttribute(
+                "href",
+                in: String(body[linkAttributesRange])
+            ).nilIfEmpty,
+            let itemURL = URL(string: decodeHTML(href), relativeTo: sourceURL)?.absoluteURL,
+            httpURL(itemURL.absoluteString) != nil
+        else {
+            continue
+        }
+        let id = htmlAttribute("id", in: attributes).nilIfEmpty ?? itemURL.absoluteString
+        items.append(.init(
+            id: id,
+            title: decodeHTML(stripHTML(String(body[titleRange]))),
+            url: itemURL.absoluteString
+        ))
+        if items.count == maximumItems { break }
+    }
+    return items.isEmpty ? nil : DiscoveredChannel(
+        title: "Hacker News front page",
+        kind: .feed,
+        items: items
+    )
+}
+
 private func htmlAttribute(_ name: String, in tag: String) -> String {
     regexCapture(
         tag,
@@ -2489,8 +2798,12 @@ private func htmlAttribute(_ name: String, in tag: String) -> String {
     ) ?? ""
 }
 
-func parseFeed(_ data: Data, fallbackTitle: String) throws -> DiscoveredChannel {
-    let delegate = FeedParser()
+func parseFeed(
+    _ data: Data,
+    fallbackTitle: String,
+    baseURL: URL? = nil
+) throws -> DiscoveredChannel {
+    let delegate = FeedParser(baseURL: baseURL)
     let parser = XMLParser(data: data)
     parser.delegate = delegate
     guard parser.parse(), !delegate.items.isEmpty else {
@@ -2507,6 +2820,7 @@ func parseFeed(_ data: Data, fallbackTitle: String) throws -> DiscoveredChannel 
 }
 
 private final class FeedParser: NSObject, XMLParserDelegate {
+    private let baseURL: URL?
     private var inItem = false
     private var activeElement = ""
     private var text = ""
@@ -2514,6 +2828,10 @@ private final class FeedParser: NSObject, XMLParserDelegate {
     var channelTitle = ""
     var isPodcast = false
     var items = [DiscoveredChannel.Item]()
+
+    init(baseURL: URL?) {
+        self.baseURL = baseURL
+    }
 
     func parser(
         _ parser: XMLParser,
@@ -2581,6 +2899,18 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         if name == "item" || name == "entry" {
             if item.url.isEmpty, httpURL(item.id) != nil {
                 item.url = item.id
+            }
+            if
+                let baseURL,
+                let url = URL(string: item.url, relativeTo: baseURL)?.absoluteURL
+            {
+                item.url = url.absoluteString
+            }
+            if
+                let linkedURL = item.linkedURL,
+                let url = URL(string: linkedURL, relativeTo: baseURL)?.absoluteURL
+            {
+                item.linkedURL = url.absoluteString
             }
             if item.id.isEmpty { item.id = item.url }
             if item.title.isEmpty { item.title = item.content?.prefix(100).description ?? "Untitled" }
