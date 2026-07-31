@@ -94,7 +94,13 @@
 					500000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
 						SystemCapabilities = {
+							com.apple.BackgroundModes = {
+								enabled = 1;
+							};
 							com.apple.iCloud = {
+								enabled = 1;
+							};
+							com.apple.Push = {
 								enabled = 1;
 							};
 						};
@@ -237,14 +243,19 @@
 		B00000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
-				CODE_SIGN_ENTITLEMENTS = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Briefly/Briefly-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -267,14 +278,19 @@
 		B00000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
-				CODE_SIGN_ENTITLEMENTS = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = Briefly/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Briefly/Briefly-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

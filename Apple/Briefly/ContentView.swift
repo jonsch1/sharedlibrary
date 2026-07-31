@@ -1784,7 +1784,12 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
-                Task { await model.runDueVoiceBriefs() }
+                Task {
+                    #if os(iOS)
+                    if model.canEdit { await model.sync() }
+                    #endif
+                    await model.runDueVoiceBriefs()
+                }
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
