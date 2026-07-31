@@ -2043,6 +2043,9 @@ private struct MobileLibraryNavigation: View {
                             preferredCompactColumn = .detail
                         }
                         .frame(height: 58)
+                    } else if isItemDetail, let entry = model.selectedEntry {
+                        ReadingDepthStrip(model: model, entry: entry)
+                            .frame(height: 58)
                     } else {
                         Color.clear.frame(height: 58)
                     }
@@ -2174,6 +2177,13 @@ private struct MobileLibraryNavigation: View {
         preferredCompactColumn == .detail &&
             model.activeSection == .briefs &&
             model.selectedEntry?.voiceBriefID != nil
+    }
+
+    private var isItemDetail: Bool {
+        preferredCompactColumn == .detail &&
+            model.activeSection == .items &&
+            !model.showingHighlights &&
+            model.selectedEntry != nil
     }
 
     private var primaryActionLabel: String {
@@ -2619,6 +2629,47 @@ private struct TopicButton: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
+
+#if os(iOS)
+private struct ReadingDepthStrip: View {
+    @Bindable var model: LibraryModel
+    let entry: LibraryEntry
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(entry.texts.map(\.variant), id: \.self) { variant in
+                    Button {
+                        Task { await model.selectVariant(variant) }
+                    } label: {
+                        ReadingDepthIcon(variant: variant)
+                            .frame(width: 44, height: 32)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        model.selectedVariant == variant
+                            ? Color.accentColor
+                            : Color.primary.opacity(0.055)
+                    )
+                    .foregroundStyle(
+                        model.selectedVariant == variant ? Color.white : Color.primary
+                    )
+                    .clipShape(Capsule())
+                    .accessibilityLabel(
+                        variant == .source ? "Original" : variant.title
+                    )
+                    .accessibilityAddTraits(
+                        model.selectedVariant == variant ? .isSelected : []
+                    )
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+    }
+}
+#endif
 
 #if os(iOS)
 private struct MobileEntryRows: View {
@@ -4016,7 +4067,7 @@ private struct LibraryDocument: View {
             }
 
             HStack(alignment: .bottom) {
-                if entry.texts.count > 1 {
+                if entry.texts.count > 1 && !usesMobileItemControls {
                     HStack(spacing: 0) {
                         ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                             Button {
@@ -4132,7 +4183,10 @@ private struct LibraryDocument: View {
                         .accessibilityLabel("Open original source")
                     }
 
-                    if entry.origin != .shared && !usesMobileVoiceBriefControls {
+                    if entry.origin != .shared &&
+                        !usesMobileVoiceBriefControls &&
+                        !usesMobileItemControls
+                    {
                         Button {
                             showsSharing = true
                         } label: {
@@ -4190,14 +4244,20 @@ private struct LibraryDocument: View {
         }
         #if os(iOS)
         .toolbar {
-            if usesMobileVoiceBriefControls && entry.origin != .shared {
+            if (usesMobileVoiceBriefControls || usesMobileItemControls) &&
+                entry.origin != .shared
+            {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showsSharing = true
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                     }
-                    .accessibilityLabel("Share voice brief")
+                    .accessibilityLabel(
+                        usesMobileVoiceBriefControls
+                            ? "Share voice brief"
+                            : "Share document"
+                    )
                 }
             }
         }
@@ -4211,6 +4271,14 @@ private struct LibraryDocument: View {
     private var usesMobileVoiceBriefControls: Bool {
         #if os(iOS)
         entry.voiceBriefID != nil
+        #else
+        false
+        #endif
+    }
+
+    private var usesMobileItemControls: Bool {
+        #if os(iOS)
+        model.activeSection == .items
         #else
         false
         #endif

@@ -514,6 +514,17 @@
 		font-family: 'DM Sans Variable', 'DM Sans', sans-serif;
 	}
 
+	.landing::after {
+		content: '';
+		position: fixed;
+		z-index: 50;
+		inset: 0;
+		pointer-events: none;
+		background: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='.75'/%3E%3C/svg%3E");
+		mix-blend-mode: multiply;
+		opacity: 0.11;
+	}
+
 	.landing :global(*) {
 		box-sizing: border-box;
 	}
