@@ -62,13 +62,8 @@ final class LibraryModel {
     private static let aboutYouKey = "BrieflyAboutYou"
     private static let agentCommandKey = "BrieflyAgentCommand"
     private static let workspaceBookmarkKey = "BrieflyWorkspaceBookmark"
-    private let cache = LibraryCache()
     private let backend = BrieflyBackend.shared
-    private let cloud = CloudLibrary(
-        containerIdentifier: Bundle.main.object(
-            forInfoDictionaryKey: "BrieflyCloudKitContainerIdentifier"
-        ) as? String
-    )
+    private var cloud: CloudDocumentSync?
     private var started = false
     private var workspace: WorkspaceLibrary?
     private var securityScopedWorkspace: URL?
@@ -92,6 +87,8 @@ final class LibraryModel {
     var isLoadingText = false
     var isIngesting = false
     var isSyncing = false
+    var syncCompleted = 0
+    var syncTotal = 0
     var isProcessing = false
     var isCheckingChannel = false
     var isRunningVoiceBrief = false
@@ -239,15 +236,10 @@ final class LibraryModel {
         }
         #endif
         if !usesDemo {
-            do {
-                if let cached = try await cache.loadProjection() {
-                    projection = cached
-                    await loadHighlights()
-                    status = "Opened the offline library"
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            let local = FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appending(path: "Briefly", directoryHint: .isDirectory)
+            await openWorkspace(local)
         }
         await selectInitialContent()
         await refreshAccount()
@@ -269,6 +261,10 @@ final class LibraryModel {
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
             workspace = next
+            cloud = try CloudDocumentSync(
+                store: await next.documentDatabase(),
+                containerIdentifier: "iCloud.fyi.readbriefly"
+            )
             workspacePath = workspaceURL.path
             status = "Opened \(workspaceURL.lastPathComponent)"
             UserDefaults.standard.set(workspaceURL.path, forKey: "BrieflyWorkspacePath")
@@ -276,6 +272,9 @@ final class LibraryModel {
                 UserDefaults.standard.set(bookmark, forKey: Self.workspaceBookmarkKey)
             }
             await selectInitialContent()
+            #if os(iOS)
+            await sync()
+            #endif
         } catch {
             workspace = nil
             workspaceChannels = []
@@ -288,7 +287,7 @@ final class LibraryModel {
     func chooseWorkspace() {
         let panel = NSOpenPanel()
         panel.title = "Choose Briefly Workspace"
-        panel.message = "Choose the folder that contains your Briefly Markdown library."
+        panel.message = "Choose the folder that contains your Briefly database."
         panel.prompt = "Choose"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -352,7 +351,7 @@ final class LibraryModel {
             topicsText = try await workspace.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
-            status = "Refreshed the Markdown workspace"
+            status = "Refreshed the local database"
             await restoreSelection(preferredEntryID: entryID)
         } catch {
             errorMessage = error.localizedDescription
@@ -361,7 +360,7 @@ final class LibraryModel {
 
     func capture(_ text: String) async {
         guard let workspace else {
-            errorMessage = "Choose a Markdown workspace before capturing."
+            errorMessage = "Open a Briefly library before capturing."
             return
         }
         isIngesting = true
@@ -406,7 +405,7 @@ final class LibraryModel {
 
     func captureWebPage(url: URL, page: SignedInChannelPage) async {
         guard let workspace else {
-            errorMessage = "Choose a Markdown workspace before saving web pages."
+            errorMessage = "Open a Briefly library before saving web pages."
             return
         }
         isIngesting = true
@@ -556,7 +555,7 @@ final class LibraryModel {
     @discardableResult
     func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
         guard let workspace else {
-            errorMessage = "Choose a Markdown workspace before editing voice briefs."
+            errorMessage = "Open a Briefly library before editing voice briefs."
             return nil
         }
         do {
@@ -617,7 +616,7 @@ final class LibraryModel {
 
     func addChannel(_ source: String) async {
         guard let workspace else {
-            errorMessage = "Choose a Markdown workspace before adding channels."
+            errorMessage = "Open a Briefly library before adding channels."
             return
         }
         do {
@@ -838,7 +837,7 @@ final class LibraryModel {
 
     func openAgent() {
         guard let workspacePath else {
-            errorMessage = "Choose a Markdown workspace before opening an agent."
+            errorMessage = "Open a Briefly library before opening an agent."
             return
         }
         #if os(macOS)
@@ -1073,7 +1072,7 @@ final class LibraryModel {
         }
         var texts = [BrieflyShareSource.Text]()
         for reference in entry.texts where reference.variant != .source {
-            let markdown = try await cache.text(for: reference)
+            let markdown = (reference.text ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !markdown.isEmpty {
                 texts.append(.init(variant: reference.variant.rawValue, markdown: markdown))
@@ -1164,14 +1163,7 @@ final class LibraryModel {
             if let workspace {
                 return try await workspace.audioURL(entryID: entryID)
             }
-            guard
-                let media = projection.entries.first(where: { $0.id == entryID })?.audio
-            else {
-                return nil
-            }
-            if let url = await cache.url(for: media) { return url }
-            try await cache.save(try await cloud.download(media), for: media)
-            return await cache.url(for: media)
+            return nil
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -1182,20 +1174,7 @@ final class LibraryModel {
         if let workspace {
             return try? await workspace.faviconURL(entryID: entryID)
         }
-        guard
-            let entry = projection.entries.first(where: { $0.id == entryID }),
-            let favicon = entry.favicon
-        else {
-            return nil
-        }
-        if let local = await cache.url(for: favicon) { return local }
-        do {
-            let data = try await cloud.download(favicon)
-            try await cache.save(data, for: favicon)
-            return await cache.url(for: favicon)
-        } catch {
-            return nil
-        }
+        return nil
     }
 
     func show(_ section: LibrarySection) async {
@@ -1296,55 +1275,26 @@ final class LibraryModel {
     func sync() async {
         guard !isSyncing else { return }
         isSyncing = true
-        defer { isSyncing = false }
+        syncCompleted = 0
+        syncTotal = 0
+        defer {
+            isSyncing = false
+            syncCompleted = 0
+            syncTotal = 0
+        }
         do {
+            guard let workspace, let cloud else {
+                throw NativeLibraryError.emptyICloudLibrary
+            }
             guard try await cloud.accountStatus() == .available else {
                 throw NativeLibraryError.iCloudUnavailable
             }
-            if let workspace {
-                var downloaded = 0
-                var conflicts = 0
-                if let incoming = try await cloud.fetchProjection() {
-                    status = "Merging newer iCloud files…"
-                    let merge = try await workspace.mergeCloudProjection(incoming) {
-                        try await self.cloud.download($0)
-                    }
-                    downloaded = merge.changed
-                    conflicts = merge.conflicts
-                    downloaded += try await workspace.mergeCloudMedia(incoming) {
-                        try await self.cloud.download($0)
-                    }
-                }
-                status = "Uploading local changes…"
-                let mirror = try await workspace.buildCloudMirror()
-                let uploaded = try await cloud.upload(mirror)
-                try await workspace.saveSyncBaseline(mirror.projection.files)
-                projection = try await workspace.loadProjection()
-                workspaceChannels = try await workspace.loadChannels()
-                highlightsText = try await workspace.loadHighlights()
-                let total = downloaded + uploaded.changed
-                status = conflicts > 0
-                    ? "Synced with \(conflicts) conflict " +
-                        (conflicts == 1 ? "copy" : "copies") + " preserved"
-                    : total == 0
-                        ? "Everything is up to date"
-                        : "Synchronized \(total) " +
-                            (total == 1 ? "change" : "changes")
-            } else {
-                guard let incoming = try await cloud.fetchProjection() else {
-                    throw NativeLibraryError.emptyICloudLibrary
-                }
-                for (index, file) in incoming.files.enumerated() {
-                    status = "Downloading \(index + 1) of \(incoming.files.count)…"
-                    if await cache.contains(file) { continue }
-                    try await cache.save(try await cloud.download(file), for: file)
-                }
-                try await cache.saveProjection(incoming)
-                try await cache.removeFiles(notIn: incoming)
-                projection = incoming
-                await loadHighlights()
-                status = "Synced with iCloud"
-            }
+            status = "Synchronizing records…"
+            try await cloud.synchronize()
+            projection = try await workspace.loadProjection()
+            workspaceChannels = try await workspace.loadChannels()
+            highlightsText = try await workspace.loadHighlights()
+            status = "Everything is up to date"
             await restoreSelection()
         } catch {
             errorMessage = error.localizedDescription
@@ -1572,12 +1522,7 @@ final class LibraryModel {
         }
         isLoadingText = true
         defer { isLoadingText = false }
-        do {
-            selectedText = try await cache.text(for: reference)
-        } catch {
-            errorMessage = error.localizedDescription
-            selectedText = ""
-        }
+        selectedText = reference.text ?? ""
     }
 
     private func loadHighlights() async {
@@ -1585,18 +1530,7 @@ final class LibraryModel {
             highlightsText = (try? await workspace.loadHighlights()) ?? ""
             return
         }
-        guard let file = projection.files.first(where: {
-            $0.path == WorkspaceLibrary.highlightsPath
-        }) else {
-            highlightsText = ""
-            return
-        }
-        highlightsText = (try? await cache.text(for: LibraryText(
-            variant: .source,
-            path: file.path,
-            contentHash: file.contentHash,
-            wordCount: 0
-        ))) ?? ""
+        highlightsText = ""
     }
 }
 
@@ -5162,6 +5096,16 @@ private struct SettingsView: View {
                         value: model.workspacePath ?? "Cloud library"
                     )
                     LabeledContent("Status", value: model.status)
+                    if model.isSyncing {
+                        if model.syncTotal > 0 {
+                            ProgressView(
+                                value: Double(model.syncCompleted),
+                                total: Double(model.syncTotal)
+                            )
+                        } else {
+                            ProgressView()
+                        }
+                    }
                     Button {
                         #if os(macOS)
                         model.chooseWorkspace()
@@ -5169,7 +5113,7 @@ private struct SettingsView: View {
                         showsWorkspaceImporter = true
                         #endif
                     } label: {
-                        Label("Choose Markdown workspace", systemImage: "folder")
+                        Label("Choose Briefly library", systemImage: "folder")
                     }
                     if model.canEdit {
                         Button {
@@ -5181,11 +5125,7 @@ private struct SettingsView: View {
                     Button {
                         Task { await model.sync() }
                     } label: {
-                        if model.isSyncing {
-                            ProgressView()
-                        } else {
-                            Label("Sync with iCloud", systemImage: "arrow.triangle.2.circlepath")
-                        }
+                        Label("Sync with iCloud", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .disabled(model.isSyncing)
                 }
@@ -5355,7 +5295,7 @@ private struct SettingsView: View {
                     ContentUnavailableView(
                         "Topics need a workspace",
                         systemImage: "folder",
-                        description: Text("Choose a Markdown workspace to edit topics.")
+                        description: Text("Open a Briefly library to edit topics.")
                     )
                 }
 
@@ -5458,7 +5398,7 @@ private struct SettingsView: View {
                     )
                     .font(.system(.caption, design: .monospaced))
                     .lineLimit(2...5)
-                    Text("Use {{workspace}} where the Markdown workspace path belongs.")
+                    Text("Use {{workspace}} where the Briefly library path belongs.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {

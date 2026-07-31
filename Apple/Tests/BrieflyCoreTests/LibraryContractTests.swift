@@ -1,9 +1,8 @@
-import CryptoKit
 import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
-    func testContractAndAtomicCacheBoundary() async throws {
+    func testSQLiteCanonicalLibraryJourney() async throws {
         let projection = LibraryProjection.demo
         XCTAssertEqual(projection.schemaVersion, librarySchemaVersion)
         XCTAssertEqual(projection.entries.first?.preferredVariant, .concise)
@@ -36,24 +35,6 @@ final class LibraryContractTests: XCTestCase {
         let temporary = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let cache = LibraryCache(root: temporary)
-        try await cache.saveProjection(projection)
-        let cachedProjection = try await cache.loadProjection()
-        XCTAssertEqual(cachedProjection, projection)
-
-        let data = Data("cached markdown".utf8)
-        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        let file = LibraryFile(path: "library/item.md", contentHash: hash, byteCount: data.count)
-        try await cache.save(data, for: file)
-        let text = LibraryText(
-            variant: .concise,
-            path: file.path,
-            contentHash: hash,
-            wordCount: 2
-        )
-        let cachedText = try await cache.text(for: text)
-        XCTAssertEqual(cachedText, "cached markdown")
-
         #if os(macOS)
         let commandOutput = try await runWorkspaceProcessingCommand(
             "/bin/cat",
@@ -107,12 +88,8 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertTrue(removedHighlight)
         XCTAssertFalse(highlightsAfterRemoval.contains("> Saved by Swift."))
         XCTAssertFalse(removedMissingHighlight)
-        let highlightMirror = try await workspace.buildCloudMirror()
-        XCTAssertTrue(
-            highlightMirror.projection.files.contains {
-                $0.path == WorkspaceLibrary.highlightsPath
-            }
-        )
+        let highlightDocument = try await workspace.getDocument("system:highlights")
+        XCTAssertEqual(highlightDocument.type, "highlights")
         let prompt = try await workspace.processingPrompt(entryID: capturedID)
         XCTAssertTrue(prompt.contains("Updated capture"))
         let suggestion = try WorkspaceProcessingSuggestion.decode(
@@ -197,10 +174,7 @@ final class LibraryContractTests: XCTestCase {
         workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.voiceBriefDefinitions.first?.id, voiceBriefID)
         let voiceBriefFileURL = try await workspace.voiceBriefFileURL(id: voiceBriefID)
-        XCTAssertEqual(
-            voiceBriefFileURL.lastPathComponent,
-            workspaceProjection.voiceBriefDefinitions.first?.filename
-        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: voiceBriefFileURL.path))
         XCTAssertEqual(
             workspaceProjection.voiceBriefDefinitions.first?.prompt,
             "Connect the most useful updates."
@@ -391,7 +365,7 @@ final class LibraryContractTests: XCTestCase {
             id: voiceBriefID,
             command: "/bin/cat",
             runner: { prompt in
-                XCTAssertTrue(prompt.contains("Native source"))
+                XCTAssertTrue(prompt.contains("Signed item"))
                 return "# Managed episode"
             }
         )
@@ -402,7 +376,10 @@ final class LibraryContractTests: XCTestCase {
         )
         XCTAssertEqual(savedEpisode.entryType, "voice_brief_episode")
         XCTAssertEqual(savedEpisode.voiceBriefID, voiceBriefID)
-        XCTAssertEqual(savedEpisode.sourceIDs, [capturedID])
+        XCTAssertEqual(
+            Set(savedEpisode.sourceIDs ?? []),
+            Set(signedIn.newEntryIDs + [capturedID])
+        )
         let generatedAudio = temporary.appending(path: "episode.wav")
         try Data("RIFF native audio boundary".utf8).write(to: generatedAudio)
         try await workspace.attachAudio(
@@ -435,63 +412,35 @@ final class LibraryContractTests: XCTestCase {
         let dueAfterAttempt = try await workspace.dueVoiceBriefIDs(at: scheduledCheck)
         XCTAssertFalse(dueAfterAttempt.contains(voiceBriefID))
 
-        let baselineMirror = try await workspace.buildCloudMirror()
-        XCTAssertTrue(
-            baselineMirror.files.contains {
-                $0.reference.path.hasPrefix("library/") &&
-                    $0.reference.path.hasSuffix(".md")
-            }
+        let current = try await workspace.getDocument(capturedID)
+        let committed = try await workspace.commitDocument(
+            capturedID,
+            baseRevision: current.revision,
+            texts: [.source: "# SQLite canonical\n\nRevision checked."]
         )
-        XCTAssertTrue(baselineMirror.media.contains { $0.reference.kind == .audio })
-        XCTAssertTrue(baselineMirror.media.contains { $0.reference.kind == .favicon })
-        try await workspace.saveSyncBaseline(baselineMirror.projection.files)
-        let sourceURL = try await workspace.fileURL(entryID: capturedID)
-        let sourcePath = "library/\(sourceURL.lastPathComponent)"
-        try await workspace.writeText(
-            entryID: capturedID,
-            variant: .source,
-            text: "# Local edit\n\nKeep this conflict copy."
-        )
-        let remoteData = Data("# Remote edit\n\nUse this synchronized copy.\n".utf8)
-        let remoteReference = LibraryFile(
-            path: sourcePath,
-            contentHash: SHA256.hash(data: remoteData)
-                .map { String(format: "%02x", $0) }
-                .joined(),
-            byteCount: remoteData.count
-        )
-        let remoteProjection = LibraryProjection(
-            schemaVersion: librarySchemaVersion,
-            generatedAt: ISO8601DateFormatter().string(from: Date()),
-            files: baselineMirror.projection.files.map {
-                $0.path == sourcePath ? remoteReference : $0
-            },
-            entries: baselineMirror.projection.entries,
-            voiceBriefs: baselineMirror.projection.voiceBriefs
-        )
-        let merge = try await workspace.mergeCloudProjection(remoteProjection) { file in
-            if file.path == sourcePath { return remoteData }
-            return try XCTUnwrap(
-                baselineMirror.files.first { $0.reference.path == file.path }?.data
+        XCTAssertEqual(committed.revision, current.revision + 1)
+        do {
+            _ = try await workspace.commitDocument(
+                capturedID,
+                baseRevision: current.revision,
+                texts: [.source: "stale write"]
             )
+            XCTFail("A stale revision must not commit.")
+        } catch SQLiteLibraryError.revisionConflict(let revision) {
+            XCTAssertEqual(revision, committed.revision)
         }
-        XCTAssertEqual(merge.conflicts, 1)
-        XCTAssertEqual(try Data(contentsOf: sourceURL), remoteData)
-        let conflicts = try FileManager.default.contentsOfDirectory(
-            at: sourceURL.deletingLastPathComponent(),
-            includingPropertiesForKeys: nil
+        let results = try await workspace.search("revision checked")
+        XCTAssertEqual(results.first?.id, capturedID)
+        let checkout = try await workspace.fileURL(entryID: capturedID)
+        XCTAssertEqual(
+            try String(contentsOf: checkout, encoding: .utf8),
+            "# SQLite canonical\n\nRevision checked."
         )
-        XCTAssertTrue(conflicts.contains { $0.lastPathComponent.contains("-conflict") })
+        let outbox = try await workspace.documentDatabase().outbox()
+        XCTAssertTrue(outbox.contains {
+            $0.recordType == "document" && $0.documentID == capturedID
+        })
         #endif
 
-        do {
-            _ = try await CloudLibrary().accountStatus()
-            XCTFail("Unconfigured CloudKit must fail before creating a container.")
-        } catch {
-            XCTAssertEqual(
-                error.localizedDescription,
-                "Set Briefly’s CloudKit container in the native target before synchronizing."
-            )
-        }
     }
 }

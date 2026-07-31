@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 #if os(macOS)
 import Darwin
@@ -432,111 +431,70 @@ public actor WorkspaceLibrary {
         let variants: [LibraryVariant: URL]
     }
 
-    private struct SyncBaseline: Codable {
-        let schemaVersion: Int
-        let updatedAt: String
-        let files: [String: String]
-    }
-
     public let root: URL
     private let fileManager = FileManager.default
     private var indexed = [String: IndexedEntry]()
+    private var sqliteLibrary: SQLiteLibrary?
 
     public init(root: URL) {
         self.root = root.standardizedFileURL
     }
 
-    public func loadProjection() throws -> LibraryProjection {
-        try ensureWorkspace()
-        let topicNames = try readTopics()
-        let library = root.appending(path: "library", directoryHint: .isDirectory)
-        let files = try fileManager.contentsOfDirectory(
-            at: library,
-            includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
-            options: [.skipsHiddenFiles]
+    private func database() throws -> SQLiteLibrary {
+        if let sqliteLibrary { return sqliteLibrary }
+        let database = try SQLiteLibrary(
+            databaseURL: root
+                .appending(path: ".briefly", directoryHint: .isDirectory)
+                .appending(path: "library.sqlite3")
         )
-        let markdown = files
-            .filter { $0.pathExtension.lowercased() == "md" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        var nextIndex = [String: IndexedEntry]()
-        var entries = try markdown.map { url in
-            let source = try String(contentsOf: url, encoding: .utf8)
-            let parsed = parseMarkdown(source)
-            let captureID = parsed.scalar("id") ?? url.lastPathComponent
-            let id = "personal:\(captureID)"
-            var variants = [LibraryVariant.source: url]
-            for variant in [LibraryVariant.brief, .concise, .detailed, .comprehensive] {
-                let candidate = library
-                    .appending(path: "summaries", directoryHint: .isDirectory)
-                    .appending(path: variant.rawValue, directoryHint: .isDirectory)
-                    .appending(path: url.lastPathComponent)
-                if fileManager.fileExists(atPath: candidate.path) {
-                    variants[variant] = candidate
-                } else if variant == .concise {
-                    let legacy = library
-                        .appending(path: "summaries", directoryHint: .isDirectory)
-                        .appending(path: url.lastPathComponent)
-                    if fileManager.fileExists(atPath: legacy.path) {
-                        variants[variant] = legacy
-                    }
-                }
-            }
-            let references: [LibraryText] = try LibraryVariant.allCases.compactMap { variant in
-                guard let path = variants[variant] else { return nil }
-                let raw = try String(contentsOf: path, encoding: .utf8)
-                let text = variant == .source ? parseMarkdown(raw).body : raw
+        sqliteLibrary = database
+        return database
+    }
+
+    public func documentDatabase() throws -> SQLiteLibrary { try database() }
+
+    public func loadProjection() throws -> LibraryProjection {
+        let database = try database()
+        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
+            ($0.id, $0.title)
+        })
+        let entries = try database.allDocuments().map { document in
+            let audio = try database.attachment(documentID: document.id, kind: "audio")
+            let favicon = try database.attachment(documentID: document.id, kind: "favicon")
+            let references: [LibraryText] = LibraryVariant.allCases.compactMap { variant in
+                guard let text = document.texts[variant] else { return nil }
                 return LibraryText(
                     variant: variant,
                     wordCount: text.split(whereSeparator: \.isWhitespace).count,
                     text: text.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             }
-            let resources = try url.resourceValues(
-                forKeys: [.creationDateKey, .contentModificationDateKey]
-            )
-            let title = parsed.scalar("title") ??
-                firstHeading(parsed.body) ??
-                url.deletingPathExtension().lastPathComponent
-                    .replacingOccurrences(of: "-", with: " ")
-            let topicIDs = parsed.array("topics")
             let excerptText = references.first {
                 $0.variant == .brief || $0.variant == .concise
-            }?.text ?? parsed.body
-            let audio = audioURL(parsed.scalar("audio_path"), library: library)
-            let favicon = faviconURL(
-                parsed.scalar("favicon_path"),
-                library: library
-            )
-            nextIndex[id] = IndexedEntry(
-                source: url,
-                audio: audio,
-                favicon: favicon,
-                variants: variants
-            )
+            }?.text ?? document.texts[.source] ?? ""
             return LibraryEntry(
-                id: id,
-                captureID: captureID,
-                entryType: parsed.scalar("type"),
-                voiceBriefID: parsed.scalar("voice_brief_id"),
-                title: title,
+                id: document.id,
+                captureID: document.captureID,
+                entryType: document.type,
+                voiceBriefID: document.voiceBriefID,
+                title: document.title,
                 excerpt: excerpt(excerptText),
-                topicIDs: topicIDs,
-                topicNames: topicIDs.map {
+                topicIDs: document.topicIDs,
+                topicNames: document.topicIDs.map {
                     topicNames[$0] ?? titleize($0)
                 },
-                tags: parsed.array("tags"),
-                sourceURL: parsed.scalar("source_url"),
-                mediaURL: parsed.scalar("media_url"),
-                faviconFile: favicon?.lastPathComponent,
+                tags: document.tags,
+                sourceURL: document.sourceURL,
+                mediaURL: nil,
+                faviconFile: favicon.map { "\(document.captureID).\(fileExtension(for: $0.0))" },
                 audio: nil,
                 favicon: nil,
-                sourceIDs: parsed.array("source_ids"),
-                sourceURLs: parsed.array("source_urls"),
+                sourceIDs: document.sourceIDs,
+                sourceURLs: document.sourceURLs,
                 hasAudio: audio != nil,
-                createdAt: parsed.scalar("created_at") ?? resources.creationDate?.iso8601,
-                updatedAt: parsed.scalar("updated_at") ??
-                    resources.contentModificationDate?.iso8601,
-                reviewedAt: parsed.scalar("reviewed_at"),
+                createdAt: document.createdAt.iso8601,
+                updatedAt: document.updatedAt.iso8601,
+                reviewedAt: nil,
                 origin: .personal,
                 sharedByUsername: nil,
                 sharedByDisplayName: nil,
@@ -544,11 +502,6 @@ public actor WorkspaceLibrary {
                 texts: references
             )
         }
-        entries.sort {
-            ($0.createdAt ?? $0.updatedAt ?? "") >
-                ($1.createdAt ?? $1.updatedAt ?? "")
-        }
-        indexed = nextIndex
         return LibraryProjection(
             schemaVersion: librarySchemaVersion,
             generatedAt: Date().iso8601,
@@ -665,6 +618,7 @@ public actor WorkspaceLibrary {
             )
         }
         state.sources.removeValue(forKey: source)
+        try database().deleteChannel(source)
         try writeChannelState(state)
     }
 
@@ -919,7 +873,6 @@ public actor WorkspaceLibrary {
     }
 
     public func attachAudio(entryID: String, file source: URL) throws {
-        let entry = try requireEntry(entryID)
         let fileExtension = source.pathExtension.lowercased()
         guard ["m4a", "wav"].contains(fileExtension) else {
             throw WorkspaceError.invalidAudio
@@ -928,28 +881,13 @@ public actor WorkspaceLibrary {
         guard !data.isEmpty, data.count <= 100_000_000 else {
             throw WorkspaceError.invalidAudio
         }
-        let parsed = parseMarkdown(
-            try String(contentsOf: entry.source, encoding: .utf8)
+        _ = try database().getDocument(entryID)
+        try database().saveAttachment(
+            documentID: entryID,
+            kind: "audio",
+            mimeType: fileExtension == "m4a" ? "audio/mp4" : "audio/wav",
+            data: data
         )
-        let captureID = parsed.scalar("id") ?? UUID().uuidString
-        let filename = "\(slug(captureID)).\(fileExtension)"
-        let destination = root
-            .appending(path: "library", directoryHint: .isDirectory)
-            .appending(path: "audio", directoryHint: .isDirectory)
-            .appending(path: filename)
-        try fileManager.createDirectory(
-            at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: destination, options: .atomic)
-        var metadata = parsed.metadata
-        metadata["audio_path"] = ["audio/\(filename)"]
-        metadata["updated_at"] = [Date().iso8601]
-        try writeAtomically(
-            "\(serializeMetadata(metadata))\n\n\(parsed.body)\n",
-            to: entry.source
-        )
-        indexed.removeAll()
     }
 
     public func processingPrompt(
@@ -963,19 +901,15 @@ public actor WorkspaceLibrary {
         else {
             throw WorkspaceError.invalidProcessingPrompt
         }
-        let entry = try requireEntry(entryID)
-        let parsed = parseMarkdown(
-            try String(contentsOf: entry.source, encoding: .utf8)
-        )
+        let document = try database().getDocument(entryID)
         var source: [String: Any] = [
-            "title": parsed.scalar("title") ??
-                entry.source.deletingPathExtension().lastPathComponent,
-            "source_text": parsed.body
+            "title": document.title,
+            "source_text": document.texts[.source] ?? ""
         ]
-        if let sourceURL = parsed.scalar("source_url") {
+        if let sourceURL = document.sourceURL {
             source["source_url"] = sourceURL
         }
-        let topics = try readTopics().values.sorted {
+        let topics = try database().topicDefinitions().map(\.title).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         }
         return normalized
@@ -994,28 +928,10 @@ public actor WorkspaceLibrary {
         entryID: String,
         suggestion: WorkspaceProcessingSuggestion
     ) throws -> String {
-        let entry = try requireEntry(entryID)
+        let document = try database().getDocument(entryID)
         let topicID = try ensureTopic(named: suggestion.topicName)
-        let raw = try String(contentsOf: entry.source, encoding: .utf8)
-        let parsed = parseMarkdown(raw)
-        let currentFilename = entry.source.lastPathComponent
         let requestedBase = slug(suggestion.shortFilename)
-        let requestedFilename = "\(requestedBase).md"
-        let nextFilename = requestedFilename == currentFilename
-            ? currentFilename
-            : try availableFilename(requestedBase)
-        let library = root.appending(path: "library", directoryHint: .isDirectory)
-        let nextSource = library.appending(path: nextFilename)
-        var metadata = parsed.metadata
-        metadata["title"] = [
-            parsed.scalar("title") ??
-                firstHeading(parsed.body) ??
-                requestedBase.replacingOccurrences(of: "-", with: " ").capitalized
-        ]
-        metadata["updated_at"] = [Date().iso8601]
-        metadata["topics"] = [topicID]
-
-        var destinations = Set<URL>()
+        var texts = [LibraryVariant: String]()
         for variant in [
             LibraryVariant.brief,
             .concise,
@@ -1029,39 +945,16 @@ public actor WorkspaceLibrary {
             else {
                 throw WorkspaceError.invalidProcessingOutput
             }
-            let destination = library
-                .appending(path: "summaries", directoryHint: .isDirectory)
-                .appending(path: variant.rawValue, directoryHint: .isDirectory)
-                .appending(path: nextFilename)
-            try writeAtomically("\(summary)\n", to: destination)
-            destinations.insert(destination.standardizedFileURL)
-            if variant == .concise {
-                let legacy = library
-                    .appending(path: "summaries", directoryHint: .isDirectory)
-                    .appending(path: nextFilename)
-                try writeAtomically("\(summary)\n", to: legacy)
-                destinations.insert(legacy.standardizedFileURL)
-            }
+            texts[variant] = summary
         }
-        try writeAtomically(
-            "\(serializeMetadata(metadata))\n\n\(parsed.body)\n",
-            to: nextSource
-        )
-        destinations.insert(nextSource.standardizedFileURL)
-
-        let oldURLs = Set([entry.source] + Array(entry.variants.values))
-        for oldURL in oldURLs
-        where
-            !destinations.contains(oldURL.standardizedFileURL) &&
-            fileManager.fileExists(atPath: oldURL.path)
-        {
-            #if os(macOS)
-            _ = try fileManager.trashItem(at: oldURL, resultingItemURL: nil)
-            #else
-            try fileManager.removeItem(at: oldURL)
-            #endif
-        }
-        indexed.removeAll()
+        try database().commitDocument(SQLiteDocumentCommit(
+            id: entryID,
+            baseRevision: document.revision,
+            title: firstHeading(document.texts[.source] ?? "") ??
+                requestedBase.replacingOccurrences(of: "-", with: " ").capitalized,
+            topicIDs: [topicID],
+            texts: texts
+        ))
         return entryID
     }
 
@@ -1073,56 +966,30 @@ public actor WorkspaceLibrary {
         faviconData: Data? = nil,
         faviconFileExtension: String? = nil
     ) throws -> String {
-        try ensureWorkspace()
-        let captureID = UUID().uuidString.uppercased()
-        let filename = try availableFilename(slug(title))
-        let now = Date().iso8601
-        let favicon: (filename: String, data: Data)? = {
-            guard
-                let faviconData,
-                let fileExtension = faviconFileExtension?.lowercased(),
-                faviconData.count <= 1_000_000,
-                validFavicon(faviconData, fileExtension: fileExtension)
-            else {
-                return nil
-            }
-            return ("\(contentHash(faviconData)).\(fileExtension)", faviconData)
-        }()
-        let lines = [
-            "---",
-            "id: \(quoted(captureID))",
-            "type: \(quoted(entryType))",
-            "title: \(quoted(title))",
-            "created_at: \(quoted(now))",
-            "updated_at: \(quoted(now))",
-            "tags: []",
-            "topics: []",
-            sourceURL.map { "source_url: \(quoted($0.absoluteString))" },
-            favicon.map { "favicon_path: \(quoted("favicons/\($0.filename)"))" },
-            "---",
-            "",
-            content,
-            ""
-        ].compactMap { $0 }
-        let destination = root
-            .appending(path: "library", directoryHint: .isDirectory)
-            .appending(path: filename)
-        if let favicon {
-            let url = root
-                .appending(path: "library", directoryHint: .isDirectory)
-                .appending(path: "favicons", directoryHint: .isDirectory)
-                .appending(path: favicon.filename)
-            try fileManager.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+        // Media remains an immutable attachment concern; the Markdown record itself is
+        // committed once, locally, with its CloudKit outbox entry in the same transaction.
+        let database = try database()
+        let document = try database.createDocument(
+            title: title,
+            body: content,
+            type: entryType,
+            sourceURL: sourceURL?.absoluteString
+        )
+        if
+            let faviconData,
+            let fileExtension = faviconFileExtension?.lowercased(),
+            faviconData.count <= 1_000_000,
+            validFavicon(faviconData, fileExtension: fileExtension)
+        {
+            let mime = fileExtension == "svg" ? "image/svg+xml" : "image/\(fileExtension)"
+            try database.saveAttachment(
+                documentID: document.id,
+                kind: "favicon",
+                mimeType: mime,
+                data: faviconData
             )
-            if !fileManager.fileExists(atPath: url.path) {
-                try favicon.data.write(to: url, options: .atomic)
-            }
         }
-        try Data(lines.joined(separator: "\n").utf8).write(to: destination, options: .atomic)
-        indexed.removeAll()
-        return "personal:\(captureID)"
+        return document.id
     }
 
     public func writeText(
@@ -1130,27 +997,85 @@ public actor WorkspaceLibrary {
         variant: LibraryVariant,
         text: String
     ) throws {
-        let entry = try requireEntry(entryID)
-        guard let url = entry.variants[variant] else {
+        let document = try database().getDocument(entryID)
+        guard document.texts[variant] != nil else {
             throw WorkspaceError.missingVariant
         }
-        var output = text.trimmingCharacters(in: .whitespacesAndNewlines) + "\n"
-        if variant == .source {
-            let original = parseMarkdown(
-                try String(contentsOf: url, encoding: .utf8)
-            )
-            if let frontmatter = original.frontmatter {
-                output = "\(frontmatter)\n\n\(output)"
+        try database().commitDocument(SQLiteDocumentCommit(
+            id: entryID,
+            baseRevision: document.revision,
+            texts: [variant: text]
+        ))
+    }
+
+    public func search(_ query: String, limit: Int = 50) throws -> [SQLiteSearchResult] {
+        try database().search(query, limit: limit)
+    }
+
+    public func getDocument(_ id: String) throws -> SQLiteDocument {
+        try database().getDocument(id)
+    }
+
+    @discardableResult
+    public func commitDocument(
+        _ id: String,
+        baseRevision: Int64,
+        texts: [LibraryVariant: String],
+        title: String? = nil
+    ) throws -> SQLiteDocument {
+        try database().commitDocument(SQLiteDocumentCommit(
+            id: id,
+            baseRevision: baseRevision,
+            title: title,
+            texts: texts
+        ))
+    }
+
+    @discardableResult
+    public func batch(_ commits: [SQLiteDocumentCommit]) throws -> [SQLiteDocument] {
+        try database().batch(commits)
+    }
+
+    @discardableResult
+    public func ingestMarkdownLibrary() throws -> Int {
+        let database = try database()
+        let topics = try readTopics().map {
+            LibraryTopicDefinition(id: $0.key, title: $0.value)
+        }
+        if !topics.isEmpty { try database.replaceTopicDefinitions(topics) }
+        let imported = try database.ingestMarkdownLibrary(root)
+        let voiceBriefDirectory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
+        if let urls = try? fileManager.contentsOfDirectory(
+            at: voiceBriefDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) {
+            for url in urls where url.pathExtension.lowercased() == "md" {
+                let parsed = parseMarkdown(try String(contentsOf: url, encoding: .utf8))
+                _ = try database.saveVoiceBrief(LibraryVoiceBriefDraft(
+                    id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
+                    title: parsed.scalar("name") ?? parsed.scalar("title") ??
+                        url.deletingPathExtension().lastPathComponent,
+                    schedule: parsed.scalar("schedule") ?? "manual",
+                    length: parsed.scalar("length") ?? "",
+                    sources: parsed.array("sources"),
+                    prompt: parsed.body.isEmpty ? defaultVoiceBriefPrompt : parsed.body,
+                    prioritizeForMe: parsed.scalar("prioritize_for_me")?.lowercased() == "true"
+                ))
             }
         }
-        try Data(output.utf8).write(to: url, options: .atomic)
-        indexed.removeAll()
+        if
+            let data = try? Data(contentsOf: channelStateURL),
+            let state = try? JSONDecoder().decode(VoiceBriefWatcherState.self, from: data),
+            state.schemaVersion == 1
+        {
+            try writeChannelState(state)
+        }
+        return imported
     }
 
     public func loadHighlights() throws -> String {
-        guard fileManager.fileExists(atPath: highlightsURL.path) else { return "" }
-        return try String(contentsOf: highlightsURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        (try? database().getDocument("system:highlights").texts[.source]) ?? ""
     }
 
     public func addHighlight(
@@ -1162,15 +1087,14 @@ public actor WorkspaceLibrary {
         guard !highlighted.isEmpty else { throw WorkspaceError.emptyHighlight }
         guard highlighted.count <= 50_000 else { throw WorkspaceError.highlightTooLong }
 
-        let entry = try requireEntry(entryID)
-        let parsed = parseMarkdown(try String(contentsOf: entry.source, encoding: .utf8))
-        let title = (parsed.scalar("title") ?? firstHeading(parsed.body) ?? "Untitled")
+        let document = try database().getDocument(entryID)
+        let title = document.title
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespaces)
         let quote = highlighted.components(separatedBy: .newlines)
             .map { "> \($0)" }
             .joined(separator: "\n")
-        let source = parsed.scalar("source_url").map { "\n\n[Open original](\($0))" } ?? ""
+        let source = document.sourceURL.map { "\n\n[Open original](\($0))" } ?? ""
         let item = """
         ## \(title)
 
@@ -1182,7 +1106,7 @@ public actor WorkspaceLibrary {
         let output = existing.isEmpty
             ? "# Highlights\n\n\(item)\n"
             : "\(existing)\n\n\(item)\n"
-        try writeAtomically(output, to: highlightsURL)
+        try saveHighlights(output)
     }
 
     @discardableResult
@@ -1209,8 +1133,28 @@ public actor WorkspaceLibrary {
         }
         guard removed else { return false }
         let output = kept.count == 1 ? "" : kept.joined(separator: "\n\n") + "\n"
-        try writeAtomically(output, to: highlightsURL)
+        try saveHighlights(output)
         return true
+    }
+
+    private func saveHighlights(_ text: String) throws {
+        let database = try database()
+        if let document = try? database.getDocument("system:highlights", includeDeleted: true) {
+            try database.commitDocument(SQLiteDocumentCommit(
+                id: document.id,
+                baseRevision: document.revision,
+                texts: [.source: text],
+                deleted: false
+            ))
+        } else if !text.isEmpty {
+            _ = try database.createDocument(
+                title: "Highlights",
+                body: text,
+                type: "highlights",
+                id: "system:highlights",
+                captureID: "HIGHLIGHTS"
+            )
+        }
     }
 
     @discardableResult
@@ -1245,97 +1189,73 @@ public actor WorkspaceLibrary {
             throw WorkspaceError.invalidChannel
         }
 
-        let directory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let current = try readVoiceBriefs()
-        let existing = value.id.flatMap { id in current.first { $0.id == id } }
-        if value.id != nil, existing == nil { throw WorkspaceError.missingVoiceBrief }
-        let filename = existing?.filename ??
-            availableVoiceBriefFilename(
-                slug(title),
-                used: Set(current.map(\.filename))
-            )
-        let id = existing?.id ?? "file:\(filename)"
-        let lines = [
-            "---",
-            id.hasPrefix("file:") ? nil : "id: \(quoted(id))",
-            "name: \(quoted(title))",
-            "schedule: \(quoted(schedule.isEmpty ? "manual" : schedule))",
-            value.prioritizeForMe ? "prioritize_for_me: true" : nil,
-            "sources:",
-            sources.map { "  - \(quoted($0))" }.joined(separator: "\n"),
-            value.length.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil
-                : "length: \(quoted(value.length.trimmingCharacters(in: .whitespacesAndNewlines)))",
-            "---",
-            "",
-            prompt,
-            ""
-        ].compactMap { $0 }
-        try Data(lines.joined(separator: "\n").utf8).write(
-            to: directory.appending(path: filename),
-            options: .atomic
-        )
-        return id
+        return try database().saveVoiceBrief(LibraryVoiceBriefDraft(
+            id: value.id,
+            title: title,
+            schedule: schedule.isEmpty ? "manual" : schedule,
+            length: value.length.trimmingCharacters(in: .whitespacesAndNewlines),
+            sources: sources,
+            prompt: prompt,
+            prioritizeForMe: value.prioritizeForMe
+        ))
     }
 
     public func moveVoiceBriefToTrash(id: String) throws {
-        guard let brief = try readVoiceBriefs().first(where: { $0.id == id }) else {
+        guard try readVoiceBriefs().contains(where: { $0.id == id }) else {
             throw WorkspaceError.missingVoiceBrief
         }
-        let url = root
-            .appending(path: "voice-briefs", directoryHint: .isDirectory)
-            .appending(path: brief.filename)
-        #if os(macOS)
-        _ = try fileManager.trashItem(at: url, resultingItemURL: nil)
-        #else
-        try moveToWorkspaceTrash(url)
-        #endif
+        try database().deleteVoiceBrief(id)
     }
 
     public func voiceBriefFileURL(id: String) throws -> URL {
         guard let brief = try readVoiceBriefs().first(where: { $0.id == id }) else {
             throw WorkspaceError.missingVoiceBrief
         }
-        return root
-            .appending(path: "voice-briefs", directoryHint: .isDirectory)
-            .appending(path: brief.filename)
+        let directory = fileManager.temporaryDirectory
+            .appending(path: "briefly-checkouts", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "\(slug(brief.title)).md")
+        try Data((brief.prompt ?? defaultVoiceBriefPrompt).utf8).write(to: url, options: .atomic)
+        return url
     }
 
     public func moveToTrash(entryID: String) throws {
-        let entry = try requireEntry(entryID)
-        let urls = Set([entry.source, entry.audio].compactMap { $0 } + entry.variants.values)
-        #if os(macOS)
-        for url in urls where fileManager.fileExists(atPath: url.path) {
-            _ = try fileManager.trashItem(at: url, resultingItemURL: nil)
-        }
-        indexed.removeValue(forKey: entryID)
-        #else
-        for url in urls where fileManager.fileExists(atPath: url.path) {
-            try moveToWorkspaceTrash(url)
-        }
-        indexed.removeValue(forKey: entryID)
-        #endif
+        let document = try database().getDocument(entryID)
+        try database().commitDocument(SQLiteDocumentCommit(
+            id: entryID,
+            baseRevision: document.revision,
+            deleted: true
+        ))
     }
 
     public func fileURL(entryID: String) throws -> URL {
-        try requireEntry(entryID).source
+        let directory = fileManager.temporaryDirectory
+            .appending(path: "briefly-checkouts", directoryHint: .isDirectory)
+        return try database().checkout(entryID, to: directory)
     }
 
     public func audioURL(entryID: String) throws -> URL? {
-        try requireEntry(entryID).audio
+        try attachmentURL(entryID: entryID, kind: "audio")
     }
 
     public func faviconURL(entryID: String) throws -> URL? {
-        try requireEntry(entryID).favicon
+        try attachmentURL(entryID: entryID, kind: "favicon")
+    }
+
+    private func attachmentURL(entryID: String, kind: String) throws -> URL? {
+        guard let (mime, data) = try database().attachment(documentID: entryID, kind: kind) else {
+            return nil
+        }
+        let directory = fileManager.temporaryDirectory
+            .appending(path: "briefly-attachments", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "\(slug(entryID))-\(kind).\(fileExtension(for: mime))")
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     public func topicDefinitions() throws -> [LibraryTopicDefinition] {
-        try readTopics()
-            .map { LibraryTopicDefinition(id: $0.key, title: $0.value) }
-            .sorted {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+        try database().topicDefinitions()
     }
 
     @discardableResult
@@ -1393,280 +1313,8 @@ public actor WorkspaceLibrary {
                 "The topic “\(used)” is still used by library items. Rename it instead."
             )
         }
-        let lines = ["topics:"] + normalized.flatMap {
-            ["  - id: \(quoted($0.id))", "    title: \(quoted($0.title))"]
-        } + [""]
-        try writeAtomically(
-            lines.joined(separator: "\n"),
-            to: root.appending(path: "topics.md")
-        )
-        indexed.removeAll()
+        try database().replaceTopicDefinitions(normalized)
         return normalized
-    }
-
-    public func buildCloudMirror() throws -> LibraryCloudMirror {
-        let localProjection = try loadProjection()
-        let fileURLs = try mirroredFileURLs()
-        let files = try fileURLs.map { path, url in
-            let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            return LibraryCloudFile(
-                reference: LibraryFile(
-                    path: path,
-                    contentHash: contentHash(data),
-                    byteCount: data.count
-                ),
-                data: data
-            )
-        }
-        let filesByPath = Dictionary(
-            uniqueKeysWithValues: files.map { ($0.reference.path, $0.reference) }
-        )
-        var mediaByKey = [String: LibraryCloudMedia]()
-        let entries = try localProjection.entries.map { entry in
-            let indexedEntry = try requireEntry(entry.id)
-            let texts = indexedEntry.variants.compactMap {
-                (variant, url) -> LibraryText? in
-                guard
-                    let path = mirroredPath(for: url),
-                    let file = filesByPath[path]
-                else {
-                    return nil
-                }
-                return LibraryText(
-                    variant: variant,
-                    path: path,
-                    contentHash: file.contentHash,
-                    wordCount: entry.text(for: variant)?.wordCount ?? 0
-                )
-            }.sorted { $0.variant.rawValue < $1.variant.rawValue }
-            let audio: LibraryMedia?
-            if
-                let url = indexedEntry.audio,
-                let path = relativePath(for: url),
-                validMediaPath(path, kind: .audio)
-            {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                let reference = LibraryMedia(
-                    kind: .audio,
-                    path: path,
-                    contentHash: contentHash(data),
-                    byteCount: data.count,
-                    contentType: mediaContentType(path, kind: .audio)
-                )
-                audio = reference
-                mediaByKey["audio:\(reference.contentHash)"] = LibraryCloudMedia(
-                    reference: reference,
-                    data: data
-                )
-            } else {
-                audio = nil
-            }
-            let favicon: LibraryMedia?
-            if
-                let url = indexedEntry.favicon,
-                let path = relativePath(for: url),
-                validMediaPath(path, kind: .favicon)
-            {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                let reference = LibraryMedia(
-                    kind: .favicon,
-                    path: path,
-                    contentHash: contentHash(data),
-                    byteCount: data.count,
-                    contentType: mediaContentType(path, kind: .favicon)
-                )
-                favicon = reference
-                mediaByKey["favicon:\(reference.contentHash)"] = LibraryCloudMedia(
-                    reference: reference,
-                    data: data
-                )
-            } else {
-                favicon = nil
-            }
-            return LibraryEntry(
-                id: entry.id,
-                captureID: entry.captureID,
-                entryType: entry.entryType,
-                voiceBriefID: entry.voiceBriefID,
-                title: entry.title,
-                excerpt: entry.excerpt,
-                topicIDs: entry.topicIDs,
-                topicNames: entry.topicNames,
-                tags: entry.tags,
-                sourceURL: entry.sourceURL,
-                mediaURL: entry.mediaURL,
-                faviconFile: entry.faviconFile,
-                audio: audio,
-                favicon: favicon,
-                sourceIDs: entry.sourceIDs,
-                sourceURLs: entry.sourceURLs,
-                hasAudio: audio != nil,
-                createdAt: entry.createdAt,
-                updatedAt: entry.updatedAt,
-                reviewedAt: entry.reviewedAt,
-                origin: entry.origin,
-                sharedByUsername: entry.sharedByUsername,
-                sharedByDisplayName: entry.sharedByDisplayName,
-                inboxReferenceID: entry.inboxReferenceID,
-                texts: texts
-            )
-        }
-        let projection = LibraryProjection(
-            schemaVersion: librarySchemaVersion,
-            generatedAt: Date().iso8601,
-            files: files.map(\.reference),
-            entries: entries,
-            voiceBriefs: localProjection.voiceBriefs
-        )
-        return LibraryCloudMirror(
-            projection: projection,
-            files: files,
-            media: Array(mediaByKey.values)
-        )
-    }
-
-    public func mergeCloudProjection(
-        _ remote: LibraryProjection,
-        download: (LibraryFile) async throws -> Data
-    ) async throws -> LibrarySyncMergeResult {
-        let baseline = readSyncBaseline()
-        let local = try buildCloudMirror()
-        let localFiles = Dictionary(
-            uniqueKeysWithValues: local.files.map { ($0.reference.path, $0) }
-        )
-        let remoteFiles = Dictionary(
-            uniqueKeysWithValues: remote.files.map { ($0.path, $0) }
-        )
-        let paths = Set(baseline.keys)
-            .union(localFiles.keys)
-            .union(remoteFiles.keys)
-            .sorted()
-        var changed = 0
-        var conflicts = 0
-
-        for path in paths {
-            let localFile = localFiles[path]
-            let remoteFile = remoteFiles[path]
-            let previousHash = baseline[path]
-
-            if previousHash == nil {
-                if localFile == nil, let remoteFile {
-                    try await writeRemote(remoteFile, download: download)
-                    changed += 1
-                } else if
-                    let localFile,
-                    let remoteFile,
-                    localFile.reference.contentHash != remoteFile.contentHash
-                {
-                    try await writeConflictCopy(
-                        path: path,
-                        data: try await validatedRemoteData(
-                            remoteFile,
-                            download: download
-                        )
-                    )
-                    conflicts += 1
-                }
-                continue
-            }
-
-            let localChanged = localFile?.reference.contentHash != previousHash
-            let remoteChanged = remoteFile?.contentHash != previousHash
-            if !localChanged, !remoteChanged { continue }
-
-            if !localChanged, remoteFile == nil {
-                if let localFile {
-                    try stash(localFile.data, path: path)
-                    try fileManager.removeItem(at: root.appending(path: path))
-                    changed += 1
-                }
-                continue
-            }
-            if !localChanged, let remoteFile {
-                try await writeRemote(remoteFile, download: download)
-                changed += 1
-                continue
-            }
-            if !remoteChanged ||
-                localFile?.reference.contentHash == remoteFile?.contentHash
-            {
-                continue
-            }
-
-            if let localFile {
-                try await writeConflictCopy(path: path, data: localFile.data)
-            }
-            if let remoteFile {
-                let data = try await validatedRemoteData(
-                    remoteFile,
-                    download: download
-                )
-                if localFile == nil {
-                    try await writeConflictCopy(path: path, data: data)
-                } else {
-                    try data.write(to: root.appending(path: path), options: .atomic)
-                }
-            }
-            changed += 1
-            conflicts += 1
-        }
-        if changed > 0 || conflicts > 0 { indexed.removeAll() }
-        return LibrarySyncMergeResult(changed: changed, conflicts: conflicts)
-    }
-
-    public func mergeCloudMedia(
-        _ projection: LibraryProjection,
-        download: (LibraryMedia) async throws -> Data
-    ) async throws -> Int {
-        let media = projection.entries.flatMap { [$0.audio, $0.favicon].compactMap { $0 } }
-        var changed = 0
-        for reference in media {
-            guard validMediaPath(reference.path, kind: reference.kind) else { continue }
-            let destination = root.appending(path: reference.path)
-            if
-                let local = try? Data(contentsOf: destination, options: .mappedIfSafe),
-                local.count == reference.byteCount,
-                contentHash(local) == reference.contentHash
-            {
-                continue
-            }
-            if let local = try? Data(contentsOf: destination, options: .mappedIfSafe) {
-                try stash(local, path: reference.path)
-            }
-            let data = try await download(reference)
-            guard
-                data.count == reference.byteCount,
-                contentHash(data) == reference.contentHash
-            else {
-                throw WorkspaceError.invalidSynchronizedFile(reference.path)
-            }
-            try fileManager.createDirectory(
-                at: destination.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: destination, options: .atomic)
-            changed += 1
-        }
-        if changed > 0 { indexed.removeAll() }
-        return changed
-    }
-
-    public func saveSyncBaseline(_ files: [LibraryFile]) throws {
-        let url = syncBaselineURL
-        try fileManager.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        let baseline = SyncBaseline(
-            schemaVersion: 1,
-            updatedAt: Date().iso8601,
-            files: Dictionary(uniqueKeysWithValues: files.map {
-                ($0.path, $0.contentHash)
-            })
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(baseline).write(to: url, options: .atomic)
     }
 
     private func requireEntry(_ id: String) throws -> IndexedEntry {
@@ -1677,59 +1325,8 @@ public actor WorkspaceLibrary {
         return entry
     }
 
-    private var syncBaselineURL: URL {
-        root
-            .appending(path: ".shared-library", directoryHint: .isDirectory)
-            .appending(path: "electron-sync-state.json")
-    }
-
     private var highlightsURL: URL {
         root.appending(path: Self.highlightsPath)
-    }
-
-    private func readSyncBaseline() -> [String: String] {
-        guard
-            let data = try? Data(contentsOf: syncBaselineURL),
-            let value = try? JSONDecoder().decode(SyncBaseline.self, from: data),
-            value.schemaVersion == 1
-        else {
-            return [:]
-        }
-        return value.files.filter { validMirroredPath($0.key) }
-    }
-
-    private func mirroredFileURLs() throws -> [(String, URL)] {
-        var result = [(String, URL)]()
-        let topics = root.appending(path: "topics.md")
-        if fileManager.fileExists(atPath: topics.path) {
-            result.append(("topics.md", topics))
-        }
-        for directoryName in ["library", "voice-briefs"] {
-            let directory = root.appending(path: directoryName, directoryHint: .isDirectory)
-            guard let enumerator = fileManager.enumerator(
-                at: directory,
-                includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-            for case let url as URL in enumerator {
-                let values = try url.resourceValues(
-                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
-                )
-                guard
-                    values.isRegularFile == true,
-                    values.isSymbolicLink != true,
-                    url.pathExtension.lowercased() == "md",
-                    let path = relativePath(for: url),
-                    validMirroredPath(path)
-                else {
-                    continue
-                }
-                result.append((path, url))
-            }
-        }
-        return result.sorted { $0.0 < $1.0 }
     }
 
     private func relativePath(for url: URL) -> String? {
@@ -1737,75 +1334,6 @@ public actor WorkspaceLibrary {
         let path = url.standardizedFileURL.path
         guard path.hasPrefix("\(rootPath)/") else { return nil }
         return String(path.dropFirst(rootPath.count + 1))
-    }
-
-    private func mirroredPath(for url: URL) -> String? {
-        guard let path = relativePath(for: url), validMirroredPath(path) else {
-            return nil
-        }
-        return path
-    }
-
-    private func validatedRemoteData(
-        _ file: LibraryFile,
-        download: (LibraryFile) async throws -> Data
-    ) async throws -> Data {
-        let data = try await download(file)
-        guard
-            data.count == file.byteCount,
-            contentHash(data) == file.contentHash
-        else {
-            throw WorkspaceError.invalidSynchronizedFile(file.path)
-        }
-        return data
-    }
-
-    private func writeRemote(
-        _ file: LibraryFile,
-        download: (LibraryFile) async throws -> Data
-    ) async throws {
-        let destination = root.appending(path: file.path)
-        try fileManager.createDirectory(
-            at: destination.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try await validatedRemoteData(file, download: download)
-            .write(to: destination, options: .atomic)
-    }
-
-    private func writeConflictCopy(path: String, data: Data) async throws {
-        let original = root.appending(path: path)
-        let directory = path == "topics.md"
-            ? root
-                .appending(path: ".shared-library", directoryHint: .isDirectory)
-                .appending(path: "conflicts", directoryHint: .isDirectory)
-            : original.deletingLastPathComponent()
-        let stem = original.deletingPathExtension().lastPathComponent
-        for suffix in 1...10_000 {
-            let name = "\(stem)-conflict\(suffix == 1 ? "" : "-\(suffix)").md"
-            let destination = directory.appending(path: name)
-            guard !fileManager.fileExists(atPath: destination.path) else { continue }
-            try fileManager.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            let content = uniqueConflictData(data)
-            try content.write(to: destination, options: .atomic)
-            return
-        }
-        throw WorkspaceError.invalidSynchronizedFile(path)
-    }
-
-    private func stash(_ data: Data, path: String) throws {
-        let directory = root
-            .appending(path: ".shared-library", directoryHint: .isDirectory)
-            .appending(path: "sync-trash", directoryHint: .isDirectory)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let safeName = path.replacingOccurrences(of: "/", with: "--")
-        let destination = directory.appending(
-            path: "\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString)-\(safeName)"
-        )
-        try data.write(to: destination, options: .atomic)
     }
 
     private func moveToWorkspaceTrash(_ url: URL) throws {
@@ -1863,68 +1391,26 @@ public actor WorkspaceLibrary {
         guard !title.isEmpty, title.count <= 48 else {
             throw WorkspaceError.invalidTopic
         }
-        var topics = try readTopics()
+        var topics = try database().topicDefinitions()
         if let existing = topics.first(where: {
-            $0.value.localizedCaseInsensitiveCompare(title) == .orderedSame
+            $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
         }) {
-            return existing.key
+            return existing.id
         }
         let base = slug(title)
         var id = base
         var suffix = 2
-        while topics[id] != nil {
+        while topics.contains(where: { $0.id == id }) {
             id = "\(base)-\(suffix)"
             suffix += 1
         }
-        topics[id] = title
-        let lines = ["topics:"] + topics
-            .sorted {
-                $0.value.localizedCaseInsensitiveCompare($1.value) == .orderedAscending
-            }
-            .flatMap {
-                ["  - id: \(quoted($0.key))", "    title: \(quoted($0.value))"]
-            } + [""]
-        try writeAtomically(
-            lines.joined(separator: "\n"),
-            to: root.appending(path: "topics.md")
-        )
+        topics.append(LibraryTopicDefinition(id: id, title: title))
+        try database().replaceTopicDefinitions(topics)
         return id
     }
 
     private func readVoiceBriefs() throws -> [LibraryVoiceBrief] {
-        let directory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
-        guard fileManager.fileExists(atPath: directory.path) else { return [] }
-        return try fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-        .filter {
-            $0.pathExtension.lowercased() == "md" &&
-                $0.lastPathComponent.lowercased() != "readme.md"
-        }
-        .map { url in
-            let parsed = parseMarkdown(
-                try String(contentsOf: url, encoding: .utf8)
-            )
-            return LibraryVoiceBrief(
-                id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
-                filename: url.lastPathComponent,
-                title: parsed.scalar("name") ??
-                    parsed.scalar("title") ??
-                    url.deletingPathExtension().lastPathComponent
-                        .replacingOccurrences(of: "-", with: " "),
-                schedule: parsed.scalar("schedule") ?? "manual",
-                length: parsed.scalar("length") ?? "",
-                sources: parsed.array("sources"),
-                prompt: parsed.body.isEmpty ? defaultVoiceBriefPrompt : parsed.body,
-                prioritizeForMe:
-                    parsed.scalar("prioritize_for_me")?.lowercased() == "true"
-            )
-        }
-        .sorted {
-            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-        }
+        try database().voiceBriefs()
     }
 
     private func saveVoiceBriefEpisode(
@@ -1932,30 +1418,14 @@ public actor WorkspaceLibrary {
         script: String,
         sources: [LibraryChannelItem]
     ) throws -> String {
-        try ensureWorkspace()
         let captureID = UUID().uuidString.uppercased()
         let title = firstHeading(script) ??
             "\(brief.title) — \(Date().formatted(date: .abbreviated, time: .omitted))"
-        let filename = try availableFilename(slug(title))
-        let now = Date().iso8601
         let sourceIDs = Array(Set(sources.map(\.entryID)))
         let sourceURLs = Array(Set(sources.map(\.url)))
         let sourceList = sources.map {
             "- [\($0.title)](\($0.url))"
         }.joined(separator: "\n")
-        let metadata: [String: [String]] = [
-            "id": [captureID],
-            "type": ["voice_brief_episode"],
-            "title": [title],
-            "created_at": [now],
-            "updated_at": [now],
-            "tags": [],
-            "topics": [],
-            "voice_brief_id": [brief.id],
-            "voice_brief_title": [brief.title],
-            "source_ids": sourceIDs,
-            "source_urls": sourceURLs
-        ]
         let body = """
         \(script.trimmingCharacters(in: .whitespacesAndNewlines))
 
@@ -1963,14 +1433,16 @@ public actor WorkspaceLibrary {
 
         \(sourceList)
         """
-        try writeAtomically(
-            "\(serializeMetadata(metadata))\n\n\(body)\n",
-            to: root
-                .appending(path: "library", directoryHint: .isDirectory)
-                .appending(path: filename)
-        )
-        indexed.removeAll()
-        return "personal:\(captureID)"
+        return try database().createDocument(
+            title: title,
+            body: body,
+            type: "voice_brief_episode",
+            voiceBriefID: brief.id,
+            sourceIDs: sourceIDs,
+            sourceURLs: sourceURLs,
+            id: "personal:\(captureID)",
+            captureID: captureID
+        ).id
     }
 
     private func mergeChannel(
@@ -2036,26 +1508,60 @@ public actor WorkspaceLibrary {
     }
 
     private func readChannelState() -> VoiceBriefWatcherState {
-        let url = channelStateURL
-        guard
-            let data = try? Data(contentsOf: url),
-            let state = try? JSONDecoder().decode(VoiceBriefWatcherState.self, from: data),
-            state.schemaVersion == 1
-        else {
-            return .empty
-        }
-        return state
+        guard let database = try? database() else { return .empty }
+        let sources = (try? database.channelRecords()) ?? []
+        let runs = (try? database.voiceBriefRunStates()) ?? []
+        return VoiceBriefWatcherState(
+            schemaVersion: 1,
+            sources: Dictionary(uniqueKeysWithValues: sources.map { record in
+                (record.source, VoiceBriefWatcherState.Source(
+                    title: record.title,
+                    kind: record.kind,
+                    lastCheckedAt: record.lastCheckedAt,
+                    error: record.error,
+                    retrievalCount: record.retrievalCount,
+                    canLoadMore: record.canLoadMore,
+                    seen: record.seen,
+                    items: record.items
+                ))
+            }),
+            voiceBriefs: Dictionary(uniqueKeysWithValues: runs.map { run in
+                (run.voiceBriefID, VoiceBriefWatcherState.Run(
+                    lastRunAt: run.lastRunAt,
+                    lastAttemptAt: run.lastAttemptAt,
+                    status: run.status,
+                    message: run.message,
+                    consumed: run.consumed
+                ))
+            })
+        )
     }
 
     private func writeChannelState(_ state: VoiceBriefWatcherState) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(state)
-        try fileManager.createDirectory(
-            at: channelStateURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: channelStateURL, options: .atomic)
+        let database = try database()
+        try database.saveChannelRecords(state.sources.map { source, value in
+            SQLiteChannelRecord(
+                source: source,
+                title: value.title,
+                kind: value.kind,
+                lastCheckedAt: value.lastCheckedAt,
+                error: value.error,
+                retrievalCount: value.retrievalCount ?? 5,
+                canLoadMore: value.canLoadMore ?? true,
+                seen: value.seen,
+                items: value.items
+            )
+        })
+        try database.saveVoiceBriefRunStates(state.voiceBriefs.map { id, value in
+            SQLiteVoiceBriefRunState(
+                voiceBriefID: id,
+                lastRunAt: value.lastRunAt,
+                lastAttemptAt: value.lastAttemptAt,
+                status: value.status,
+                message: value.message,
+                consumed: value.consumed
+            )
+        })
     }
 
     private var channelStateURL: URL {
@@ -2213,7 +1719,7 @@ public enum WorkspaceError: LocalizedError {
     }
 }
 
-private struct ParsedMarkdown {
+struct ParsedMarkdown {
     var metadata: [String: [String]]
     var frontmatter: String?
     var body: String
@@ -2227,7 +1733,7 @@ private struct ParsedMarkdown {
     }
 }
 
-private func parseMarkdown(_ text: String) -> ParsedMarkdown {
+func parseMarkdown(_ text: String) -> ParsedMarkdown {
     guard text.hasPrefix("---\n") || text.hasPrefix("---\r\n") else {
         return ParsedMarkdown(metadata: [:], frontmatter: nil, body: text)
     }
@@ -2372,10 +1878,19 @@ private func writeAtomically(_ text: String, to url: URL) throws {
     try Data(text.utf8).write(to: url, options: .atomic)
 }
 
-private func firstHeading(_ text: String) -> String? {
+func firstHeading(_ text: String) -> String? {
     text.components(separatedBy: .newlines)
         .first { $0.hasPrefix("# ") }
         .map { String($0.dropFirst(2)).trimmingCharacters(in: .whitespaces) }
+}
+
+private func fileExtension(for mimeType: String) -> String {
+    switch mimeType {
+    case "image/svg+xml": "svg"
+    case "image/jpeg": "jpg"
+    case "audio/mp4": "m4a"
+    default: mimeType.split(separator: "/").last.map(String.init) ?? "bin"
+    }
 }
 
 private func firstUsefulLine(_ text: String) -> String {
@@ -2459,9 +1974,7 @@ private func normalizedChannelSource(_ value: String) throws -> String {
 }
 
 private func voiceBriefItemKey(_ source: String, _ itemID: String) -> String {
-    SHA256.hash(data: Data("\(source)\n\(itemID)".utf8))
-        .map { String(format: "%02x", $0) }
-        .joined()
+    "\(source)\n\(itemID)"
 }
 
 private func channelDisplayTitle(_ source: String) -> String {
@@ -2577,7 +2090,7 @@ private func discoverChannel(
         title: title,
         kind: .page,
         items: [.init(
-            id: contentHash(data),
+            id: finalURL.absoluteString,
             title: title,
             url: finalURL.absoluteString,
             content: content
@@ -2968,53 +2481,6 @@ private func decodeHTML(_ value: String) -> String {
     return text
 }
 
-private func contentHash(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-}
-
-private func validMirroredPath(_ value: String) -> Bool {
-    guard
-        value == "topics.md" ||
-            ((value.hasPrefix("library/") || value.hasPrefix("voice-briefs/")) &&
-                value.lowercased().hasSuffix(".md"))
-    else {
-        return false
-    }
-    return !value.split(separator: "/", omittingEmptySubsequences: false)
-        .contains { $0.isEmpty || $0 == "." || $0 == ".." }
-}
-
-private func validMediaPath(_ value: String, kind: LibraryMediaKind) -> Bool {
-    let directory = kind == .audio ? "library/audio/" : "library/favicons/"
-    return value.hasPrefix(directory) &&
-        !value.split(separator: "/", omittingEmptySubsequences: false)
-            .contains { $0.isEmpty || $0 == "." || $0 == ".." }
-}
-
-private func mediaContentType(_ path: String, kind: LibraryMediaKind) -> String {
-    let audio = [
-        "aac": "audio/aac",
-        "flac": "audio/flac",
-        "m4a": "audio/mp4",
-        "mp3": "audio/mpeg",
-        "ogg": "audio/ogg",
-        "opus": "audio/ogg",
-        "wav": "audio/wav",
-        "webm": "audio/webm"
-    ]
-    let images = [
-        "gif": "image/gif",
-        "ico": "image/x-icon",
-        "jpg": "image/jpeg",
-        "png": "image/png",
-        "webp": "image/webp"
-    ]
-    let fileExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
-    return kind == .audio
-        ? audio[fileExtension] ?? "audio/mpeg"
-        : images[fileExtension] ?? "image/png"
-}
-
 private func validFavicon(_ data: Data, fileExtension: String) -> Bool {
     let bytes = [UInt8](data.prefix(12))
     switch fileExtension {
@@ -3032,30 +2498,6 @@ private func validFavicon(_ data: Data, fileExtension: String) -> Bool {
     default:
         return false
     }
-}
-
-private func uniqueConflictData(_ data: Data) -> Data {
-    guard
-        var text = String(data: data, encoding: .utf8),
-        text.hasPrefix("---")
-    else {
-        return data
-    }
-    let id = quoted(UUID().uuidString)
-    if text.range(of: #"(?m)^id:\s*.*$"#, options: .regularExpression) != nil {
-        text = text.replacingOccurrences(
-            of: #"(?m)^id:\s*.*$"#,
-            with: "id: \(id)",
-            options: .regularExpression
-        )
-    } else {
-        text = text.replacingOccurrences(
-            of: #"^---\r?\n"#,
-            with: "---\nid: \(id)\n",
-            options: .regularExpression
-        )
-    }
-    return Data(text.utf8)
 }
 
 private func validChannelSource(_ source: String) -> Bool {

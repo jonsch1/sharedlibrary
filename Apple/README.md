@@ -7,9 +7,9 @@ remain intact as the compatibility and product reference during the port.
 
 - Native library, channel, and voice-brief navigation with a collapsible macOS
   sidebar and full-height titlebar layout.
-- Existing Markdown workspace format: capture text, authenticated web pages,
-  PDFs, edit every text depth, regenerate summaries, recoverable trash, topics,
-  channels, voice-brief definitions, generated scripts, audio, and favicons.
+- SQLite-canonical local library with typed document, topic, channel,
+  voice-brief, and attachment records; FTS5 search; revision-checked writes;
+  and Markdown export/checkouts for interoperability.
 - RSS/Atom, podcasts, Reddit, Hacker News, arXiv, ordinary pages, and
   authenticated X capture. Visible and hidden `WKWebView` instances share one
   persistent cookie store. External Safari/default-browser links are for
@@ -19,8 +19,8 @@ remain intact as the compatibility and product reference during the port.
   and voice-brief prompts, custom macOS AI/agent commands, and share links.
 - Native audio generation and playback with resume position, seeking, speed,
   and volume.
-- Safe three-way CloudKit synchronization of Markdown plus audio/favicon media,
-  with conflict copies and recoverable sync trash.
+- Local-first CKSyncEngine synchronization of logical records and attachments;
+  the SQLite database file is never synchronized.
 - Configurable system-wide macOS clipboard capture, native File-menu actions,
   drag-and-drop capture, light/dark/system appearance, and security-scoped
   workspace persistence.
@@ -36,13 +36,20 @@ To connect the private CloudKit library:
 2. Select the development team.
 3. Add **iCloud**, enable **CloudKit**, and select the container used by the web
    app's `CLOUDKIT_CONTAINER_ID`.
-4. Set `BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER` to that container identifier.
+4. Confirm `BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER` is `iCloud.fyi.readbriefly`.
 5. Run while signed into an iCloud account that has a Briefly library.
 
-The app uses the private `Briefly` zone, `library-index` record, and the same
-content-addressed file/media records as the existing clients. Without an
-explicit container, local/sample use remains available and Sync reports the
-configuration error.
+The app uses the private `BrieflyDocuments` zone. Each local transaction adds
+or coalesces a logical-record outbox entry for CKSyncEngine.
+
+For the one-time legacy Markdown import:
+
+```bash
+swift run briefly-migrate '/path/to/Shared Library'
+```
+
+The importer leaves the Markdown library untouched and creates
+`.briefly/library.sqlite3`.
 
 ## Checks
 

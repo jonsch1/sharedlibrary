@@ -9,12 +9,17 @@ let package = Package(
         .macOS(.v14)
     ],
     products: [
-        .library(name: "BrieflyCore", targets: ["BrieflyCore"])
+        .library(name: "BrieflyCore", targets: ["BrieflyCore"]),
+        .executable(name: "briefly-migrate", targets: ["BrieflyMigrate"])
     ],
     targets: [
         .target(
             name: "BrieflyCore",
             resources: [.process("Resources")]
+        ),
+        .executableTarget(
+            name: "BrieflyMigrate",
+            dependencies: ["BrieflyCore"]
         ),
         .testTarget(
             name: "BrieflyCoreTests",

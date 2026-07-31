@@ -14,6 +14,26 @@
             "name": "Run Shared Library Web",
             "command": "npm run dev",
             "cwd": "${workspaceFolder}/Web"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
+            "name": "Debug briefly-migrate (Apple)",
+            "target": "briefly-migrate",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug briefly-migrate (Apple)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
+            "name": "Release briefly-migrate (Apple)",
+            "target": "briefly-migrate",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release briefly-migrate (Apple)"
         }
     ]
 }
