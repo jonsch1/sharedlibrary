@@ -1,3 +1,78 @@
+-- Pre-launch reset: intentionally discard the superseded schema and its data.
+DROP TABLE IF EXISTS `feedback_upvotes`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `feedback_items`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `accounts`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `app_sessions`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `app_store_subscriptions`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `apple_login_states`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `auth_identities`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `billing_allocations`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `billing_checkout_reservations`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `billing_subscriptions`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `billing_customers`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `complimentary_access`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `content_reports`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `github_connections`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `github_device_states`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `google_drive_connections`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `google_login_states`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `google_oauth_states`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `managed_ai_usage`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `openrouter_credentials`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `openrouter_oauth_states`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `service_leases`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `service_limit_overrides`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `service_usage`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `share_audio_segments`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `share_media_deletions`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `share_texts`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `share_links`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `shared_folder_connections`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `sharing_operations`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `stripe_webhook_events`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `sync_preferences`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `tts_accounts`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `tts_monthly_credits`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `tts_topups`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `tts_usage`;
+--> statement-breakpoint
+DROP TABLE IF EXISTS `tts_welcome_credits`;
+--> statement-breakpoint
 CREATE TABLE `accounts` (
 	`user_email` text PRIMARY KEY NOT NULL,
 	`account_id` text NOT NULL,
