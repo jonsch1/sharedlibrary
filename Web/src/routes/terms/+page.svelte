@@ -13,7 +13,7 @@
 		<p>
 			These Terms are an agreement between you and <strong>Jonathan Schaul</strong>, operating
 			Briefly in Germany (“Briefly”, “we”, or “us”). They apply to the Briefly website,
-			desktop and web apps, accounts, synchronization, scheduled voice briefs, share links, downloads, and
+			macOS and iOS apps, accounts, synchronization, scheduled voice briefs, share links, and
 			the Briefly membership (together, the “Service”).
 		</p>
 		<p>
@@ -32,16 +32,16 @@
 	<section>
 		<h2>2. What Briefly provides</h2>
 		<p>
-			Briefly helps you capture sources and notes into a local Markdown library, read them at
+			Briefly helps you capture sources and notes into a local library, read them at
 			different levels of detail, watch sources and prepare scheduled voice-brief episodes, synchronize selected files through
 			your selected iCloud or Google Drive provider, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li><strong>Briefly membership</strong> is a recurring subscription for the desktop and web apps, cross-device iCloud or Google Drive synchronization, and public share links.</li>
-			<li>An account and active membership are required to access the apps and downloads.</li>
+			<li><strong>Briefly membership</strong> is a recurring subscription for hosted processing, cross-device synchronization, and public share links in the native apps.</li>
+			<li>An account and active membership are required to access hosted features.</li>
 			<li>Briefly AI provides hosted summary and voice-brief-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
 			<li>Features may require a supported operating system, browser, internet connection, Apple or Google account, or third-party service.</li>
-			<li>Desktop builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
+			<li>App builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
 			Generated summaries, extraction, metadata, and voice-brief episodes may contain errors or omissions.
@@ -193,7 +193,7 @@
 	<section>
 		<h2>7. Third-party services</h2>
 		<p>
-			Briefly interoperates with Apple and iCloud, Google Drive, Stripe, GitHub, OpenRouter,
+			Briefly interoperates with Apple and iCloud, Google Drive, Stripe, OpenRouter,
 			optional third-party AI CLIs such as OpenAI/Codex,
 			Modal-hosted transcription and voice generation, Firecrawl extraction, consent-only
 			PostHog analytics, operating systems, and browsers. Their services and terms are separate

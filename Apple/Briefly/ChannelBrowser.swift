@@ -74,7 +74,7 @@ final class BrieflyBackend {
         Self.origin
             .appending(path: "api/auth/\(provider)/start")
             .appending(
-                queryItems: [URLQueryItem(name: "return_to", value: "/?desktop=1")]
+                queryItems: [URLQueryItem(name: "return_to", value: "/account?desktop=1")]
             )
     }
 

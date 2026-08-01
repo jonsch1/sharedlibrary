@@ -1,9 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
-	import DownloadIcon from '@lucide/svelte/icons/download';
-	import GlobeIcon from '@lucide/svelte/icons/globe-2';
-	import LaptopIcon from '@lucide/svelte/icons/laptop';
 	import LogInIcon from '@lucide/svelte/icons/log-in';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import {
@@ -37,14 +34,6 @@
 		google?: { configured?: boolean; connected?: boolean };
 		icloud?: { configured?: boolean; connected?: boolean };
 	};
-
-	const downloadBase =
-		'https://github.com/jonsch1/briefly-downloads/releases/latest/download';
-	const desktopDownloads = [
-		{ platform: 'macOS', detail: 'Apple silicon and Intel', href: `${downloadBase}/Briefly-mac-universal.dmg`, file: '.dmg' },
-		{ platform: 'Windows', detail: '64-bit installer', href: `${downloadBase}/Briefly-windows-x64.exe`, file: '.exe' },
-		{ platform: 'Linux', detail: '64-bit AppImage', href: `${downloadBase}/Briefly-linux-x64.AppImage`, file: 'AppImage' }
-	];
 
 	let account = $state<AccountStatus | null>(null);
 	let billing = $state<BillingStatus | null>(null);
@@ -239,7 +228,7 @@
 
 <svelte:head>
 	<title>Your account — Briefly</title>
-	<meta name="description" content="Manage your Briefly membership, sync, and app downloads." />
+	<meta name="description" content="Manage your Briefly membership, sync, and public shares." />
 </svelte:head>
 
 <main class="account-page">
@@ -258,7 +247,7 @@
 		<section class="account-state">
 			<p class="eyebrow">Briefly account</p>
 			<h1>Sign in before you start.</h1>
-			<p>Your account holds membership, app downloads, and sync settings.</p>
+			<p>Your account holds membership, sync, and sharing settings.</p>
 			<div class="sign-in-actions">
 				{#if account?.providers?.apple !== false}
 					<a class="primary-action" href="/api/auth/apple/start?return_to=%2Faccount">
@@ -451,45 +440,6 @@
 				{/if}
 			</section>
 
-			<section class="downloads">
-				<div class="downloads-heading">
-					<div>
-						<p class="eyebrow">Your apps</p>
-						<h2>Download Briefly</h2>
-					</div>
-					<p>Installers are available here after your membership is active.</p>
-				</div>
-
-				{#if billing?.entitled}
-					<div class="download-grid">
-						{#each desktopDownloads as download}
-							<a href={download.href}>
-								<LaptopIcon />
-								<span>
-									<strong>{download.platform}</strong>
-									<small>{download.detail}</small>
-								</span>
-								<b>{download.file}</b>
-								<DownloadIcon />
-							</a>
-						{/each}
-						<a href="/">
-							<GlobeIcon />
-							<span>
-								<strong>Web app</strong>
-								<small>Use Briefly in your browser</small>
-							</span>
-							<b>Open</b>
-							<ArrowUpRightIcon />
-						</a>
-					</div>
-				{:else}
-					<div class="downloads-locked">
-						<p>Activate your membership above to unlock app downloads.</p>
-					</div>
-				{/if}
-			</section>
-
 			<footer>
 				<span>Need help or account deletion? <a href="mailto:hello@readbriefly.fyi">Contact support</a>.</span>
 				<nav><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/imprint">Imprint</a></nav>
@@ -525,7 +475,6 @@
 	.account-heading-actions,
 	.secondary-action,
 	.primary-action,
-	.download-grid a,
 	footer,
 	footer nav {
 		display: flex;
@@ -684,8 +633,7 @@
 	}
 
 	.account-card,
-	.published-links,
-	.downloads {
+	.published-links {
 		border: 1px solid rgb(21 21 18 / 14%);
 		border-radius: 22px;
 		background: rgb(250 248 241 / 72%);
@@ -709,8 +657,7 @@
 		color: rgb(255 255 255 / 62%);
 	}
 
-	.account-card h2,
-	.downloads h2 {
+	.account-card h2 {
 		margin: 6px 0 10px;
 		font-size: 25px;
 		letter-spacing: -0.04em;
@@ -892,80 +839,6 @@
 		font-size: 12px;
 	}
 
-	.downloads {
-		margin-top: 12px;
-		padding: clamp(26px, 4vw, 44px);
-	}
-
-	.downloads-heading {
-		display: flex;
-		align-items: end;
-		justify-content: space-between;
-		gap: 30px;
-	}
-
-	.downloads-heading > p {
-		max-width: 360px;
-		margin: 0 0 8px;
-		color: #69675e;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-
-	.download-grid {
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 8px;
-		margin-top: 24px;
-	}
-
-	.download-grid a {
-		min-height: 78px;
-		gap: 13px;
-		padding: 13px 16px;
-		border: 1px solid rgb(21 21 18 / 13%);
-		border-radius: 14px;
-		background: rgb(255 255 255 / 38%);
-		color: inherit;
-	}
-
-	.download-grid a > :global(svg:first-child) {
-		width: 21px;
-	}
-
-	.download-grid a > :global(svg:last-child) {
-		width: 15px;
-	}
-
-	.download-grid span {
-		display: grid;
-		flex: 1;
-	}
-
-	.download-grid small {
-		margin-top: 3px;
-		color: #747168;
-	}
-
-	.download-grid b {
-		color: #747168;
-		font-size: 10px;
-		text-transform: uppercase;
-	}
-
-	.downloads-locked {
-		display: flex;
-		min-height: 110px;
-		align-items: center;
-		justify-content: center;
-		gap: 10px;
-		margin-top: 24px;
-		border: 1px dashed rgb(21 21 18 / 24%);
-		border-radius: 14px;
-		color: #69675e;
-		font-size: 12px;
-	}
-
 	footer {
 		justify-content: space-between;
 		gap: 20px;
@@ -995,15 +868,10 @@
 		}
 
 		.account-heading,
-		.downloads-heading,
 		.published-links-heading,
 		footer {
 			align-items: flex-start;
 			flex-direction: column;
-		}
-
-		.download-grid {
-			grid-template-columns: 1fr;
 		}
 
 		.published-link {

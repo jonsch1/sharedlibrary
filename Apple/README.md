@@ -1,7 +1,7 @@
 # Briefly for Apple platforms
 
-Native SwiftUI clients for macOS and iOS. `Electron/`, `Web/`, and `Shared/`
-remain intact as the compatibility and product reference during the port.
+Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
+`Web/` provides public sharing and the hosted backend.
 
 ## Current capabilities
 
@@ -72,6 +72,5 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
   uses Briefly AI.
 - Scheduled briefs run at launch, while active, and while the app remains
   running. Reliable background iOS execution still needs an App Refresh task.
-- The native clients retain generated voice-brief audio. Electron's optional
-  permanent download of manually captured YouTube audio still depends on its
-  bundled extractor and is not available on iOS.
+- The native clients retain generated voice-brief audio. Permanent download of
+  manually captured YouTube audio is not available on iOS.

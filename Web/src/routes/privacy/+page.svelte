@@ -22,7 +22,7 @@
 		</p>
 		<div class="legal-callout">
 			<p>
-				<strong>Local-first by default.</strong> The desktop app keeps your workspace on
+				<strong>Local-first by default.</strong> The native apps keep your library on
 				your device. Briefly does not receive that library unless you choose a connected
 				feature such as cloud synchronization, extraction, AI processing, transcription,
 				voice generation, or a public share link. Private
@@ -163,10 +163,6 @@
 				<tr>
 					<td><a href="https://stripe.com/privacy" rel="noreferrer">Stripe</a></td>
 					<td>Checkout, subscriptions, payment, invoicing, tax, and fraud prevention. Stripe acts under its own legal obligations for some payment processing.</td>
-				</tr>
-				<tr>
-					<td><a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement" rel="noreferrer">GitHub</a></td>
-					<td>Hosts desktop downloads. GitHub receives normal request data only when you follow a download link.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>

@@ -65,8 +65,8 @@ The channel workflow exposes two operations:
 The voice-brief service depends only on those operations. It does not choose between
 a “standard” extractor and a browser path.
 
-The visible browser exists only to establish authentication. Headless workflows
-reuse the same Electron session.
+The visible browser exists only to establish authentication. Background workflows
+reuse the same native WebKit session.
 
 Gathering and generation are separate user actions. **Check channels** updates
 the pending queue and its preview; **Generate voice brief** consumes that

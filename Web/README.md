@@ -1,10 +1,9 @@
 # Briefly Web
 
-The mobile Briefly client is a private SvelteKit reader hosted on Cloudflare
-Workers. Users sign in with Apple or Google, then independently choose iCloud or
-Google Drive for their private library. IndexedDB keeps a complete path-preserving Markdown mirror
-available offline. The previous complete mirror opens immediately while synchronization continues in
-the background.
+The SvelteKit site provides public share readers plus marketing, account, legal,
+and administration pages. The Cloudflare Worker supports the native macOS and
+iOS apps with authentication, managed processing, share publishing, media, and
+billing APIs. The website does not expose the private library reader.
 
 ## Accounts
 
@@ -13,16 +12,16 @@ Services ID and a short-lived ES256 client-secret JWT. Configure
 `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and the multiline
 `APPLE_PRIVATE_KEY`, then register
 `https://www.readbriefly.fyi/api/auth/apple/callback` as the Services ID return URL.
-The `/account` page owns sync connection, provider selection, and disconnection;
-the reader only links there and reports the current status.
+The `/account` page owns account, billing, sync-connection, and published-share
+management.
 
 ## Google Drive
 
 Enable the Google Drive API and create one Web application OAuth client. Configure
 its Client ID and Client Secret once for the deployment, then register
 `https://www.readbriefly.fyi/api/google/connect/callback` as an authorized
-redirect URI. Drive authorization is a separate flow after account sign-in. The web
-and Electron clients reuse the saved personal library location.
+redirect URI. Drive authorization is a separate flow after account sign-in. The
+account reuses its saved personal library location.
 
 The backend encrypts account tokens with `OPENROUTER_CREDENTIAL_KEY` (32 random
 bytes encoded as 64 hexadecimal characters) and requests only `drive.file`. It can therefore
@@ -44,11 +43,9 @@ Briefly stores data in the user's private database and a custom `Briefly` zone:
 | `BrieflyLibraryFile` | `path` String, `contentHash` String, `byteCount` Int64, `content` Asset |
 
 Create and test the record types in development, then promote the schema in
-CloudKit Console before setting `CLOUDKIT_ENVIRONMENT=production`. The browser
-authenticates directly with CloudKit; Briefly's Worker receives the selected-provider
-preference but not private iCloud file content. Each browser or Electron installation
-must authorize iCloud from `/account` because CloudKit authentication is local to
-that web session.
+CloudKit Console before setting `CLOUDKIT_ENVIRONMENT=production`. Browser-based
+account authorization talks directly to CloudKit; Briefly's Worker receives the
+selected-provider preference but not private iCloud file content.
 
 ## Development
 
@@ -89,7 +86,7 @@ Use one isolated Stripe sandbox for local development:
 For an end-to-end pass, sign in with Apple and Google separately, choose each sync
 provider, then buy Plus with Stripe's successful
 test card `4242 4242 4242 4242` (any future expiry and any CVC), verify the
-account and desktop app unlock, open the customer portal, cancel at period end,
+account and native app entitlement, open the customer portal, cancel at period end,
 and confirm access remains until the period ends. Also test checkout cancellation,
 the declined card `4000 0000 0000 0002`, the 3D Secure card
 `4000 0025 0000 3155`, duplicate webhook delivery, and a
@@ -121,7 +118,7 @@ transcription is limited to 8 media hours/day and 50/month, voice generation to
 
 ## Briefly membership and Stripe
 
-Briefly requires an account and active membership for app access and downloads.
+Briefly requires an account and active membership for hosted features.
 The subscription includes cross-device iCloud or Google Drive synchronization and deliberate
 public share links. Launch pricing
 is a grandfathered monthly ladder:

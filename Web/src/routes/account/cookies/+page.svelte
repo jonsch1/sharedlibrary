@@ -28,7 +28,7 @@
 		<p>
 			Briefly does <strong>not</strong> use advertising cookies, tracking pixels, or device
 			fingerprinting. It uses one first-party session cookie after sign-in and local browser
-			storage for the offline library and preferences you choose. Anonymous product analytics
+			storage for theme and consent preferences. Anonymous product analytics
 			are off unless you explicitly opt in below.
 		</p>
 		<div class="legal-callout">
@@ -61,9 +61,9 @@
 			</tbody>
 		</table>
 		<p>
-			Apple, Google, Stripe, or GitHub may set their own cookies when you choose to visit
+			Apple, Google, or Stripe may set their own cookies when you choose to visit
 			their domains for sign-in, iCloud or Drive connection, billing management, or
-			downloads. Their notices govern those cookies; Briefly cannot read them.
+			account management. Their notices govern those cookies; Briefly cannot read them.
 		</p>
 	</section>
 
@@ -80,20 +80,8 @@
 			</thead>
 			<tbody>
 				<tr>
-					<td>IndexedDB</td>
-					<td>Your library index and mirrored Markdown documents.</td>
-					<td>Opens your last complete library quickly and keeps reading available offline.</td>
-					<td>Until replaced during sync or you clear the site's data.</td>
-				</tr>
-				<tr>
-					<td>Cache API</td>
-					<td>Application files.</td>
-					<td>Makes the web app work offline.</td>
-					<td>Files rotate with releases or remain until cleared or evicted by the browser.</td>
-				</tr>
-				<tr>
 					<td>Local storage</td>
-					<td>Selected topic and interface preferences.</td>
+					<td>Theme and interface preferences.</td>
 					<td>Restores the interface choices you made.</td>
 					<td>Until you change them or clear the site's data.</td>
 				</tr>
@@ -132,8 +120,8 @@
 		<h2>5. Your controls</h2>
 		<ul>
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
-			<li>Use your browser's site-data settings to remove Briefly's cookie, IndexedDB, local storage, service worker, and caches.</li>
-			<li>Removing site data signs you out and deletes the offline web copy and preferences on that device. It does not delete files in iCloud or Google Drive, an active subscription, or a public share.</li>
+			<li>Use your browser's site-data settings to remove Briefly's cookie and local storage.</li>
+			<li>Removing site data signs you out and deletes preferences on that device. It does not delete files in iCloud or Google Drive, an active subscription, or a public share.</li>
 			<li>Disconnect Google Drive from Settings to delete the stored Google provider credentials.</li>
 			<li>Stop iCloud sync from Settings to clear the selected-provider preference. Manage private CloudKit data through your Apple account.</li>
 			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel your membership.</li>

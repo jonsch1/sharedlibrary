@@ -1855,14 +1855,6 @@ private enum MobileEntryKind {
         }
     }
 
-    var icon: String {
-        switch self {
-        case .item: "doc.text"
-        case .channel: "dot.radiowaves.left.and.right"
-        case .brief: "waveform"
-        }
-    }
-
     var color: Color {
         switch self {
         case .item: .purple
@@ -1880,53 +1872,42 @@ private struct MobileEntryCard: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 11) {
-                Image(systemName: kind.icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(kind.color)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        kind.color.opacity(0.1),
-                        in: RoundedRectangle(cornerRadius: 10)
-                    )
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(kind.label.uppercased())
-                            .font(.system(size: 10, weight: .bold))
-                            .tracking(0.4)
-                            .foregroundStyle(kind.color)
-                        Spacer(minLength: 6)
-                        if
-                            let value = entry.createdAt ?? entry.updatedAt,
-                            let date = try? Date(value, strategy: .iso8601)
-                        {
-                            Text(
-                                date.formatted(
-                                    .relative(
-                                        presentation: .named,
-                                        unitsStyle: .abbreviated
-                                    )
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(kind.label.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.4)
+                        .foregroundStyle(kind.color)
+                    Spacer(minLength: 6)
+                    if
+                        let value = entry.createdAt ?? entry.updatedAt,
+                        let date = try? Date(value, strategy: .iso8601)
+                    {
+                        Text(
+                            date.formatted(
+                                .relative(
+                                    presentation: .named,
+                                    unitsStyle: .abbreviated
                                 )
                             )
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
+                        )
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
+                }
 
-                    Text(entry.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                Text(entry.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+
+                if !entry.excerpt.isEmpty {
+                    Text(entry.excerpt)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-
-                    if !entry.excerpt.isEmpty {
-                        Text(entry.excerpt)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(1)
-                    }
+                        .lineLimit(1)
                 }
             }
             .padding(12)

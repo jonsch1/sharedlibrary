@@ -10,13 +10,6 @@ Web/.svelte-kit/
 Web/build/
 Web/dist/
 
-# Electron desktop app
-Electron/node_modules/
-Electron/out/
-Electron/release/
-Electron/playwright-report/
-Electron/test-results/
-
 # Native Apple apps
 Apple/.build/
 Apple/.swiftpm/

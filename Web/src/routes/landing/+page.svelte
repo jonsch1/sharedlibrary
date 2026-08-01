@@ -9,8 +9,6 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RssIcon from '@lucide/svelte/icons/rss';
 	import ShareIcon from '@lucide/svelte/icons/share-2';
-	import BrieflyApp from '../../../../Shared/App.svelte';
-	import { webCapabilities } from '../../../../Shared/app';
 	import {
 		beginBrieflyPlusCheckout,
 		formatMonthlyPrice,
@@ -19,10 +17,8 @@
 		type BillingStatus,
 		type PricingTier
 	} from '$lib/billing.js';
-	import { createWebAppBridge } from '$lib/web-app.js';
 	import posthog from 'posthog-js';
 
-	const demoBridge = createWebAppBridge();
 	const defaultPricingTiers: PricingTier[] = [
 		{
 			key: 'founding',
@@ -66,7 +62,6 @@
 		}
 	];
 
-	let demoReady = $state(false);
 	let billing = $state<BillingStatus | null>(null);
 	let billingBusy = $state(false);
 	let billingMessage = $state('');
@@ -135,7 +130,6 @@
 	onMount(() => {
 		document.body.classList.add('landing-body');
 		void initializePricing();
-		void demoBridge.loadDemo().then(() => (demoReady = true));
 		return () => document.body.classList.remove('landing-body');
 	});
 </script>
@@ -235,15 +229,7 @@
 			</div>
 
 			<div class="reader-demo">
-				{#if demoReady}
-					<div class="reader-demo-app">
-						<BrieflyApp
-							api={demoBridge.api}
-							capabilities={webCapabilities}
-							appIcon="/icons/icon-192.png"
-						/>
-					</div>
-				{/if}
+				<img src="/product-ui-concise.png" alt="Briefly library showing a concise summary" />
 			</div>
 		</section>
 
@@ -438,8 +424,8 @@
 			<div class="download-gate section-shell">
 				<LockIcon />
 				<div>
-					<h3>Downloads live in your account.</h3>
-					<p>Sign in to get Briefly for macOS, Windows, Linux, and the web.</p>
+					<h3>Built for Apple platforms.</h3>
+					<p>Briefly is focused on Mac and iPhone first.</p>
 				</div>
 				<a class="button button-secondary" href="/account">
 					{billing?.authenticated ? 'Go to your account' : 'Sign up to continue'}
@@ -457,7 +443,7 @@
 					{billing?.authenticated ? 'Open your library' : 'Start your library'}
 					<ArrowRightIcon aria-hidden="true" />
 				</a>
-				<span>One account · Mac · Windows · Linux · Web</span>
+				<span>One account · Mac · iPhone</span>
 			</div>
 		</section>
 	</main>
@@ -469,7 +455,6 @@
 		</a>
 		<p>Your private library, working ahead.</p>
 		<div>
-			<a href="/">Open app</a>
 			<a href="/account">Account</a>
 			<a href="/feedback">Feedback</a>
 			<a href="/privacy">Privacy</a>
@@ -870,11 +855,12 @@
 		background: #211929;
 	}
 
-	.reader-demo-app {
-		width: 125%;
-		height: 125%;
-		transform: scale(0.8);
-		transform-origin: top left;
+	.reader-demo img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: top left;
 	}
 
 	.briefs-section {
