@@ -1362,9 +1362,12 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var currentURL: URL?
     private var positionKey: String?
     private var timer: Timer?
+    private var sleepTimer: Timer?
+    private(set) var currentEntryID: String?
     var isPlaying = false
     var currentTime = 0.0
     var duration = 0.0
+    var sleepTimerMinutes: Int?
     var rate = UserDefaults.standard.double(forKey: "BrieflyAudioRate").nonzero ?? 1
     var volume = UserDefaults.standard.object(forKey: "BrieflyAudioVolume") == nil
         ? 1
@@ -1373,17 +1376,18 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     func toggle(_ url: URL, entryID: String) throws {
         if currentURL == url, let player {
             if player.isPlaying {
-                player.pause()
-                isPlaying = false
-                savePosition()
+                pause()
             } else {
-                player.play()
-                isPlaying = true
-                startTimer()
+                resume()
             }
             return
         }
         stop()
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .spokenAudio)
+        try session.setActive(true)
+        #endif
         let player = try AVAudioPlayer(contentsOf: url)
         player.delegate = self
         player.enableRate = true
@@ -1395,9 +1399,12 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         if saved > 0, saved < player.duration - 3 {
             player.currentTime = saved
         }
-        player.play()
+        guard player.play() else {
+            throw NativeLibraryError.audioPlaybackFailed
+        }
         self.player = player
         currentURL = url
+        currentEntryID = entryID
         positionKey = key
         isPlaying = true
         currentTime = player.currentTime
@@ -1412,6 +1419,27 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         savePosition()
     }
 
+    func skip(by seconds: Double) {
+        seek(currentTime + seconds)
+    }
+
+    func pause() {
+        guard let player else { return }
+        player.pause()
+        isPlaying = false
+        savePosition()
+    }
+
+    func resume() {
+        guard let player else { return }
+        guard player.play() else {
+            isPlaying = false
+            return
+        }
+        isPlaying = true
+        startTimer()
+    }
+
     func setRate(_ value: Double) {
         rate = value
         player?.rate = Float(value)
@@ -1424,13 +1452,30 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         UserDefaults.standard.set(value, forKey: "BrieflyAudioVolume")
     }
 
+    func setSleepTimer(minutes: Int?) {
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        sleepTimerMinutes = minutes
+        guard let minutes else { return }
+        sleepTimer = Timer.scheduledTimer(
+            withTimeInterval: Double(minutes * 60),
+            repeats: false
+        ) { [weak self] _ in
+            self?.pause()
+            self?.sleepTimer = nil
+            self?.sleepTimerMinutes = nil
+        }
+    }
+
     func stop() {
         savePosition()
         timer?.invalidate()
         timer = nil
+        setSleepTimer(minutes: nil)
         player?.stop()
         player = nil
         currentURL = nil
+        currentEntryID = nil
         positionKey = nil
         isPlaying = false
         currentTime = 0
@@ -1440,6 +1485,7 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         timer?.invalidate()
         timer = nil
+        setSleepTimer(minutes: nil)
         isPlaying = false
         currentTime = 0
         if let positionKey {
@@ -1480,6 +1526,8 @@ struct ContentView: View {
     @State private var audioPlayer = NativeAudioPlayer()
     #if os(iOS)
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
+    @State private var audioEntry: LibraryEntry?
+    @State private var homeSelected = true
     #endif
 
     var body: some View {
@@ -1535,12 +1583,22 @@ struct ContentView: View {
                 )
                 #else
                 NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-                    LibrarySidebar(
-                        model: model,
-                        showsSettings: $showsSettings,
-                        sidebarVisible: .constant(true),
-                        onOpenDetail: { preferredCompactColumn = .detail }
-                    )
+                    Group {
+                        if homeSelected {
+                            MobileHome(
+                                model: model,
+                                showsSettings: $showsSettings,
+                                onOpenDetail: { preferredCompactColumn = .detail }
+                            )
+                        } else {
+                            LibrarySidebar(
+                                model: model,
+                                showsSettings: $showsSettings,
+                                sidebarVisible: .constant(true),
+                                onOpenDetail: { preferredCompactColumn = .detail }
+                            )
+                        }
+                    }
                     .navigationSplitViewColumnWidth(min: 285, ideal: 326)
                 } detail: {
                     LibraryDetail(
@@ -1571,6 +1629,11 @@ struct ContentView: View {
                     #endif
                     await model.runDueVoiceBriefs()
                 }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
+            Task {
+                if model.canEdit { await model.sync() }
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
@@ -1650,6 +1713,16 @@ struct ContentView: View {
                 model: model,
                 preferredCompactColumn: $preferredCompactColumn,
                 showsPDFImporter: $showsPDFImporter,
+                homeSelected: $homeSelected,
+                audioPlayer: audioPlayer,
+                audioEntry: $audioEntry
+            )
+        }
+        .sheet(item: $audioEntry) { entry in
+            MobileAudioPlayer(
+                text: model.selectedText.isEmpty
+                    ? entry.text(for: model.selectedVariant)?.text ?? entry.excerpt
+                    : model.selectedText,
                 audioPlayer: audioPlayer
             )
         }
@@ -1680,13 +1753,202 @@ struct ContentView: View {
 }
 
 #if os(iOS)
+private struct MobileHome: View {
+    @Bindable var model: LibraryModel
+    @Binding var showsSettings: Bool
+    let onOpenDetail: () -> Void
+
+    private var entries: [LibraryEntry] {
+        model.projection.entries
+            .filter { $0.entryType != "voice_brief_source" && $0.matches(model.query) }
+            .sorted {
+                ($0.createdAt ?? $0.updatedAt ?? "") >
+                    ($1.createdAt ?? $1.updatedAt ?? "")
+            }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                HStack {
+                    Button {
+                        showsSettings = true
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 20, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .mobileGlass(in: Circle())
+                    .accessibilityLabel("Settings")
+
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    Image("BrieflyMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("BRIEFLY")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .tracking(3)
+                }
+                .accessibilityElement(children: .combine)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 64)
+
+            if entries.isEmpty {
+                ContentUnavailableView(
+                    model.query.isEmpty ? "Nothing here yet" : "No recent matches",
+                    systemImage: model.query.isEmpty ? "tray" : "magnifyingglass",
+                    description: Text(
+                        model.query.isEmpty
+                            ? "New items and voice briefs will appear here."
+                            : "Try another search."
+                    )
+                )
+                .frame(maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(entries) { entry in
+                            MobileEntryCard(
+                                entry: entry,
+                                kind: entry.voiceBriefID == nil ? .item : .brief
+                            ) {
+                                Task {
+                                    model.activeSection = entry.voiceBriefID == nil
+                                        ? .items
+                                        : .briefs
+                                    model.selectedVoiceBriefID = entry.voiceBriefID ?? ""
+                                    await model.select(entry.id)
+                                    onOpenDetail()
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 150)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+        .background(sidebarBackground.ignoresSafeArea())
+    }
+}
+
+private enum MobileEntryKind {
+    case item
+    case channel
+    case brief
+
+    var label: String {
+        switch self {
+        case .item: "Item"
+        case .channel: "Channel"
+        case .brief: "Voice brief"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .item: "doc.text"
+        case .channel: "dot.radiowaves.left.and.right"
+        case .brief: "waveform"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .item: .purple
+        case .channel: .orange
+        case .brief: .blue
+        }
+    }
+}
+
+private struct MobileEntryCard: View {
+    let entry: LibraryEntry
+    let kind: MobileEntryKind
+    var selected = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 11) {
+                Image(systemName: kind.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(kind.color)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        kind.color.opacity(0.1),
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(kind.label.uppercased())
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(0.4)
+                            .foregroundStyle(kind.color)
+                        Spacer(minLength: 6)
+                        if
+                            let value = entry.createdAt ?? entry.updatedAt,
+                            let date = try? Date(value, strategy: .iso8601)
+                        {
+                            Text(
+                                date.formatted(
+                                    .relative(
+                                        presentation: .named,
+                                        unitsStyle: .abbreviated
+                                    )
+                                )
+                            )
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    Text(entry.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+
+                    if !entry.excerpt.isEmpty {
+                        Text(entry.excerpt)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .mobileGlass(
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+            tint: selected ? kind.color.opacity(0.18) : nil
+        )
+    }
+}
+
 private struct MobileLibraryNavigation: View {
     @Bindable var model: LibraryModel
     @Binding var preferredCompactColumn: NavigationSplitViewColumn
     @Binding var showsPDFImporter: Bool
+    @Binding var homeSelected: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
+    @Binding var audioEntry: LibraryEntry?
     @State private var showsSearch = false
-    @State private var homeSelected = false
     @FocusState private var searchFocused: Bool
     @Namespace private var tabSelection
 
@@ -1715,7 +1977,10 @@ private struct MobileLibraryNavigation: View {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
-                    TextField(model.activeSection.searchPrompt, text: $model.query)
+                    TextField(
+                        homeSelected ? "Search recent items" : model.activeSection.searchPrompt,
+                        text: $model.query
+                    )
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
                         .submitLabel(.search)
@@ -1756,6 +2021,8 @@ private struct MobileLibraryNavigation: View {
 
                     HStack(spacing: 0) {
                         Button {
+                            showsSearch = false
+                            model.query = ""
                             withAnimation(.snappy(duration: 0.24)) {
                                 homeSelected = true
                                 preferredCompactColumn = .sidebar
@@ -1805,21 +2072,19 @@ private struct MobileLibraryNavigation: View {
                 .frame(maxWidth: .infinity)
 
                 VStack(spacing: 12) {
-                    Button(action: primaryAction) {
-                        Image(
-                            systemName: isVoiceBriefDetail
-                                ? audioPlayer.isPlaying ? "pause.fill" : "play.fill"
-                                : "plus"
-                        )
-                            .font(.system(size: 23, weight: .medium))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Circle())
+                    if !isItemDetail || selectedEntryHasAudio {
+                        Button(action: primaryAction) {
+                            Image(systemName: isPlayableDetail ? "play.fill" : "plus")
+                                .font(.system(size: 23, weight: .medium))
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .frame(width: 58, height: 58)
+                        .mobileGlass(in: Circle(), tint: .accentColor)
+                        .accessibilityLabel(primaryActionLabel)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .mobileGlass(in: Circle(), tint: .accentColor)
-                    .accessibilityLabel(primaryActionLabel)
 
                     Button {
                         if showsSearch {
@@ -1870,10 +2135,11 @@ private struct MobileLibraryNavigation: View {
     }
 
     private var createLabel: String {
+        if homeSelected { return "Import PDF" }
         switch model.activeSection {
-        case .items: "Import PDF"
-        case .channels: "New channel"
-        case .briefs: "New voice brief"
+        case .items: return "Import PDF"
+        case .channels: return "New channel"
+        case .briefs: return "New voice brief"
         }
     }
 
@@ -1890,22 +2156,31 @@ private struct MobileLibraryNavigation: View {
             model.selectedEntry != nil
     }
 
+    private var selectedEntryHasAudio: Bool {
+        guard let entry = model.selectedEntry else { return false }
+        return entry.hasAudio == true || entry.audio != nil || entry.mediaURL != nil
+    }
+
+    private var isPlayableDetail: Bool {
+        isVoiceBriefDetail || (isItemDetail && selectedEntryHasAudio)
+    }
+
     private var primaryActionLabel: String {
-        if isVoiceBriefDetail {
-            return audioPlayer.isPlaying ? "Pause voice brief" : "Play voice brief"
-        }
-        return createLabel
+        isPlayableDetail ? "Play audio" : createLabel
     }
 
     private func primaryAction() {
-        if isVoiceBriefDetail, let entry = model.selectedEntry {
+        if isPlayableDetail, let entry = model.selectedEntry {
             Task {
                 guard let url = await model.audioURL(for: entry.id) else {
                     model.errorMessage = "This audio file is not available locally."
                     return
                 }
                 do {
-                    try audioPlayer.toggle(url, entryID: entry.id)
+                    if audioPlayer.currentEntryID != entry.id || !audioPlayer.isPlaying {
+                        try audioPlayer.toggle(url, entryID: entry.id)
+                    }
+                    audioEntry = entry
                 } catch {
                     model.errorMessage = error.localizedDescription
                 }
@@ -1920,6 +2195,10 @@ private struct MobileLibraryNavigation: View {
         model.query = ""
         model.selectedID = ""
         model.selectedIDs = []
+        if homeSelected {
+            showsPDFImporter = true
+            return
+        }
         switch model.activeSection {
         case .items:
             showsPDFImporter = true
@@ -1930,6 +2209,172 @@ private struct MobileLibraryNavigation: View {
             model.selectedVoiceBriefID = "new"
             preferredCompactColumn = .detail
         }
+    }
+}
+
+private struct MobileAudioPlayer: View {
+    let text: String
+    @Bindable var audioPlayer: NativeAudioPlayer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                MarkdownArticle(text)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 28)
+                    .padding(.bottom, 20)
+            }
+            .scrollIndicators(.hidden)
+
+            playbackControls
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 18)
+        }
+        .background(playerBackground.ignoresSafeArea())
+        .presentationBackground(playerBackground)
+        .presentationCornerRadius(32)
+        .presentationDragIndicator(.visible)
+        .presentationDetents([.large])
+    }
+
+    private var playbackControls: some View {
+        VStack(spacing: 15) {
+            VStack(spacing: 3) {
+                Slider(
+                    value: Binding(
+                        get: { audioPlayer.currentTime },
+                        set: audioPlayer.seek
+                    ),
+                    in: 0...max(1, audioPlayer.duration)
+                )
+                .tint(.primary)
+                .accessibilityLabel("Playback position")
+
+                HStack {
+                    Text(audioTime(audioPlayer.currentTime))
+                    Spacer()
+                    Text("-\(audioTime(max(0, audioPlayer.duration - audioPlayer.currentTime)))")
+                }
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 0) {
+                Menu {
+                    ForEach([0.75, 1, 1.25, 1.5, 2], id: \.self) { speed in
+                        Button {
+                            audioPlayer.setRate(speed)
+                        } label: {
+                            HStack {
+                                Text("\(speed.formatted())×")
+                                if speed == audioPlayer.rate {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Text("\(audioPlayer.rate.formatted())×")
+                        .font(.callout.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Playback speed")
+
+                Button {
+                    audioPlayer.skip(by: -15)
+                } label: {
+                    Image(systemName: "gobackward.15")
+                        .font(.system(size: 27, weight: .medium))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Skip back 15 seconds")
+
+                Button {
+                    audioPlayer.isPlaying
+                        ? audioPlayer.pause()
+                        : audioPlayer.resume()
+                } label: {
+                    Image(systemName: audioPlayer.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 42, weight: .medium))
+                        .frame(width: 60, height: 60)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel(audioPlayer.isPlaying ? "Pause audio" : "Play audio")
+
+                Button {
+                    audioPlayer.skip(by: 30)
+                } label: {
+                    Image(systemName: "goforward.30")
+                        .font(.system(size: 27, weight: .medium))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Skip forward 30 seconds")
+
+                Menu {
+                    Button {
+                        audioPlayer.setSleepTimer(minutes: nil)
+                    } label: {
+                        HStack {
+                            Text("Off")
+                            if audioPlayer.sleepTimerMinutes == nil {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    ForEach([5, 10, 15, 30, 45, 60], id: \.self) { minutes in
+                        Button {
+                            audioPlayer.setSleepTimer(minutes: minutes)
+                        } label: {
+                            HStack {
+                                Text(minutes == 60 ? "1 hour" : "\(minutes) minutes")
+                                if audioPlayer.sleepTimerMinutes == minutes {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(
+                        systemName: audioPlayer.sleepTimerMinutes == nil
+                            ? "moon.zzz"
+                            : "moon.zzz.fill"
+                    )
+                    .font(.system(size: 22, weight: .medium))
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel(
+                    audioPlayer.sleepTimerMinutes.map {
+                        "Sleep timer, \($0) minutes"
+                    } ?? "Sleep timer"
+                )
+            }
+            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+
+            HStack(spacing: 10) {
+                Image(systemName: "speaker.fill")
+                Slider(
+                    value: Binding(
+                        get: { audioPlayer.volume },
+                        set: audioPlayer.setVolume
+                    ),
+                    in: 0...1
+                )
+                .tint(.primary)
+                .accessibilityLabel("Volume")
+                Image(systemName: "speaker.wave.3.fill")
+            }
+            .font(.caption)
+        }
+    }
+
+    private var playerBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color.accentColor.opacity(0.3), readerBackground],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 }
 
@@ -2400,29 +2845,29 @@ private struct MobileEntryRows: View {
         }
     }
 
+    private var kind: MobileEntryKind {
+        switch model.activeSection {
+        case .items: .item
+        case .channels: .channel
+        case .briefs: .brief
+        }
+    }
+
     var body: some View {
         if entries.isEmpty {
             SidebarEmpty(icon: "doc.text", title: emptyTitle)
         } else {
             ForEach(entries) { entry in
-                SidebarRow(
-                    icon: "doc.text",
-                    title: entry.title,
-                    selected: model.selectedIDs.contains(entry.id),
-                    showsIcon: false,
-                    glass: true
+                MobileEntryCard(
+                    entry: entry,
+                    kind: kind,
+                    selected: model.selectedIDs.contains(entry.id)
                 ) {
                     Task {
                         await model.select(entry.id)
                         onOpenDetail()
                     }
                 }
-                .containerRelativeFrame(
-                    .vertical,
-                    count: min(entries.count, 10),
-                    span: 1,
-                    spacing: 8
-                )
                 .modifier(EntryContextMenu(model: model, entry: entry))
             }
         }
@@ -3441,7 +3886,7 @@ private struct EditableDocumentTextView: UIViewRepresentable {
         textView.textContainerInset = UIEdgeInsets(
             top: 90,
             left: 32,
-            bottom: 125,
+            bottom: 240,
             right: 32
         )
         textView.textContainer.lineFragmentPadding = 0
@@ -4705,7 +5150,7 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "General"
+        case .general: "Appearance"
         case .library: "Library & Sync"
         case .capture: "Capture"
         case .account: "Account"
@@ -4742,20 +5187,130 @@ private struct SettingsView: View {
     @State private var showsAccountBrowser = false
     @State private var accountBrowserURL = BrieflyBackend.shared.accountURL
     @State private var showsPDFImporter = false
+    #if os(iOS)
+    @State private var selectedSection: BrieflySettingsSection?
+    #else
     @State private var selectedSection: BrieflySettingsSection? = .general
+    #endif
 
     private var availableSections: [BrieflySettingsSection] {
         BrieflySettingsSection.allCases
     }
 
+    private func settingsRow(
+        _ section: BrieflySettingsSection,
+        value: String? = nil
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: section.icon)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 24)
+            Text(section.title)
+            Spacer()
+            if let value {
+                Text(value)
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .tag(section)
+    }
+
+    private func externalSettingsRow(
+        _ title: String,
+        icon: String,
+        destination: String
+    ) -> some View {
+        Link(destination: URL(string: destination)!) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .frame(width: 24)
+                Text(title)
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(.primary)
+        .accessibilityHint("Opens in your browser")
+    }
+
     var body: some View {
         NavigationSplitView {
+            #if os(iOS)
+            List(selection: $selectedSection) {
+                Section("General settings") {
+                    settingsRow(
+                        .account,
+                        value: model.account.authenticated ? "Signed in" : "Signed out"
+                    )
+                    settingsRow(
+                        .general,
+                        value: appearance == "system" ? "Auto" : appearance.capitalized
+                    )
+                    settingsRow(.library)
+                }
+
+                Section("Briefly") {
+                    settingsRow(.capture)
+                    settingsRow(.personalization)
+                }
+
+                Section("Advanced") {
+                    settingsRow(.topics)
+                    settingsRow(.ai)
+                }
+
+                Section("Help") {
+                    externalSettingsRow(
+                        "Feedback",
+                        icon: "bubble.left.and.bubble.right",
+                        destination: "https://www.readbriefly.fyi/feedback"
+                    )
+                }
+
+                Section("Legal") {
+                    externalSettingsRow(
+                        "Terms of Use",
+                        icon: "doc.text",
+                        destination: "https://www.readbriefly.fyi/terms"
+                    )
+                    externalSettingsRow(
+                        "Privacy Policy",
+                        icon: "hand.raised",
+                        destination: "https://www.readbriefly.fyi/privacy"
+                    )
+                    externalSettingsRow(
+                        "Imprint",
+                        icon: "building.columns",
+                        destination: "https://www.readbriefly.fyi/imprint"
+                    )
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(readerBackground)
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            #else
             List(availableSections, selection: $selectedSection) { section in
                 Label(section.title, systemImage: section.icon)
                     .tag(section)
             }
             .navigationTitle("Briefly Settings")
-            #if os(macOS)
             .navigationSplitViewColumnWidth(min: 190, ideal: 210)
             #endif
         } detail: {
@@ -5177,6 +5732,7 @@ private let readerBackground = adaptiveColor(
 
 private enum NativeLibraryError: LocalizedError {
     case audioGenerationFailed
+    case audioPlaybackFailed
     case emptySpeech
     case iCloudUnavailable
     case unexpectedAIResponse
@@ -5185,6 +5741,8 @@ private enum NativeLibraryError: LocalizedError {
         switch self {
         case .audioGenerationFailed:
             "The system voice could not create an audio file."
+        case .audioPlaybackFailed:
+            "Briefly could not start audio playback."
         case .emptySpeech:
             "The voice brief does not contain text to speak."
         case .iCloudUnavailable:
