@@ -6,7 +6,7 @@
 	active="terms"
 	title="Terms of service"
 	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
-	updated="29 July 2026"
+	updated="1 August 2026"
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -33,14 +33,14 @@
 		<h2>2. What Briefly provides</h2>
 		<p>
 			Briefly helps you capture sources and notes into a local library, read them at
-			different levels of detail, watch sources and prepare scheduled voice-brief episodes, synchronize selected files through
-			your selected iCloud or Google Drive provider, and deliberately publish individual documents using share links.
+			different levels of detail, watch sources and prepare scheduled voice-brief episodes,
+			synchronize through iCloud, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
 			<li><strong>Briefly membership</strong> is a recurring subscription for hosted processing, cross-device synchronization, and public share links in the native apps.</li>
 			<li>An account and active membership are required to access hosted features.</li>
 			<li>Briefly AI provides hosted summary and voice-brief-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
-			<li>Features may require a supported operating system, browser, internet connection, Apple or Google account, or third-party service.</li>
+			<li>Features may require a supported Apple operating system, internet connection, Apple account, or third-party service.</li>
 			<li>App builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
 		<p>
@@ -53,14 +53,14 @@
 	<section>
 		<h2>3. Accounts and security</h2>
 		<p>
-			You are responsible for your Apple or Google account, devices, access to your email, and activity
+			You are responsible for your Apple account, devices, access to your email, and activity
 			under your Briefly session. Keep access secure, sign out on shared devices, and tell us
 			promptly if you suspect unauthorized use. You may not transfer, sell, or lend an account in
 			a way that defeats authentication, pricing, or security controls.
 		</p>
 		<p>
-			Cloud sync is optional and can be stopped or disconnected in the app. Doing so does not
-			delete Briefly files already stored in iCloud or Google Drive. Signing out does not cancel
+			iCloud sync is optional and can be stopped in the app. Doing so does not
+			delete Briefly files already stored in iCloud. Signing out does not cancel
 			your membership.
 		</p>
 	</section>
@@ -138,11 +138,11 @@
 	<section>
 		<h2>6. Membership, payment, and cancellation</h2>
 		<ul>
-			<li>The Briefly membership is billed monthly in advance at the price and currency shown before checkout, plus applicable taxes disclosed by Stripe.</li>
+			<li>The Briefly membership is billed monthly through the App Store at the price, currency, and applicable tax shown before purchase.</li>
 			<li>Your launch-tier monthly price remains fixed while that subscription stays continuously active. If it ends and you later resubscribe, the then-current available price applies.</li>
-			<li>You authorize Stripe to charge the payment method associated with your subscription each billing period until cancellation.</li>
-			<li>You can cancel at any time in the Stripe billing portal opened from Briefly. Unless law or the checkout states otherwise, cancellation takes effect at the end of the paid billing period and does not retroactively refund an already-started period.</li>
-			<li>If payment fails, access to Briefly may be limited or suspended after Stripe's retry process. Your locally stored or Google Drive files remain yours.</li>
+			<li>Your purchase and payment method are administered by Apple under the applicable App Store terms.</li>
+			<li>You can cancel in your Apple subscription settings. Unless mandatory law or Apple states otherwise, cancellation takes effect at the end of the paid billing period.</li>
+			<li>If renewal fails or Apple revokes or refunds a purchase, hosted membership access may end. Your local and iCloud files remain yours.</li>
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
 		<h3>Fair-use limits</h3>
@@ -193,7 +193,7 @@
 	<section>
 		<h2>7. Third-party services</h2>
 		<p>
-			Briefly interoperates with Apple and iCloud, Google Drive, Stripe, OpenRouter,
+			Briefly interoperates with Apple, iCloud, the App Store, OpenRouter,
 			optional third-party AI CLIs such as OpenAI/Codex,
 			Modal-hosted transcription and voice generation, Firecrawl extraction, consent-only
 			PostHog analytics, operating systems, and browsers. Their services and terms are separate

@@ -225,7 +225,7 @@
 </svelte:head>
 
 <main>
-	<nav><a href="/account">← Account</a></nav>
+	<nav><a href="/landing">← Briefly</a></nav>
 	<header>
 		<p class="eyebrow">Briefly admin</p>
 		<h1>Admin dashboard</h1>
@@ -235,7 +235,7 @@
 	{:else if denied === 'signed-out'}
 		<section>
 			<p>Sign in with the administrator account to continue.</p>
-			<a class="button" href="/api/auth/google/start?return_to=%2Fadmin">Continue with Google</a>
+			<a class="button" href="/api/auth/apple/start?return_to=%2Fadmin">Continue with Apple</a>
 		</section>
 	{:else if denied === 'forbidden'}
 		<section><p>This account is not an administrator.</p></section>

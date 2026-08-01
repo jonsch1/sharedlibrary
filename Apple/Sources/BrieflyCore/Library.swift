@@ -483,7 +483,7 @@ public enum LibraryContractError: LocalizedError {
     case incompatible
 
     public var errorDescription: String? {
-        "This is not a compatible Briefly library index. Open the desktop app and let it synchronize again."
+        "This is not a compatible Briefly library index. Open Briefly and let it synchronize again."
     }
 }
 

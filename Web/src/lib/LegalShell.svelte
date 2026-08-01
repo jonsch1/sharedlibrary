@@ -24,7 +24,7 @@
 		{ id: 'overview', label: 'Legal overview', href: '/legal' },
 		{ id: 'privacy', label: 'Privacy', href: '/privacy' },
 		{ id: 'terms', label: 'Terms', href: '/terms' },
-		{ id: 'cookies', label: 'Cookies & storage', href: '/account/cookies' },
+		{ id: 'cookies', label: 'Cookies & storage', href: '/cookies' },
 		{ id: 'imprint', label: 'Imprint (Impressum)', href: '/imprint' }
 	];
 

@@ -5,8 +5,8 @@ podcasts, PDFs, and notes into a local SQLite library; creates several reading
 depths; follows sources; and produces scheduled text and voice briefs.
 
 The Apple apps are the product. The website provides public capability-link
-readers plus supporting marketing, account, legal, and Cloudflare Worker
-surfaces. It does not expose a private web library.
+readers plus supporting marketing, legal, and Cloudflare Worker surfaces. It
+does not expose a private library, account manager, or checkout.
 
 ## Repository
 
@@ -73,7 +73,7 @@ a link deletes its active share records.
 
 ## Hosted services
 
-`Web/worker/index.js` currently provides account authentication, managed AI and
-media operations, share publishing, content reports, and billing. D1 stores
-account and share state; R2 stores share media. See `Web/README.md` for local
-development and deployment configuration.
+`Web/worker/index.js` provides native Apple authentication, App Store entitlement
+verification, managed processing, share publishing, and content reports. D1
+stores account, entitlement, usage, and text-share state. See `Web/README.md`
+for local development and deployment configuration.

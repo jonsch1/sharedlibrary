@@ -4,7 +4,7 @@
 
 Private synchronization and deliberate sharing are separate systems.
 
-- iCloud or Google Drive contains each user's complete private library and generated audio.
+- iCloud contains each user's complete private library and generated audio.
 - The sharing service contains only documents the owner explicitly publishes.
 - A share is a hard-to-guess capability URL. Anyone who receives or forwards the
   URL can open it; possession of the URL is the authorization boundary.
@@ -31,13 +31,11 @@ public document payload.
 
 ## Lifecycle
 
-1. The owner selects **Share** in the Mac or web app.
-2. The web app immediately creates or reuses the capture's stable capability URL.
-3. In the background, the worker reads the synchronized personal Drive copy, or an
-   iCloud-authorized client sends only the selected summary variants.
+1. The owner selects **Share** in the Mac or iOS app.
+2. The native app sends only the selected summary variants and creates or reuses
+   the capture's stable capability URL.
 4. **Update link** creates a new atomic generation while keeping the URL stable.
-5. **Stop sharing** deletes the D1 record, text variants, and corresponding R2
-   objects, making the link unavailable.
+5. **Stop sharing** deletes the D1 record and text variants, making the link unavailable.
 
 The link UI is optimistic: it returns immediately with a preparing state and updates
 as the background publication completes.

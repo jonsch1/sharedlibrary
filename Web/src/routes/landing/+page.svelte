@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
 	import FileTextIcon from '@lucide/svelte/icons/file-text';
 	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
@@ -9,127 +8,8 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import RssIcon from '@lucide/svelte/icons/rss';
 	import ShareIcon from '@lucide/svelte/icons/share-2';
-	import {
-		beginBrieflyPlusCheckout,
-		formatMonthlyPrice,
-		loadBillingStatus,
-		openBillingPortal,
-		type BillingStatus,
-		type PricingTier
-	} from '$lib/billing.js';
-	import posthog from 'posthog-js';
-
-	const defaultPricingTiers: PricingTier[] = [
-		{
-			key: 'founding',
-			name: 'Founding',
-			amount: 399,
-			currency: 'eur',
-			capacity: 50,
-			claimed: 0,
-			remaining: 50,
-			current: true
-		},
-		{
-			key: 'early',
-			name: 'Early',
-			amount: 599,
-			currency: 'eur',
-			capacity: 100,
-			claimed: 0,
-			remaining: 100,
-			current: false
-		},
-		{
-			key: 'growing',
-			name: 'Growing',
-			amount: 799,
-			currency: 'eur',
-			capacity: 250,
-			claimed: 0,
-			remaining: 250,
-			current: false
-		},
-		{
-			key: 'standard',
-			name: 'Standard',
-			amount: 999,
-			currency: 'eur',
-			capacity: null,
-			claimed: 0,
-			remaining: null,
-			current: false
-		}
-	];
-
-	let billing = $state<BillingStatus | null>(null);
-	let billingBusy = $state(false);
-	let billingMessage = $state('');
-	let displayedPricingTiers = $derived(billing?.tiers ?? defaultPricingTiers);
-	let currentPricingTier = $derived(
-		displayedPricingTiers.find((tier) => tier.current) ?? displayedPricingTiers.at(-1)!
-	);
-
-	async function initializePricing(): Promise<void> {
-		try {
-			billing = await loadBillingStatus();
-			const url = new URL(window.location.href);
-			if (url.searchParams.get('billing') === 'cancelled') {
-				billingMessage = 'Checkout was cancelled. Your place was not charged.';
-				url.searchParams.delete('billing');
-			}
-			const continueCheckout = url.searchParams.get('checkout') === 'plus';
-			if (continueCheckout) url.searchParams.delete('checkout');
-			window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-			if (continueCheckout && billing.authenticated) await startCheckout();
-		} catch (error) {
-			billingMessage =
-				error instanceof Error ? error.message : 'Briefly pricing could not be loaded.';
-		}
-	}
-
-	async function startCheckout(): Promise<void> {
-		if (billingBusy) return;
-		billingBusy = true;
-		billingMessage = '';
-		try {
-			posthog.capture('checkout_started', { source: 'landing' });
-			await beginBrieflyPlusCheckout();
-		} catch (error) {
-			const checkoutError = error as Error & { code?: string };
-			if (checkoutError.code === 'authentication_required') {
-				const returnTo = encodeURIComponent('/landing?checkout=plus#pricing');
-				window.location.assign(`/api/auth/google/start?return_to=${returnTo}`);
-				return;
-			}
-			if (checkoutError.code === 'subscription_exists') {
-				await openBillingPortal();
-				return;
-			}
-			billingMessage = checkoutError.message;
-		} finally {
-			billingBusy = false;
-		}
-	}
-
-	async function manageBilling(): Promise<void> {
-		if (billingBusy) return;
-		billingBusy = true;
-		billingMessage = '';
-		try {
-			posthog.capture('billing_portal_opened', { source: 'landing' });
-			await openBillingPortal();
-		} catch (error) {
-			billingMessage =
-				error instanceof Error ? error.message : 'The billing portal could not be opened.';
-		} finally {
-			billingBusy = false;
-		}
-	}
-
 	onMount(() => {
 		document.body.classList.add('landing-body');
-		void initializePricing();
 		return () => document.body.classList.remove('landing-body');
 	});
 </script>
@@ -171,10 +51,7 @@
 		</nav>
 
 		<div class="nav-actions">
-			<a class="nav-sign-in" href="/account">Sign in</a>
-			<a class="nav-cta" href="/account">
-				{billing?.authenticated ? 'Your account' : 'Start your library'}
-			</a>
+			<a class="nav-cta" href="#pricing">Get Briefly</a>
 		</div>
 	</header>
 
@@ -194,8 +71,8 @@
 					a deep read—in one private library.
 				</p>
 				<div class="hero-actions">
-					<a class="button button-primary" href="/account">
-						{billing?.authenticated ? 'Open your library' : 'Start your library'}
+					<a class="button button-primary" href="#pricing">
+						Get Briefly
 						<ArrowRightIcon aria-hidden="true" />
 					</a>
 					<a class="text-link" href="#briefs">
@@ -349,31 +226,10 @@
 				<article class="plan-card">
 					<div class="plan-card-top">
 						<span>Briefly membership</span>
-						<strong>{formatMonthlyPrice(currentPricingTier.amount)}<small>/month</small></strong>
+						<strong>Monthly</strong>
 					</div>
-					<h3>Join earlier. Keep the lower price.</h3>
-					<p>Your monthly price stays fixed while your subscription remains active.</p>
-
-					<div class="pricing-ladder" aria-label="Briefly launch pricing">
-						{#each displayedPricingTiers as tier}
-							<div class:current={tier.current} class:past={!tier.current && tier.remaining === 0}>
-								<span>
-									<b>{tier.name}</b>
-									<small>
-										{tier.capacity === null
-											? 'Stable price'
-											: `${tier.capacity} subscriber${tier.capacity === 1 ? '' : 's'}`}
-									</small>
-								</span>
-								<strong>{formatMonthlyPrice(tier.amount)}</strong>
-								{#if tier.current}
-									<em>{tier.remaining === null ? 'Current' : `${tier.remaining} left`}</em>
-								{:else if tier.remaining === 0}
-									<em>Filled</em>
-								{/if}
-							</div>
-						{/each}
-					</div>
+					<h3>One plan. Subscribe in the app.</h3>
+					<p>The App Store shows your local launch price before purchase.</p>
 
 					<ul>
 						<li><CheckCircleIcon /> Save links, files, and notes</li>
@@ -384,40 +240,17 @@
 						<li><CheckCircleIcon /> Sync across your devices</li>
 					</ul>
 
-					{#if billing?.entitled && billing.subscription}
-						<button type="button" disabled={billingBusy} onclick={manageBilling}>
-							{billingBusy ? 'Opening billing…' : 'Manage billing'}
-							<ArrowUpRightIcon aria-hidden="true" />
-						</button>
-					{:else if billing?.entitled}
-						<button type="button" disabled>
-							Membership active
-							<CheckCircleIcon aria-hidden="true" />
-						</button>
-					{:else}
-						<button
-							type="button"
-							disabled={billingBusy || billing?.configured === false}
-							onclick={startCheckout}
-						>
-							{billingBusy
-								? 'Opening secure checkout…'
-								: billing?.configured === false
-									? 'Checkout setup pending'
-									: `Lock in ${formatMonthlyPrice(currentPricingTier.amount)}/month`}
-							<ArrowRightIcon aria-hidden="true" />
-						</button>
-					{/if}
+					<button type="button" disabled>
+						Subscribe on Mac or iPhone
+						<ArrowRightIcon aria-hidden="true" />
+					</button>
 
 					<p class="pricing-note">
-						Cancel anytime · Taxes calculated at checkout · Secure checkout by Stripe<br />
+						Purchased and managed through Apple · Cancel anytime<br />
 						High fair-use limits apply to hosted processing and public storage. By
 						subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
 						<a href="/privacy">Privacy Notice</a>.
 					</p>
-					{#if billingMessage}
-						<p class="pricing-message" role="status">{billingMessage}</p>
-					{/if}
 				</article>
 			</div>
 
@@ -427,10 +260,7 @@
 					<h3>Built for Apple platforms.</h3>
 					<p>Briefly is focused on Mac and iPhone first.</p>
 				</div>
-				<a class="button button-secondary" href="/account">
-					{billing?.authenticated ? 'Go to your account' : 'Sign up to continue'}
-					<ArrowRightIcon />
-				</a>
+				<span class="button button-secondary">Coming to the App Store</span>
 			</div>
 		</section>
 
@@ -439,10 +269,7 @@
 				<img src="/icons/icon-192.png" alt="" />
 				<p>A quieter way to stay curious</p>
 				<h2>Keep what matters.<br />Skip the feed.</h2>
-				<a class="button button-light" href="/account">
-					{billing?.authenticated ? 'Open your library' : 'Start your library'}
-					<ArrowRightIcon aria-hidden="true" />
-				</a>
+				<a class="button button-light" href="#pricing">Get Briefly</a>
 				<span>One account · Mac · iPhone</span>
 			</div>
 		</section>
@@ -455,11 +282,10 @@
 		</a>
 		<p>Your private library, working ahead.</p>
 		<div>
-			<a href="/account">Account</a>
 			<a href="/feedback">Feedback</a>
 			<a href="/privacy">Privacy</a>
 			<a href="/terms">Terms</a>
-			<a href="/account/cookies">Cookies</a>
+			<a href="/cookies">Cookies</a>
 			<a href="/imprint">Imprint</a>
 			<span>© 2026 Briefly</span>
 		</div>
@@ -563,13 +389,11 @@
 		font-size: 14px;
 	}
 
-	.landing-nav nav a,
-	.nav-sign-in {
+	.landing-nav nav a {
 		transition: opacity 160ms ease;
 	}
 
-	.landing-nav nav a:hover,
-	.nav-sign-in:hover {
+	.landing-nav nav a:hover {
 		opacity: 0.58;
 	}
 
@@ -1324,13 +1148,6 @@
 		line-height: 0.8;
 	}
 
-	.plan-card-top strong small {
-		font-family: 'DM Sans Variable', sans-serif;
-		font-size: 11px;
-		letter-spacing: 0;
-		text-transform: none;
-	}
-
 	.plan-card h3 {
 		margin: 28px 0 9px;
 		font-family: 'Source Serif 4 Variable', Georgia, serif;
@@ -1343,70 +1160,6 @@
 		margin: 0;
 		color: rgb(16 55 45 / 65%);
 		font-size: 13px;
-	}
-
-	.pricing-ladder {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
-		margin-top: 25px;
-		overflow: hidden;
-		border: 1px solid var(--line);
-		border-radius: 10px;
-	}
-
-	.pricing-ladder > div {
-		position: relative;
-		display: grid;
-		gap: 11px;
-		padding: 14px;
-		border-right: 1px solid var(--line);
-	}
-
-	.pricing-ladder > div:last-child {
-		border-right: 0;
-	}
-
-	.pricing-ladder > div.current {
-		background: var(--forest);
-		color: var(--paper);
-	}
-
-	.pricing-ladder > div.past {
-		opacity: 0.45;
-	}
-
-	.pricing-ladder span,
-	.pricing-ladder b,
-	.pricing-ladder small {
-		display: block;
-	}
-
-	.pricing-ladder b {
-		font-size: 11px;
-	}
-
-	.pricing-ladder small {
-		margin-top: 3px;
-		font-size: 8px;
-		font-weight: 500;
-		opacity: 0.62;
-	}
-
-	.pricing-ladder strong {
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 21px;
-		font-weight: 550;
-	}
-
-	.pricing-ladder em {
-		position: absolute;
-		top: 9px;
-		right: 9px;
-		font-size: 7px;
-		font-style: normal;
-		font-weight: 750;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
 	}
 
 	.plan-card ul {
@@ -1467,13 +1220,6 @@
 	.pricing-note a {
 		text-decoration: underline;
 		text-underline-offset: 2px;
-	}
-
-	.plan-card .pricing-message {
-		margin-top: 12px;
-		color: var(--orange);
-		font-size: 11px;
-		text-align: center;
 	}
 
 	.download-gate {
@@ -1654,10 +1400,6 @@
 			width: min(100% - 30px, 1280px);
 		}
 
-		.nav-sign-in {
-			display: none;
-		}
-
 		.landing-brand {
 			gap: 8px;
 			font-size: 15px;
@@ -1751,18 +1493,6 @@
 
 		.share-link {
 			margin-top: 40px;
-		}
-
-		.pricing-ladder {
-			grid-template-columns: repeat(2, 1fr);
-		}
-
-		.pricing-ladder > div:nth-child(2) {
-			border-right: 0;
-		}
-
-		.pricing-ladder > div:nth-child(-n + 2) {
-			border-bottom: 1px solid var(--line);
 		}
 
 		.plan-card ul {

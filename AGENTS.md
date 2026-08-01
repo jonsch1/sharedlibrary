@@ -3,8 +3,9 @@
 ## Project status
 
 - `Apple/` is the active platform under development.
-- `Web/` provides public share links plus supporting marketing, account, legal,
-  and backend surfaces. Do not restore a private web library reader.
+- `Web/` provides public share links plus supporting marketing, legal,
+  administration, and native-backend surfaces. Do not add a customer account
+  manager, checkout, or private web library reader.
 
 - After changing `Apple/`, run `swift test` there and build the `Briefly` scheme
   for macOS and the generic iOS Simulator destination. The iOS build requires
@@ -32,6 +33,6 @@
 ## Web UI
 
 - Keep `Web/src/routes/+page.svelte` limited to the public share reader. Other
-  public, account, and legal routes remain platform-owned.
+  public and legal routes remain platform-owned.
 - Reuse the rendering primitives in `Shared/`; do not copy them into `Web/`.
 - After changing web UI, run the Shared tests and Web checks.

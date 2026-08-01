@@ -1,9 +1,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import worker from './index.js';
+import worker, { validAppStoreTransaction } from './index.js';
 
-test('public requests cannot impersonate accounts or read private media', async () => {
+test('App Store transactions must match the Briefly app and subscription', () => {
+	const config = {
+		bundleID: 'fyi.readbriefly.BrieflyNative',
+		productID: 'fyi.readbriefly.plus.monthly'
+	};
+	const transaction = {
+		bundleId: config.bundleID,
+		productId: config.productID,
+		type: 'Auto-Renewable Subscription',
+		transactionId: '1234567890',
+		originalTransactionId: '1234567890',
+		appAccountToken: '15b360f5-6a58-4a77-890d-ae7b322f0b1f',
+		expiresDate: Date.now() + 60_000,
+		signedDate: Date.now()
+	};
+	assert.equal(validAppStoreTransaction(config, transaction), true);
+	assert.equal(validAppStoreTransaction(config, { ...transaction, bundleId: 'attacker.app' }), false);
+	assert.equal(validAppStoreTransaction(config, { ...transaction, productId: 'other.product' }), false);
+});
+
+test('public requests cannot impersonate accounts or reach removed private-library APIs', async () => {
 	const env = environment();
 	const status = await worker.fetch(
 		new Request('https://library.example/api/auth/status', {
@@ -14,28 +34,21 @@ test('public requests cannot impersonate accounts or read private media', async 
 	assert.equal((await status.json()).authenticated, false);
 	assert.equal(status.headers.get('x-frame-options'), 'DENY');
 
-	const media = await worker.fetch(
-		new Request(`https://library.example/api/media/audio/${'a'.repeat(64)}`),
-		env
-	);
-	assert.equal(media.status, 401);
+	const library = await worker.fetch(new Request('https://library.example/api/library'), env);
+	assert.equal(library.status, 404);
 });
 
-test('paid routes fail closed and still reject path traversal for entitled accounts', async () => {
+test('native services fail closed without an App Store entitlement', async () => {
 	const unavailable = await worker.fetch(
-		authenticatedRequest('/api/library'),
-		environment('reader@example.com')
+		authenticatedRequest('/api/ai/process', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
+		}),
+		{ ...environment('reader@example.com'), OPENROUTER_API_KEY: 'test-key' }
 	);
-	assert.equal(unavailable.status, 503);
-	assert.equal((await unavailable.json()).code, 'billing_unavailable');
-
-	const traversal = await worker.fetch(
-		authenticatedRequest(
-			`/api/library/file?path=${encodeURIComponent('../secrets.md')}&hash=${'a'.repeat(64)}`
-		),
-		environment('schauljonathan@gmail.com')
-	);
-	assert.equal(traversal.status, 400);
+	assert.equal(unavailable.status, 402);
+	assert.equal((await unavailable.json()).code, 'subscription_required');
 });
 
 test('share mutations reject cross-origin requests', async () => {
@@ -54,18 +67,14 @@ test('share mutations reject cross-origin requests', async () => {
 	assert.equal(response.status, 403);
 });
 
-test('Stripe webhooks reject invalid signatures before changing state', async () => {
+test('App Store notifications reject malformed signed payloads before changing state', async () => {
 	const response = await worker.fetch(
-		new Request('https://library.example/api/billing/webhook', {
+		new Request('https://library.example/api/billing/apple/notifications', {
 			method: 'POST',
-			headers: { 'Stripe-Signature': 't=0,v1=invalid' },
-			body: JSON.stringify({ id: 'evt_invalid', type: 'checkout.session.completed' })
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ signedPayload: 'invalid' })
 		}),
-		{
-			...environment(),
-			STRIPE_SECRET_KEY: 'rk_test_briefly',
-			STRIPE_WEBHOOK_SECRET: 'whsec_briefly_test'
-		}
+		environment()
 	);
 	assert.equal(response.status, 400);
 });

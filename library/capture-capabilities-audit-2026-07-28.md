@@ -1,7 +1,7 @@
 # Briefly Capture Capabilities Audit
 
-Tested 28 July 2026 against the same `Tools/extractor/extract.mjs` path used by
-the Electron app. The audit used public, signed-out requests with no workspace
+Tested 28 July 2026 against `Tools/extractor/extract.mjs`, the extraction path
+used by Briefly. The audit used public, signed-out requests with no workspace
 input extensions and no authenticated transcription fallback. The 18 native
 failure/partial cases were then retested after adding the Firecrawl fallback.
 

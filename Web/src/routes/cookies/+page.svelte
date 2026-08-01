@@ -27,7 +27,7 @@
 		<h2>1. The short version</h2>
 		<p>
 			Briefly does <strong>not</strong> use advertising cookies, tracking pixels, or device
-			fingerprinting. It uses one first-party session cookie after sign-in and local browser
+		fingerprinting. It uses one first-party session cookie after authentication and local browser
 			storage for theme and consent preferences. Anonymous product analytics
 			are off unless you explicitly opt in below.
 		</p>
@@ -54,16 +54,15 @@
 			<tbody>
 				<tr>
 					<td><code>shared_library_session</code></td>
-					<td>Keeps you signed in and associates requests with the correct account. It is strictly necessary for account, sync, sharing, and billing features.</td>
+					<td>Keeps authenticated native and support requests associated with the correct account. It is strictly necessary for hosted processing and sharing.</td>
 					<td>Up to 90 days; deleted earlier when you sign out.</td>
 					<td>First-party, Secure, HTTP-only, SameSite=Lax. Client-side JavaScript cannot read it.</td>
 				</tr>
 			</tbody>
 		</table>
 		<p>
-			Apple, Google, or Stripe may set their own cookies when you choose to visit
-			their domains for sign-in, iCloud or Drive connection, billing management, or
-			account management. Their notices govern those cookies; Briefly cannot read them.
+			Apple may set its own cookies when you choose Sign in with Apple on a web support
+			surface. Apple's notice governs those cookies; Briefly cannot read them.
 		</p>
 	</section>
 
@@ -121,10 +120,9 @@
 		<ul>
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
 			<li>Use your browser's site-data settings to remove Briefly's cookie and local storage.</li>
-			<li>Removing site data signs you out and deletes preferences on that device. It does not delete files in iCloud or Google Drive, an active subscription, or a public share.</li>
-			<li>Disconnect Google Drive from Settings to delete the stored Google provider credentials.</li>
-			<li>Stop iCloud sync from Settings to clear the selected-provider preference. Manage private CloudKit data through your Apple account.</li>
-			<li>Revoke each public share in the app, and use Stripe's billing portal to manage or cancel your membership.</li>
+			<li>Removing site data signs out web support surfaces and deletes browser preferences. It does not delete iCloud files, an active subscription, or a public share.</li>
+			<li>Manage private CloudKit data and App Store subscriptions through your Apple account.</li>
+			<li>Revoke each public share in the native app.</li>
 		</ul>
 		<p>
 			Questions about device storage can be sent to

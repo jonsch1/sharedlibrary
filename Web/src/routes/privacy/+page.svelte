@@ -6,7 +6,7 @@
 	active="privacy"
 	title="Privacy notice"
 	description="How Briefly processes personal data, the choices you control, and your rights under the GDPR."
-	updated="29 July 2026"
+	updated="1 August 2026"
 >
 	<section>
 		<h2>1. Who is responsible</h2>
@@ -50,26 +50,20 @@
 					<td>Legitimate interests in a secure and reliable service.</td>
 				</tr>
 				<tr>
-					<td>Apple or Google sign-in</td>
+					<td>Sign in with Apple</td>
 					<td>Email address, provider account identifier, a hashed session token, session dates, and short-lived OAuth state.</td>
 					<td>Authenticate you and keep the correct account connected.</td>
 					<td>Performance of our contract with you.</td>
 				</tr>
 				<tr>
 					<td>iCloud sync</td>
-					<td>Your selected-provider preference. Apple processes the private CloudKit records and documents exchanged directly with your device.</td>
+					<td>Apple processes the private CloudKit records and documents exchanged directly with your device.</td>
 					<td>Synchronize the Briefly files you choose without sending private iCloud content through Briefly's application server.</td>
 					<td>Performance of our contract; you choose whether to connect iCloud.</td>
 				</tr>
 				<tr>
-					<td>Google Drive sync</td>
-					<td>Encrypted Google access/refresh tokens, connection dates, folder ID, library index, and documents passing through the service.</td>
-					<td>Read and update the Briefly files you ask us to synchronize. Private file content is proxied in memory and is not retained in Briefly's application database.</td>
-					<td>Performance of our contract; you choose whether to connect Drive.</td>
-				</tr>
-				<tr>
 					<td>Summaries and voice-brief scripts</td>
-					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI sends these to OpenRouter and its selected model provider. If you choose a custom local command, the desktop instead passes them to the CLI/provider you configured.</td>
+					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI sends these to OpenRouter and its selected model provider.</td>
 					<td>Create the summaries or voice-brief script you request. Briefly does not use this content to train its own models.</td>
 					<td>Performance of your processing request.</td>
 				</tr>
@@ -105,8 +99,8 @@
 				</tr>
 				<tr>
 					<td>Briefly membership billing</td>
-					<td>Email, internal account ID, Stripe customer/subscription/price/payment/refund IDs, status, billing dates, webhook event IDs, and historical records from the discontinued voice-credit feature. Stripe separately receives payment, billing-address, and tax details.</td>
-					<td>Start and administer subscriptions, prevent duplicate allocations, collect or refund payment, and keep required accounting records.</td>
+					<td>Email, internal account ID, App Store product and transaction identifiers, expiry, environment, and revocation status. Apple separately receives payment, billing, and tax details.</td>
+					<td>Verify App Store membership and provide subscribed features.</td>
 					<td>Contract and legal obligations; fraud prevention is a legitimate interest.</td>
 				</tr>
 				<tr>
@@ -129,8 +123,7 @@
 		<ul>
 			<li>Directly from you when you sign in, connect a provider, subscribe, contact us, or publish a document.</li>
 			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
-			<li>From Google when it confirms your account email and returns OAuth credentials or Drive files within the narrow <code>drive.file</code> permission.</li>
-			<li>From Stripe when it reports checkout, subscription, and refund status.</li>
+			<li>From Apple when it reports App Store subscription, renewal, expiration, or revocation status.</li>
 			<li>From OpenRouter or a custom AI provider, Firecrawl, Modal, and PostHog when they return requested processing or operational results.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
 			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
@@ -150,19 +143,11 @@
 			<tbody>
 				<tr>
 					<td><a href="https://www.cloudflare.com/privacypolicy/" rel="noreferrer">Cloudflare</a></td>
-					<td>Hosting, database, object storage, content delivery, and security; processes account, share, billing, request, and technical data for Briefly.</td>
-				</tr>
-				<tr>
-					<td><a href="https://policies.google.com/privacy" rel="noreferrer">Google</a></td>
-					<td>Optional sign-in and Drive storage/API access; processes account information, OAuth data, and the files held in your Google account.</td>
+					<td>Hosting, database, content delivery, and security; processes account, share, entitlement, request, and technical data for Briefly.</td>
 				</tr>
 				<tr>
 					<td><a href="https://www.apple.com/legal/privacy/" rel="noreferrer">Apple</a></td>
-					<td>Optional account sign-in and private CloudKit storage; processes account information, authentication data, and the records and assets held in your iCloud account.</td>
-				</tr>
-				<tr>
-					<td><a href="https://stripe.com/privacy" rel="noreferrer">Stripe</a></td>
-					<td>Checkout, subscriptions, payment, invoicing, tax, and fraud prevention. Stripe acts under its own legal obligations for some payment processing.</td>
+					<td>Account sign-in, App Store subscriptions, and private CloudKit storage; processes authentication, payment, transaction, and iCloud data under Apple's terms.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
@@ -207,9 +192,7 @@
 		<p>
 			You can ask for more information about the relevant safeguard by emailing us. Provider
 			terms include the
-			<a href="https://www.cloudflare.com/cloudflare-customer-dpa/" rel="noreferrer">Cloudflare DPA</a>,
-			<a href="https://cloud.google.com/terms/data-processing-addendum" rel="noreferrer">Google data-processing terms</a>,
-			and <a href="https://stripe.com/legal/dpa" rel="noreferrer">Stripe DPA</a>.
+			<a href="https://www.cloudflare.com/cloudflare-customer-dpa/" rel="noreferrer">Cloudflare DPA</a>.
 		</p>
 	</section>
 
@@ -230,14 +213,6 @@
 				<tr>
 					<td>Sign-in session</td>
 					<td>Up to 90 days, until you sign out, or until the session is otherwise revoked.</td>
-				</tr>
-				<tr>
-					<td>Google connection</td>
-					<td>Until you disconnect Google or ask us to delete the account data. Disconnecting deletes the stored connection credentials.</td>
-				</tr>
-				<tr>
-					<td>Google Drive files</td>
-					<td>Controlled by you in your Google account. Disconnecting Briefly does not delete your Drive files.</td>
 				</tr>
 				<tr>
 					<td>iCloud records</td>
@@ -277,7 +252,7 @@
 				</tr>
 				<tr>
 					<td>Local browser data</td>
-					<td>Until you clear Briefly's site data or uninstall/remove it. See the <a href="/account/cookies">Cookies & Local Storage Notice</a>.</td>
+					<td>Until you clear Briefly's site data or uninstall/remove it. See the <a href="/cookies">Cookies & Local Storage Notice</a>.</td>
 				</tr>
 			</tbody>
 		</table>
@@ -319,8 +294,8 @@
 	<section>
 		<h2>8. Security, children, and changes</h2>
 		<p>
-			Briefly uses encrypted transport, secure HTTP-only session cookies, same-origin checks, and
-			encryption for stored Google credentials. Access is scoped to the signed-in account.
+			Briefly uses encrypted transport, secure HTTP-only session cookies, signed Apple credentials,
+			App Store transaction verification, and same-origin checks. Access is scoped to the signed-in account.
 			iCloud content is protected by Apple's private CloudKit database and does not
 			pass through Briefly's Worker. No internet service is risk-free, so protect forwardable share links and revoke a
 			link if it reaches the wrong person.

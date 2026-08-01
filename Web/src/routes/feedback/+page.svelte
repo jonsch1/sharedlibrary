@@ -74,7 +74,7 @@
 
 	async function setUpvote(item: FeedbackItem): Promise<void> {
 		if (!authenticated) {
-			window.location.assign('/api/auth/google/start?return_to=%2Ffeedback');
+			window.location.assign('/api/auth/apple/start?return_to=%2Ffeedback');
 			return;
 		}
 		if (voting) return;
@@ -149,7 +149,7 @@
 				</button>
 			</form>
 		{:else if !loading}
-			<a class="sign-in" href="/api/auth/google/start?return_to=%2Ffeedback">
+			<a class="sign-in" href="/api/auth/apple/start?return_to=%2Ffeedback">
 				<LogInIcon />
 				<span><strong>Sign in to post and upvote</strong>Read the board without an account.</span>
 			</a>

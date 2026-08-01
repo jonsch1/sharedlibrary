@@ -1,181 +1,57 @@
 # Briefly Web
 
-The SvelteKit site provides public share readers plus marketing, account, legal,
-and administration pages. The Cloudflare Worker supports the native macOS and
-iOS apps with authentication, managed processing, share publishing, media, and
-billing APIs. The website does not expose the private library reader.
-
-## Accounts
-
-Google account sign-in requests only `openid email`. Sign in with Apple uses a
-Services ID and a short-lived ES256 client-secret JWT. Configure
-`APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and the multiline
-`APPLE_PRIVATE_KEY`, then register
-`https://www.readbriefly.fyi/api/auth/apple/callback` as the Services ID return URL.
-The `/account` page owns account, billing, sync-connection, and published-share
-management.
-
-## Google Drive
-
-Enable the Google Drive API and create one Web application OAuth client. Configure
-its Client ID and Client Secret once for the deployment, then register
-`https://www.readbriefly.fyi/api/google/connect/callback` as an authorized
-redirect URI. Drive authorization is a separate flow after account sign-in. The
-account reuses its saved personal library location.
-
-The backend encrypts account tokens with `OPENROUTER_CREDENTIAL_KEY` (32 random
-bytes encoded as 64 hexadecimal characters) and requests only `drive.file`. It can therefore
-access only files Briefly creates or that the user explicitly opens with it,
-not the rest of the user's Drive. The app mirrors `library/`, `voice-briefs/`, and `topics.md`, and stores a
-rebuildable metadata-only index under `.shared-library/`. It reuses existing
-`Shared Library` and `Shared Library Media` folders during migration.
-
-## iCloud
-
-Create a CloudKit container and a CloudKit JS web-services token restricted to
-`https://www.readbriefly.fyi`. Configure `CLOUDKIT_CONTAINER_ID`,
-`CLOUDKIT_API_TOKEN`, and `CLOUDKIT_ENVIRONMENT` (`development` or `production`).
-Briefly stores data in the user's private database and a custom `Briefly` zone:
-
-| Record type | Fields |
-| --- | --- |
-| `BrieflyLibraryIndex` | `schemaVersion` Int64, `generatedAt` Int64, `payload` Asset |
-| `BrieflyLibraryFile` | `path` String, `contentHash` String, `byteCount` Int64, `content` Asset |
-
-Create and test the record types in development, then promote the schema in
-CloudKit Console before setting `CLOUDKIT_ENVIRONMENT=production`. Browser-based
-account authorization talks directly to CloudKit; Briefly's Worker receives the
-selected-provider preference but not private iCloud file content.
+The SvelteKit site renders public share links and the supporting marketing,
+feedback, administration, and legal pages. It does not contain a private library,
+account manager, or checkout. The Cloudflare Worker supports the native macOS and
+iOS apps with Apple authentication, App Store entitlement verification, managed
+processing, and public-share publishing.
 
 ## Development
 
 ```bash
 npm install
 npm test
-npm run db:generate
 ```
 
-Database definitions live in `db/schema.ts`; generated migrations live in
-`drizzle/`. Production applies migrations before deploying the Worker.
+Database definitions live in `db/schema.ts`; the unlaunched Apple-only baseline
+is `drizzle/0000_*.sql`. Production applies it before deploying the Worker.
 
-### Local Stripe sandbox
+## Apple authentication
 
-Use one isolated Stripe sandbox for local development:
+The native apps use AuthenticationServices and send a nonce-bound Apple identity
+token to `/api/auth/apple/native`. Configure `APPLE_APP_BUNDLE_ID` with the native
+bundle identifier and enable Sign in with Apple for both app entitlements.
 
-1. Copy `.env.example` to `.env`. Fill it with the sandbox's `sk_test_` or
-   restricted `rk_test_` key, Product, Price, and portal configuration IDs.
-   Never mix live and sandbox IDs.
-2. Add `http://localhost:8787/api/google/connect/callback` to the Google OAuth
-   client's authorized redirect URIs, then start the production-like local app:
+The feedback and administration support pages may use Apple's web authorization
+flow. Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and
+`APPLE_PRIVATE_KEY`, then register
+`https://www.readbriefly.fyi/api/auth/apple/callback` as the Services ID return URL.
 
-   ```bash
-   npm run dev:full
-   ```
+## App Store subscriptions
 
-3. In another terminal, run the Stripe CLI against the same sandbox:
+Create one monthly auto-renewable subscription whose product identifier matches
+`APP_STORE_PRODUCT_ID` (`fyi.readbriefly.plus.monthly` by default). The app attaches
+its Briefly account UUID as StoreKit's `appAccountToken`; the Worker verifies each
+transaction with the App Store Server API before granting hosted access.
 
-   ```bash
-   stripe listen \
-     --events checkout.session.completed,checkout.session.expired,checkout.session.async_payment_succeeded,checkout.session.async_payment_failed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed \
-     --forward-to http://localhost:8787/api/billing/webhook
-   ```
+Create an App Store Connect In-App Purchase key and configure
+`APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY`. Set the
+App Store Server Notifications V2 production and sandbox URL to:
 
-   Put the printed `whsec_...` signing secret in `.env` as
-   `STRIPE_WEBHOOK_SECRET`, then restart `npm run dev:full`.
+```
+https://www.readbriefly.fyi/api/billing/apple/notifications
+```
 
-For an end-to-end pass, sign in with Apple and Google separately, choose each sync
-provider, then buy Plus with Stripe's successful
-test card `4242 4242 4242 4242` (any future expiry and any CVC), verify the
-account and native app entitlement, open the customer portal, cancel at period end,
-and confirm access remains until the period ends. Also test checkout cancellation,
-the declined card `4000 0000 0000 0002`, the 3D Secure card
-`4000 0025 0000 3155`, duplicate webhook delivery, and a
-renewal/payment failure with a Stripe Billing simulation. Local Wrangler uses
-its own D1 and R2 data, not production data.
+Pricing and cancellation are presented and managed by the App Store. The website
+does not display a checkout or manage the customer's Apple account.
 
-The deployment needs:
+## Other deployment configuration
 
-- a D1 binding named `DB`;
-- `GOOGLE_DRIVE_WEB_CLIENT_ID` and a `GOOGLE_DRIVE_WEB_CLIENT_SECRET` secret;
-- the four Sign in with Apple values and three CloudKit values described above
-  when those providers should be offered;
-- a `FIRECRAWL_API_KEY` Worker secret for authenticated extraction fallback;
-- an `OPENROUTER_CREDENTIAL_KEY` Worker secret generated with
-  `openssl rand -hex 32`; keep the existing value stable or saved Google
-  credentials will become unreadable;
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRODUCT_PLUS`,
-  `STRIPE_PORTAL_CONFIGURATION_ID`, and the four Stripe
-  Price IDs described below;
-- public access to the account callback and capability-link routes. Provider
-  credentials and library operations remain account-scoped by the app's secure,
-  HTTP-only session cookie.
+- `FIRECRAWL_API_KEY` enables authenticated extraction fallback.
+- `OPENROUTER_API_KEY` enables hosted Briefly AI processing.
+- `PAID_PROCESSING_ENABLED=false` stops new hosted processing during an incident.
+- `PUBLIC_POSTHOG_PROJECT_TOKEN` optionally enables consent-only analytics.
+- D1 must be bound as `DB`; static assets must be bound as `ASSETS`.
 
-`PAID_PROCESSING_ENABLED=false` is the emergency kill switch for transcription,
-voice generation, and Firecrawl. Account fair-use limits are enforced in D1:
-transcription is limited to 8 media hours/day and 50/month, voice generation to
-250,000 characters/day and 2 million/month, and Firecrawl to a conservative
-500-credit monthly allowance.
-
-## Briefly membership and Stripe
-
-Briefly requires an account and active membership for hosted features.
-The subscription includes cross-device iCloud or Google Drive synchronization and deliberate
-public share links. Launch pricing
-is a grandfathered monthly ladder:
-
-| Subscribers | Price | Stripe environment variable |
-| --- | ---: | --- |
-| First 50 | €3.99/month | `STRIPE_PRICE_FOUNDING` |
-| Next 100 | €5.99/month | `STRIPE_PRICE_EARLY` |
-| Next 250 | €7.99/month | `STRIPE_PRICE_GROWING` |
-| Thereafter | €9.99/month | `STRIPE_PRICE_STANDARD` |
-
-Create one recurring Stripe Product named **Briefly** and four EUR monthly
-Prices matching that table. Existing subscribers remain on their Price while
-their subscription stays active. A customer who cancels and later returns joins
-at the price then available.
-
-Configure Stripe for paid access:
-
-1. Create a single `Briefly` Product and four flat-rate recurring monthly
-   Prices. Add their Product and Price IDs plus a least-privilege
-   `STRIPE_SECRET_KEY` as deployment secrets. Briefly validates each selected
-   Price against its expected Product, EUR amount, and monthly recurrence before
-   opening Checkout.
-2. Create a dedicated Stripe customer portal configuration in both sandbox and
-   live mode. Allow customers to update billing information and payment methods,
-   view invoices, and cancel at period end. Disable plan switching, quantity
-   changes, and promotion codes, then save its ID as
-   `STRIPE_PORTAL_CONFIGURATION_ID`.
-3. Add a Stripe webhook endpoint at
-   `https://www.readbriefly.fyi/api/billing/webhook`.
-4. Pin the event destination to Stripe API version `2026-06-24.dahlia`.
-   Subscribe it to `checkout.session.completed`, `checkout.session.expired`,
-   `customer.subscription.created`, `customer.subscription.updated`,
-   `customer.subscription.deleted`, `invoice.paid`, and
-   `invoice.payment_failed`, then save its signing secret as
-   `STRIPE_WEBHOOK_SECRET`. Briefly currently restricts Checkout to card-based
-   payment methods; also subscribe to Checkout's async payment success/failure
-   events before enabling asynchronous methods.
-5. Complete Stripe Tax registration and set the Briefly product's tax code
-   to the appropriate software-as-a-service code. Checkout collects and validates
-   billing location and tax IDs.
-Paid access activates automatically when the required deployment secrets and
-Stripe IDs are present. Missing or invalid Stripe
-configuration fails closed instead of granting membership access.
-The owner account `schauljonathan@gmail.com` has complimentary Plus entitlement;
-`STRIPE_PAST_DUE_GRACE_DAYS` controls the finite past-due entitlement window and
-defaults to seven days. A daily Worker cron reconciles D1 subscription state with
-Stripe.
-
-## Cloudflare deployment
-
-`wrangler.jsonc` is the source of truth for the Worker, static assets, D1
-database, R2 bucket, and custom domains. Production deployments are automated:
-push completed Web changes to `main` and
-`.github/workflows/deploy-web.yml` runs the checks, worker tests, production
-build, outstanding D1 migrations, and Cloudflare deployment.
-
-Do not run `npm run deploy` from a local checkout. Configure production secrets
-and variables in the GitHub `production` environment and Cloudflare before
-merging changes that depend on them.
+`wrangler.jsonc` is the source of truth for production bindings, domains, secrets,
+and variables. Deployment is handled by `.github/workflows/deploy-web.yml`.

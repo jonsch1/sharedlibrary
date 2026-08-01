@@ -188,7 +188,7 @@ export function parseLibraryProjection(value: unknown): LibraryProjection {
       (!Array.isArray(value.voiceBriefs) || !value.voiceBriefs.every(isLibraryVoiceBrief)))
   ) {
     throw new Error(
-      'This is not a compatible Briefly library index. Open the desktop app and let it synchronize again.'
+      'This is not a compatible Briefly library index. Open the Briefly app and let it synchronize again.'
     );
   }
   const projection = value as unknown as LibraryProjection & {

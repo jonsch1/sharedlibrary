@@ -1,8 +1,11 @@
 import AVFoundation
+import AuthenticationServices
 import BrieflyCore
 import CloudKit
+import CryptoKit
 import Observation
 import PDFKit
+import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -47,6 +50,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class LibraryModel {
+    private static let subscriptionProductID = "fyi.readbriefly.plus.monthly"
     private static let managedAICommand =
         "briefly://openrouter/deepseek/deepseek-v4-flash"
     private static let processingDefaultCommand: String = {
@@ -97,6 +101,8 @@ final class LibraryModel {
     var libraryChannels = [LibraryChannel]()
     var topicsText = ""
     var account = BrieflyAccountStatus.signedOut
+    var subscriptionProduct: Product?
+    var isPurchasingSubscription = false
     var processingCommand =
         UserDefaults.standard.string(forKey: LibraryModel.processingCommandKey) ??
         LibraryModel.processingDefaultCommand
@@ -878,6 +884,102 @@ final class LibraryModel {
         }
     }
 
+    func signInWithApple(
+        _ result: Result<ASAuthorization, Error>,
+        nonce: String
+    ) async {
+        do {
+            guard
+                case .success(let authorization) = result,
+                let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                let identityToken = credential.identityToken,
+                !nonce.isEmpty
+            else {
+                if case .failure(let error) = result { throw error }
+                throw BrieflyBackendError.message("Apple sign-in did not return a credential.")
+            }
+            account = try await backend.signInWithApple(
+                identityToken: identityToken,
+                nonce: nonce
+            )
+            status = "Signed in with Apple"
+            await syncStoreEntitlements()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSubscription() async {
+        do {
+            subscriptionProduct = try await Product.products(
+                for: [Self.subscriptionProductID]
+            ).first
+            await syncStoreEntitlements()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func purchaseSubscription() async {
+        guard
+            let product = subscriptionProduct,
+            let accountID = account.accountID,
+            !isPurchasingSubscription
+        else { return }
+        isPurchasingSubscription = true
+        defer { isPurchasingSubscription = false }
+        do {
+            switch try await product.purchase(options: [.appAccountToken(accountID)]) {
+            case .success(.verified(let transaction)):
+                account = try await backend.syncAppStoreTransaction(String(transaction.id))
+                await transaction.finish()
+                status = "Briefly membership activated"
+            case .success(.unverified):
+                throw BrieflyBackendError.message("The App Store purchase could not be verified.")
+            case .pending:
+                status = "The App Store purchase is awaiting approval"
+            case .userCancelled:
+                break
+            @unknown default:
+                break
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func restoreSubscription() async {
+        guard account.authenticated, !isPurchasingSubscription else { return }
+        isPurchasingSubscription = true
+        defer { isPurchasingSubscription = false }
+        do {
+            try await AppStore.sync()
+            await syncStoreEntitlements()
+            status = account.entitled == true
+                ? "Briefly membership restored"
+                : "No active Briefly membership was found"
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func syncStoreEntitlements() async {
+        guard account.authenticated else { return }
+        do {
+            for await result in Transaction.currentEntitlements {
+                guard
+                    case .verified(let transaction) = result,
+                    transaction.productID == Self.subscriptionProductID
+                else { continue }
+                account = try await backend.syncAppStoreTransaction(String(transaction.id))
+                await transaction.finish()
+            }
+            if account.entitled != true { await refreshAccount() }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func shareStatus(for entry: LibraryEntry) async throws -> BrieflyShareLinkStatus {
         guard let captureID = entry.captureID else {
             throw BrieflyBackendError.message("This document cannot be published.")
@@ -1099,7 +1201,6 @@ final class LibraryModel {
     }
 
     private func requestSync() {
-        guard account.syncProvider == "icloud" else { return }
         pendingSync?.cancel()
         pendingSync = Task {
             try? await Task.sleep(for: .milliseconds(900))
@@ -5165,8 +5266,7 @@ private struct SettingsView: View {
     #endif
     @Bindable var model: LibraryModel
     @State private var showsChannelBrowser = false
-    @State private var showsAccountBrowser = false
-    @State private var accountBrowserURL = BrieflyBackend.shared.accountURL
+    @State private var appleSignInNonce = ""
     @State private var showsPDFImporter = false
     #if os(iOS)
     @State private var selectedSection: BrieflySettingsSection?
@@ -5391,9 +5491,6 @@ private struct SettingsView: View {
                             ? model.account.email ?? "Signed in"
                             : "Signed out"
                     )
-                    if let provider = model.account.syncProvider {
-                        LabeledContent("Library sync", value: provider.capitalized)
-                    }
                     if model.account.authenticated {
                         LabeledContent(
                             "Membership",
@@ -5402,43 +5499,10 @@ private struct SettingsView: View {
                                 : "Needs activation"
                         )
                     }
-                    if model.account.google?.configured == true {
-                        LabeledContent(
-                            "Google Drive",
-                            value: model.account.google?.connected == true
-                                ? "Connected"
-                                : "Not connected"
-                        )
-                    }
-                    if model.account.icloud?.configured == true {
-                        LabeledContent(
-                            "iCloud",
-                            value: model.account.icloud?.connected == true
-                                ? "Connected"
-                                : "Not connected"
-                        )
-                    }
                     HStack {
                         if model.account.authenticated {
-                            Button("Manage account") {
-                                accountBrowserURL = BrieflyBackend.shared.accountURL
-                                showsAccountBrowser = true
-                            }
                             Button("Sign out", role: .destructive) {
                                 Task { await model.signOut() }
-                            }
-                        } else {
-                            Button("Sign in with Apple") {
-                                accountBrowserURL = BrieflyBackend.shared.signInURL(
-                                    provider: "apple"
-                                )
-                                showsAccountBrowser = true
-                            }
-                            Button("Sign in with Google") {
-                                accountBrowserURL = BrieflyBackend.shared.signInURL(
-                                    provider: "google"
-                                )
-                                showsAccountBrowser = true
                             }
                         }
                         Spacer()
@@ -5452,6 +5516,42 @@ private struct SettingsView: View {
                             }
                         }
                         .disabled(model.isCheckingAccount)
+                    }
+                    if model.account.authenticated {
+                        if model.account.entitled == true {
+                            Link(
+                                "Manage App Store subscription",
+                                destination: URL(string: "https://apps.apple.com/account/subscriptions")!
+                            )
+                        } else if let product = model.subscriptionProduct {
+                            Button("Subscribe — \(product.displayPrice)/month") {
+                                Task { await model.purchaseSubscription() }
+                            }
+                            .disabled(model.isPurchasingSubscription)
+                        } else {
+                            Text("The subscription is not available from the App Store yet.")
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Restore purchases") {
+                            Task { await model.restoreSubscription() }
+                        }
+                        .disabled(model.isPurchasingSubscription)
+                    } else {
+                        SignInWithAppleButton(.signIn) { request in
+                            let nonce = randomAppleNonce()
+                            appleSignInNonce = nonce
+                            request.requestedScopes = [.email]
+                            request.nonce = SHA256.hash(data: Data(nonce.utf8))
+                                .map { String(format: "%02x", $0) }
+                                .joined()
+                        } onCompletion: { result in
+                            let nonce = appleSignInNonce
+                            appleSignInNonce = ""
+                            Task { await model.signInWithApple(result, nonce: nonce) }
+                        }
+                        .signInWithAppleButtonStyle(.black)
+                        .frame(maxWidth: 280, minHeight: 42, maxHeight: 42)
+                        .accessibilityLabel("Sign in with Apple")
                     }
                 }
 
@@ -5618,17 +5718,22 @@ private struct SettingsView: View {
         .sheet(isPresented: $showsChannelBrowser) {
             ChannelLoginView()
         }
-        .sheet(isPresented: $showsAccountBrowser) {
-            ChannelLoginView(
-                initialAddress: accountBrowserURL.absoluteString,
-                navigationTitle: "Briefly account"
-            )
-            .onDisappear {
-                Task { await model.refreshAccount(reportErrors: true) }
-            }
+        .task {
+            await model.refreshAccount()
+            await model.loadSubscription()
         }
-        .task { await model.refreshAccount() }
     }
+}
+
+private func randomAppleNonce() -> String {
+    var bytes = [UInt8](repeating: 0, count: 32)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+        return UUID().uuidString
+    }
+    return Data(bytes).base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
 }
 
 private func channelTitle(_ source: String) -> String {

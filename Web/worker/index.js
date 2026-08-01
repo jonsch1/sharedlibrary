@@ -1,26 +1,10 @@
-import { ttsChargeMicros, ttsModels, ttsTopUpAmounts } from '../tts-pricing.js';
-
-const defaultOpenRouterModel = ttsModels[0].model;
-const legacyGrokVoiceModel = ttsModels[2].model;
-const orpheusVoiceModel = ttsModels[1].model;
-const openRouterModelVoices = new Map(
-	ttsModels.map((option) => [option.model, option.voices])
-);
-const knownVoices = [...new Set([...openRouterModelVoices.values()].flat())];
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
-const maximumSpeechInputLength = 14_000;
 const managedAIModel = 'deepseek/deepseek-v4-flash';
+const managedAIMonthlyAllowanceMicros = 5_000_000;
 const maximumManagedAIPromptLength = 600_000;
-const openRouterVoicePattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
-const ttsRequestIDPattern =
+const uuidPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const firecrawlEndpoint = 'https://api.firecrawl.dev/v2/scrape';
-const stripeAPIBase = 'https://api.stripe.com/v1';
-const stripeAPIVersion = '2026-06-24.dahlia';
-const stripeWebhookToleranceSeconds = 5 * 60;
-const checkoutLifetimeSeconds = 31 * 60;
-const checkoutReservationLifetimeMilliseconds = 35 * 60 * 1000;
-const stripeWebhookClaimLifetimeMilliseconds = 5 * 60 * 1000;
 const maximumActiveShareLinks = 100;
 const maximumFeedbackItemsPerAccount = 10;
 const maximumFeedbackItemsPerDay = 3;
@@ -53,48 +37,7 @@ const serviceUsageLimits = {
 		leaseMilliseconds: 10 * 60 * 1000
 	}
 };
-const entitledSubscriptionStatuses = new Set(['active', 'trialing']);
 const administratorEmails = new Set(['schauljonathan@gmail.com']);
-const complimentaryMonthlyTTSMicros = new Map([
-	['schauljonathan@gmail.com', 10 * 100_000_000]
-]);
-const liveSubscriptionStatuses = new Set([
-	'active',
-	'trialing',
-	'past_due',
-	'incomplete',
-	'paused'
-]);
-const pricingTiers = [
-	{
-		key: 'founding',
-		name: 'Founding',
-		amount: 399,
-		capacity: 50,
-		priceEnvironmentKey: 'STRIPE_PRICE_FOUNDING'
-	},
-	{
-		key: 'early',
-		name: 'Early',
-		amount: 599,
-		capacity: 100,
-		priceEnvironmentKey: 'STRIPE_PRICE_EARLY'
-	},
-	{
-		key: 'growing',
-		name: 'Growing',
-		amount: 799,
-		capacity: 250,
-		priceEnvironmentKey: 'STRIPE_PRICE_GROWING'
-	},
-	{
-		key: 'standard',
-		name: 'Standard',
-		amount: 999,
-		capacity: null,
-		priceEnvironmentKey: 'STRIPE_PRICE_STANDARD'
-	}
-];
 const managedAIJSONSchema = {
 	name: 'briefly_processing',
 	strict: true,
@@ -120,86 +63,9 @@ const managedAIJSONSchema = {
 	}
 };
 
-function stripeCredentials(env) {
-	const secretKey = String(env.STRIPE_SECRET_KEY || '').trim();
-	const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || '').trim();
-	if (!/^(?:sk|rk)_(?:test|live)_/.test(secretKey) || !webhookSecret.startsWith('whsec_')) {
-		return null;
-	}
-	return { secretKey, webhookSecret };
-}
-
-function stripeConfig(env) {
-	const credentials = stripeCredentials(env);
-	const productID = String(env.STRIPE_PRODUCT_PLUS || '').trim();
-	const portalConfigurationID = String(env.STRIPE_PORTAL_CONFIGURATION_ID || '').trim();
-	const tiers = pricingTiers.map((tier) => ({
-		...tier,
-		priceID: String(env[tier.priceEnvironmentKey] || '').trim()
-	}));
-	if (
-		!credentials ||
-		!/^prod_/.test(productID) ||
-		!/^bpc_/.test(portalConfigurationID) ||
-		tiers.some((tier) => !/^price_/.test(tier.priceID))
-	) {
-		return null;
-	}
-	return { ...credentials, productID, portalConfigurationID, tiers };
-}
-
-function managedTTSKey(env) {
+function managedAIKey(env) {
 	const apiKey = String(env.OPENROUTER_API_KEY || '').trim();
 	return apiKey || null;
-}
-
-function ttsStripeConfig(env) {
-	const credentials = stripeCredentials(env);
-	const productID = String(env.STRIPE_PRODUCT_TTS || '').trim();
-	if (!credentials || !/^prod_/.test(productID)) return null;
-	return { ...credentials, productID };
-}
-
-function tierByKey(key) {
-	return pricingTiers.find((tier) => tier.key === key) ?? null;
-}
-
-function publicTier(tier, claimed, current) {
-	return {
-		key: tier.key,
-		name: tier.name,
-		amount: tier.amount,
-		currency: 'eur',
-		capacity: tier.capacity,
-		claimed,
-		remaining: tier.capacity === null ? null : Math.max(0, tier.capacity - claimed),
-		current
-	};
-}
-
-function requestedOpenRouterModel(value, voice) {
-	if (value === undefined) {
-		if (openRouterModelVoices.get(legacyGrokVoiceModel)?.includes(voice)) {
-			return legacyGrokVoiceModel;
-		}
-		if (openRouterModelVoices.get(orpheusVoiceModel)?.includes(voice)) {
-			return orpheusVoiceModel;
-		}
-		return defaultOpenRouterModel;
-	}
-	if (typeof value !== 'string') return null;
-	const model = value.trim();
-	return openRouterModelVoices.has(model) ? model : null;
-}
-
-function requestedOpenRouterVoice(value) {
-	if (typeof value !== 'string') return null;
-	const voice = value.trim();
-	return openRouterVoicePattern.test(voice) ? voice : null;
-}
-
-function voiceSupportedByModel(model, voice) {
-	return openRouterModelVoices.get(model)?.includes(voice) ?? false;
 }
 
 async function scrapeWithFirecrawl(request, env) {
@@ -226,7 +92,7 @@ async function scrapeWithFirecrawl(request, env) {
 		return json({ error: 'Invalid extraction URL.' }, { status: 400 });
 	}
 	const email = await authenticatedEmail(request, env);
-	const customer = email ? await ensureBillingCustomer(env, email) : null;
+	const customer = email ? await ensureAccount(env, email) : null;
 	if (!customer) return json({ error: 'Authentication required.' }, { status: 401 });
 	const limits = await accountServiceLimits(env, customer.account_id, 'firecrawl');
 	const leaseID = await reserveServiceLease(
@@ -326,18 +192,6 @@ function sessionCookie(token, maximumAgeSeconds) {
 	].join('; ');
 }
 
-function googleCloudProjectNumber(clientID) {
-	const match = /^(\d+)(?:-|\.apps\.googleusercontent\.com$)/.exec(clientID ?? '');
-	return match?.[1] ?? null;
-}
-
-function configuredGroupFolderID(env) {
-	const value = String(
-		env.BRIEFLY_GROUP_FOLDER_ID || env.SHARED_LIBRARY_GROUP_FOLDER_ID || ''
-	).trim();
-	return /^[A-Za-z0-9_-]{10,256}$/.test(value) ? value : null;
-}
-
 function requireSameOrigin(request) {
 	const expected = new URL(request.url).origin;
 	const origin = request.headers.get('Origin');
@@ -363,18 +217,6 @@ function base64URLToBytes(value) {
 	return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
-function hexToBytes(value) {
-	if (!/^[0-9a-f]{64}$/i.test(value)) {
-		throw new Error('The credential encryption key must contain 32 bytes encoded as hexadecimal.');
-	}
-	return Uint8Array.from(value.match(/.{2}/g), (pair) => Number.parseInt(pair, 16));
-}
-
-async function sha256Base64URL(value) {
-	const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-	return bytesToBase64URL(new Uint8Array(digest));
-}
-
 async function sha256Hex(value) {
 	const input =
 		typeof value === 'string'
@@ -386,43 +228,6 @@ async function sha256Hex(value) {
 		await crypto.subtle.digest('SHA-256', input)
 	);
 	return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function credentialEncryptionKey(env) {
-	const value = env.OPENROUTER_CREDENTIAL_KEY;
-	if (!value) {
-		throw new Error('Credential encryption is not configured.');
-	}
-	return crypto.subtle.importKey(
-		'raw',
-		hexToBytes(value),
-		'AES-GCM',
-		false,
-		['encrypt', 'decrypt']
-	);
-}
-
-async function encryptCredential(env, apiKey) {
-	const initializationVector = new Uint8Array(12);
-	crypto.getRandomValues(initializationVector);
-	const ciphertext = await crypto.subtle.encrypt(
-		{ name: 'AES-GCM', iv: initializationVector },
-		await credentialEncryptionKey(env),
-		new TextEncoder().encode(apiKey)
-	);
-	return {
-		encryptedAPIKey: bytesToBase64URL(new Uint8Array(ciphertext)),
-		initializationVector: bytesToBase64URL(initializationVector)
-	};
-}
-
-async function decryptCredential(env, encryptedAPIKey, initializationVector) {
-	const plaintext = await crypto.subtle.decrypt(
-		{ name: 'AES-GCM', iv: base64URLToBytes(initializationVector) },
-		await credentialEncryptionKey(env),
-		base64URLToBytes(encryptedAPIKey)
-	);
-	return new TextDecoder().decode(plaintext);
 }
 
 async function openRouterError(response, fallback) {
@@ -437,679 +242,6 @@ async function openRouterError(response, fallback) {
 	}
 	if (body.trim()) return body.trim().slice(0, 500);
 	return fallback;
-}
-
-async function connectionStatus(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ connected: false }, { status: 401 });
-	const credential = await env.DB.prepare(
-		`SELECT openrouter_user_id, connected_at
-		 FROM openrouter_credentials
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	return json({
-		connected: Boolean(credential),
-		userID: credential?.openrouter_user_id ?? undefined,
-		connectedAt: credential?.connected_at ?? undefined
-	});
-}
-
-async function startConnection(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-
-	const state = randomBase64URL();
-	const verifier = randomBase64URL(64);
-	const challenge = await sha256Base64URL(verifier);
-	const now = Date.now();
-	await env.DB.batch([
-		env.DB
-			.prepare('DELETE FROM openrouter_oauth_states WHERE created_at < ? OR user_email = ?')
-			.bind(now - oauthStateLifetimeMilliseconds, email),
-		env.DB
-			.prepare(
-				`INSERT INTO openrouter_oauth_states (state, user_email, code_verifier, created_at)
-				 VALUES (?, ?, ?, ?)`
-			)
-			.bind(state, email, verifier, now)
-	]);
-
-	const callbackURL = new URL('/api/openrouter/connect/callback', request.url);
-	callbackURL.searchParams.set('state', state);
-	const authorizationURL = new URL('https://openrouter.ai/auth');
-	authorizationURL.searchParams.set('callback_url', callbackURL.toString());
-	authorizationURL.searchParams.set('code_challenge', challenge);
-	authorizationURL.searchParams.set('code_challenge_method', 'S256');
-	return Response.redirect(authorizationURL.toString(), 302);
-}
-
-async function finishConnection(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-
-	const url = new URL(request.url);
-	const state = url.searchParams.get('state');
-	const code = url.searchParams.get('code');
-	if (!state || !code) return redirectWithOAuthResult(request, 'error');
-
-	const pending = await env.DB.prepare(
-		`SELECT user_email, code_verifier, created_at
-		 FROM openrouter_oauth_states
-		 WHERE state = ?`
-	)
-		.bind(state)
-		.first();
-	if (
-		!pending ||
-		pending.user_email !== email ||
-		Date.now() - pending.created_at > oauthStateLifetimeMilliseconds
-	) {
-		return redirectWithOAuthResult(request, 'expired');
-	}
-
-	await env.DB.prepare('DELETE FROM openrouter_oauth_states WHERE state = ?').bind(state).run();
-	const response = await fetch('https://openrouter.ai/api/v1/auth/keys', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			code,
-			code_verifier: pending.code_verifier,
-			code_challenge_method: 'S256'
-		})
-	});
-	if (!response.ok) return redirectWithOAuthResult(request, 'error');
-
-	const value = await response.json();
-	if (typeof value.key !== 'string' || !value.key) {
-		return redirectWithOAuthResult(request, 'error');
-	}
-
-	const encrypted = await encryptCredential(env, value.key);
-	const timestamp = new Date().toISOString();
-	await env.DB.prepare(
-		`INSERT INTO openrouter_credentials (
-			user_email,
-			encrypted_api_key,
-			initialization_vector,
-			openrouter_user_id,
-			connected_at,
-			updated_at
-		) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(user_email) DO UPDATE SET
-			encrypted_api_key = excluded.encrypted_api_key,
-			initialization_vector = excluded.initialization_vector,
-			openrouter_user_id = excluded.openrouter_user_id,
-			connected_at = excluded.connected_at,
-			updated_at = excluded.updated_at`
-	)
-		.bind(
-			email,
-			encrypted.encryptedAPIKey,
-			encrypted.initializationVector,
-			typeof value.user_id === 'string' ? value.user_id : null,
-			timestamp,
-			timestamp
-		)
-		.run();
-	return redirectWithOAuthResult(request, 'connected');
-}
-
-function redirectWithOAuthResult(request, result) {
-	const destination = new URL('/', request.url);
-	destination.searchParams.set('openrouter', result);
-	return Response.redirect(destination.toString(), 302);
-}
-
-async function disconnect(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await env.DB.prepare('DELETE FROM openrouter_credentials WHERE user_email = ?').bind(email).run();
-	return json({ connected: false });
-}
-
-async function reserveTTSUsage(env, accountID, requestID, model, voice, characterCount, amountMicros) {
-	const now = Date.now();
-	const inserted = await env.DB.prepare(
-		`INSERT OR IGNORE INTO tts_usage (
-			request_id, account_id, model, voice, character_count, amount_micros,
-			status, generation_id, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?)`
-	)
-		.bind(
-			requestID,
-			accountID,
-			model,
-			voice,
-			characterCount,
-			amountMicros,
-			now,
-			now
-		)
-		.run();
-	if (databaseChanges(inserted) === 0) return { duplicate: true, balanceMicros: null };
-
-	await env.DB.prepare(
-		`INSERT OR IGNORE INTO tts_accounts (account_id, balance_micros, created_at, updated_at)
-		 VALUES (?, 0, ?, ?)`
-	)
-		.bind(accountID, now, now)
-		.run();
-	const reserved = await env.DB.prepare(
-		`UPDATE tts_accounts
-		 SET balance_micros = balance_micros - ?, updated_at = ?
-		 WHERE account_id = ? AND balance_micros >= ?`
-	)
-		.bind(amountMicros, now, accountID, amountMicros)
-		.run();
-	if (databaseChanges(reserved) === 0) {
-		await env.DB.prepare(
-			`UPDATE tts_usage SET status = 'declined', updated_at = ?
-			 WHERE request_id = ? AND status = 'pending'`
-		)
-			.bind(now, requestID)
-			.run();
-		return { duplicate: false, balanceMicros: null };
-	}
-	await env.DB.prepare(
-		`UPDATE tts_usage SET status = 'reserved', updated_at = ?
-		 WHERE request_id = ? AND status = 'pending'`
-	)
-		.bind(now, requestID)
-		.run();
-	const account = await env.DB.prepare(
-		'SELECT balance_micros FROM tts_accounts WHERE account_id = ?'
-	)
-		.bind(accountID)
-		.first();
-	return { duplicate: false, balanceMicros: Number(account?.balance_micros ?? 0) };
-}
-
-async function releaseTTSUsage(env, accountID, requestID, amountMicros) {
-	const now = Date.now();
-	await env.DB.batch([
-		env.DB.prepare(
-			`UPDATE tts_accounts
-			 SET balance_micros = balance_micros + ?, updated_at = ?
-			 WHERE account_id = ? AND EXISTS (
-				SELECT 1 FROM tts_usage
-				WHERE request_id = ? AND account_id = ? AND status = 'reserved'
-			 )`
-		).bind(amountMicros, now, accountID, requestID, accountID),
-		env.DB.prepare(
-			`UPDATE tts_usage SET status = 'released', updated_at = ?
-			 WHERE request_id = ? AND account_id = ? AND status IN ('pending', 'reserved')`
-		).bind(now, requestID, accountID)
-	]);
-}
-
-async function settleTTSUsage(env, accountID, requestID, generationID) {
-	await env.DB.prepare(
-		`UPDATE tts_usage
-		 SET status = 'settled', generation_id = ?, updated_at = ?
-		 WHERE request_id = ? AND account_id = ? AND status = 'reserved'`
-	)
-		.bind(generationID || null, Date.now(), requestID, accountID)
-		.run();
-}
-
-async function createSpeech(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const apiKey = managedTTSKey(env);
-	if (!apiKey) {
-		return json({ error: 'Briefly AI voice is not available yet.' }, { status: 503 });
-	}
-
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid speech request.' }, { status: 400 });
-	}
-	const voice = requestedOpenRouterVoice(value.voice);
-	const model = requestedOpenRouterModel(value.model, voice);
-	if (
-		typeof value.input !== 'string' ||
-		!value.input.trim() ||
-		value.input.length > maximumSpeechInputLength ||
-		!voice ||
-		!model ||
-		!voiceSupportedByModel(model, voice)
-	) {
-		return json({ error: 'Invalid speech text, voice, or model.' }, { status: 400 });
-	}
-	const requestID = request.headers.get('X-Briefly-Request-Id');
-	if (!requestID || !ttsRequestIDPattern.test(requestID)) {
-		return json({ error: 'Invalid speech request identifier.' }, { status: 400 });
-	}
-	const characterCount = [...value.input].length;
-	const amountMicros = ttsChargeMicros(model, characterCount);
-	if (!amountMicros) return json({ error: 'Invalid speech price.' }, { status: 400 });
-	const customer = await ensureBillingCustomer(env, email);
-	await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
-	const reservation = await reserveTTSUsage(
-		env,
-		customer.account_id,
-		requestID,
-		model,
-		voice,
-		characterCount,
-		amountMicros
-	);
-	if (reservation.duplicate) {
-		return json({ error: 'This speech request is already being processed.' }, { status: 409 });
-	}
-	if (reservation.balanceMicros === null) {
-		return json(
-			{ error: 'Not enough Briefly AI voice credit. Top up in Settings.' },
-			{ status: 402 }
-		);
-	}
-
-	let response;
-	try {
-		response = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${apiKey}`,
-				'Content-Type': 'application/json',
-				'X-Title': 'Briefly'
-			},
-			body: JSON.stringify({
-				model,
-				input: value.input,
-				voice,
-				response_format: 'mp3'
-			})
-		});
-	} catch (error) {
-		await releaseTTSUsage(env, customer.account_id, requestID, amountMicros);
-		throw error;
-	}
-	if (!response.ok) {
-		await releaseTTSUsage(env, customer.account_id, requestID, amountMicros);
-		return json(
-			{ error: await openRouterError(response, `OpenRouter speech failed (${response.status}).`) },
-			{ status: response.status }
-		);
-	}
-
-	const generationID = response.headers.get('X-Generation-Id');
-	await settleTTSUsage(env, customer.account_id, requestID, generationID);
-	const headers = new Headers({
-		'Content-Type': response.headers.get('Content-Type') || 'audio/mpeg',
-		'Cache-Control': 'private, no-store',
-		'X-Briefly-TTS-Balance-Micros': String(reservation.balanceMicros)
-	});
-	if (generationID) headers.set('X-Generation-Id', generationID);
-	return new Response(response.body, { status: 200, headers });
-}
-
-async function fetchLibrarySnapshot(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
-	listURL.searchParams.set(
-		'q',
-		"appProperties has { key='sharedLibraryKind' and value='library-index' } and trashed=false"
-	);
-	listURL.searchParams.set('fields', 'files(id,name,mimeType)');
-	listURL.searchParams.set('pageSize', '1');
-	let response = await googleDriveRequest(env, email, listURL);
-	if (!response.ok) {
-		return json(
-			{ error: response.status === 401 ? 'Connect Google Drive first.' : 'Google Drive could not be searched.' },
-			{ status: response.status }
-		);
-	}
-	const value = await response.json();
-	const file = value.files?.[0];
-	if (!file) {
-		return json(
-			{ error: 'Google Drive does not contain the library index yet. Open the Mac app and let it synchronize.' },
-			{ status: 404 }
-		);
-	}
-	response = await googleDriveRequest(
-		env,
-		email,
-		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`
-	);
-	if (response.status === 404) {
-		return json(
-			{ error: 'The Google Drive library could not be found. Open the Mac app and let it upload again.' },
-			{ status: 404 }
-		);
-	}
-	if (!response.ok) {
-		let value;
-		try {
-			value = await response.json();
-		} catch {
-			value = {};
-		}
-		return json({ error: value.message || 'The Google Drive library could not be downloaded.' }, { status: response.status });
-	}
-	return new Response(response.body, {
-		headers: {
-			'Content-Type': 'application/json',
-			'Cache-Control': 'private, no-store'
-		}
-	});
-}
-
-function validLibraryPath(path) {
-	return (
-		typeof path === 'string' &&
-		path.length > 0 &&
-		path.length <= 1024 &&
-		(path === 'topics.md' || path.startsWith('library/') || path.startsWith('voice-briefs/')) &&
-		!path.split('/').some((component) => !component || component === '.' || component === '..')
-	);
-}
-
-async function fetchLibraryFile(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const url = new URL(request.url);
-	const path = url.searchParams.get('path');
-	const expectedHash = url.searchParams.get('hash');
-	if (!validLibraryPath(path) || !/^[a-f0-9]{64}$/.test(expectedHash || '')) {
-		return json({ error: 'Invalid library file request.' }, { status: 400 });
-	}
-
-	const pathHash = await sha256Hex(path);
-	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
-	listURL.searchParams.set(
-		'q',
-		`appProperties has { key='sharedLibraryKind' and value='workspace' } and appProperties has { key='sharedLibraryPathHash' and value='${pathHash}' } and trashed=false`
-	);
-	listURL.searchParams.set(
-		'fields',
-		'files(id,mimeType,appProperties)'
-	);
-	listURL.searchParams.set('pageSize', '1');
-	let response = await googleDriveRequest(env, email, listURL);
-	if (!response.ok) {
-		return json({ error: 'Google Drive could not be searched.' }, { status: response.status });
-	}
-	const file = (await response.json()).files?.[0];
-	if (!file || file.appProperties?.sharedLibraryContentHash !== expectedHash) {
-		return json({ error: 'The requested library file is not available.' }, { status: 404 });
-	}
-	response = await googleDriveRequest(
-		env,
-		email,
-		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`
-	);
-	if (!response.ok) {
-		return json({ error: 'The library file could not be downloaded.' }, { status: response.status });
-	}
-	return new Response(response.body, {
-		headers: {
-			'Content-Type': file.mimeType || 'text/markdown; charset=utf-8',
-			'Cache-Control': 'private, max-age=86400',
-			'X-Content-Hash': expectedHash
-		}
-	});
-}
-
-async function driveItemsByKind(env, email, kind, role) {
-	const items = [];
-	let pageToken;
-	do {
-		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set('q', [
-			`appProperties has { key='sharedLibraryKind' and value='${kind}' }`,
-			...(role ? [`appProperties has { key='sharedLibraryRole' and value='${role}' }`] : []),
-			'trashed=false'
-		].join(' and '));
-		url.searchParams.set(
-			'fields',
-			'nextPageToken,files(id,name,mimeType,appProperties)'
-		);
-		url.searchParams.set('pageSize', '1000');
-		if (pageToken) url.searchParams.set('pageToken', pageToken);
-		const response = await googleDriveRequest(env, email, url);
-		if (!response.ok) {
-			throw new Error(`Google Drive could not inspect ${kind} files (${response.status}).`);
-		}
-		const value = await response.json();
-		items.push(...(value.files ?? []));
-		pageToken = value.nextPageToken;
-	} while (pageToken);
-	return items;
-}
-
-function libraryMediaManifest(media, index) {
-	if (!Array.isArray(media) || media.length > 20_000) return null;
-	const valid = (value, expectedKind) => {
-		if (expectedKind !== 'audio' && expectedKind !== 'favicon') return false;
-		const directory = expectedKind === 'audio' ? 'audio' : 'favicons';
-		const maximumBytes = expectedKind === 'audio' ? 100_000_000 : 2_000_000;
-		return (
-			value &&
-			typeof value === 'object' &&
-			value.kind === expectedKind &&
-			typeof value.path === 'string' &&
-			value.path.startsWith(`library/${directory}/`) &&
-			!value.path.split('/').some((component) => !component || component === '.' || component === '..') &&
-			/^[a-f0-9]{64}$/.test(value.contentHash || '') &&
-			Number.isSafeInteger(value.byteCount) &&
-			value.byteCount > 0 &&
-			value.byteCount <= maximumBytes &&
-			typeof value.contentType === 'string' &&
-			value.contentType.startsWith(expectedKind === 'audio' ? 'audio/' : 'image/')
-		);
-	};
-	const signature = (value) =>
-		[value.kind, value.contentHash, value.path, value.byteCount, value.contentType].join('\n');
-	const manifest = new Set();
-	for (const item of media) {
-		if (!valid(item, item?.kind)) return null;
-		manifest.add(signature(item));
-	}
-	if (manifest.size !== media.length) return null;
-	const referenced = new Set();
-	for (const entry of index.entries) {
-		for (const [property, kind] of [['audio', 'audio'], ['favicon', 'favicon']]) {
-			const item = entry?.[property];
-			if (item === undefined) continue;
-			if (!valid(item, kind)) return null;
-			referenced.add(signature(item));
-		}
-	}
-	if (
-		referenced.size !== manifest.size ||
-		[...referenced].some((item) => !manifest.has(item))
-	) return null;
-	return new Set(media.map((item) => `${item.kind}:${item.contentHash}`));
-}
-
-async function syncLibraryMirror(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Sign in before synchronizing.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid library synchronization request.' }, { status: 400 });
-	}
-	if (
-		(value?.schemaVersion !== 1 && value?.schemaVersion !== 2) ||
-		typeof value.index !== 'object' ||
-		value.index?.schemaVersion !== 4 ||
-		!Array.isArray(value.index.files) ||
-		!Array.isArray(value.index.entries) ||
-		!Array.isArray(value.files) ||
-		value.files.length > 20_000
-	) {
-		return json({ error: 'Invalid library synchronization payload.' }, { status: 400 });
-	}
-	const files = [];
-	let totalBytes = 0;
-	for (const file of value.files) {
-		if (
-			!validLibraryPath(file?.path) ||
-			typeof file?.content !== 'string' ||
-			typeof file?.contentHash !== 'string' ||
-			!/^[a-f0-9]{64}$/.test(file.contentHash)
-		) {
-			return json({ error: 'The library contains an invalid file.' }, { status: 400 });
-		}
-		const bytes = new TextEncoder().encode(file.content);
-		totalBytes += bytes.byteLength;
-		if (
-			bytes.byteLength > 8_000_000 ||
-			totalBytes > 32_000_000 ||
-			(await sha256Hex(bytes)) !== file.contentHash
-		) {
-			return json({ error: 'The library synchronization payload is too large or invalid.' }, { status: 413 });
-		}
-		files.push({ path: file.path, contentHash: file.contentHash, bytes });
-	}
-	const indexFiles = new Map(
-		value.index.files.map((file) => [file?.path, file?.contentHash])
-	);
-	if (
-		indexFiles.size !== files.length ||
-		files.some((file) => indexFiles.get(file.path) !== file.contentHash)
-	) {
-		return json({ error: 'The library index does not match its files.' }, { status: 400 });
-	}
-	const activeMedia =
-		value.schemaVersion === 2 ? libraryMediaManifest(value.media, value.index) : new Set();
-	if (!activeMedia) {
-		return json({ error: 'The library media manifest is invalid.' }, { status: 400 });
-	}
-
-	try {
-		const rootFolderID = await ensureDriveRootFolder(env, email);
-		const [remoteFolders, remoteFiles, remoteIndexes, remoteAudio, remoteFavicons] = await Promise.all([
-			driveItemsByKind(env, email, 'folder'),
-			driveItemsByKind(env, email, 'workspace'),
-			driveItemsByKind(env, email, 'library-index'),
-			...(value.schemaVersion === 2
-				? [
-						driveItemsByKind(env, email, 'audio', 'library'),
-						driveItemsByKind(env, email, 'favicon', 'library')
-					]
-				: [Promise.resolve([]), Promise.resolve([])])
-		]);
-		const folderIDsByHash = new Map(
-			remoteFolders.flatMap((file) => {
-				const hash = file.appProperties?.sharedLibraryPathHash;
-				return /^[a-f0-9]{64}$/.test(hash || '') ? [[hash, file.id]] : [];
-			})
-		);
-		const folders = new Map();
-		for (const file of files) {
-			const components = file.path.split('/').slice(0, -1);
-			let current = '';
-			for (const component of components) {
-				current = current ? `${current}/${component}` : component;
-				const existingID = folderIDsByHash.get(await sha256Hex(current));
-				if (existingID) folders.set(current, existingID);
-			}
-		}
-		const remoteByPathHash = new Map(
-			remoteFiles.flatMap((file) => {
-				const hash = file.appProperties?.sharedLibraryPathHash;
-				return /^[a-f0-9]{64}$/.test(hash || '') ? [[hash, file]] : [];
-			})
-		);
-		const maximumMutations = 30;
-		let uploaded = 0;
-		let deleted = 0;
-		const incomplete = () =>
-			json(
-				{
-					error: 'A large library sync is still in progress.',
-					code: 'sync_incomplete',
-					changed: uploaded + deleted
-				},
-				{ status: 503, headers: { 'Retry-After': '0' } }
-			);
-		for (const file of files) {
-			const pathHash = await sha256Hex(file.path);
-			const remote = remoteByPathHash.get(pathHash);
-			remoteByPathHash.delete(pathHash);
-			if (remote?.appProperties?.sharedLibraryContentHash === file.contentHash) continue;
-			if (uploaded + deleted >= maximumMutations) return incomplete();
-			await upsertDriveFile(env, email, {
-				rootFolderID,
-				folders,
-				path: file.path,
-				bytes: file.bytes,
-				existingID: remote?.id ?? null,
-				kind: 'workspace'
-			});
-			uploaded += 1;
-		}
-		const indexBytes = new TextEncoder().encode(JSON.stringify(value.index, null, 2));
-		const indexHash = await sha256Hex(indexBytes);
-		const remoteIndex = remoteIndexes[0];
-		if (remoteIndex?.appProperties?.sharedLibraryContentHash !== indexHash) {
-			if (uploaded + deleted >= maximumMutations) return incomplete();
-			await upsertDriveFile(env, email, {
-				rootFolderID,
-				folders,
-				path: '.shared-library/index.json',
-				bytes: indexBytes,
-				existingID: remoteIndex?.id ?? null,
-				kind: 'library-index'
-			});
-			uploaded += 1;
-		}
-		for (const stale of remoteByPathHash.values()) {
-			if (uploaded + deleted >= maximumMutations) return incomplete();
-			await trashDriveFile(env, email, stale.id);
-			deleted += 1;
-		}
-		for (const stale of [...remoteAudio, ...remoteFavicons]) {
-			const kind = stale.appProperties?.sharedLibraryKind;
-			const hash = stale.appProperties?.sharedLibraryHash;
-			if (activeMedia.has(`${kind}:${hash}`)) continue;
-			if (uploaded + deleted >= maximumMutations) return incomplete();
-			await trashDriveFile(env, email, stale.id);
-			deleted += 1;
-		}
-		return json({
-			uploaded,
-			deleted,
-			changed: uploaded + deleted,
-			fileCount: files.length,
-			syncedAt: new Date().toISOString()
-		});
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'Google Drive synchronization failed.' },
-			{ status: 502 }
-		);
-	}
-}
-
-function validGoogleClientID(value) {
-	return (
-		typeof value === 'string' &&
-		value.length >= 20 &&
-		value.length <= 256 &&
-		value.endsWith('.apps.googleusercontent.com')
-	);
-}
-
-function googleOAuthConfig(env) {
-	const clientID = env.GOOGLE_DRIVE_WEB_CLIENT_ID?.trim();
-	const clientSecret = env.GOOGLE_DRIVE_WEB_CLIENT_SECRET?.trim();
-	if (!validGoogleClientID(clientID) || typeof clientSecret !== 'string' || clientSecret.length < 8) {
-		return null;
-	}
-	return { clientID, clientSecret };
 }
 
 function appleAuthConfig(env) {
@@ -1128,14 +260,27 @@ function appleAuthConfig(env) {
 	return { clientID, teamID, keyID, privateKey };
 }
 
-function cloudKitConfig(env) {
-	const containerIdentifier = String(env.CLOUDKIT_CONTAINER_ID || '').trim();
-	const apiToken = String(env.CLOUDKIT_API_TOKEN || '').trim();
-	const environment = env.CLOUDKIT_ENVIRONMENT === 'development' ? 'development' : 'production';
-	if (!/^iCloud\.[A-Za-z0-9.-]{3,255}$/.test(containerIdentifier) || apiToken.length < 20) {
+function nativeAppleAuthConfig(env) {
+	const clientID = String(env.APPLE_APP_BUNDLE_ID || 'fyi.readbriefly.BrieflyNative').trim();
+	return /^[A-Za-z0-9.-]{3,255}$/.test(clientID) ? { clientID } : null;
+}
+
+function appStoreConfig(env) {
+	const issuerID = String(env.APP_STORE_ISSUER_ID || '').trim();
+	const keyID = String(env.APP_STORE_KEY_ID || '').trim();
+	const privateKey = String(env.APP_STORE_PRIVATE_KEY || '').replaceAll('\\n', '\n').trim();
+	const bundleID = String(env.APPLE_APP_BUNDLE_ID || 'fyi.readbriefly.BrieflyNative').trim();
+	const productID = String(env.APP_STORE_PRODUCT_ID || 'fyi.readbriefly.plus.monthly').trim();
+	if (
+		!/^[0-9a-f-]{36}$/i.test(issuerID) ||
+		!/^[A-Z0-9]{10}$/.test(keyID) ||
+		!privateKey.includes('BEGIN PRIVATE KEY') ||
+		!/^[A-Za-z0-9.-]{3,255}$/.test(bundleID) ||
+		!/^[A-Za-z0-9._-]{3,255}$/.test(productID)
+	) {
 		return null;
 	}
-	return { containerIdentifier, apiToken, environment };
+	return { issuerID, keyID, privateKey, bundleID, productID };
 }
 
 function safeReturnTo(value, fallback = '/') {
@@ -1167,6 +312,17 @@ async function identityEmail(env, provider, subject, verifiedEmail) {
 }
 
 async function authenticatedRedirect(request, env, email, returnTo, provider) {
+	const { token, cookie } = await createSession(env, email);
+	void token;
+	const destination = new URL(safeReturnTo(returnTo), request.url);
+	destination.searchParams.set(provider, 'signed-in');
+	return new Response(null, {
+		status: 302,
+		headers: { Location: destination.toString(), 'Set-Cookie': cookie }
+	});
+}
+
+async function createSession(env, email) {
 	const sessionToken = randomBase64URL(32);
 	await env.DB.prepare(
 		`INSERT INTO app_sessions (token_hash, user_email, created_at, expires_at)
@@ -1179,104 +335,10 @@ async function authenticatedRedirect(request, env, email, returnTo, provider) {
 			Date.now() + sessionLifetimeMilliseconds
 		)
 		.run();
-	const destination = new URL(safeReturnTo(returnTo), request.url);
-	destination.searchParams.set(provider, 'signed-in');
-	return new Response(null, {
-		status: 302,
-		headers: {
-			Location: destination.toString(),
-			'Set-Cookie': sessionCookie(
-				sessionToken,
-				Math.floor(sessionLifetimeMilliseconds / 1000)
-			)
-		}
-	});
-}
-
-async function startGoogleLogin(request, env) {
-	const config = googleOAuthConfig(env);
-	if (!config) return json({ error: 'Google sign-in is not configured.' }, { status: 503 });
-	const state = randomBase64URL();
-	const verifier = randomBase64URL(64);
-	const now = Date.now();
-	await env.DB.batch([
-		env.DB
-			.prepare('DELETE FROM google_login_states WHERE created_at < ?')
-			.bind(now - oauthStateLifetimeMilliseconds),
-		env.DB
-			.prepare(
-				`INSERT INTO google_login_states (state, code_verifier, return_to, created_at)
-				 VALUES (?, ?, ?, ?)`
-			)
-			.bind(
-				state,
-				verifier,
-				safeReturnTo(new URL(request.url).searchParams.get('return_to')),
-				now
-			)
-	]);
-	const callbackURL = new URL('/api/auth/google/callback', request.url);
-	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-	authorizationURL.searchParams.set('client_id', config.clientID);
-	authorizationURL.searchParams.set('redirect_uri', callbackURL.toString());
-	authorizationURL.searchParams.set('response_type', 'code');
-	authorizationURL.searchParams.set('scope', 'openid email');
-	authorizationURL.searchParams.set('prompt', 'select_account');
-	authorizationURL.searchParams.set('state', state);
-	authorizationURL.searchParams.set('code_challenge', await sha256Base64URL(verifier));
-	authorizationURL.searchParams.set('code_challenge_method', 'S256');
-	return Response.redirect(authorizationURL.toString(), 302);
-}
-
-async function finishGoogleLogin(request, env) {
-	const url = new URL(request.url);
-	const state = url.searchParams.get('state');
-	const code = url.searchParams.get('code');
-	if (!state || !code) return redirectWithProviderResult(request, 'google', 'error');
-	const pending = await env.DB.prepare(
-		`SELECT code_verifier, return_to, created_at FROM google_login_states WHERE state = ?`
-	)
-		.bind(state)
-		.first();
-	if (!pending || Date.now() - pending.created_at > oauthStateLifetimeMilliseconds) {
-		return redirectWithProviderResult(request, 'google', 'expired');
-	}
-	await env.DB.prepare('DELETE FROM google_login_states WHERE state = ?').bind(state).run();
-	const config = googleOAuthConfig(env);
-	if (!config) return redirectWithProviderResult(request, 'google', 'error');
-	const callbackURL = new URL('/api/auth/google/callback', request.url);
-	const response = await fetch('https://oauth2.googleapis.com/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: config.clientID,
-			client_secret: config.clientSecret,
-			code,
-			code_verifier: pending.code_verifier,
-			grant_type: 'authorization_code',
-			redirect_uri: callbackURL.toString()
-		})
-	});
-	const value = await response.json();
-	if (!response.ok || typeof value.access_token !== 'string') {
-		return redirectWithProviderResult(request, 'google', 'error');
-	}
-	const profileResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
-		headers: { Authorization: `Bearer ${value.access_token}` }
-	});
-	const profile = await profileResponse.json();
-	const verifiedEmail =
-		profileResponse.ok &&
-		profile.email_verified === true &&
-		typeof profile.email === 'string'
-			? profile.email.trim().toLowerCase()
-			: '';
-	const email =
-		typeof profile.sub === 'string'
-			? await identityEmail(env, 'google', profile.sub, verifiedEmail)
-			: null;
-	if (!email) return redirectWithProviderResult(request, 'google', 'error');
-	return authenticatedRedirect(request, env, email, pending.return_to, 'google');
+	return {
+		token: sessionToken,
+		cookie: sessionCookie(sessionToken, Math.floor(sessionLifetimeMilliseconds / 1000))
+	};
 }
 
 function pemBytes(value) {
@@ -1298,6 +360,38 @@ async function appleClientSecret(config) {
 				exp: now + 300,
 				aud: 'https://appleid.apple.com',
 				sub: config.clientID
+			})
+		)
+	);
+	const key = await crypto.subtle.importKey(
+		'pkcs8',
+		pemBytes(config.privateKey),
+		{ name: 'ECDSA', namedCurve: 'P-256' },
+		false,
+		['sign']
+	);
+	const input = `${encodedHeader}.${encodedClaims}`;
+	const signature = await crypto.subtle.sign(
+		{ name: 'ECDSA', hash: 'SHA-256' },
+		key,
+		new TextEncoder().encode(input)
+	);
+	return `${input}.${bytesToBase64URL(new Uint8Array(signature))}`;
+}
+
+async function appStoreAuthorization(config) {
+	const now = Math.floor(Date.now() / 1000);
+	const encodedHeader = bytesToBase64URL(
+		new TextEncoder().encode(JSON.stringify({ alg: 'ES256', kid: config.keyID, typ: 'JWT' }))
+	);
+	const encodedClaims = bytesToBase64URL(
+		new TextEncoder().encode(
+			JSON.stringify({
+				iss: config.issuerID,
+				iat: now,
+				exp: now + 300,
+				aud: 'appstoreconnect-v1',
+				bid: config.bundleID
 			})
 		)
 	);
@@ -1451,196 +545,177 @@ async function finishAppleLogin(request, env) {
 	return authenticatedRedirect(request, env, email, pending.return_to, 'apple');
 }
 
-async function storedGoogleOAuthConfig(env, connection) {
-	if (!connection?.client_id || !connection.encrypted_client_secret || !connection.client_secret_iv) {
+async function finishNativeAppleLogin(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid Apple credential.' }, { status: 400 });
+	}
+	const identityToken = typeof value?.identityToken === 'string' ? value.identityToken : '';
+	const nonce = typeof value?.nonce === 'string' ? value.nonce : '';
+	const config = nativeAppleAuthConfig(env);
+	if (!config || !identityToken || identityToken.length > 8_192 || !nonce || nonce.length > 256) {
+		return json({ error: 'Invalid Apple credential.' }, { status: 400 });
+	}
+	const claims = await verifiedAppleIdentity(identityToken, config, await sha256Hex(nonce));
+	const verifiedEmail =
+		claims &&
+		(claims.email_verified === true || claims.email_verified === 'true') &&
+		typeof claims.email === 'string'
+			? claims.email.trim().toLowerCase()
+			: '';
+	const email =
+		claims && typeof claims.sub === 'string'
+			? await identityEmail(env, 'apple', claims.sub, verifiedEmail)
+			: null;
+	if (!email) return json({ error: 'Apple sign-in could not be verified.' }, { status: 401 });
+	const account = await accountPayload(env, email);
+	const session = await createSession(env, email);
+	return json(account, { headers: { 'Set-Cookie': session.cookie } });
+}
+
+function decodedJWS(value) {
+	const parts = typeof value === 'string' ? value.split('.') : [];
+	if (parts.length !== 3) return null;
+	try {
+		return decodeJWTPart(parts[1]);
+	} catch {
 		return null;
 	}
-	return {
-		clientID: connection.client_id,
-		clientSecret: await decryptCredential(
-			env,
-			connection.encrypted_client_secret,
-			connection.client_secret_iv
-		)
-	};
 }
 
-async function googleDriveStatus(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json(
-			{ configured: Boolean(googleOAuthConfig(env)), connected: false, authenticated: false },
-			{ status: 401 }
+async function appStoreTransaction(env, transactionID) {
+	const config = appStoreConfig(env);
+	if (!config) throw new Error('App Store billing is not configured.');
+	const authorization = await appStoreAuthorization(config);
+	for (const base of ['https://api.storekit.apple.com', 'https://api.storekit-sandbox.apple.com']) {
+		const response = await fetch(
+			`${base}/inApps/v1/transactions/${encodeURIComponent(transactionID)}`,
+			{ headers: { Authorization: `Bearer ${authorization}` } }
 		);
+		if (response.ok) {
+			const value = await response.json();
+			const transaction = decodedJWS(value?.signedTransactionInfo);
+			if (!transaction) throw new Error('The App Store returned an invalid transaction.');
+			return { config, transaction };
+		}
+		if (response.status !== 404) {
+			throw new Error(`The App Store could not verify the transaction (${response.status}).`);
+		}
 	}
-	const connection = await env.DB.prepare(
-		`SELECT client_id, encrypted_refresh_token, connected_at, folder_id
-		 FROM google_drive_connections
-		 WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-	const config = googleOAuthConfig(env) ?? (await storedGoogleOAuthConfig(env, connection));
-	return json({
-		configured: Boolean(config),
-		connected: Boolean(connection?.encrypted_refresh_token),
-		authenticated: true,
-		email,
-		folderID: connection?.folder_id ?? undefined,
-		connectedAt: connection?.connected_at ?? undefined,
-		callbackURL: new URL('/api/google/connect/callback', request.url).toString()
-	});
+	return null;
 }
 
-async function startGoogleDriveConnection(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Sign in before connecting Google Drive.' }, { status: 401 });
-	const config = googleOAuthConfig(env);
-	if (!config) {
-		return json(
-			{ error: 'Briefly has not been configured with Google Drive OAuth yet.' },
-			{ status: 503 }
-		);
-	}
-
-	const state = randomBase64URL();
-	const verifier = randomBase64URL(64);
-	const challenge = await sha256Base64URL(verifier);
-	const now = Date.now();
-	await env.DB.batch([
-		env.DB
-			.prepare('DELETE FROM google_oauth_states WHERE created_at < ? OR user_email = ?')
-			.bind(now - oauthStateLifetimeMilliseconds, email),
-		env.DB
-			.prepare(
-				`INSERT INTO google_oauth_states (state, user_email, code_verifier, created_at)
-				 VALUES (?, ?, ?, ?)`
-			)
-			.bind(state, email, verifier, now)
-	]);
-	const callbackURL = new URL('/api/google/connect/callback', request.url);
-	const authorizationURL = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-	authorizationURL.searchParams.set('client_id', config.clientID);
-	authorizationURL.searchParams.set('redirect_uri', callbackURL.toString());
-	authorizationURL.searchParams.set('response_type', 'code');
-	authorizationURL.searchParams.set(
-		'scope',
-		'https://www.googleapis.com/auth/drive.file'
+function validAppStoreTransaction(config, transaction) {
+	return (
+		transaction?.bundleId === config.bundleID &&
+		transaction?.productId === config.productID &&
+		transaction?.type === 'Auto-Renewable Subscription' &&
+		typeof transaction?.transactionId === 'string' &&
+		typeof transaction?.originalTransactionId === 'string' &&
+		typeof transaction?.appAccountToken === 'string' &&
+		Number.isFinite(Number(transaction?.expiresDate)) &&
+		Number.isFinite(Number(transaction?.signedDate))
 	);
-	authorizationURL.searchParams.set('access_type', 'offline');
-	authorizationURL.searchParams.set('prompt', 'consent');
-	authorizationURL.searchParams.set('state', state);
-	authorizationURL.searchParams.set('code_challenge', challenge);
-	authorizationURL.searchParams.set('code_challenge_method', 'S256');
-	return Response.redirect(authorizationURL.toString(), 302);
 }
 
-async function finishGoogleDriveConnection(request, env) {
-	const url = new URL(request.url);
-	const state = url.searchParams.get('state');
-	const code = url.searchParams.get('code');
-	if (!state || !code) {
-		return redirectWithProviderResult(request, 'google', 'error', '/account');
+async function storeAppStoreTransaction(env, config, transaction) {
+	if (!validAppStoreTransaction(config, transaction)) {
+		throw new Error('The App Store transaction does not belong to Briefly.');
 	}
-	const pending = await env.DB.prepare(
-		`SELECT user_email, code_verifier, created_at
-		 FROM google_oauth_states WHERE state = ?`
-	)
-		.bind(state)
+	const account = await env.DB.prepare('SELECT account_id FROM accounts WHERE account_id = ?')
+		.bind(transaction.appAccountToken)
 		.first();
-	if (
-		!pending ||
-		Date.now() - pending.created_at > oauthStateLifetimeMilliseconds
-	) {
-		return redirectWithProviderResult(request, 'google', 'expired', '/account');
-	}
-	const config = googleOAuthConfig(env);
-	if (!config) return redirectWithProviderResult(request, 'google', 'error', '/account');
-	const callbackURL = new URL('/api/google/connect/callback', request.url);
-	const response = await fetch('https://oauth2.googleapis.com/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: config.clientID,
-			client_secret: config.clientSecret,
-			code,
-			code_verifier: pending.code_verifier,
-			grant_type: 'authorization_code',
-			redirect_uri: callbackURL.toString()
-		})
-	});
-	const value = await response.json();
-	if (
-		!response.ok ||
-		typeof value.access_token !== 'string'
-	) {
-		return redirectWithProviderResult(request, 'google', 'error', '/account');
-	}
-	const email = pending.user_email;
-	const existing = await googleDriveConnection(env, email);
-	const refreshToken =
-		typeof value.refresh_token === 'string' && value.refresh_token
-			? value.refresh_token
-			: existing?.encrypted_refresh_token && existing?.refresh_token_iv
-				? await decryptCredential(
-						env,
-						existing.encrypted_refresh_token,
-						existing.refresh_token_iv
-					)
-				: null;
-	if (!refreshToken) {
-		return redirectWithProviderResult(request, 'google', 'error', '/account');
-	}
-	const encryptedAccess = await encryptCredential(env, value.access_token);
-	const encryptedRefresh = await encryptCredential(env, refreshToken);
-	const encryptedSecret = await encryptCredential(env, config.clientSecret);
-	const timestamp = new Date().toISOString();
-	await env.DB.batch([
-		env.DB.prepare(
-			`INSERT INTO google_drive_connections (
-				user_email, client_id, encrypted_client_secret, client_secret_iv,
-				encrypted_access_token, access_token_iv, encrypted_refresh_token,
-				refresh_token_iv, access_token_expires_at, folder_id, connected_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(user_email) DO UPDATE SET
-				client_id = excluded.client_id,
-				encrypted_client_secret = excluded.encrypted_client_secret,
-				client_secret_iv = excluded.client_secret_iv,
-				encrypted_access_token = excluded.encrypted_access_token,
-				access_token_iv = excluded.access_token_iv,
-				encrypted_refresh_token = excluded.encrypted_refresh_token,
-				refresh_token_iv = excluded.refresh_token_iv,
-				access_token_expires_at = excluded.access_token_expires_at,
-				connected_at = excluded.connected_at,
-				updated_at = excluded.updated_at`
-		).bind(
-			email,
-			config.clientID,
-			encryptedSecret.encryptedAPIKey,
-			encryptedSecret.initializationVector,
-			encryptedAccess.encryptedAPIKey,
-			encryptedAccess.initializationVector,
-			encryptedRefresh.encryptedAPIKey,
-			encryptedRefresh.initializationVector,
-			Date.now() + Number(value.expires_in || 3600) * 1000,
-			existing?.folder_id ?? null,
-			timestamp,
-			timestamp,
-		),
-		env.DB.prepare('DELETE FROM google_oauth_states WHERE state = ?').bind(state),
-		env.DB.prepare(
-				`INSERT INTO sync_preferences (user_email, provider, updated_at)
-				 VALUES (?, 'google', ?)
-				 ON CONFLICT(user_email) DO UPDATE SET
-					provider = excluded.provider, updated_at = excluded.updated_at`
-		).bind(email, Date.now())
-	]);
+	if (!account) throw new Error('The App Store transaction is not linked to a Briefly account.');
+	const now = Date.now();
+	await env.DB.prepare(
+		`INSERT INTO app_store_subscriptions (
+			original_transaction_id, account_id, transaction_id, product_id,
+			environment, expires_at, revocation_date, signed_at, created_at, updated_at
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(original_transaction_id) DO UPDATE SET
+			account_id = excluded.account_id,
+			transaction_id = excluded.transaction_id,
+			product_id = excluded.product_id,
+			environment = excluded.environment,
+			expires_at = excluded.expires_at,
+			revocation_date = excluded.revocation_date,
+			signed_at = excluded.signed_at,
+			updated_at = excluded.updated_at
+		 WHERE excluded.signed_at >= app_store_subscriptions.signed_at`
+	)
+		.bind(
+			transaction.originalTransactionId,
+			transaction.appAccountToken,
+			transaction.transactionId,
+			transaction.productId,
+			transaction.environment || 'Unknown',
+			Number(transaction.expiresDate),
+			transaction.revocationDate == null ? null : Number(transaction.revocationDate),
+			Number(transaction.signedDate),
+			now,
+			now
+		)
+		.run();
+	return account;
+}
+
+async function syncAppStoreTransaction(request, env) {
+	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const email = await authenticatedEmail(request, env);
+	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	let value;
 	try {
-		await ensureDriveRootFolder(env, email);
+		value = await request.json();
 	} catch {
-		// The account is still connected; the UI can retry folder setup.
+		return json({ error: 'Invalid App Store transaction.' }, { status: 400 });
 	}
-	return redirectWithProviderResult(request, 'google', 'connected', '/account');
+	const transactionID = typeof value?.transactionID === 'string' ? value.transactionID : '';
+	if (!/^[0-9]{8,32}$/.test(transactionID)) {
+		return json({ error: 'Invalid App Store transaction.' }, { status: 400 });
+	}
+	try {
+		const result = await appStoreTransaction(env, transactionID);
+		if (!result) return json({ error: 'App Store transaction not found.' }, { status: 404 });
+		const account = await ensureAccount(env, email);
+		if (result.transaction.appAccountToken !== account.account_id) {
+			return json({ error: 'This purchase belongs to a different Briefly account.' }, { status: 403 });
+		}
+		await storeAppStoreTransaction(env, result.config, result.transaction);
+		return json(await accountPayload(env, email));
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'App Store verification failed.' },
+			{ status: 502 }
+		);
+	}
+}
+
+async function appStoreNotification(request, env) {
+	let value;
+	try {
+		value = await request.json();
+	} catch {
+		return json({ error: 'Invalid App Store notification.' }, { status: 400 });
+	}
+	const notification = decodedJWS(value?.signedPayload);
+	const transaction = decodedJWS(notification?.data?.signedTransactionInfo);
+	const transactionID = transaction?.transactionId;
+	if (typeof transactionID !== 'string' || !/^[0-9]{8,32}$/.test(transactionID)) {
+		return json({ error: 'Invalid App Store notification.' }, { status: 400 });
+	}
+	try {
+		const result = await appStoreTransaction(env, transactionID);
+		if (result) await storeAppStoreTransaction(env, result.config, result.transaction);
+		return json({ received: true });
+	} catch (error) {
+		return json(
+			{ error: error instanceof Error ? error.message : 'App Store notification failed.' },
+			{ status: 502 }
+		);
+	}
 }
 
 function redirectWithProviderResult(request, provider, result, path = '/') {
@@ -1649,107 +724,9 @@ function redirectWithProviderResult(request, provider, result, path = '/') {
 	return Response.redirect(destination.toString(), 302);
 }
 
-async function disconnectGoogleDrive(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await env.DB.batch([
-		env.DB.prepare('DELETE FROM google_drive_connections WHERE user_email = ?').bind(email),
-		env.DB.prepare('DELETE FROM google_oauth_states WHERE user_email = ?').bind(email),
-		env.DB.prepare(
-			`DELETE FROM sync_preferences WHERE user_email = ? AND provider = 'google'`
-		).bind(email)
-	]);
-	return json({ configured: Boolean(googleOAuthConfig(env)), connected: false });
-}
-
-async function setSyncProvider(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid sync provider.' }, { status: 400 });
-	}
-	if (value?.provider !== 'google' && value?.provider !== 'icloud') {
-		return json({ error: 'Choose iCloud or Google Drive.' }, { status: 400 });
-	}
-	if (value.provider === 'google' && !(await googleDriveConnection(env, email))?.encrypted_refresh_token) {
-		return json({ error: 'Connect Google Drive first.' }, { status: 409 });
-	}
-	if (value.provider === 'icloud' && !cloudKitConfig(env)) {
-		return json({ error: 'iCloud sync is not configured.' }, { status: 503 });
-	}
-	await env.DB.prepare(
-			`INSERT INTO sync_preferences (user_email, provider, updated_at)
-			 VALUES (?, ?, ?)
-			 ON CONFLICT(user_email) DO UPDATE SET
-				provider = excluded.provider, updated_at = excluded.updated_at`
-	)
-		.bind(email, value.provider, Date.now())
-		.run();
-	return json({ provider: value.provider });
-}
-
-async function disconnectICloud(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await env.DB.prepare(
-		`DELETE FROM sync_preferences WHERE user_email = ? AND provider = 'icloud'`
-	)
-		.bind(email)
-		.run();
-	return json({ configured: Boolean(cloudKitConfig(env)), connected: false });
-}
-
-async function iCloudConfiguration(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const config = cloudKitConfig(env);
-	if (!config) return json({ error: 'iCloud sync is not configured.' }, { status: 503 });
-	return json(config);
-}
-
 async function accountStatus(request, env) {
 	const email = await authenticatedEmail(request, env);
-	const providers = {
-		google: Boolean(googleOAuthConfig(env)),
-		apple: Boolean(appleAuthConfig(env))
-	};
-	if (!email) return json({ authenticated: false, providers });
-	const [google, preference] = await Promise.all([
-		googleDriveConnection(env, email),
-		env.DB.prepare(`SELECT provider FROM sync_preferences WHERE user_email = ?`)
-			.bind(email)
-			.first()
-	]);
-	const syncProvider =
-		preference?.provider === 'google' || preference?.provider === 'icloud'
-			? preference.provider
-			: google?.encrypted_refresh_token
-				? 'google'
-				: null;
-	return json({
-		authenticated: true,
-		email,
-		isAdmin: isAdministrator(email),
-		providers,
-		syncProvider,
-		google: {
-			configured: Boolean(googleOAuthConfig(env)),
-			connected: Boolean(google?.encrypted_refresh_token),
-			selected: syncProvider === 'google',
-			folderID: google?.folder_id ?? undefined
-		},
-		icloud: {
-			configured: Boolean(cloudKitConfig(env)),
-			connected: syncProvider === 'icloud',
-			selected: syncProvider === 'icloud'
-		}
-	});
+	return json(email ? await accountPayload(env, email) : { authenticated: false });
 }
 
 async function administratorRequest(request, env) {
@@ -1826,7 +803,7 @@ async function adminUsage(request, env) {
 		const day = new Date().toISOString().slice(0, 10);
 		const month = `${day.slice(0, 7)}-01`;
 		const accounts = await env.DB.prepare(
-			'SELECT user_email, account_id FROM billing_customers ORDER BY user_email'
+			'SELECT user_email, account_id FROM accounts ORDER BY user_email'
 		).all();
 		const usage = await env.DB.prepare(
 			`SELECT account_id, service,
@@ -1902,7 +879,7 @@ async function adminUsage(request, env) {
 	if (email.length > 254 || !emailAddressPattern.test(email) || !defaults) {
 		return json({ error: 'Choose a valid account and service.' }, { status: 400 });
 	}
-	const account = await billingCustomer(env, email);
+	const account = await accountRecord(env, email);
 	if (!account) return json({ error: 'Account not found.' }, { status: 404 });
 	if (request.method === 'DELETE') {
 		await env.DB.prepare(
@@ -2106,70 +1083,50 @@ function databaseChanges(result) {
 	return Number(result?.meta?.changes ?? result?.changes ?? 0);
 }
 
-async function billingCustomer(env, email) {
-	return env.DB.prepare(
-		`SELECT c.account_id, c.stripe_customer_id,
-		        s.stripe_subscription_id, s.stripe_price_id, s.tier_key,
-		        s.status, s.status_changed_at, s.stripe_created_at,
-		        s.current_period_end, s.cancel_at_period_end
-		 FROM billing_customers c
-		 LEFT JOIN billing_subscriptions s ON s.account_id = c.account_id
-		 WHERE c.user_email = ?`
-	)
+async function accountRecord(env, email) {
+	return env.DB.prepare('SELECT account_id, user_email FROM accounts WHERE user_email = ?')
 		.bind(email)
 		.first();
 }
 
-async function ensureBillingCustomer(env, email) {
-	const existing = await billingCustomer(env, email);
+async function ensureAccount(env, email) {
+	const existing = await accountRecord(env, email);
 	if (existing) return existing;
 	const now = Date.now();
 	await env.DB.prepare(
-		`INSERT OR IGNORE INTO billing_customers (
-			user_email, account_id, stripe_customer_id, created_at, updated_at
-		) VALUES (?, ?, NULL, ?, ?)`
+		`INSERT OR IGNORE INTO accounts (user_email, account_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?)`
 	)
 		.bind(email, crypto.randomUUID(), now, now)
 		.run();
-	return billingCustomer(env, email);
+	return accountRecord(env, email);
 }
 
-async function tierClaimCount(database, tierKey, now = Date.now()) {
-	const row = await database
-		.prepare(
-			`SELECT
-				(SELECT COUNT(*) FROM billing_allocations WHERE tier_key = ?) +
-				(SELECT COUNT(*) FROM billing_checkout_reservations
-				 WHERE tier_key = ? AND expires_at > ?) AS claimed`
-		)
-		.bind(tierKey, tierKey, now)
+async function activeAppStoreSubscription(env, accountID, now = Date.now()) {
+	if (!accountID) return null;
+	return env.DB.prepare(
+		`SELECT original_transaction_id, transaction_id, product_id, expires_at
+		 FROM app_store_subscriptions
+		 WHERE account_id = ? AND expires_at > ? AND revocation_date IS NULL
+		 ORDER BY expires_at DESC LIMIT 1`
+	)
+		.bind(accountID, now)
 		.first();
-	return Number(row?.claimed ?? 0);
 }
 
-async function pricingAvailability(env) {
-	const now = Date.now();
-	if (!env.DB) {
-		return pricingTiers.map((tier, index) => publicTier(tier, 0, index === 0));
-	}
-	await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?')
-		.bind(now)
-		.run();
-	const claims = [];
-	for (const tier of pricingTiers) {
-		claims.push(await tierClaimCount(env.DB, tier.key, now));
-	}
-	const currentIndex = pricingTiers.findIndex(
-		(tier, index) => tier.capacity === null || claims[index] < tier.capacity
-	);
-	return pricingTiers.map((tier, index) =>
-		publicTier(tier, claims[index], index === currentIndex)
-	);
-}
-
-function configuredTierForRecord(record, config) {
-	if (!record?.stripe_price_id || !config) return null;
-	return config.tiers.find((tier) => tier.priceID === record.stripe_price_id) ?? null;
+async function accountPayload(env, email) {
+	const account = await ensureAccount(env, email);
+	const subscription = await activeAppStoreSubscription(env, account.account_id);
+	return {
+		authenticated: true,
+		email,
+		accountID: account.account_id,
+		isAdmin: isAdministrator(email),
+		entitled: Boolean(subscription) || (await hasComplimentaryPlusAccess(env, email)),
+		subscription: subscription
+			? { productID: subscription.product_id, expiresAt: subscription.expires_at }
+			: null
+	};
 }
 
 function normalizedEmail(email) {
@@ -2191,105 +1148,6 @@ async function hasComplimentaryPlusAccess(env, email) {
 			.bind(normalized)
 			.first()
 	);
-}
-
-function complimentaryMonthlyTTSAmountMicros(email) {
-	return complimentaryMonthlyTTSMicros.get(String(email || '').trim().toLowerCase()) ?? 0;
-}
-
-async function grantComplimentaryMonthlyTTSCredit(env, email, accountID, now = Date.now()) {
-	const amountMicros = complimentaryMonthlyTTSAmountMicros(email);
-	if (!amountMicros) return;
-	const creditMonth = new Date(now).toISOString().slice(0, 7);
-	await env.DB.batch([
-		env.DB.prepare(
-			`INSERT OR IGNORE INTO tts_accounts (
-				account_id, balance_micros, created_at, updated_at
-			) VALUES (?, 0, ?, ?)`
-		).bind(accountID, now, now),
-		env.DB.prepare(
-			`INSERT OR IGNORE INTO tts_monthly_credits (
-				account_id, credit_month, amount_micros, created_at, credited_at
-			) VALUES (?, ?, ?, ?, NULL)`
-		).bind(accountID, creditMonth, amountMicros, now),
-		env.DB.prepare(
-			`UPDATE tts_accounts
-			 SET balance_micros = balance_micros + ?, updated_at = ?
-			 WHERE account_id = ? AND EXISTS (
-				SELECT 1 FROM tts_monthly_credits
-				WHERE account_id = ? AND credit_month = ? AND credited_at IS NULL
-			 )`
-		).bind(amountMicros, now, accountID, accountID, creditMonth),
-		env.DB.prepare(
-			`UPDATE tts_monthly_credits SET credited_at = ?
-			 WHERE account_id = ? AND credit_month = ? AND credited_at IS NULL`
-		).bind(now, accountID, creditMonth)
-	]);
-}
-
-async function grantAllComplimentaryMonthlyTTSCredits(env) {
-	for (const email of complimentaryMonthlyTTSMicros.keys()) {
-		const customer = await ensureBillingCustomer(env, email);
-		await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
-	}
-}
-
-function pastDueGraceMilliseconds(env) {
-	const requestedDays = Number(env.STRIPE_PAST_DUE_GRACE_DAYS ?? 7);
-	const days = Number.isFinite(requestedDays)
-		? Math.max(0, Math.min(30, requestedDays))
-		: 7;
-	return days * 24 * 60 * 60 * 1000;
-}
-
-function subscriptionIsEntitled(record, config, env, now = Date.now()) {
-	if (!configuredTierForRecord(record, config)) return false;
-	if (entitledSubscriptionStatuses.has(record?.status)) return true;
-	if (record?.status !== 'past_due') return false;
-	const changedAt = Number(record.status_changed_at);
-	return (
-		Number.isFinite(changedAt) &&
-		changedAt > 0 &&
-		now - changedAt <= pastDueGraceMilliseconds(env)
-	);
-}
-
-function publicSubscription(record, config) {
-	if (!record?.stripe_subscription_id) return null;
-	const tier = configuredTierForRecord(record, config);
-	return {
-		status: record.status,
-		tierKey: tier?.key ?? 'unrecognized',
-		tierName: tier?.name ?? 'Unrecognized',
-		amount: tier?.amount ?? 0,
-		currency: 'eur',
-		recognized: Boolean(tier),
-		cancelAtPeriodEnd: Boolean(record.cancel_at_period_end),
-		currentPeriodEnd: record.current_period_end ?? null
-	};
-}
-
-async function billingStatus(request, env) {
-	const config = stripeConfig(env);
-	const email = await authenticatedEmail(request, env);
-	let record = null;
-	if (email && env.DB) {
-		record = await billingCustomer(env, email);
-	}
-	const subscription = publicSubscription(record, config);
-	const complimentary = await hasComplimentaryPlusAccess(env, email);
-	return json({
-		configured: Boolean(config),
-		authenticated: Boolean(email),
-		entitled: complimentary || subscriptionIsEntitled(record, config, env),
-		complimentary,
-		subscription,
-		tiers: await pricingAvailability(env)
-	});
-}
-
-function managedAIAllowanceMicros(tier) {
-	return tier.amount * 5_000;
 }
 
 async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros) {
@@ -2361,28 +1219,22 @@ async function processWithManagedAI(request, env) {
 			{ status: 401 }
 		);
 	}
-	const apiKey = managedTTSKey(env);
+	const apiKey = managedAIKey(env);
 	if (!apiKey) {
 		return json({ error: 'Briefly AI is unavailable.' }, { status: 503 });
 	}
 	const complimentary = await hasComplimentaryPlusAccess(env, email);
-	const config = stripeConfig(env);
-	let customer = await billingCustomer(env, email);
-	const tier = complimentary
-		? pricingTiers.at(-1)
-		: configuredTierForRecord(customer, config);
-	if (!complimentary && (!config || !subscriptionIsEntitled(customer, config, env))) {
+	let customer = await accountRecord(env, email);
+	if (!complimentary && !(await activeAppStoreSubscription(env, customer?.account_id))) {
 		return json(
 			{
-				error: config
-					? 'An active Briefly membership is required for Briefly AI.'
-					: 'Briefly billing is temporarily unavailable.',
-				code: config ? 'subscription_required' : 'billing_unavailable'
+				error: 'An active Briefly membership is required for Briefly AI.',
+				code: 'subscription_required'
 			},
-			{ status: config ? 402 : 503 }
+			{ status: 402 }
 		);
 	}
-	customer ??= await ensureBillingCustomer(env, email);
+	customer ??= await ensureAccount(env, email);
 
 	let value;
 	try {
@@ -2396,7 +1248,7 @@ async function processWithManagedAI(request, env) {
 		return json({ error: 'Invalid AI prompt or output format.' }, { status: 400 });
 	}
 
-	const allowanceMicros = managedAIAllowanceMicros(tier);
+	const allowanceMicros = managedAIMonthlyAllowanceMicros;
 	const usageMonth = new Date().toISOString().slice(0, 7);
 	const reservation = await reserveManagedAIUsage(
 		env,
@@ -2495,147 +1347,6 @@ async function processWithManagedAI(request, env) {
 	return json({ output, model: managedAIModel, remainingMicros });
 }
 
-function publicTTSPrices() {
-	return ttsModels.map((option) => ({
-		model: option.model,
-		retailCentsPerMillionCharacters: option.retailCentsPerMillionCharacters
-	}));
-}
-
-async function ttsStatus(request, env) {
-	const configured = Boolean(managedTTSKey(env));
-	const checkoutConfigured = configured && Boolean(ttsStripeConfig(env));
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json({
-			configured,
-			checkoutConfigured,
-			authenticated: false,
-			balanceMicros: 0,
-			topUpAmounts: ttsTopUpAmounts,
-			prices: publicTTSPrices(),
-			usage: []
-		});
-	}
-	let customer = await billingCustomer(env, email);
-	if (complimentaryMonthlyTTSAmountMicros(email)) {
-		customer ??= await ensureBillingCustomer(env, email);
-		await grantComplimentaryMonthlyTTSCredit(env, email, customer.account_id);
-	}
-	if (!customer) {
-		return json({
-			configured,
-			checkoutConfigured,
-			authenticated: true,
-			balanceMicros: 0,
-			topUpAmounts: ttsTopUpAmounts,
-			prices: publicTTSPrices(),
-			usage: []
-		});
-	}
-	const [account, usageResult] = await Promise.all([
-		env.DB.prepare('SELECT balance_micros FROM tts_accounts WHERE account_id = ?')
-			.bind(customer.account_id)
-			.first(),
-		env.DB.prepare(
-			`SELECT model, character_count, amount_micros, generation_id, updated_at
-			 FROM tts_usage
-			 WHERE account_id = ? AND status = 'settled'
-			 ORDER BY updated_at DESC
-			 LIMIT 10`
-		)
-			.bind(customer.account_id)
-			.all()
-	]);
-	const balanceMicros = Math.max(0, Number(account?.balance_micros ?? 0));
-	return json({
-		configured,
-		checkoutConfigured,
-		authenticated: true,
-		balanceMicros,
-		topUpAmounts: ttsTopUpAmounts,
-		prices: publicTTSPrices(),
-		usage: (usageResult.results ?? []).map((entry) => ({
-			model: entry.model,
-			characterCount: Number(entry.character_count),
-			amountMicros: Number(entry.amount_micros),
-			generationID: entry.generation_id ?? null,
-			createdAt: Number(entry.updated_at)
-		}))
-	});
-}
-
-async function validateTTSProduct(env, productID) {
-	const product = await stripeRetrieve(env, `/products/${encodeURIComponent(productID)}`);
-	if (product.active === false) throw new Error('The configured AI voice product is inactive.');
-}
-
-async function createTTSCheckoutSession(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const config = ttsStripeConfig(env);
-	if (!managedTTSKey(env) || !config) {
-		return json({ error: 'Briefly AI voice top-ups are not configured yet.' }, { status: 503 });
-	}
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Sign in to top up.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid top-up request.' }, { status: 400 });
-	}
-	const amountCents = Number(value.amountCents);
-	const checkoutID = typeof value.checkoutID === 'string' ? value.checkoutID : '';
-	if (!ttsTopUpAmounts.includes(amountCents) || !ttsRequestIDPattern.test(checkoutID)) {
-		return json({ error: 'Invalid top-up amount.' }, { status: 400 });
-	}
-	const customer = await ensureBillingCustomer(env, email);
-	const origin = new URL(request.url).origin;
-	const form = {
-		mode: 'payment',
-		'line_items[0][price_data][currency]': 'eur',
-		'line_items[0][price_data][unit_amount]': String(amountCents),
-		'line_items[0][price_data][tax_behavior]': 'inclusive',
-		'line_items[0][price_data][product]': config.productID,
-		'line_items[0][quantity]': '1',
-		'automatic_tax[enabled]': 'true',
-		'tax_id_collection[enabled]': 'true',
-		billing_address_collection: 'required',
-		client_reference_id: customer.account_id,
-		success_url: `${origin}/account?tts=success`,
-		cancel_url: `${origin}/account?tts=cancelled`,
-		'metadata[briefly_kind]': 'tts_credit',
-		'metadata[briefly_account_id]': customer.account_id,
-		'metadata[briefly_credit_cents]': String(amountCents),
-		'payment_intent_data[metadata][briefly_kind]': 'tts_credit',
-		'payment_intent_data[metadata][briefly_account_id]': customer.account_id
-	};
-	if (customer.stripe_customer_id) {
-		form.customer = customer.stripe_customer_id;
-		form['customer_update[address]'] = 'auto';
-		form['customer_update[name]'] = 'auto';
-	} else {
-		form.customer_email = email;
-		form.customer_creation = 'always';
-	}
-	try {
-		await validateTTSProduct(env, config.productID);
-		const session = await stripeRequest(
-			env,
-			'/checkout/sessions',
-			form,
-			`briefly-tts-checkout-v3-${checkoutID}`
-		);
-		if (typeof session.url !== 'string') throw new Error('Stripe did not return a Checkout URL.');
-		return json({ url: session.url });
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The top-up checkout could not be opened.' },
-			{ status: 502 }
-		);
-	}
-}
-
 async function paidAccessResponse(request, env) {
 	const email = await authenticatedEmail(request, env);
 	if (!email) {
@@ -2645,18 +1356,8 @@ async function paidAccessResponse(request, env) {
 		);
 	}
 	if (await hasComplimentaryPlusAccess(env, email)) return null;
-	const config = stripeConfig(env);
-	if (!config) {
-		return json(
-			{
-				error: 'Briefly billing is temporarily unavailable.',
-				code: 'billing_unavailable'
-			},
-			{ status: 503 }
-		);
-	}
-	const record = await billingCustomer(env, email);
-	if (subscriptionIsEntitled(record, config, env)) return null;
+	const record = await accountRecord(env, email);
+	if (await activeAppStoreSubscription(env, record?.account_id)) return null;
 	return json(
 		{
 			error: 'An active Briefly membership is required for synchronization and sharing.',
@@ -2687,20 +1388,19 @@ async function serviceAccount(request, env) {
 			)
 		};
 	}
-	const config = stripeConfig(env);
-	const record = await billingCustomer(env, email);
+	const record = await accountRecord(env, email);
 	if (
 		!(await hasComplimentaryPlusAccess(env, email)) &&
-		(!config || !subscriptionIsEntitled(record, config, env))
+		!(await activeAppStoreSubscription(env, record?.account_id))
 	) {
 		return {
 			response: json(
 				{ error: 'An active Briefly membership is required.', code: 'subscription_required' },
-				{ status: config ? 402 : 503 }
+				{ status: 402 }
 			)
 		};
 	}
-	return { email, customer: record ?? (await ensureBillingCustomer(env, email)) };
+	return { email, customer: record ?? (await ensureAccount(env, email)) };
 }
 
 async function accountServiceLimits(env, accountID, service) {
@@ -2875,1123 +1575,24 @@ async function cleanServiceUsage(env) {
 	]);
 }
 
-class StripeRequestError extends Error {
-	constructor(message, status, code) {
-		super(message);
-		this.name = 'StripeRequestError';
-		this.status = status;
-		this.code = code;
-	}
-}
-
-function stripeHeaders(config) {
-	return {
-		Authorization: `Bearer ${config.secretKey}`,
-		'Stripe-Version': stripeAPIVersion
-	};
-}
-
-async function stripeRequest(env, path, form, idempotencyKey) {
-	const config = stripeCredentials(env);
-	if (!config) throw new Error('Stripe payments are not configured.');
-	const headers = {
-		...stripeHeaders(config),
-		'Content-Type': 'application/x-www-form-urlencoded'
-	};
-	if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
-	const response = await fetch(`${stripeAPIBase}${path}`, {
-		method: 'POST',
-		headers,
-		body: new URLSearchParams(form)
-	});
-	const value = await response.json().catch(() => ({}));
-	if (!response.ok) {
-		const message =
-			typeof value?.error?.message === 'string'
-				? value.error.message
-				: `Stripe could not complete the billing request (${response.status}).`;
-		throw new StripeRequestError(message, response.status, value?.error?.code);
-	}
-	return value;
-}
-
-async function stripeRetrieve(env, path, query = {}) {
-	const config = stripeCredentials(env);
-	if (!config) throw new Error('Stripe payments are not configured.');
-	const url = new URL(`${stripeAPIBase}${path}`);
-	for (const [key, value] of Object.entries(query)) {
-		if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-	}
-	const response = await fetch(url, { headers: stripeHeaders(config) });
-	const value = await response.json().catch(() => ({}));
-	if (!response.ok) {
-		const message =
-			typeof value?.error?.message === 'string'
-				? value.error.message
-				: `Stripe could not complete the billing request (${response.status}).`;
-		throw new StripeRequestError(message, response.status, value?.error?.code);
-	}
-	return value;
-}
-
-async function validateStripeTier(env, tier) {
-	const config = stripeConfig(env);
-	if (!config) throw new Error('Stripe billing is not configured.');
-	const price = await stripeRetrieve(env, `/prices/${encodeURIComponent(tier.priceID)}`);
-	const productID = typeof price.product === 'string' ? price.product : price.product?.id;
-	if (
-		price.active === false ||
-		productID !== config.productID ||
-		price.currency !== 'eur' ||
-		Number(price.unit_amount) !== tier.amount ||
-		price.type !== 'recurring' ||
-		price.recurring?.interval !== 'month' ||
-		Number(price.recurring?.interval_count) !== 1
-	) {
-		throw new Error(`The configured ${tier.name} Stripe Price does not match Briefly's billing terms.`);
-	}
-}
-
-async function reservePricingTier(env, accountID) {
-	const now = Date.now();
-	await env.DB.prepare('DELETE FROM billing_checkout_reservations WHERE expires_at <= ?')
-		.bind(now)
-		.run();
-	const existing = await env.DB.prepare(
-		`SELECT reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
-		 FROM billing_checkout_reservations
-		 WHERE account_id = ? AND expires_at > ?`
-	)
-		.bind(accountID, now)
-		.first();
-	if (existing) {
-		const existingTier = tierByKey(existing.tier_key);
-		if (existingTier) {
-			return {
-				reservationID: existing.reservation_id,
-				stripeSessionID: existing.stripe_session_id,
-				tier: existingTier,
-				expiresAt: Number(existing.expires_at)
-			};
-		}
-	}
-
-	for (const tier of pricingTiers) {
-		const reservationID = crypto.randomUUID();
-		const expiresAt = now + checkoutReservationLifetimeMilliseconds;
-		let statement;
-		if (tier.capacity === null) {
-			statement = env.DB.prepare(
-				`INSERT OR IGNORE INTO billing_checkout_reservations (
-					reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
-				) VALUES (?, ?, ?, NULL, ?, ?)`
-			).bind(reservationID, accountID, tier.key, expiresAt, now);
-		} else {
-			statement = env.DB.prepare(
-				`INSERT OR IGNORE INTO billing_checkout_reservations (
-					reservation_id, account_id, tier_key, stripe_session_id, expires_at, created_at
-				)
-				SELECT ?, ?, ?, NULL, ?, ?
-				WHERE (
-					(SELECT COUNT(*) FROM billing_allocations WHERE tier_key = ?) +
-					(SELECT COUNT(*) FROM billing_checkout_reservations
-					 WHERE tier_key = ? AND expires_at > ?)
-				) < ?`
-			).bind(
-				reservationID,
-				accountID,
-				tier.key,
-				expiresAt,
-				now,
-				tier.key,
-				tier.key,
-				now,
-				tier.capacity
-			);
-		}
-		if (databaseChanges(await statement.run()) > 0) {
-			return { reservationID, stripeSessionID: null, tier, expiresAt };
-		}
-	}
-	const concurrent = await env.DB.prepare(
-		`SELECT reservation_id, tier_key, stripe_session_id, expires_at
-		 FROM billing_checkout_reservations
-		 WHERE account_id = ? AND expires_at > ?`
-	)
-		.bind(accountID, now)
-		.first();
-	const concurrentTier = tierByKey(concurrent?.tier_key);
-	if (concurrent && concurrentTier) {
-		return {
-			reservationID: concurrent.reservation_id,
-			stripeSessionID: concurrent.stripe_session_id,
-			tier: concurrentTier,
-			expiresAt: Number(concurrent.expires_at)
-		};
-	}
-	throw new Error('No Briefly membership price is currently available.');
-}
-
-async function createCheckoutSession(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json(
-			{ error: 'Sign in to continue.', code: 'authentication_required' },
-			{ status: 401 }
-		);
-	}
-	if (await hasComplimentaryPlusAccess(env, email)) {
-		return json(
-			{
-				error: 'This account already has complimentary Briefly access.',
-				code: 'access_exists'
-			},
-			{ status: 409 }
-		);
-	}
-	const config = stripeConfig(env);
-	if (!config) {
-		return json({ error: 'Briefly checkout is not configured yet.' }, { status: 503 });
-	}
-	const customer = await ensureBillingCustomer(env, email);
-	if (liveSubscriptionStatuses.has(customer?.status)) {
-		const recognized = Boolean(configuredTierForRecord(customer, config));
-		return json(
-			{
-				error: recognized
-					? 'This account already has an active Briefly membership.'
-					: 'This account has a Stripe subscription that needs support before checkout can continue.',
-				code: recognized ? 'subscription_exists' : 'billing_attention_required'
-			},
-			{ status: 409 }
-		);
-	}
-	let reservation = await reservePricingTier(env, customer.account_id);
-	if (reservation.stripeSessionID) {
-		try {
-			const existingSession = await stripeRetrieve(
-				env,
-				`/checkout/sessions/${encodeURIComponent(reservation.stripeSessionID)}`
-			);
-			if (existingSession.status === 'open' && typeof existingSession.url === 'string') {
-				return json({
-					url: existingSession.url,
-					tier: publicTier(reservation.tier, 0, true),
-					reused: true
-				});
-			}
-			if (existingSession.status === 'complete') {
-				return json(
-					{
-						error: 'Your completed checkout is still being activated.',
-						code: 'activation_pending'
-					},
-					{ status: 409 }
-				);
-			}
-		} catch (error) {
-			if (!(error instanceof StripeRequestError) || error.status !== 404) throw error;
-		}
-		await env.DB.prepare(
-			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
-		)
-			.bind(reservation.reservationID)
-			.run();
-		reservation = await reservePricingTier(env, customer.account_id);
-	}
-	const configuredTier = config.tiers.find((tier) => tier.key === reservation.tier.key);
-	const origin = new URL(request.url).origin;
-	const form = {
-		mode: 'subscription',
-		'line_items[0][price]': configuredTier.priceID,
-		'line_items[0][quantity]': '1',
-		client_reference_id: customer.account_id,
-		success_url: `${origin}/account?billing=success`,
-		cancel_url: `${origin}/account?billing=cancelled`,
-		expires_at: String(Math.floor(Date.now() / 1000) + checkoutLifetimeSeconds),
-		'metadata[briefly_reservation_id]': reservation.reservationID,
-		'metadata[briefly_tier_key]': reservation.tier.key,
-		'subscription_data[metadata][briefly_account_id]': customer.account_id,
-		'subscription_data[metadata][briefly_tier_key]': reservation.tier.key
-	};
-	if (customer.stripe_customer_id) {
-		form.customer = customer.stripe_customer_id;
-	} else {
-		form.customer_email = email;
-	}
-
-	try {
-		await validateStripeTier(env, configuredTier);
-		const session = await stripeRequest(
-			env,
-			'/checkout/sessions',
-			form,
-			`briefly-checkout-v3-${reservation.reservationID}`
-		);
-		if (typeof session.id !== 'string' || typeof session.url !== 'string') {
-			throw new Error('Stripe did not return a Checkout URL.');
-		}
-		await env.DB.prepare(
-			`UPDATE billing_checkout_reservations
-			 SET stripe_session_id = ?
-			 WHERE reservation_id = ?`
-		)
-			.bind(session.id, reservation.reservationID)
-			.run();
-		return json({
-			url: session.url,
-			tier: publicTier(reservation.tier, 0, true)
-			});
-		} catch (error) {
-			return json(
-			{
-				error:
-					error instanceof Error ? error.message : 'Briefly checkout could not be opened.'
-			},
-			{ status: 502 }
-		);
-	}
-}
-
-async function createBillingPortalSession(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const config = stripeConfig(env);
-	if (!config) {
-		return json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
-	}
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const customer = await billingCustomer(env, email);
-	if (!customer?.stripe_customer_id) {
-		return json({ error: 'This account does not have a Stripe customer yet.' }, { status: 404 });
-	}
-		try {
-			const portal = await stripeRequest(env, '/billing_portal/sessions', {
-				customer: customer.stripe_customer_id,
-				configuration: config.portalConfigurationID,
-				return_url: `${new URL(request.url).origin}/`
-			});
-		if (typeof portal.url !== 'string') throw new Error('Stripe did not return a billing URL.');
-		return json({ url: portal.url });
-	} catch (error) {
-		return json(
-			{
-				error:
-					error instanceof Error ? error.message : 'The billing portal could not be opened.'
-			},
-			{ status: 502 }
-		);
-	}
-}
-
-function secureHexEqual(left, right) {
-	if (left.length !== right.length) return false;
-	let difference = 0;
-	for (let index = 0; index < left.length; index += 1) {
-		difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-	}
-	return difference === 0;
-}
-
-async function hmacSHA256Hex(secret, value) {
-	const key = await crypto.subtle.importKey(
-		'raw',
-		new TextEncoder().encode(secret),
-		{ name: 'HMAC', hash: 'SHA-256' },
-		false,
-		['sign']
-	);
-	const signature = new Uint8Array(
-		await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value))
-	);
-	return [...signature].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function verifyStripeWebhook(rawBody, signatureHeader, secret) {
-	const components = String(signatureHeader || '')
-		.split(',')
-		.map((part) => part.trim());
-	const timestamp = components.find((part) => part.startsWith('t='))?.slice(2);
-	const signatures = components
-		.filter((part) => part.startsWith('v1='))
-		.map((part) => part.slice(3));
-	if (!/^\d+$/.test(timestamp || '') || signatures.length === 0) return false;
-	const age = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
-	if (age > stripeWebhookToleranceSeconds) return false;
-	const expected = await hmacSHA256Hex(secret, `${timestamp}.${rawBody}`);
-	return signatures.some((signature) => secureHexEqual(signature, expected));
-}
-
-function subscriptionPeriodEnd(subscription) {
-	const periods = Array.isArray(subscription?.items?.data)
-		? subscription.items.data
-				.map((item) => Number(item?.current_period_end))
-				.filter((value) => Number.isFinite(value) && value > 0)
-		: [];
-	const rootPeriod = Number(subscription?.current_period_end);
-	if (Number.isFinite(rootPeriod) && rootPeriod > 0) periods.push(rootPeriod);
-	return periods.length > 0 ? Math.max(...periods) : null;
-}
-
-async function upsertStripeSubscription(env, subscription) {
-	const accountID = subscription?.metadata?.briefly_account_id;
-	if (typeof accountID !== 'string' || !accountID) return;
-	const customerID =
-		typeof subscription.customer === 'string'
-			? subscription.customer
-			: subscription.customer?.id;
-	if (typeof customerID !== 'string' || typeof subscription.id !== 'string') return;
-	const priceID = subscription?.items?.data?.[0]?.price?.id ?? null;
-	const configuredTier = stripeConfig(env)?.tiers.find((tier) => tier.priceID === priceID);
-	const tierKey = configuredTier?.key ?? 'unrecognized';
-	const status = String(subscription.status || 'incomplete');
-	const now = Date.now();
-	const created = Number(subscription.created);
-	const stripeCreatedAt =
-		Number.isFinite(created) && created > 0 ? Math.floor(created * 1000) : now;
-	await env.DB.batch([
-		env.DB.prepare(
-			`UPDATE billing_customers
-			 SET stripe_customer_id = ?, updated_at = ?
-			 WHERE account_id = ?`
-		).bind(customerID, now, accountID),
-		env.DB.prepare(
-			`INSERT INTO billing_subscriptions (
-				account_id, stripe_subscription_id, stripe_customer_id, stripe_price_id,
-				tier_key, status, status_changed_at, stripe_created_at,
-				current_period_end, cancel_at_period_end, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(account_id) DO UPDATE SET
-				stripe_subscription_id = excluded.stripe_subscription_id,
-				stripe_customer_id = excluded.stripe_customer_id,
-				stripe_price_id = excluded.stripe_price_id,
-				tier_key = excluded.tier_key,
-				status_changed_at = CASE
-					WHEN billing_subscriptions.status = excluded.status
-					THEN billing_subscriptions.status_changed_at
-					ELSE excluded.status_changed_at
-				END,
-				status = excluded.status,
-				stripe_created_at = excluded.stripe_created_at,
-				current_period_end = excluded.current_period_end,
-				cancel_at_period_end = excluded.cancel_at_period_end,
-				updated_at = excluded.updated_at
-			WHERE excluded.stripe_created_at >= billing_subscriptions.stripe_created_at`
-		).bind(
-			accountID,
-			subscription.id,
-			customerID,
-			priceID,
-			tierKey,
-			status,
-			now,
-			stripeCreatedAt,
-			subscriptionPeriodEnd(subscription),
-			subscription.cancel_at_period_end ? 1 : 0,
-			now,
-			now
-		)
-	]);
-}
-
-async function latestStripeSubscription(env, subscription) {
-	if (typeof subscription?.id !== 'string') return null;
-	try {
-		return await stripeRetrieve(
-			env,
-			`/subscriptions/${encodeURIComponent(subscription.id)}`
-		);
-	} catch (error) {
-		if (error instanceof StripeRequestError && error.status === 404) {
-			return { ...subscription, status: 'canceled' };
-		}
-		throw error;
-	}
-}
-
-async function completeTTSCheckout(env, eventSession) {
-	if (
-		eventSession?.metadata?.briefly_kind !== 'tts_credit' ||
-		typeof eventSession?.id !== 'string'
-	) {
-		return;
-	}
-	const session = await stripeRetrieve(
-		env,
-		`/checkout/sessions/${encodeURIComponent(eventSession.id)}`
-	);
-	const accountID = session?.metadata?.briefly_account_id;
-	const customerID =
-		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
-	const paymentIntentID =
-		typeof session?.payment_intent === 'string'
-			? session.payment_intent
-			: session?.payment_intent?.id;
-	const amountCents = Number(session?.metadata?.briefly_credit_cents);
-	const automaticTax = session?.automatic_tax;
-	const taxCents =
-		automaticTax?.enabled === false
-			? 0
-			: automaticTax?.enabled === true && automaticTax?.status === 'complete'
-				? session?.total_details?.amount_tax
-				: Number.NaN;
-	if (
-		session?.mode !== 'payment' ||
-		session?.metadata?.briefly_kind !== 'tts_credit' ||
-		!['paid', 'no_payment_required'].includes(session?.payment_status) ||
-		session?.currency !== 'eur' ||
-		typeof session?.id !== 'string' ||
-		typeof accountID !== 'string' ||
-		session?.client_reference_id !== accountID ||
-		typeof customerID !== 'string' ||
-		typeof paymentIntentID !== 'string' ||
-		!ttsTopUpAmounts.includes(amountCents) ||
-		session?.amount_total !== amountCents ||
-		!Number.isSafeInteger(taxCents) ||
-		taxCents < 0 ||
-		taxCents >= amountCents
-	) {
-		return;
-	}
-	const customer = await env.DB.prepare(
-		'SELECT account_id FROM billing_customers WHERE account_id = ?'
-	)
-		.bind(accountID)
-		.first();
-	if (!customer) throw new Error('The AI voice checkout did not match a Briefly account.');
-	const now = Date.now();
-	const created = Number(session.created);
-	const createdAt = Number.isFinite(created) && created > 0 ? Math.floor(created * 1000) : now;
-	const amountMicros = (amountCents - taxCents) * 1_000_000;
-	await env.DB.batch([
-		env.DB.prepare(
-			`UPDATE billing_customers
-			 SET stripe_customer_id = COALESCE(stripe_customer_id, ?), updated_at = ?
-			 WHERE account_id = ?`
-		).bind(customerID, now, accountID),
-		env.DB.prepare(
-			`INSERT OR IGNORE INTO tts_accounts (
-				account_id, balance_micros, created_at, updated_at
-			) VALUES (?, 0, ?, ?)`
-		).bind(accountID, now, now),
-		env.DB.prepare(
-			`INSERT OR IGNORE INTO tts_topups (
-				checkout_session_id, account_id, stripe_payment_intent_id,
-				amount_micros, refunded_micros, refund_status,
-				created_at, credited_at, refunded_at
-			) VALUES (?, ?, ?, ?, 0, 'disabled', ?, NULL, NULL)`
-		).bind(session.id, accountID, paymentIntentID, amountMicros, createdAt),
-		env.DB.prepare(
-			`UPDATE tts_accounts
-			 SET balance_micros = balance_micros + ?, updated_at = ?
-			 WHERE account_id = ? AND EXISTS (
-				SELECT 1 FROM tts_topups
-				WHERE checkout_session_id = ? AND account_id = ? AND credited_at IS NULL
-			 )`
-		).bind(amountMicros, now, accountID, session.id, accountID),
-		env.DB.prepare(
-			`UPDATE tts_topups SET credited_at = ?
-			 WHERE checkout_session_id = ? AND account_id = ? AND credited_at IS NULL`
-		).bind(now, session.id, accountID)
-	]);
-}
-
-async function completeStripeCheckout(env, session) {
-	const accountID = session?.client_reference_id;
-	const reservationID = session?.metadata?.briefly_reservation_id;
-	const sessionTierKey =
-		typeof session?.metadata?.briefly_tier_key === 'string'
-			? session.metadata.briefly_tier_key
-			: null;
-	const customerID =
-		typeof session?.customer === 'string' ? session.customer : session?.customer?.id;
-	const subscriptionID =
-		typeof session?.subscription === 'string'
-			? session.subscription
-			: session?.subscription?.id;
-	if (
-		typeof accountID !== 'string' ||
-		typeof customerID !== 'string' ||
-		typeof subscriptionID !== 'string' ||
-		session?.mode !== 'subscription'
-	) {
-		return;
-	}
-	const subscription = await stripeRetrieve(
-		env,
-		`/subscriptions/${encodeURIComponent(subscriptionID)}`
-	);
-	const subscriptionCustomerID =
-		typeof subscription.customer === 'string'
-			? subscription.customer
-			: subscription.customer?.id;
-	if (
-		subscription?.metadata?.briefly_account_id !== accountID ||
-		subscriptionCustomerID !== customerID
-	) {
-		throw new Error('Stripe Checkout metadata did not match its Subscription.');
-	}
-	await upsertStripeSubscription(env, subscription);
-	const priceID = subscription?.items?.data?.[0]?.price?.id;
-	const configuredTier = stripeConfig(env)?.tiers.find((tier) => tier.priceID === priceID);
-	if (!configuredTier || configuredTier.key !== sessionTierKey) return;
-
-	const now = Date.now();
-	if (
-		typeof reservationID !== 'string' ||
-		!reservationID ||
-		!['paid', 'no_payment_required'].includes(session?.payment_status) ||
-		!entitledSubscriptionStatuses.has(subscription.status)
-	) {
-		return;
-	}
-	const reservation = await env.DB.prepare(
-		`SELECT account_id, tier_key, stripe_session_id
-		 FROM billing_checkout_reservations
-		 WHERE reservation_id = ?`
-	)
-		.bind(reservationID)
-		.first();
-	if (
-		reservation &&
-		(reservation.account_id !== accountID ||
-			reservation.tier_key !== configuredTier.key ||
-			(reservation.stripe_session_id && reservation.stripe_session_id !== session.id))
-	) {
-		throw new Error('Stripe Checkout did not match its Briefly tier reservation.');
-	}
-	const statements = [
-		env.DB.prepare(
-			`INSERT OR IGNORE INTO billing_allocations (
-				reservation_id, account_id, tier_key, allocated_at
-			) VALUES (?, ?, ?, ?)`
-		).bind(reservationID, accountID, configuredTier.key, now),
-		env.DB.prepare(
-			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
-		).bind(reservationID)
-	];
-	await env.DB.batch(statements);
-}
-
-function invoiceSubscriptionID(invoice) {
-	const legacy =
-		typeof invoice?.subscription === 'string'
-			? invoice.subscription
-			: invoice?.subscription?.id;
-	if (legacy) return legacy;
-	const modern = invoice?.parent?.subscription_details?.subscription;
-	return typeof modern === 'string' ? modern : modern?.id;
-}
-
-async function releaseCheckoutReservation(env, session) {
-	const reservationID = session?.metadata?.briefly_reservation_id;
-	if (typeof reservationID === 'string') {
-		await env.DB.prepare(
-			'DELETE FROM billing_checkout_reservations WHERE reservation_id = ?'
-		)
-			.bind(reservationID)
-			.run();
-	}
-}
-
-async function refreshStripeSubscription(env, subscription) {
-	const latest = await latestStripeSubscription(env, subscription);
-	if (latest) await upsertStripeSubscription(env, latest);
-}
-
-async function processStripeEvent(env, event) {
-	const object = event?.data?.object;
-	if (
-		event.type === 'checkout.session.completed' ||
-		event.type === 'checkout.session.async_payment_succeeded'
-	) {
-		await completeTTSCheckout(env, object);
-		await completeStripeCheckout(env, object);
-		return;
-	}
-	if (
-		event.type === 'checkout.session.expired' ||
-		event.type === 'checkout.session.async_payment_failed'
-	) {
-		await releaseCheckoutReservation(env, object);
-		return;
-	}
-	if (
-		event.type === 'customer.subscription.created' ||
-		event.type === 'customer.subscription.updated' ||
-		event.type === 'customer.subscription.deleted'
-	) {
-		await refreshStripeSubscription(env, object);
-		return;
-	}
-	if (event.type === 'invoice.paid' || event.type === 'invoice.payment_failed') {
-		const subscriptionID = invoiceSubscriptionID(object);
-		if (typeof subscriptionID === 'string') {
-			await refreshStripeSubscription(env, { id: subscriptionID });
-		}
-	}
-}
-
-async function claimStripeWebhookEvent(env, event) {
-	const now = Date.now();
-	const inserted = await env.DB.prepare(
-		`INSERT OR IGNORE INTO stripe_webhook_events (
-			event_id, event_type, status, attempts, processed_at
-		) VALUES (?, ?, 'processing', 1, ?)`
-	)
-		.bind(event.id, event.type, now)
-		.run();
-	if (databaseChanges(inserted) > 0) return 'claimed';
-	const existing = await env.DB.prepare(
-		`SELECT status, processed_at
-		 FROM stripe_webhook_events
-		 WHERE event_id = ?`
-	)
-		.bind(event.id)
-		.first();
-	if (existing?.status === 'processed') return 'processed';
-	const reclaimed = await env.DB.prepare(
-		`UPDATE stripe_webhook_events
-		 SET event_type = ?, attempts = attempts + 1, processed_at = ?
-		 WHERE event_id = ? AND status = 'processing' AND processed_at <= ?`
-	)
-		.bind(
-			event.type,
-			now,
-			event.id,
-			now - stripeWebhookClaimLifetimeMilliseconds
-		)
-		.run();
-	return databaseChanges(reclaimed) > 0 ? 'claimed' : 'processing';
-}
-
-async function stripeWebhook(request, env) {
-	const config = stripeCredentials(env);
-	if (!config) return json({ error: 'Stripe payments are not configured.' }, { status: 503 });
-	const rawBody = await request.text();
-	if (
-		!(await verifyStripeWebhook(
-			rawBody,
-			request.headers.get('Stripe-Signature'),
-			config.webhookSecret
-		))
-	) {
-		return json({ error: 'Invalid Stripe signature.' }, { status: 400 });
-	}
-	let event;
-	try {
-		event = JSON.parse(rawBody);
-	} catch {
-		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
-	}
-	if (typeof event?.id !== 'string' || typeof event?.type !== 'string') {
-		return json({ error: 'Invalid Stripe event.' }, { status: 400 });
-	}
-	const claim = await claimStripeWebhookEvent(env, event);
-	if (claim === 'processed') return json({ received: true, duplicate: true });
-	if (claim === 'processing') {
-		return json({ error: 'Stripe event is already being processed.' }, { status: 409 });
-	}
-	try {
-		await processStripeEvent(env, event);
-		await env.DB.prepare(
-			`UPDATE stripe_webhook_events
-			 SET status = 'processed', processed_at = ?
-			 WHERE event_id = ? AND status = 'processing'`
-		)
-			.bind(Date.now(), event.id)
-			.run();
-		return json({ received: true });
-	} catch (error) {
-		await env.DB.prepare(
-			`DELETE FROM stripe_webhook_events
-			 WHERE event_id = ? AND status = 'processing'`
-		)
-			.bind(event.id)
-			.run();
-		throw error;
-	}
-}
-
-async function reconcileStripeSubscriptions(env) {
-	if (!stripeConfig(env)) return;
-	let startingAfter;
-	for (let page = 0; page < 20; page += 1) {
-		const subscriptions = await stripeRetrieve(env, '/subscriptions', {
-			status: 'all',
-			limit: 100,
-			starting_after: startingAfter
-		});
-		const records = Array.isArray(subscriptions?.data) ? subscriptions.data : [];
-		for (const subscription of records) {
-			await upsertStripeSubscription(env, subscription);
-		}
-		if (!subscriptions?.has_more || records.length === 0) return;
-		startingAfter = records.at(-1)?.id;
-		if (!startingAfter) return;
-	}
-	throw new Error('Stripe subscription reconciliation exceeded its safety page limit.');
-}
-
-async function releaseStaleTTSReservations(env) {
-	const result = await env.DB.prepare(
-		`SELECT request_id, account_id, amount_micros
-		 FROM tts_usage
-		 WHERE status IN ('pending', 'reserved') AND updated_at <= ?
-		 LIMIT 100`
-	)
-		.bind(Date.now() - 60 * 60 * 1000)
-		.all();
-	for (const entry of result.results ?? []) {
-		await releaseTTSUsage(
-			env,
-			entry.account_id,
-			entry.request_id,
-			Number(entry.amount_micros)
-		);
-	}
-}
-
-async function googleDriveConnection(env, email) {
-	return env.DB.prepare(
-		`SELECT client_id, encrypted_client_secret, client_secret_iv,
-		        encrypted_access_token, access_token_iv, encrypted_refresh_token,
-		        refresh_token_iv, access_token_expires_at, folder_id
-		 FROM google_drive_connections WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-}
-
-async function googleAccessToken(env, email, forceRefresh = false) {
-	const connection = await googleDriveConnection(env, email);
-	if (!connection?.encrypted_refresh_token || !connection.refresh_token_iv) return null;
-	const shouldRefresh =
-		forceRefresh ||
-		!connection.encrypted_access_token ||
-		!connection.access_token_iv ||
-		!connection.access_token_expires_at ||
-		connection.access_token_expires_at <= Date.now() + 90_000;
-	if (!shouldRefresh) {
-		return decryptCredential(env, connection.encrypted_access_token, connection.access_token_iv);
-	}
-	const [clientSecret, refreshToken] = await Promise.all([
-		Promise.resolve(googleOAuthConfig(env)?.clientSecret).then(
-			(secret) =>
-				secret ??
-				decryptCredential(
-					env,
-					connection.encrypted_client_secret,
-					connection.client_secret_iv
-				)
-		),
-		decryptCredential(env, connection.encrypted_refresh_token, connection.refresh_token_iv)
-	]);
-	const clientID = googleOAuthConfig(env)?.clientID ?? connection.client_id;
-	const response = await fetch('https://oauth2.googleapis.com/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: clientID,
-			client_secret: clientSecret,
-			refresh_token: refreshToken,
-			grant_type: 'refresh_token'
-		})
-	});
-	const value = await response.json();
-	if (!response.ok || typeof value.access_token !== 'string') return null;
-	const encrypted = await encryptCredential(env, value.access_token);
-	await env.DB.prepare(
-		`UPDATE google_drive_connections SET
-			encrypted_access_token = ?, access_token_iv = ?,
-			access_token_expires_at = ?, updated_at = ?
-		 WHERE user_email = ?`
-	)
-		.bind(
-			encrypted.encryptedAPIKey,
-			encrypted.initializationVector,
-			Date.now() + Number(value.expires_in || 3600) * 1000,
-			new Date().toISOString(),
-			email
-		)
-		.run();
-	return value.access_token;
-}
-
-async function googleDriveRequest(env, email, url, init = {}) {
-	for (const forceRefresh of [false, true]) {
-		const token = await googleAccessToken(env, email, forceRefresh);
-		if (!token) return new Response('Google Drive is not connected.', { status: 401 });
-		const headers = new Headers(init.headers);
-		headers.set('Authorization', `Bearer ${token}`);
-		const response = await fetch(url, { ...init, headers });
-		if (response.status === 401 && !forceRefresh) continue;
-		return response;
-	}
-	return new Response('Google Drive connection expired.', { status: 401 });
-}
-
-async function findDriveMedia(env, email, media, role = 'library') {
-	const query = `appProperties has { key='sharedLibraryHash' and value='${media.hash}' } and appProperties has { key='sharedLibraryKind' and value='${media.kind}' } and appProperties has { key='sharedLibraryRole' and value='${role}' } and trashed=false`;
-	const url = new URL('https://www.googleapis.com/drive/v3/files');
-	url.searchParams.set('q', query);
-	url.searchParams.set('fields', 'files(id,name,mimeType,size)');
-	url.searchParams.set('pageSize', '1');
-	const response = await googleDriveRequest(env, email, url);
-	if (!response.ok) return { response };
-	const value = await response.json();
-	return { file: value.files?.[0] ?? null };
-}
-
-async function ensureDriveRootFolder(env, email) {
-	const connection = await googleDriveConnection(env, email);
-	if (connection?.folder_id) return connection.folder_id;
-	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
-	listURL.searchParams.set('fields', 'files(id)');
-	listURL.searchParams.set('pageSize', '1');
-	let folderID;
-	let response;
-	let value;
-	for (const query of [
-		"appProperties has { key='sharedLibraryRoot' and value='true' } and mimeType='application/vnd.google-apps.folder' and trashed=false",
-		"name='Briefly' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-		"name='Shared Library' and mimeType='application/vnd.google-apps.folder' and trashed=false",
-		"name='Shared Library Media' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-	]) {
-		listURL.searchParams.set('q', query);
-		response = await googleDriveRequest(env, email, listURL);
-		if (!response.ok) throw new Error(`Google Drive folder lookup failed (${response.status}).`);
-		value = await response.json();
-		folderID = value.files?.[0]?.id;
-		if (folderID) break;
-	}
-	if (!folderID) {
-		response = await googleDriveRequest(
-			env,
-			email,
-			'https://www.googleapis.com/drive/v3/files?fields=id',
-			{
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					name: 'Briefly',
-					mimeType: 'application/vnd.google-apps.folder',
-					appProperties: { sharedLibraryRoot: 'true' }
-				})
-			}
-		);
-		if (!response.ok) throw new Error(`Google Drive folder creation failed (${response.status}).`);
-		value = await response.json();
-		folderID = value.id;
-	}
-	await env.DB.prepare(
-		`UPDATE google_drive_connections SET folder_id = ?, updated_at = ? WHERE user_email = ?`
-	)
-		.bind(folderID, new Date().toISOString(), email)
-		.run();
-	return folderID;
-}
-
-async function ensureDriveMediaFolder(env, email, kind) {
-	const rootID = await ensureDriveRootFolder(env, email);
-	const pathHash = await sha256Hex(kind);
-	const listURL = new URL('https://www.googleapis.com/drive/v3/files');
-	listURL.searchParams.set(
-		'q',
-		`appProperties has { key='sharedLibraryKind' and value='folder' } and appProperties has { key='sharedLibraryPathHash' and value='${pathHash}' } and trashed=false`
-	);
-	listURL.searchParams.set('fields', 'files(id)');
-	listURL.searchParams.set('pageSize', '1');
-	let response = await googleDriveRequest(env, email, listURL);
-	if (!response.ok) throw new Error(`Google Drive media folder lookup failed (${response.status}).`);
-	let value = await response.json();
-	if (value.files?.[0]?.id) return value.files[0].id;
-	response = await googleDriveRequest(
-		env,
-		email,
-		'https://www.googleapis.com/drive/v3/files?fields=id',
-		{
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				name: kind,
-				mimeType: 'application/vnd.google-apps.folder',
-				parents: [rootID],
-				appProperties: {
-					sharedLibraryKind: 'folder',
-					sharedLibraryPathHash: pathHash
-				}
-			})
-		}
-	);
-	if (!response.ok) throw new Error(`Google Drive media folder creation failed (${response.status}).`);
-	value = await response.json();
-	return value.id;
-}
-
-function mediaPath(url) {
-	const match = url.pathname.match(/^\/api\/media\/(audio|favicon)\/([a-f0-9]{64})$/);
-	return match ? { kind: match[1], hash: match[2] } : null;
-}
-
-async function listDriveAudio(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const files = [];
-	let pageToken;
-	do {
-		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set(
-			'q',
-			"appProperties has { key='sharedLibraryKind' and value='audio' } and trashed=false"
-		);
-		url.searchParams.set(
-			'fields',
-			'nextPageToken,files(id,mimeType,size,appProperties)'
-		);
-		url.searchParams.set('pageSize', '1000');
-		if (pageToken) url.searchParams.set('pageToken', pageToken);
-		const response = await googleDriveRequest(env, email, url);
-		if (!response.ok) {
-			return json(
-				{ error: response.status === 401 ? 'Connect Google Drive first.' : 'Google Drive audio could not be listed.' },
-				{ status: response.status }
-			);
-		}
-		const value = await response.json();
-		for (const file of value.files ?? []) {
-			const hash = file.appProperties?.sharedLibraryHash;
-			if (!/^[a-f0-9]{64}$/.test(hash || '')) continue;
-			files.push({
-				hash,
-				byteCount: Number(file.size || 0),
-				contentType: file.mimeType || 'audio/mpeg'
-			});
-		}
-		pageToken = value.nextPageToken;
-	} while (pageToken);
-	return json({ files });
-}
-
-async function downloadDriveMedia(request, env, media) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const found = await findDriveMedia(env, email, media);
-	if (found.response) return found.response;
-	if (!found.file) return json({ error: 'Media is not stored in Google Drive.' }, { status: 404 });
-	const response = await googleDriveRequest(
-		env,
-		email,
-		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(found.file.id)}?alt=media`,
-		{
-			headers: request.headers.get('Range') ? { Range: request.headers.get('Range') } : {}
-		}
-	);
-	const headers = new Headers();
-	for (const name of ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']) {
-		const value = response.headers.get(name);
-		if (value) headers.set(name, value);
-	}
-	headers.set('Cache-Control', 'private, max-age=86400');
-	return new Response(response.body, { status: response.status, headers });
-}
-
-async function uploadDriveMedia(request, env, media) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const maximumBytes = media.kind === 'audio' ? 100_000_000 : 2_000_000;
-	const contentLength = Number(request.headers.get('Content-Length') || 0);
-	if (contentLength > maximumBytes) {
-		return json({ error: 'The media file is too large.' }, { status: 413 });
-	}
-	const existing = await findDriveMedia(env, email, media);
-	if (existing.response) return existing.response;
-	if (existing.file) return json({ id: existing.file.id, existed: true });
-	const contentType =
-		request.headers.get('Content-Type') ||
-		(media.kind === 'audio' ? 'audio/mpeg' : 'image/png');
-	if (!contentType.startsWith(media.kind === 'audio' ? 'audio/' : 'image/')) {
-		return json({ error: 'The media content type is invalid.' }, { status: 400 });
-	}
-	const bytes = await request.arrayBuffer();
-	if (!bytes.byteLength || bytes.byteLength > maximumBytes) {
-		return json({ error: 'The media file is empty or too large.' }, { status: 413 });
-	}
-	if ((await sha256Hex(bytes)) !== media.hash) {
-		return json({ error: 'The media hash does not match its content.' }, { status: 400 });
-	}
-	const customer = await ensureBillingCustomer(env, email);
-	const limits = await accountServiceLimits(env, customer.account_id, 'media');
-	if (
-		!(await consumeServiceUnits(
-			env,
-			customer.account_id,
-			'media',
-			bytes.byteLength,
-			limits
-		))
-	) {
-		return quotaResponse('This account has reached its media upload allowance.');
-	}
-	const folderID = await ensureDriveMediaFolder(env, email, media.kind);
-	const metadata = JSON.stringify({
-		name: `${media.hash}.${mediaExtension(contentType)}`,
-		parents: [folderID],
-		appProperties: {
-			sharedLibraryHash: media.hash,
-			sharedLibraryKind: media.kind,
-			sharedLibraryRole: 'library'
-		}
-	});
-	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
-	const body = new Blob([
-		`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
-		metadata,
-		`\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
-		bytes,
-		`\r\n--${boundary}--\r\n`
-	]);
-	const response = await googleDriveRequest(
-		env,
-		email,
-		'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-		{
-			method: 'POST',
-			headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-			body
-		}
-	);
-	if (!response.ok) {
-		return json({ error: `Google Drive upload failed (${response.status}).` }, { status: response.status });
-	}
-	const value = await response.json();
-	return json({ id: value.id, existed: false });
-}
-
-function mediaExtension(contentType) {
-	return {
-		'audio/aac': 'aac',
-		'audio/flac': 'flac',
-		'audio/mp4': 'm4a',
-		'audio/mpeg': 'mp3',
-		'audio/ogg': 'ogg',
-		'audio/wav': 'wav',
-		'audio/webm': 'webm',
-		'image/gif': 'gif',
-		'image/jpeg': 'jpg',
-		'image/png': 'png',
-		'image/webp': 'webp',
-		'image/x-icon': 'ico'
-	}[contentType] || 'bin';
-}
-
 const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive'];
 const shareInputVariants = [...shareVariants, 'source'];
 const maximumShareDocumentBytes = 1_000_000;
 const maximumSharePayloadBytes = 3_000_000;
 const maximumShareTextBytesPerAccount = 100_000_000;
+
+function validCaptureIdentifier(value) {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(value);
+}
+
+function wordCount(text) {
+	return text.trim() ? text.trim().split(/\s+/u).length : 0;
+}
+
+function scheduleSharingOperation(context, task) {
+	if (context?.waitUntil) context.waitUntil(task);
+	else void task;
+}
 
 function validShareToken(value) {
 	return typeof value === 'string' && /^[A-Za-z0-9_-]{32}$/.test(value);
@@ -4112,7 +1713,7 @@ async function ownerShareTextBytes(env, email, excludedToken) {
 async function shareLinkForOwner(env, email, captureID) {
 	return env.DB.prepare(
 		`SELECT token, owner_email, capture_id, generation, revision, status,
-		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		        metadata_json, source_filename, error_message, created_at, updated_at
 		 FROM share_links
 		 WHERE owner_email = ? AND capture_id = ?`
 	)
@@ -4123,7 +1724,7 @@ async function shareLinkForOwner(env, email, captureID) {
 async function shareLinkByToken(env, token) {
 	return env.DB.prepare(
 		`SELECT token, owner_email, capture_id, generation, revision, status,
-		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		        metadata_json, source_filename, error_message, created_at, updated_at
 		 FROM share_links
 		 WHERE token = ?`
 	)
@@ -4134,7 +1735,7 @@ async function shareLinkByToken(env, token) {
 async function shareLinksForOwner(env, email) {
 	return env.DB.prepare(
 		`SELECT token, owner_email, capture_id, generation, revision, status,
-		        metadata_json, source_filename, voice, error_message, created_at, updated_at
+		        metadata_json, source_filename, error_message, created_at, updated_at
 		 FROM share_links
 		 WHERE owner_email = ?
 		 ORDER BY updated_at DESC
@@ -4161,137 +1762,51 @@ function shareLinkResponse(request, record) {
 		revision: Number(record.revision ?? 1),
 		error: record.error_message ?? undefined,
 		metadata,
-		voice: record.voice,
 		updatedAt: record.updated_at
 	};
 }
 
-async function loadPersonalShareAfterDriveSync(env, email, captureID) {
-	let lastError;
-	for (let attempt = 0; attempt < 5; attempt += 1) {
-		try {
-			return await loadPersonalSharingItem(env, email, captureID, true);
-		} catch (error) {
-			lastError = error;
-			if (attempt < 4) {
-				const delay = Number(env.SHARE_PREPARE_RETRY_DELAY_MS ?? 1_500);
-				if (delay > 0) {
-					await new Promise((resolve) => setTimeout(resolve, delay));
-				}
-			}
-		}
-	}
-	throw lastError;
-}
-
 async function removeShareGeneration(env, token, generation) {
-	const audio = await env.DB.prepare(
-		`SELECT r2_key FROM share_audio_segments
-		 WHERE share_token = ? AND generation = ?`
-	)
+	await env.DB.prepare('DELETE FROM share_texts WHERE share_token = ? AND generation = ?')
 		.bind(token, generation)
-		.all();
-	if (env.SHARE_MEDIA) {
-		await Promise.all(
-			(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
-		);
-	}
-	await env.DB.batch([
-		env.DB.prepare(
-			'DELETE FROM share_audio_segments WHERE share_token = ? AND generation = ?'
-		).bind(token, generation),
-		env.DB.prepare(
-			'DELETE FROM share_texts WHERE share_token = ? AND generation = ?'
-		).bind(token, generation)
-	]);
+		.run();
 }
 
 async function removeOldShareGenerations(env, token, currentGeneration) {
-	const audio = await env.DB.prepare(
-		`SELECT DISTINCT generation, r2_key FROM share_audio_segments
-		 WHERE share_token = ? AND generation <> ?`
-	)
+	await env.DB.prepare('DELETE FROM share_texts WHERE share_token = ? AND generation <> ?')
 		.bind(token, currentGeneration)
-		.all();
-	if (env.SHARE_MEDIA) {
-		await Promise.all(
-			(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
-		);
-	}
-	await env.DB.batch([
-		env.DB.prepare(
-			'DELETE FROM share_audio_segments WHERE share_token = ? AND generation <> ?'
-		).bind(token, currentGeneration),
-		env.DB.prepare(
-			'DELETE FROM share_texts WHERE share_token = ? AND generation <> ?'
-		).bind(token, currentGeneration)
-	]);
+		.run();
 }
 
-async function prepareShareLink(
-	env,
-	email,
-	token,
-	captureID,
-	generation,
-	directSource = null
-) {
+async function prepareShareLink(env, email, token, captureID, generation, source) {
 	try {
-		const personal =
-			directSource ?? (await loadPersonalShareAfterDriveSync(env, email, captureID));
-		let documents = directSource?.documents ?? [];
-		if (!directSource) {
-			const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
-			documents = [];
-			for (const reference of personal.entry.texts ?? []) {
-				if (!shareVariants.includes(reference?.variant) || typeof reference?.path !== 'string') {
-					continue;
-				}
-				const file = personalFiles.get(reference.path);
-				if (!file) continue;
-				const markdown = new TextDecoder().decode(await downloadDriveFile(env, email, file.id));
-				documents.push({
-					variant: reference.variant,
-					markdown,
-					wordCount: wordCount(markdown)
-				});
-			}
-		}
-		if (!documents.length) throw new Error('No summary is available to share.');
-		const textBytes = validateShareDocuments(documents);
+		if (!source?.documents?.length) throw new Error('No summary is available to share.');
+		const textBytes = validateShareDocuments(source.documents);
 		if (
 			(await ownerShareTextBytes(env, email, token)) + textBytes >
 			maximumShareTextBytesPerAccount
 		) {
 			throw new Error('This account has reached its public sharing storage limit.');
 		}
-
-		for (const document of documents) {
+		for (const document of source.documents) {
 			await env.DB.prepare(
 				`INSERT OR REPLACE INTO share_texts (
 					share_token, generation, variant, markdown, word_count
-				) VALUES (?, ?, ?, ?, ?)`
+				 ) VALUES (?, ?, ?, ?, ?)`
 			)
-				.bind(
-					token,
-					generation,
-					document.variant,
-					document.markdown,
-					document.wordCount
-				)
+				.bind(token, generation, document.variant, document.markdown, document.wordCount)
 				.run();
 		}
-
 		const metadata = {
-			captureID: personal.entry.captureID ?? captureID,
-			title: personal.entry.title,
-			excerpt: personal.entry.excerpt,
-			topicIDs: personal.entry.topicIDs ?? [],
-			topicNames: personal.entry.topicNames ?? [],
-			tags: personal.entry.tags ?? [],
-			sourceURL: personal.entry.sourceURL,
-			createdAt: personal.entry.createdAt,
-			updatedAt: personal.entry.updatedAt
+			captureID: source.entry.captureID ?? captureID,
+			title: source.entry.title,
+			excerpt: source.entry.excerpt,
+			topicIDs: source.entry.topicIDs ?? [],
+			topicNames: source.entry.topicNames ?? [],
+			tags: source.entry.tags ?? [],
+			sourceURL: source.entry.sourceURL,
+			createdAt: source.entry.createdAt,
+			updatedAt: source.entry.updatedAt
 		};
 		const completed = await env.DB.prepare(
 			`UPDATE share_links
@@ -4301,26 +1816,29 @@ async function prepareShareLink(
 		)
 			.bind(
 				JSON.stringify(metadata),
-				personal.sourcePath.split('/').at(-1),
+				source.sourcePath.split('/').at(-1),
 				new Date().toISOString(),
 				token,
 				generation
 			)
 			.run();
-		if (Number(completed?.meta?.changes ?? 0) === 0) {
+		if (databaseChanges(completed) === 0) {
 			await removeShareGeneration(env, token, generation);
 			return;
 		}
 		await removeOldShareGenerations(env, token, generation);
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : 'The share link could not be prepared.';
 		await env.DB.prepare(
 			`UPDATE share_links
 			 SET status = 'failed', error_message = ?, updated_at = ?
 			 WHERE token = ? AND generation = ?`
 		)
-			.bind(message, new Date().toISOString(), token, generation)
+			.bind(
+				error instanceof Error ? error.message : 'The share link could not be prepared.',
+				new Date().toISOString(),
+				token,
+				generation
+			)
 			.run();
 	}
 }
@@ -4444,19 +1962,6 @@ async function publicContentReport(request, env, token) {
 	}
 }
 
-async function cleanShareMediaDeletions(env) {
-	if (!env.SHARE_MEDIA) return;
-	const result = await env.DB.prepare(
-		'SELECT r2_key FROM share_media_deletions ORDER BY created_at LIMIT 1000'
-	).all();
-	for (const entry of result.results ?? []) {
-		await env.SHARE_MEDIA.delete(entry.r2_key);
-		await env.DB.prepare('DELETE FROM share_media_deletions WHERE r2_key = ?')
-			.bind(entry.r2_key)
-			.run();
-	}
-}
-
 async function adminContentReports(request, env, context) {
 	const administrator = await administratorRequest(request, env);
 	if (administrator.response) return administrator.response;
@@ -4496,7 +2001,7 @@ async function adminContentReports(request, env, context) {
 	} catch {
 		return json({ error: 'Invalid report decision.' }, { status: 400 });
 	}
-	if (!ttsRequestIDPattern.test(value?.id ?? '') || !['removed', 'no-action'].includes(value?.decision)) {
+	if (!uuidPattern.test(value?.id ?? '') || !['removed', 'no-action'].includes(value?.decision)) {
 		return json({ error: 'Invalid report decision.' }, { status: 400 });
 	}
 	const report = await env.DB.prepare(
@@ -4510,13 +2015,6 @@ async function adminContentReports(request, env, context) {
 	if (value.decision === 'removed') {
 		const message = `This public share was removed after content report ${report.id}. Email hello@readbriefly.fyi to appeal.`;
 		await env.DB.batch([
-			env.DB.prepare(
-				`INSERT OR IGNORE INTO share_media_deletions (r2_key, created_at)
-				 SELECT r2_key, ? FROM share_audio_segments WHERE share_token = ?`
-			).bind(resolvedAt, report.share_token),
-			env.DB.prepare('DELETE FROM share_audio_segments WHERE share_token = ?').bind(
-				report.share_token
-			),
 			env.DB.prepare('DELETE FROM share_texts WHERE share_token = ?').bind(report.share_token),
 			env.DB.prepare(
 				`UPDATE share_links
@@ -4528,7 +2026,6 @@ async function adminContentReports(request, env, context) {
 				 SET status = 'removed', resolved_at = ? WHERE id = ?`
 			).bind(resolvedAt, report.id)
 		]);
-		scheduleSharingOperation(context, cleanShareMediaDeletions(env));
 	} else {
 		await env.DB.prepare(
 			`UPDATE content_reports
@@ -4578,15 +2075,16 @@ async function publishShareLink(request, env, context) {
 			{ status: 400 }
 		);
 	}
+	if (!source) return json({ error: 'Include the document to publish.' }, { status: 400 });
 	const token = randomBase64URL(24);
 	const generation = crypto.randomUUID();
 	const now = new Date().toISOString();
 	const published = await env.DB.prepare(
 		`INSERT INTO share_links (
 			token, owner_email, capture_id, generation, revision, status,
-			metadata_json, source_filename, voice, error_message, created_at, updated_at
+			metadata_json, source_filename, error_message, created_at, updated_at
 		)
-		SELECT ?, ?, ?, ?, 1, 'preparing', NULL, NULL, ?, NULL, ?, ?
+		SELECT ?, ?, ?, ?, 1, 'preparing', NULL, NULL, NULL, ?, ?
 		WHERE EXISTS (
 			SELECT 1 FROM share_links WHERE owner_email = ? AND capture_id = ?
 		) OR (
@@ -4604,7 +2102,6 @@ async function publishShareLink(request, env, context) {
 			email,
 			captureID,
 			generation,
-			'af_heart',
 			now,
 			now,
 			email,
@@ -4631,6 +2128,7 @@ async function publishShareLink(request, env, context) {
 }
 
 async function revokeShareLink(request, env, token, context) {
+	void context;
 	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
 	const email = await authenticatedEmail(request, env);
 	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
@@ -4638,24 +2136,10 @@ async function revokeShareLink(request, env, token, context) {
 	if (!record || record.owner_email !== email) {
 		return json({ error: 'Share link not found.' }, { status: 404 });
 	}
-	const audio = await env.DB.prepare(
-		'SELECT r2_key FROM share_audio_segments WHERE share_token = ?'
-	)
-		.bind(token)
-		.all();
 	await env.DB.batch([
-		env.DB.prepare('DELETE FROM share_audio_segments WHERE share_token = ?').bind(token),
 		env.DB.prepare('DELETE FROM share_texts WHERE share_token = ?').bind(token),
 		env.DB.prepare('DELETE FROM share_links WHERE token = ? AND owner_email = ?').bind(token, email)
 	]);
-	if (env.SHARE_MEDIA) {
-		scheduleSharingOperation(
-			context,
-			Promise.all(
-				(audio.results ?? []).map((segment) => env.SHARE_MEDIA.delete(segment.r2_key))
-			)
-		);
-	}
 	return json({ revoked: true });
 }
 
@@ -4703,1403 +2187,6 @@ async function publicShareDocument(request, env, token) {
 	});
 }
 
-function normalizedUsername(value) {
-	return typeof value === 'string' ? value.trim().toLowerCase() : '';
-}
-
-function validUsername(value) {
-	const username = normalizedUsername(value);
-	return /^[a-z0-9](?:[a-z0-9_-]{0,30}[a-z0-9])?$/.test(username);
-}
-
-function googleDriveFolderID(value) {
-	if (typeof value !== 'string') return null;
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	let candidate = trimmed;
-	try {
-		const url = new URL(trimmed);
-		const components = url.pathname.split('/').filter(Boolean);
-		const index = components.indexOf('folders');
-		if (index >= 0 && components[index + 1]) candidate = components[index + 1];
-	} catch {
-		// A bare folder ID is also valid.
-	}
-	return /^[A-Za-z0-9_-]{10,256}$/.test(candidate) ? candidate : null;
-}
-
-async function sharedFolderConnection(env, email) {
-	return env.DB.prepare(
-		`SELECT folder_id, user_id, username, connected_at
-		 FROM shared_folder_connections WHERE user_email = ?`
-	)
-		.bind(email)
-		.first();
-}
-
-async function sharedFolderStatus(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ connected: false }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	return json({
-		connected: Boolean(connection),
-		folderID: connection?.folder_id ?? undefined,
-		userID: connection?.user_id ?? undefined,
-		username: connection?.username ?? undefined,
-		connectedAt: connection?.connected_at ?? undefined
-	});
-}
-
-function validSharedPath(path) {
-	if (path === 'people.json') return true;
-	if (typeof path !== 'string' || path.length > 2048) return false;
-	const components = path.split('/');
-	if (components.length !== 2 || components.some((component) => !component)) return false;
-	if (components[0] === 'library') return components[1].endsWith('.md');
-	if (components[0] === 'shares') return components[1].endsWith('.json');
-	return false;
-}
-
-async function driveFolderMetadata(env, email, folderID) {
-	const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderID)}`);
-	url.searchParams.set('fields', 'id,name,mimeType,capabilities(canEdit)');
-	url.searchParams.set('supportsAllDrives', 'true');
-	const response = await googleDriveRequest(env, email, url);
-	if (!response.ok) {
-		throw new Error(
-			response.status === 404
-				? 'Google Drive has not granted Briefly access to that folder. Choose it with the folder picker, then try again.'
-				: `The shared Google Drive folder could not be opened (${response.status}).`
-		);
-	}
-	const folder = await response.json();
-	if (folder.mimeType !== 'application/vnd.google-apps.folder') {
-		throw new Error('The sharing location must be a Google Drive folder.');
-	}
-	if (folder.capabilities?.canEdit === false) {
-		throw new Error('You need edit access to the shared Google Drive folder.');
-	}
-	return folder;
-}
-
-async function driveFolderChildren(env, email, parentID) {
-	const files = [];
-	let pageToken;
-	do {
-		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set(
-			'q',
-			`'${String(parentID).replaceAll("'", "\\'")}' in parents and trashed=false`
-		);
-		url.searchParams.set(
-			'fields',
-			'nextPageToken,files(id,name,mimeType,parents,modifiedTime,appProperties)'
-		);
-		url.searchParams.set('pageSize', '1000');
-		url.searchParams.set('supportsAllDrives', 'true');
-		url.searchParams.set('includeItemsFromAllDrives', 'true');
-		if (pageToken) url.searchParams.set('pageToken', pageToken);
-		const response = await googleDriveRequest(env, email, url);
-		if (!response.ok) {
-			throw new Error(`The shared Google Drive folder could not be listed (${response.status}).`);
-		}
-		const value = await response.json();
-		files.push(...(value.files ?? []));
-		pageToken = value.nextPageToken;
-	} while (pageToken);
-	return files;
-}
-
-async function driveFolderTree(
-	env,
-	email,
-	rootFolderID,
-	allowedPath = validSharedPath,
-	includeHiddenFolders = false
-) {
-	const folders = new Map([['', rootFolderID]]);
-	const files = new Map();
-	const queue = [{ path: '', id: rootFolderID }];
-	for (let index = 0; index < queue.length; index += 1) {
-		const parent = queue[index];
-		for (const item of await driveFolderChildren(env, email, parent.id)) {
-			if (
-				typeof item.name !== 'string' ||
-				!item.name ||
-				item.name === '.' ||
-				item.name === '..' ||
-				item.name.includes('/')
-			) {
-				continue;
-			}
-			const path = parent.path ? `${parent.path}/${item.name}` : item.name;
-			if (item.mimeType === 'application/vnd.google-apps.folder') {
-				if (!includeHiddenFolders && path.startsWith('.')) continue;
-				folders.set(path, item.id);
-				queue.push({ path, id: item.id });
-			} else if (allowedPath(path)) {
-				files.set(path, { ...item, path });
-			}
-		}
-	}
-	return { folders, files };
-}
-
-async function shallowSharedTree(env, email, rootFolderID) {
-	const folders = new Map([['', rootFolderID]]);
-	const files = new Map();
-	const rootChildren = await driveFolderChildren(env, email, rootFolderID);
-	for (const item of rootChildren) {
-		if (item.mimeType === 'application/vnd.google-apps.folder') {
-			if (item.name === 'library' || item.name === 'shares') folders.set(item.name, item.id);
-		} else if (item.name === 'people.json') {
-			files.set('people.json', { ...item, path: 'people.json' });
-		}
-	}
-	await Promise.all(
-		['library', 'shares'].map(async (directory) => {
-			const folderID = folders.get(directory);
-			if (!folderID) return;
-			for (const item of await driveFolderChildren(env, email, folderID)) {
-				if (item.mimeType === 'application/vnd.google-apps.folder') continue;
-				const path = `${directory}/${item.name}`;
-				if (validSharedPath(path)) files.set(path, { ...item, path });
-			}
-		})
-	);
-	return { folders, files };
-}
-
-async function downloadDriveFile(env, email, fileID) {
-	const response = await googleDriveRequest(
-		env,
-		email,
-		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileID)}?alt=media&supportsAllDrives=true`
-	);
-	if (!response.ok) {
-		throw new Error(`A shared file could not be downloaded (${response.status}).`);
-	}
-	return new Uint8Array(await response.arrayBuffer());
-}
-
-function driveContentType(path) {
-	if (path.endsWith('.json')) return 'application/json';
-	if (path.endsWith('.md') || path.endsWith('.markdown')) return 'text/markdown';
-	if (path.endsWith('.mp3')) return 'audio/mpeg';
-	if (path.endsWith('.m4a')) return 'audio/mp4';
-	return 'application/octet-stream';
-}
-
-async function ensureDrivePath(
-	env,
-	email,
-	rootFolderID,
-	folders,
-	path,
-	folderKind = 'shared-folder'
-) {
-	if (!path) return rootFolderID;
-	let parentID = rootFolderID;
-	let currentPath = '';
-	for (const component of path.split('/')) {
-		currentPath = currentPath ? `${currentPath}/${component}` : component;
-		const existing = folders.get(currentPath);
-		if (existing) {
-			parentID = existing;
-			continue;
-		}
-		const url = new URL('https://www.googleapis.com/drive/v3/files');
-		url.searchParams.set('fields', 'id');
-		url.searchParams.set('supportsAllDrives', 'true');
-		const response = await googleDriveRequest(env, email, url, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				name: component,
-				mimeType: 'application/vnd.google-apps.folder',
-				parents: [parentID],
-				appProperties: {
-					sharedLibraryKind: folderKind,
-					sharedLibraryPathHash: await sha256Hex(currentPath)
-				}
-			})
-		});
-		if (!response.ok) {
-			throw new Error(`A shared Google Drive folder could not be created (${response.status}).`);
-		}
-		parentID = (await response.json()).id;
-		folders.set(currentPath, parentID);
-	}
-	return parentID;
-}
-
-async function upsertDriveFile(
-	env,
-	email,
-	{ rootFolderID, folders, path, bytes, existingID = null, kind = 'shared-workspace' }
-) {
-	const components = path.split('/');
-	const name = components.pop();
-	const parentID = existingID
-		? null
-		: await ensureDrivePath(
-				env,
-				email,
-				rootFolderID,
-				folders,
-				components.join('/'),
-				kind === 'workspace' || kind === 'library-index' ? 'folder' : 'shared-folder'
-			);
-	const contentHash = await sha256Hex(bytes);
-	const metadata = {
-		name,
-		appProperties: {
-			sharedLibraryKind: kind,
-			sharedLibraryPathHash: await sha256Hex(path),
-			sharedLibraryContentHash: contentHash
-		}
-	};
-	if (!existingID) metadata.parents = [parentID];
-	const boundary = `SharedLibrary-${crypto.randomUUID()}`;
-	const body = new Blob([
-		`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,
-		JSON.stringify(metadata),
-		`\r\n--${boundary}\r\nContent-Type: ${driveContentType(path)}\r\n\r\n`,
-		bytes,
-		`\r\n--${boundary}--\r\n`
-	]);
-	const uploadURL = existingID
-		? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existingID)}?uploadType=multipart&fields=id&supportsAllDrives=true`
-		: 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&supportsAllDrives=true';
-	const response = await googleDriveRequest(env, email, uploadURL, {
-		method: existingID ? 'PATCH' : 'POST',
-		headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
-		body
-	});
-	if (!response.ok) {
-		throw new Error(`A Google Drive file could not be saved (${response.status}).`);
-	}
-	return { id: (await response.json()).id, contentHash, byteCount: bytes.byteLength };
-}
-
-async function trashDriveFile(env, email, fileID) {
-	const response = await googleDriveRequest(
-		env,
-		email,
-		`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileID)}?supportsAllDrives=true`,
-		{
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ trashed: true })
-		}
-	);
-	if (!response.ok) {
-		throw new Error(`A shared Google Drive file could not be removed (${response.status}).`);
-	}
-}
-
-async function registerSharedProfile(env, email, rootFolderID, username, existingUserID) {
-	const tree = await shallowSharedTree(env, email, rootFolderID);
-	const peopleFile = tree.files.get('people.json');
-	let people = [];
-	if (peopleFile) {
-		try {
-			const document = JSON.parse(
-				new TextDecoder().decode(await downloadDriveFile(env, email, peopleFile.id))
-			);
-			if (document?.schemaVersion !== 2 || !Array.isArray(document.people)) {
-				throw new Error('The shared people directory is not version 2.');
-			}
-			people = document.people;
-		} catch (error) {
-			throw new Error(
-				error instanceof Error ? error.message : 'The shared people directory is invalid.'
-			);
-		}
-	}
-	const userID = validSharedUserID(existingUserID)
-		? existingUserID
-		: crypto.randomUUID().toLowerCase();
-	const taken = people.find(
-		(person) =>
-			normalizedUsername(person?.username) === username &&
-			person?.userID !== userID
-	);
-	if (taken) throw new Error(`@${username} is already used by another person.`);
-	const now = new Date().toISOString();
-	people = people
-		.filter((person) => person?.userID !== userID)
-		.concat({ userID, username, updatedAt: now })
-		.sort((a, b) => normalizedUsername(a.username).localeCompare(normalizedUsername(b.username)));
-	const document = new TextEncoder().encode(
-		JSON.stringify(
-			{ schemaVersion: 2, people, updatedAt: now },
-			null,
-			2
-		)
-	);
-	await upsertDriveFile(env, email, {
-		rootFolderID,
-		folders: tree.folders,
-		path: 'people.json',
-		bytes: document,
-		existingID: peopleFile?.id ?? null
-	});
-	await Promise.all([
-		ensureDrivePath(env, email, rootFolderID, tree.folders, 'library'),
-		ensureDrivePath(env, email, rootFolderID, tree.folders, 'shares')
-	]);
-	return userID;
-}
-
-async function connectSharedFolder(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid connection request.' }, { status: 400 });
-	}
-	const folderID = googleDriveFolderID(value?.folder);
-	const username = normalizedUsername(value?.username);
-	if (!folderID) return json({ error: 'Choose a valid Google Drive folder.' }, { status: 400 });
-	const groupFolderID = configuredGroupFolderID(env);
-	if (groupFolderID && folderID !== groupFolderID) {
-		return json(
-			{ error: 'Choose the predefined Briefly group folder.' },
-			{ status: 400 }
-		);
-	}
-	if (!validUsername(username)) {
-		return json(
-			{ error: 'Use 2–32 letters, numbers, hyphens, or underscores for the username.' },
-			{ status: 400 }
-		);
-	}
-	try {
-		const folder = await driveFolderMetadata(env, email, folderID);
-		const existingConnection = await sharedFolderConnection(env, email);
-		const userID = await registerSharedProfile(
-			env,
-			email,
-			folderID,
-			username,
-			existingConnection?.user_id
-		);
-		const now = new Date().toISOString();
-		await env.DB.prepare(
-			`INSERT INTO shared_folder_connections (
-				user_email, folder_id, user_id, username, connected_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(user_email) DO UPDATE SET
-				folder_id = excluded.folder_id,
-				user_id = excluded.user_id,
-				username = excluded.username,
-				updated_at = excluded.updated_at`
-		)
-			.bind(email, folderID, userID, username, now, now)
-			.run();
-		return json({ connected: true, folderID, folderName: folder.name, userID, username });
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The shared folder could not be connected.' },
-			{ status: 400 }
-		);
-	}
-}
-
-async function disconnectSharedFolder(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	await env.DB.batch([
-		env.DB.prepare('DELETE FROM sharing_operations WHERE user_email = ?').bind(email),
-		env.DB.prepare('DELETE FROM shared_folder_connections WHERE user_email = ?').bind(email)
-	]);
-	return json({ disconnected: true });
-}
-
-function parsedMarkdownDocument(text, fallbackTitle) {
-	let title = fallbackTitle;
-	let body = text;
-	let captureID;
-	let sourceURL;
-	let topicIDs = [];
-	let tags = [];
-	let createdAt;
-	if (text.startsWith('---')) {
-		const end = text.indexOf('\n---', 3);
-		if (end >= 0) {
-			const frontmatter = text.slice(3, end);
-			body = text.slice(end + 4).trim();
-			const scalar = (name) => {
-				const match = frontmatter.match(new RegExp(`^${name}:\\s*[\"']?([^\\n\"']+)[\"']?\\s*$`, 'm'));
-				return match?.[1]?.trim();
-			};
-			title = scalar('title') || title;
-			captureID = scalar('id');
-			sourceURL = scalar('source_url');
-			createdAt = scalar('created_at');
-			const tagLine = scalar('tags');
-			if (tagLine?.startsWith('[')) {
-				try {
-					tags = JSON.parse(tagLine.replaceAll("'", '"'));
-				} catch {
-					tags = [];
-				}
-			}
-			const topicsBlock = frontmatter.match(/^topics:\s*\n((?:\s+-[^\n]+\n?)*)/m)?.[1] ?? '';
-			topicIDs = [...topicsBlock.matchAll(/^\s+-\s*[\"']?([^\"'\n]+)[\"']?\s*$/gm)].map(
-				(match) => match[1].trim()
-			);
-		}
-	}
-	return {
-		title,
-		body,
-		captureID,
-		sourceURL,
-		topicIDs,
-		topicNames: topicIDs,
-		tags: Array.isArray(tags) ? tags.filter((tag) => typeof tag === 'string') : [],
-		createdAt,
-		excerpt: body.replace(/\s+/g, ' ').trim().slice(0, 260)
-	};
-}
-
-function validCaptureIdentifier(value) {
-	return (
-		typeof value === 'string' &&
-		value.length >= 1 &&
-		value.length <= 256 &&
-		/^[a-zA-Z0-9:_-]+$/.test(value)
-	);
-}
-
-function validSharedUserID(value) {
-	return (
-		typeof value === 'string' &&
-		value.length >= 1 &&
-		value.length <= 128 &&
-		/^[a-zA-Z0-9_-]+$/.test(value)
-	);
-}
-
-async function loadSharedPeople(env, email, tree) {
-	const file = tree.files.get('people.json');
-	if (!file) return [];
-	let document;
-	try {
-		document = JSON.parse(
-			new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
-		);
-	} catch {
-		throw new Error('The shared people directory is invalid.');
-	}
-	if (document?.schemaVersion !== 2 || !Array.isArray(document.people)) {
-		throw new Error('The shared people directory is not version 2.');
-	}
-	const people = document.people
-		.filter(
-			(profile) =>
-				validSharedUserID(profile?.userID) &&
-				validUsername(profile?.username)
-		)
-		.map((profile) => ({
-			userID: profile.userID,
-			username: normalizedUsername(profile.username)
-		}));
-	return [...new Map(people.map((person) => [person.userID, person])).values()].sort(
-		(a, b) => a.username.localeCompare(b.username)
-	);
-}
-
-async function loadPersonalSharingItem(env, email, captureID, includeFiles = false) {
-	const indexFile = await driveFileByKind(env, email, 'library-index');
-	if (!indexFile) {
-		throw new Error('Your personal library has not synchronized to Google Drive yet.');
-	}
-	let index;
-	try {
-		index = JSON.parse(
-			new TextDecoder().decode(await downloadDriveFile(env, email, indexFile.id))
-		);
-	} catch {
-		throw new Error('The personal library index in Google Drive is invalid.');
-	}
-	const entry = Array.isArray(index?.entries)
-		? index.entries.find(
-				(candidate) =>
-					candidate?.origin === 'personal' &&
-					(candidate.captureID === captureID || candidate.id === captureID)
-			)
-		: null;
-	if (!entry) throw new Error('This document is no longer in your personal library.');
-	const sourceReference = Array.isArray(entry.texts)
-		? entry.texts.find(
-				(text) =>
-					text?.variant === 'source' &&
-					typeof text.path === 'string' &&
-					/^library\/[^/]+$/.test(text.path)
-			)
-		: null;
-	if (!sourceReference) {
-		throw new Error('This document has no synchronized source file to share.');
-	}
-	if (!includeFiles) return { entry, sourcePath: sourceReference.path, files: [] };
-	const personalRootID = await ensureDriveRootFolder(env, email);
-	const tree = await driveFolderTree(
-		env,
-		email,
-		personalRootID,
-		personalWorkspacePath,
-		true
-	);
-	const paths = [
-		...new Set(
-			entry.texts
-				.map((text) => text?.path)
-				.filter((path) => typeof path === 'string' && personalWorkspacePath(path))
-		)
-	];
-	const files = paths
-		.map((path) => ({ path, file: tree.files.get(path) }))
-		.filter((item) => item.file);
-	if (!files.some((item) => item.path === sourceReference.path)) {
-		throw new Error('The source file has not synchronized to Google Drive yet.');
-	}
-	return { entry, sourcePath: sourceReference.path, files };
-}
-
-async function sharedItemID(captureID) {
-	if (validSharedUserID(captureID)) return captureID.toLowerCase();
-	return (await sha256Hex(captureID)).slice(0, 32);
-}
-
-async function sharingReferenceForItem(env, email, tree, itemID) {
-	const file = tree.files.get(`shares/${itemID}.json`);
-	if (!file) return null;
-	try {
-		const reference = JSON.parse(
-			new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
-		);
-		return reference?.schemaVersion === 2 &&
-			reference.id === itemID &&
-			reference.itemID === itemID &&
-			reference.contentPath === `library/${itemID}.source.md` &&
-			Array.isArray(reference.sharedWithIDs)
-			? reference
-			: null;
-	} catch {
-		throw new Error('The sharing record for this document is invalid.');
-	}
-}
-
-async function sharedItemContext(env, email, connection, captureID, includePersonalFiles = false) {
-	const itemID = await sharedItemID(captureID);
-	const [personal, tree] = await Promise.all([
-		loadPersonalSharingItem(env, email, captureID, includePersonalFiles),
-		shallowSharedTree(env, email, connection.folder_id)
-	]);
-	const [people, reference] = await Promise.all([
-		loadSharedPeople(env, email, tree),
-		sharingReferenceForItem(env, email, tree, itemID)
-	]);
-	return { itemID, personal, tree, people, reference };
-}
-
-function sharedCompanionPaths(itemID) {
-	return [
-		`library/${itemID}.source.md`,
-		`library/${itemID}.brief.md`,
-		`library/${itemID}.concise.md`,
-		`library/${itemID}.detailed.md`,
-		`library/${itemID}.comprehensive.md`
-	];
-}
-
-async function sharingOperation(env, email, captureID) {
-	return env.DB.prepare(
-		`SELECT capture_id, recipient_ids, generation, status, attempt_count, last_error, updated_at
-		 FROM sharing_operations
-		 WHERE user_email = ? AND capture_id = ?`
-	)
-		.bind(email, captureID)
-		.first();
-}
-
-function sharingOperationRecipientIDs(operation) {
-	try {
-		const values = JSON.parse(operation?.recipient_ids ?? '[]');
-		return Array.isArray(values) ? values.filter(validSharedUserID) : [];
-	} catch {
-		return [];
-	}
-}
-
-async function enqueueSharingOperation(env, email, captureID, recipientIDs) {
-	const now = new Date().toISOString();
-	const generation = crypto.randomUUID();
-	await env.DB.prepare(
-		`INSERT INTO sharing_operations (
-			user_email, capture_id, recipient_ids, generation, status,
-			attempt_count, last_error, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?)
-		ON CONFLICT(user_email, capture_id) DO UPDATE SET
-			recipient_ids = excluded.recipient_ids,
-			generation = excluded.generation,
-			status = CASE
-				WHEN sharing_operations.status = 'syncing' THEN 'syncing'
-				ELSE 'queued'
-			END,
-			attempt_count = 0,
-			last_error = NULL,
-			updated_at = excluded.updated_at`
-	)
-		.bind(email, captureID, JSON.stringify(recipientIDs), generation, now, now)
-		.run();
-	return sharingOperation(env, email, captureID);
-}
-
-function scheduleSharingOperation(context, task) {
-	if (context && typeof context.waitUntil === 'function') {
-		context.waitUntil(task);
-		return;
-	}
-	void task.catch(() => {});
-}
-
-async function performSharedItemUpdate(env, email, captureID, requestedIDs) {
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) throw new Error('Connect the shared folder first.');
-	const { itemID, personal, tree, people, reference: existing } = await sharedItemContext(
-		env,
-		email,
-		connection,
-		captureID,
-		true
-	);
-	const peopleByID = new Map(people.map((person) => [person.userID, person]));
-	const recipients = requestedIDs
-		.filter((id) => id !== connection.user_id)
-		.map((id) => peopleByID.get(id));
-	if (recipients.some((person) => !person)) {
-		throw new Error('One or more people are no longer available in the shared folder.');
-	}
-	recipients.sort((a, b) => a.username.localeCompare(b.username));
-	if (existing && existing.sharedByID !== connection.user_id) {
-		throw new Error('This shared item is owned by another person.');
-	}
-	const now = new Date().toISOString();
-	const referencePath = `shares/${itemID}.json`;
-	const companionPaths = sharedCompanionPaths(itemID);
-	if (recipients.length === 0) {
-		await Promise.all(
-			[referencePath, ...companionPaths]
-				.map((path) => tree.files.get(path))
-				.filter(Boolean)
-				.map((file) => trashDriveFile(env, email, file.id))
-		);
-		return {
-			shared: false,
-			recipientIDs: [],
-			people: people.filter((person) => person.userID !== connection.user_id)
-		};
-	}
-
-	const personalFiles = new Map(personal.files.map((item) => [item.path, item.file]));
-	const desired = [];
-	for (const text of personal.entry.texts ?? []) {
-		if (
-			!['source', 'brief', 'concise', 'detailed', 'comprehensive'].includes(text?.variant) ||
-			typeof text?.path !== 'string'
-		) {
-			continue;
-		}
-		const file = personalFiles.get(text.path);
-		if (!file) continue;
-		desired.push({
-			path: `library/${itemID}.${text.variant}.md`,
-			file
-		});
-	}
-	if (!desired.some((item) => item.path === `library/${itemID}.source.md`)) {
-		throw new Error('The source file has not synchronized to Google Drive yet.');
-	}
-	const desiredPaths = new Set(desired.map((item) => item.path));
-	await Promise.all(
-		companionPaths
-			.filter((path) => !desiredPaths.has(path))
-			.map((path) => tree.files.get(path))
-			.filter(Boolean)
-			.map((file) => trashDriveFile(env, email, file.id))
-	);
-	await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'library');
-	await ensureDrivePath(env, email, connection.folder_id, tree.folders, 'shares');
-	for (const item of desired) {
-		const bytes = await downloadDriveFile(env, email, item.file.id);
-		await upsertDriveFile(env, email, {
-			rootFolderID: connection.folder_id,
-			folders: tree.folders,
-			path: item.path,
-			bytes,
-			existingID: tree.files.get(item.path)?.id ?? null
-		});
-	}
-
-	const sharedReference = {
-		schemaVersion: 2,
-		id: itemID,
-		itemID,
-		contentPath: `library/${itemID}.source.md`,
-		sourceFilename: personal.sourcePath.split('/').at(-1),
-		sharedByID: connection.user_id,
-		sharedWithIDs: recipients.map((person) => person.userID),
-		revision: (existing?.revision ?? 0) + 1,
-		createdAt: existing?.createdAt ?? now,
-		updatedAt: now
-	};
-	const referenceBytes = new TextEncoder().encode(JSON.stringify(sharedReference, null, 2));
-	await upsertDriveFile(env, email, {
-		rootFolderID: connection.folder_id,
-		folders: tree.folders,
-		path: referencePath,
-		bytes: referenceBytes,
-		existingID: tree.files.get(referencePath)?.id ?? null
-	});
-	return {
-		shared: true,
-		referenceID: itemID,
-		recipientIDs: recipients.map((person) => person.userID),
-		people: people.filter((person) => person.userID !== connection.user_id)
-	};
-}
-
-async function processSharingOperation(env, email, captureID) {
-	for (let iteration = 0; iteration < 4; iteration += 1) {
-		const operation = await sharingOperation(env, email, captureID);
-		if (!operation || operation.status === 'failed' || operation.status === 'syncing') return;
-		const generation = operation.generation;
-		const startedAt = new Date().toISOString();
-		const claim = await env.DB.prepare(
-			`UPDATE sharing_operations
-			 SET status = 'syncing', attempt_count = attempt_count + 1, updated_at = ?
-			 WHERE user_email = ? AND capture_id = ? AND generation = ? AND status = 'queued'`
-		)
-			.bind(startedAt, email, captureID, generation)
-			.run();
-		if (Number(claim?.meta?.changes ?? 0) === 0) return;
-
-		try {
-			await performSharedItemUpdate(
-				env,
-				email,
-				captureID,
-				sharingOperationRecipientIDs(operation)
-			);
-			const completed = await env.DB.prepare(
-				`DELETE FROM sharing_operations
-				 WHERE user_email = ? AND capture_id = ? AND generation = ?`
-			)
-				.bind(email, captureID, generation)
-				.run();
-			if (Number(completed?.meta?.changes ?? 0) > 0) return;
-			await env.DB.prepare(
-				`UPDATE sharing_operations
-				 SET status = 'queued', updated_at = ?
-				 WHERE user_email = ? AND capture_id = ? AND status = 'syncing'`
-			)
-				.bind(new Date().toISOString(), email, captureID)
-				.run();
-		} catch (error) {
-			const message =
-				error instanceof Error ? error.message : 'The document could not be shared.';
-			const failed = await env.DB.prepare(
-				`UPDATE sharing_operations
-				 SET status = 'failed', last_error = ?, updated_at = ?
-				 WHERE user_email = ? AND capture_id = ? AND generation = ?`
-			)
-				.bind(message, new Date().toISOString(), email, captureID, generation)
-				.run();
-			if (Number(failed?.meta?.changes ?? 0) > 0) return;
-			await env.DB.prepare(
-				`UPDATE sharing_operations
-				 SET status = 'queued', updated_at = ?
-				 WHERE user_email = ? AND capture_id = ? AND status = 'syncing'`
-			)
-				.bind(new Date().toISOString(), email, captureID)
-				.run();
-		}
-	}
-}
-
-async function resumeSharingOperation(env, email, captureID, operation, context) {
-	let resumable = operation;
-	if (
-		resumable?.status === 'syncing' &&
-		Date.now() - Date.parse(resumable.updated_at ?? '') > 2 * 60 * 1000
-	) {
-		await env.DB.prepare(
-			`UPDATE sharing_operations
-			 SET status = 'queued', updated_at = ?
-			 WHERE user_email = ? AND capture_id = ? AND generation = ? AND status = 'syncing'`
-		)
-			.bind(new Date().toISOString(), email, captureID, resumable.generation)
-			.run();
-		resumable = await sharingOperation(env, email, captureID);
-	}
-	if (resumable?.status === 'queued') {
-		scheduleSharingOperation(context, processSharingOperation(env, email, captureID));
-	}
-	return resumable;
-}
-
-async function sharedItemStatus(request, env, context) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
-	const captureID = new URL(request.url).searchParams.get('captureID');
-	if (!validCaptureIdentifier(captureID)) {
-		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
-	}
-	const pending = await resumeSharingOperation(
-		env,
-		email,
-		captureID,
-		await sharingOperation(env, email, captureID),
-		context
-	);
-	try {
-		const itemContext = await sharedItemContext(env, email, connection, captureID);
-		const pendingRecipientIDs = pending
-			? sharingOperationRecipientIDs(pending)
-			: null;
-		return json({
-			shared: pending ? pendingRecipientIDs.length > 0 : Boolean(itemContext.reference),
-			referenceID: itemContext.reference?.id,
-			recipientIDs: pendingRecipientIDs ?? itemContext.reference?.sharedWithIDs ?? [],
-			people: itemContext.people.filter((person) => person.userID !== connection.user_id),
-			operationStatus: pending?.status,
-			operationError: pending?.last_error ?? undefined
-		});
-	} catch (error) {
-		if (pending) {
-			const recipientIDs = sharingOperationRecipientIDs(pending);
-			return json({
-				shared: recipientIDs.length > 0,
-				recipientIDs,
-				people: [],
-				operationStatus: pending.status,
-				operationError:
-					pending.last_error ??
-					(error instanceof Error ? error.message : 'Sharing details could not be refreshed.')
-			});
-		}
-		return json(
-			{ error: error instanceof Error ? error.message : 'Sharing details could not be loaded.' },
-			{ status: 400 }
-		);
-	}
-}
-
-async function sharedOperationStatus(request, env, context) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const captureID = new URL(request.url).searchParams.get('captureID');
-	if (!validCaptureIdentifier(captureID)) {
-		return json({ error: 'Choose a valid personal library document.' }, { status: 400 });
-	}
-	const operation = await resumeSharingOperation(
-		env,
-		email,
-		captureID,
-		await sharingOperation(env, email, captureID),
-		context
-	);
-	if (!operation) return json({ status: 'complete' });
-	return json({
-		status: operation.status,
-		error: operation.last_error ?? undefined
-	});
-}
-
-async function updateSharedItem(request, env, context) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) return json({ error: 'Connect the shared folder first.' }, { status: 409 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
-		return json({ error: 'Invalid sharing request.' }, { status: 400 });
-	}
-	const captureID = value?.captureID;
-	if (!validCaptureIdentifier(captureID) || !Array.isArray(value?.recipientIDs)) {
-		return json({ error: 'Choose a valid document and recipients.' }, { status: 400 });
-	}
-	const requestedIDs = [...new Set(value.recipientIDs)];
-	if (requestedIDs.length > 100 || requestedIDs.some((id) => !validSharedUserID(id))) {
-		return json({ error: 'One or more sharing recipients are invalid.' }, { status: 400 });
-	}
-	const recipientIDs = requestedIDs.filter((id) => id !== connection.user_id);
-	const operation = await enqueueSharingOperation(env, email, captureID, recipientIDs);
-	scheduleSharingOperation(context, processSharingOperation(env, email, captureID));
-	return json(
-		{
-			shared: recipientIDs.length > 0,
-			referenceID: recipientIDs.length > 0 ? await sharedItemID(captureID) : undefined,
-			recipientIDs,
-			people: [],
-			operationStatus: operation?.status === 'syncing' ? 'syncing' : 'queued'
-		},
-		{ status: 202 }
-	);
-}
-
-async function loadSharedInboxProjection(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) {
-		return json({ schemaVersion: 4, generatedAt: new Date().toISOString(), files: [], entries: [] });
-	}
-	try {
-		const [tree, inboxContext] = await Promise.all([
-			shallowSharedTree(env, email, connection.folder_id),
-			loadPersonalInboxState(env, email)
-		]);
-		const people = await loadSharedPeople(env, email, tree);
-		const usernames = new Map(people.map((person) => [person.userID, person.username]));
-		const referenceFiles = [...tree.files.values()].filter(
-			(file) => file.path.startsWith('shares/') && file.path.endsWith('.json')
-		);
-		const references = (
-			await Promise.all(
-				referenceFiles.map(async (file) => {
-					try {
-						const reference = JSON.parse(
-							new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
-						);
-						if (
-							reference?.schemaVersion === 2 &&
-							validSharedUserID(reference.id) &&
-							reference.itemID === reference.id &&
-							reference.contentPath === `library/${reference.itemID}.source.md` &&
-							Array.isArray(reference.sharedWithIDs) &&
-							reference.sharedWithIDs.includes(connection.user_id)
-						) {
-							return reference;
-						}
-					} catch {
-						// Malformed records are excluded from the derived Inbox.
-					}
-					return null;
-				})
-			)
-		).filter(Boolean);
-		const pendingReferences = references.filter((reference) => {
-			const decision = inboxContext.state.shares?.[reference.id];
-			return !decision || Number(decision.handledRevision ?? 0) < Number(reference.revision ?? 0);
-		});
-		const entries = (
-			await Promise.all(
-				pendingReferences.map(async (reference) => {
-					const source = tree.files.get(reference.contentPath);
-					if (!source) return null;
-					const sourceText = new TextDecoder().decode(
-						await downloadDriveFile(env, email, source.id)
-					);
-					const metadata = parsedMarkdownDocument(
-						sourceText,
-						String(reference.sourceFilename ?? reference.itemID).replace(/\.[^.]+$/, '')
-					);
-					const texts = await Promise.all(
-						['brief', 'concise', 'detailed', 'comprehensive'].map(async (variant) => {
-							const summary = tree.files.get(`library/${reference.itemID}.${variant}.md`);
-							if (!summary) return null;
-							return {
-								variant,
-								text: new TextDecoder().decode(
-									await downloadDriveFile(env, email, summary.id)
-								)
-							};
-						})
-					);
-					texts.push({ variant: 'source', text: metadata.body });
-					return {
-						id: `shared:${reference.id}`,
-						captureID: metadata.captureID,
-						title: metadata.title,
-						excerpt: metadata.excerpt,
-						topicIDs: metadata.topicIDs,
-						topicNames: metadata.topicNames,
-						tags: metadata.tags,
-						sourceURL: metadata.sourceURL,
-						createdAt: metadata.createdAt ?? reference.createdAt,
-						updatedAt: reference.updatedAt,
-						origin: 'shared',
-						sharedByUsername: usernames.get(reference.sharedByID),
-						inboxReferenceID: reference.id,
-						texts: texts.filter(Boolean)
-					};
-				})
-			)
-		).filter(Boolean);
-		entries.sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')));
-		return json({
-			schemaVersion: 4,
-			generatedAt: new Date().toISOString(),
-			files: [],
-			entries
-		});
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The shared Inbox could not be loaded.' },
-			{ status: 502 }
-		);
-	}
-}
-
-async function loadPersonalInboxState(env, email) {
-	const rootFolderID = await ensureDriveRootFolder(env, email);
-	const folders = new Map([['', rootFolderID]]);
-	const rootChildren = await driveFolderChildren(env, email, rootFolderID);
-	const controlFolder = rootChildren.find(
-		(item) =>
-			item.name === '.shared-library' &&
-			item.mimeType === 'application/vnd.google-apps.folder'
-	);
-	let file = null;
-	if (controlFolder) {
-		folders.set('.shared-library', controlFolder.id);
-		file = (await driveFolderChildren(env, email, controlFolder.id)).find(
-			(item) =>
-				item.name === 'inbox-state.json' &&
-				item.mimeType !== 'application/vnd.google-apps.folder'
-		) ?? null;
-	}
-	let state = {
-		schemaVersion: 1,
-		shares: {},
-		updatedAt: new Date().toISOString()
-	};
-	if (file) {
-		try {
-			const value = JSON.parse(
-				new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
-			);
-			if (value?.schemaVersion !== 1 || typeof value.shares !== 'object' || !value.shares) {
-				throw new Error('The personal Inbox state is invalid.');
-			}
-			state = value;
-		} catch (error) {
-			throw new Error(
-				error instanceof Error ? error.message : 'The personal Inbox state is invalid.'
-			);
-		}
-	}
-	return { rootFolderID, folders, file, state };
-}
-
-async function markPersonalInbox(env, email, reference, disposition) {
-	const context = await loadPersonalInboxState(env, email);
-	const now = new Date().toISOString();
-	context.state.shares[reference.id] = {
-		disposition,
-		handledRevision: Number(reference.revision ?? 0),
-		updatedAt: now
-	};
-	context.state.updatedAt = now;
-	await upsertDriveFile(env, email, {
-		rootFolderID: context.rootFolderID,
-		folders: context.folders,
-		path: '.shared-library/inbox-state.json',
-		bytes: new TextEncoder().encode(JSON.stringify(context.state, null, 2)),
-		existingID: context.file?.id ?? null,
-		kind: 'workspace'
-	});
-}
-
-async function sharedReferenceByID(env, email, connection, referenceID) {
-	const tree = await shallowSharedTree(env, email, connection.folder_id);
-	const file = tree.files.get(`shares/${referenceID}.json`);
-	if (!file) throw new Error('This Inbox item is no longer available.');
-	const reference = JSON.parse(
-		new TextDecoder().decode(await downloadDriveFile(env, email, file.id))
-	);
-	if (
-		reference?.schemaVersion !== 2 ||
-		reference.id !== referenceID ||
-		reference.itemID !== referenceID ||
-		!Array.isArray(reference.sharedWithIDs) ||
-		!reference.sharedWithIDs.includes(connection.user_id)
-	) {
-		throw new Error('This Inbox reference is invalid.');
-	}
-	return { tree, reference };
-}
-
-async function dismissInboxReference(request, env, referenceID) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
-	try {
-		const { reference } = await sharedReferenceByID(env, email, connection, referenceID);
-		await markPersonalInbox(env, email, reference, 'dismissed');
-		return json({ dismissed: true });
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The Inbox item could not be dismissed.' },
-			{ status: 400 }
-		);
-	}
-}
-
-/*
- * Inbox state deliberately lives in the recipient's personal workspace.
- * The shared folder contains only people.json, shares/*.json, and library/*.md.
- */
-
-function rewriteCaptureID(sourceText, captureID, shareID, shareRevision) {
-	if (!sourceText.startsWith('---')) return sourceText;
-	const end = sourceText.indexOf('\n---', 3);
-	if (end < 0) return sourceText;
-	let updated = sourceText.slice(0, end);
-	for (const [key, value] of [
-		['id', captureID],
-		['shared_from', shareID],
-		['shared_revision', String(shareRevision)]
-	]) {
-		updated = new RegExp(`^${key}:`, 'm').test(updated)
-			? updated.replace(new RegExp(`^${key}:.*$`, 'm'), `${key}: "${value}"`)
-			: `${updated}\n${key}: "${value}"`;
-	}
-	return updated + sourceText.slice(end);
-}
-
-function personalWorkspacePath(path) {
-	return (
-		path === 'topics.md' ||
-		path === '.shared-library/inbox-state.json' ||
-		(path.startsWith('library/') && path.endsWith('.md'))
-	);
-}
-
-async function driveFileByKind(env, email, kind) {
-	const url = new URL('https://www.googleapis.com/drive/v3/files');
-	url.searchParams.set(
-		'q',
-		`appProperties has { key='sharedLibraryKind' and value='${kind}' } and trashed=false`
-	);
-	url.searchParams.set('fields', 'files(id,name,mimeType,parents,appProperties)');
-	url.searchParams.set('pageSize', '1');
-	url.searchParams.set('supportsAllDrives', 'true');
-	url.searchParams.set('includeItemsFromAllDrives', 'true');
-	const response = await googleDriveRequest(env, email, url);
-	if (!response.ok) throw new Error(`Google Drive could not find the library index (${response.status}).`);
-	return (await response.json()).files?.[0] ?? null;
-}
-
-function wordCount(text) {
-	return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
-
-async function updatePersonalDriveIndexAfterImport(
-	env,
-	email,
-	{ personalRootID, personalTree, copied, captureID, sourceDestination, sourceText }
-) {
-	const currentIndexFile = await driveFileByKind(env, email, 'library-index');
-	let index = {
-		schemaVersion: 4,
-		generatedAt: new Date().toISOString(),
-		files: [],
-		entries: []
-	};
-	if (currentIndexFile) {
-		try {
-			const value = JSON.parse(
-				new TextDecoder().decode(await downloadDriveFile(env, email, currentIndexFile.id))
-			);
-			if (
-				value?.schemaVersion === 4 &&
-				Array.isArray(value.files) &&
-				Array.isArray(value.entries)
-			) {
-				index = value;
-			}
-		} catch {
-			// A fresh index is safer than publishing malformed metadata.
-		}
-	}
-	const copiedPaths = new Set(copied.map((file) => file.path));
-	index.files = [
-		...index.files.filter((file) => !copiedPaths.has(file.path)),
-		...copied.map((file) => ({
-			path: file.path,
-			contentHash: file.contentHash,
-			byteCount: file.byteCount
-		}))
-	].sort((a, b) => a.path.localeCompare(b.path));
-	const metadata = parsedMarkdownDocument(
-		sourceText,
-		sourceDestination.split('/').at(-1)?.replace(/\.[^.]+$/, '') || 'Shared item'
-	);
-	const texts = [];
-	for (const file of copied) {
-		let variant;
-		if (file.path === sourceDestination) variant = 'source';
-		else if (file.path.includes('/summaries/brief/')) variant = 'brief';
-		else if (file.path.includes('/summaries/concise/')) variant = 'concise';
-		else if (file.path.includes('/summaries/detailed/')) variant = 'detailed';
-		else if (file.path.includes('/summaries/comprehensive/')) variant = 'comprehensive';
-		else if (file.path.includes('/summaries/')) variant = 'concise';
-		if (!variant || texts.some((text) => text.variant === variant)) continue;
-		const text =
-			variant === 'source'
-				? metadata.body
-				: new TextDecoder().decode(file.bytes);
-		texts.push({
-			variant,
-			path: file.path,
-			contentHash: file.contentHash,
-			wordCount: wordCount(text)
-		});
-	}
-	const entry = {
-		id: `personal:${captureID}`,
-		captureID,
-		title: metadata.title,
-		excerpt: metadata.excerpt,
-		topicIDs: metadata.topicIDs,
-		topicNames: metadata.topicNames,
-		tags: metadata.tags,
-		sourceURL: metadata.sourceURL,
-		createdAt: metadata.createdAt,
-		updatedAt: new Date().toISOString(),
-		origin: 'personal',
-		texts
-	};
-	index.entries = [
-		...index.entries.filter(
-			(candidate) => candidate.id !== entry.id && candidate.captureID !== captureID
-		),
-		entry
-	].sort((a, b) => String(b.updatedAt ?? b.createdAt ?? '').localeCompare(
-		String(a.updatedAt ?? a.createdAt ?? '')
-	));
-	index.schemaVersion = 4;
-	index.generatedAt = new Date().toISOString();
-	await upsertDriveFile(env, email, {
-		rootFolderID: personalRootID,
-		folders: personalTree.folders,
-		path: '.shared-library/index.json',
-		bytes: new TextEncoder().encode(JSON.stringify(index, null, 2)),
-		existingID: currentIndexFile?.id ?? null,
-		kind: 'library-index'
-	});
-}
-
-async function saveInboxReference(request, env, referenceID) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	const connection = await sharedFolderConnection(env, email);
-	if (!connection) return json({ error: 'Connect a shared folder first.' }, { status: 409 });
-	try {
-		const { tree: sharedTree, reference } = await sharedReferenceByID(
-			env,
-			email,
-			connection,
-			referenceID
-		);
-		const sourceFile = sharedTree.files.get(reference.contentPath);
-		if (!sourceFile) throw new Error('The shared source file is no longer available.');
-		const personalRootID = await ensureDriveRootFolder(env, email);
-		const personalTree = await driveFolderTree(
-			env,
-			email,
-			personalRootID,
-			personalWorkspacePath,
-			true
-		);
-		const originalFilename =
-			typeof reference.sourceFilename === 'string' &&
-			/^[^/]+\.md$/i.test(reference.sourceFilename)
-				? reference.sourceFilename
-				: `${reference.itemID}.md`;
-		const base = originalFilename.replace(/\.[^.]+$/, '');
-		const extension = originalFilename.includes('.') ? `.${originalFilename.split('.').at(-1)}` : '';
-		let filename = originalFilename;
-		for (let index = 1; personalTree.files.has(`library/${filename}`); index += 1) {
-			filename = `${base}${index === 1 ? '-shared' : `-shared-${index}`}${extension}`;
-		}
-		const captureID = crypto.randomUUID().toLowerCase();
-		const copied = [];
-		const sourceBytes = await downloadDriveFile(env, email, sourceFile.id);
-		const rewrittenSource = new TextEncoder().encode(
-			rewriteCaptureID(
-				new TextDecoder().decode(sourceBytes),
-				captureID,
-				reference.id,
-				reference.revision
-			)
-		);
-		const sourceDestination = `library/${filename}`;
-		copied.push({
-			path: sourceDestination,
-			bytes: rewrittenSource,
-			...(await upsertDriveFile(env, email, {
-				rootFolderID: personalRootID,
-				folders: personalTree.folders,
-				path: sourceDestination,
-				bytes: rewrittenSource,
-				kind: 'workspace'
-			}))
-		});
-		for (const variant of ['brief', 'concise', 'detailed', 'comprehensive']) {
-			const sourcePath = `library/${reference.itemID}.${variant}.md`;
-			const summary = sharedTree.files.get(sourcePath);
-			if (!summary) continue;
-			const destination = `library/summaries/${variant}/${filename}`;
-			const bytes = await downloadDriveFile(env, email, summary.id);
-			copied.push({
-				path: destination,
-				bytes,
-				...(await upsertDriveFile(env, email, {
-					rootFolderID: personalRootID,
-					folders: personalTree.folders,
-					path: destination,
-					bytes,
-					kind: 'workspace'
-				}))
-			});
-		}
-		await updatePersonalDriveIndexAfterImport(env, email, {
-			personalRootID,
-			personalTree,
-			copied,
-			captureID,
-			sourceDestination,
-			sourceText: new TextDecoder().decode(rewrittenSource)
-		});
-		await markPersonalInbox(env, email, reference, 'saved');
-		return json({ saved: true, path: sourceDestination, captureID });
-	} catch (error) {
-		return json(
-			{ error: error instanceof Error ? error.message : 'The Inbox item could not be saved.' },
-			{ status: 400 }
-		);
-	}
-}
-
 const routeWorker = {
 	async fetch(request, env, context) {
 		const url = new URL(request.url);
@@ -6122,17 +2209,14 @@ const routeWorker = {
 		if (url.pathname === '/api/auth/status' && request.method === 'GET') {
 			return accountStatus(request, env);
 		}
-		if (url.pathname === '/api/auth/google/start' && request.method === 'GET') {
-			return startGoogleLogin(request, env);
-		}
-		if (url.pathname === '/api/auth/google/callback' && request.method === 'GET') {
-			return finishGoogleLogin(request, env);
-		}
 		if (url.pathname === '/api/auth/apple/start' && request.method === 'GET') {
 			return startAppleLogin(request, env);
 		}
 		if (url.pathname === '/api/auth/apple/callback' && request.method === 'POST') {
 			return finishAppleLogin(request, env);
+		}
+		if (url.pathname === '/api/auth/apple/native' && request.method === 'POST') {
+			return finishNativeAppleLogin(request, env);
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
@@ -6169,52 +2253,20 @@ const routeWorker = {
 		if (feedbackUpvote && request.method === 'PUT') {
 			return setFeedbackUpvote(request, env, feedbackUpvote[1]);
 		}
-		if (url.pathname === '/api/billing/status' && request.method === 'GET') {
-			return billingStatus(request, env);
-		}
 		if (url.pathname === '/api/usage' && request.method === 'POST') {
 			return serviceUsage(request, env);
 		}
-		if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
-			return createCheckoutSession(request, env);
+		if (url.pathname === '/api/billing/apple/transaction' && request.method === 'POST') {
+			return syncAppStoreTransaction(request, env);
 		}
-		if (url.pathname === '/api/billing/portal' && request.method === 'POST') {
-			return createBillingPortalSession(request, env);
-		}
-		if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
-			return stripeWebhook(request, env);
+		if (url.pathname === '/api/billing/apple/notifications' && request.method === 'POST') {
+			return appStoreNotification(request, env);
 		}
 		if (url.pathname === '/api/extraction/firecrawl' && request.method === 'POST') {
 			return scrapeWithFirecrawl(request, env);
 		}
 		if (url.pathname === '/api/ai/process' && request.method === 'POST') {
 			return processWithManagedAI(request, env);
-		}
-		if (url.pathname === '/api/library' && request.method === 'GET') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return fetchLibrarySnapshot(request, env);
-		}
-		if (url.pathname === '/api/library/file' && request.method === 'GET') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return fetchLibraryFile(request, env);
-		}
-		if (url.pathname === '/api/library/sync' && request.method === 'POST') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return syncLibraryMirror(request, env);
-		}
-		const media = mediaPath(url);
-		if (media && request.method === 'GET') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return downloadDriveMedia(request, env, media);
-		}
-		if (media && request.method === 'PUT') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
-			return uploadDriveMedia(request, env, media);
 		}
 		if (url.pathname === '/api/share-links' && request.method === 'GET') {
 			return ownerShareLinkStatus(request, env);
@@ -6228,27 +2280,6 @@ const routeWorker = {
 		if (ownerShare && request.method === 'DELETE') {
 			return revokeShareLink(request, env, ownerShare[1], context);
 		}
-		if (url.pathname === '/api/google/status' && request.method === 'GET') {
-			return googleDriveStatus(request, env);
-		}
-		if (url.pathname === '/api/google/connect/start' && request.method === 'GET') {
-			return startGoogleDriveConnection(request, env);
-		}
-		if (url.pathname === '/api/google/connect/callback' && request.method === 'GET') {
-			return finishGoogleDriveConnection(request, env);
-		}
-		if (url.pathname === '/api/google/disconnect' && request.method === 'POST') {
-			return disconnectGoogleDrive(request, env);
-		}
-		if (url.pathname === '/api/icloud/config' && request.method === 'GET') {
-			return iCloudConfiguration(request, env);
-		}
-		if (url.pathname === '/api/icloud/disconnect' && request.method === 'POST') {
-			return disconnectICloud(request, env);
-		}
-		if (url.pathname === '/api/sync/provider' && request.method === 'POST') {
-			return setSyncProvider(request, env);
-		}
 		if (url.pathname.startsWith('/api/')) {
 			return json({ error: 'Not found.' }, { status: 404 });
 		}
@@ -6260,25 +2291,18 @@ const routeWorker = {
 		return env.ASSETS.fetch(new Request(new URL('/', request.url), request));
 	},
 	async scheduled(_controller, env, context) {
-		context.waitUntil(
-			Promise.all([
-				reconcileStripeSubscriptions(env),
-				releaseStaleTTSReservations(env),
-				cleanServiceUsage(env),
-				cleanShareMediaDeletions(env)
-			])
-		);
+		context.waitUntil(cleanServiceUsage(env));
 	}
 };
 
 const contentSecurityPolicy = [
 	"default-src 'self'",
-	"script-src 'self' https://cdn.apple-cloudkit.com",
+	"script-src 'self'",
 	"style-src 'self' 'unsafe-inline'",
 	"font-src 'self'",
 	"img-src 'self' data: blob:",
 	"media-src 'self' blob:",
-	"connect-src 'self' https://*.apple.com https://*.apple-cloudkit.com https://*.icloud.com https://*.icloud-content.com https://*.posthog.com",
+	"connect-src 'self' https://*.apple.com https://*.posthog.com",
 	"frame-src https://*.apple.com",
 	"object-src 'none'",
 	"base-uri 'self'",
@@ -6334,5 +2358,5 @@ const worker = {
 	}
 };
 
-export { libraryMediaManifest, serviceUsageLimits };
+export { serviceUsageLimits, validAppStoreTransaction };
 export default worker;

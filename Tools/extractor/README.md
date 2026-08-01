@@ -30,7 +30,7 @@ Unsupported binary formats and media are intentionally rejected.
 When Briefly account credentials are available, failed built-in extraction and
 obvious verification/login shells fall back through Briefly's authenticated
 Worker endpoint to Firecrawl's v2 single-page Markdown scraper. The Firecrawl
-key stays in the Worker; it is never sent to the desktop extractor. Built-in and
+key stays in the Worker; it is never sent to the local extractor. Built-in and
 workspace inputs remain first so ordinary captures do not consume Firecrawl
 credits.
 

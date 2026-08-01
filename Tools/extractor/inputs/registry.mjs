@@ -273,8 +273,7 @@ function normalizeResult(result, input, requestedURL) {
 
 function extensionEnvironment(inputID) {
   const environment = {
-    BRIEFLY_INPUT_ID: inputID,
-    ELECTRON_RUN_AS_NODE: "1"
+    BRIEFLY_INPUT_ID: inputID
   };
   for (const key of [
     "LANG",

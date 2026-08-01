@@ -15,8 +15,9 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
   persistent cookie store. External Safari/default-browser links are for
   viewing only; authenticated extraction stays in-app so the session remains
   available to Briefly.
-- Briefly account sessions, managed AI, personal context, editable processing
-  and voice-brief prompts, custom macOS AI/agent commands, and share links.
+- Native Sign in with Apple, StoreKit membership, managed AI, personal context,
+  editable processing and voice-brief prompts, custom macOS AI/agent commands,
+  and share links.
 - Native audio generation and playback with resume position, seeking, speed,
   and volume.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
@@ -34,10 +35,14 @@ To connect the private CloudKit library:
 
 1. Select the `Briefly` target, then **Signing & Capabilities**.
 2. Select the development team.
-3. Add **iCloud**, enable **CloudKit**, and select the container used by the web
-   app's `CLOUDKIT_CONTAINER_ID`.
+3. Add **iCloud**, enable **CloudKit**, and select the Briefly container.
 4. Confirm `BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER` is `iCloud.fyi.readbriefly`.
 5. Run while signed into an iCloud account that has a Briefly library.
+
+Also add **Sign in with Apple** and the `fyi.readbriefly.plus.monthly`
+auto-renewable subscription in App Store Connect. The app uses that StoreKit
+product for purchase and restore; the Worker verifies its transactions before
+granting hosted access.
 
 The app uses the private `BrieflyDocuments` zone. Each local transaction adds
 or coalesces a logical-record outbox entry for CKSyncEngine.
