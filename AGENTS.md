@@ -1,4 +1,5 @@
 # Briefly Agent Instructions
+- Do not preserve backwards compatibility.
 
 ## Project status
 

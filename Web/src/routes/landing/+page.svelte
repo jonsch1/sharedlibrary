@@ -1,13 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
-	import CheckCircleIcon from '@lucide/svelte/icons/check-circle-2';
-	import FileTextIcon from '@lucide/svelte/icons/file-text';
-	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
-	import LockIcon from '@lucide/svelte/icons/lock-keyhole';
-	import PlayIcon from '@lucide/svelte/icons/play';
-	import RssIcon from '@lucide/svelte/icons/rss';
-	import ShareIcon from '@lucide/svelte/icons/share-2';
+
 	onMount(() => {
 		document.body.classList.add('landing-body');
 		return () => document.body.classList.remove('landing-body');
@@ -15,24 +8,24 @@
 </script>
 
 <svelte:head>
-	<title>Briefly — Get the gist or go deep</title>
+	<title>Briefly — Stay curious. Skip the feed.</title>
 	<meta
 		name="description"
-		content="Save videos, podcasts, articles, and posts to a private library with four reading depths. Follow trusted sources and receive scheduled text and voice briefs."
+		content="Save what interests you, understand it at the depth you choose, and keep up with trusted sources without living in a feed."
 	/>
 	<meta property="og:type" content="website" />
-	<meta property="og:title" content="Briefly — Get the gist or go deep" />
+	<meta property="og:title" content="Briefly — Stay curious. Skip the feed." />
 	<meta
 		property="og:description"
-		content="Keep what interests you. Briefly summarizes anything you save and reads ahead across the sources you follow."
+		content="A quieter way to understand what matters and keep it close."
 	/>
 	<meta property="og:url" content="https://www.readbriefly.fyi/landing" />
 	<meta property="og:image" content="https://www.readbriefly.fyi/og-landing.png" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Briefly — Get the gist or go deep" />
+	<meta name="twitter:title" content="Briefly — Stay curious. Skip the feed." />
 	<meta
 		name="twitter:description"
-		content="A private library for what you save, and scheduled briefs for what you follow."
+		content="A quieter way to understand what matters and keep it close."
 	/>
 	<meta name="twitter:image" content="https://www.readbriefly.fyi/og-landing.png" />
 </svelte:head>
@@ -45,12 +38,12 @@
 		</a>
 
 		<nav aria-label="Main navigation">
-			<a href="#library">How it works</a>
+			<a href="#how-it-works">How it works</a>
 			<a href="#briefs">Briefs</a>
 		</nav>
 
 		<div class="nav-actions">
-			<a class="nav-cta" href="#pricing">Get Briefly</a>
+			<a class="nav-cta" href="#get-briefly">Get Briefly</a>
 		</div>
 	</header>
 
@@ -63,7 +56,7 @@
 						Save what interests you. Briefly gives you the useful version, at the depth you
 						choose.
 					</p>
-					<a class="button button-primary" href="#pricing">Get Briefly</a>
+					<a class="button button-primary" href="#get-briefly">Get Briefly</a>
 				</div>
 
 				<div class="hero-product">
@@ -87,187 +80,85 @@
 			</div>
 		</section>
 
-		<a class="reads-ahead" href="#briefs">
-			<span>And for the sources you follow, Briefly reads ahead.</span>
-			<ArrowRightIcon aria-hidden="true" />
-		</a>
-
-		<section class="library-section section-shell" id="library">
-			<div class="section-copy">
-				<p class="eyebrow">Saved to your library</p>
-				<h2>Four summaries.<br />One source.</h2>
+		<section class="outcomes section-shell" id="how-it-works">
+			<div class="section-heading">
+				<p class="eyebrow">How it works</p>
+				<h2>Save more.<br />Read less.</h2>
 				<p>
-					Start with 20 seconds. Go deeper when it earns your time.
+					Briefly turns the things you want to read into a private library of clear summaries.
 				</p>
 			</div>
 
-			<div class="reader-demo">
-				<img src="/product-ui-concise.png" alt="Briefly library showing a concise summary" />
-			</div>
+			<ol class="outcome-list">
+				<li>
+					<span>01</span>
+					<h3>Save anything.</h3>
+					<p>Send an article, video, podcast, or note to Briefly and get back to your day.</p>
+				</li>
+				<li>
+					<span>02</span>
+					<h3>Get the point.</h3>
+					<p>Start with a short summary. Read more only when you want to.</p>
+				</li>
+				<li>
+					<span>03</span>
+					<h3>Find it again.</h3>
+					<p>Keep everything in one private, searchable library.</p>
+				</li>
+			</ol>
 		</section>
 
-		<section class="briefs-section" id="briefs">
+		<section class="depth-panel section-shell" aria-labelledby="depth-title">
+			<div class="depth-copy">
+				<p class="eyebrow">Choose the length</p>
+				<h2 id="depth-title">Read as much as you want.</h2>
+				<p>
+					Start with the shortest summary. Add more detail when you need it.
+				</p>
+			</div>
+
+			<ol class="depth-list" aria-label="Available reading depths">
+				<li><span>Brief</span><strong>Know the point.</strong></li>
+				<li><span>Concise</span><strong>Get the key ideas.</strong></li>
+				<li><span>Detailed</span><strong>Add the context.</strong></li>
+				<li><span>Comprehensive</span><strong>Get the full story.</strong></li>
+			</ol>
+		</section>
+
+		<section class="briefs" id="briefs">
 			<div class="briefs-inner section-shell">
 				<div class="briefs-copy">
-					<p class="eyebrow">Your channels, quietly watched</p>
-					<h2>Follow without<br />the feed.</h2>
+					<p class="eyebrow">Follow your sources</p>
+					<h2>Keep up without the feed.</h2>
 					<p>
-						Choose the sources. Briefly checks what’s new and delivers one cited report—on
-						your schedule, in text and audio.
+						Choose the sources you trust. Briefly collects what is new into one cited brief
+						you can read or listen to.
 					</p>
-					<div class="schedule-chip">
-						<span>Every Friday</span>
-						<b>8:00 AM</b>
-						<span>Text + audio</span>
-					</div>
-					<div class="channel-list" aria-label="Example followed source types">
-						<span class="source-youtube"><PlayIcon /> YouTube</span>
-						<span class="source-podcast"><HeadphonesIcon /> Podcasts</span>
-						<span class="source-reddit">r/ Reddit</span>
-						<span class="source-rss"><RssIcon /> RSS</span>
-						<span class="source-web">@ Profiles</span>
-					</div>
 				</div>
 
-				<article class="brief-card">
-					<div class="brief-card-top">
-						<span>Your Friday brief</span>
-						<time datetime="2026-07-24">24 July 2026</time>
-					</div>
-
-					<div class="brief-cover">
-						<div class="brief-art" aria-hidden="true">
-							<i class="sun"></i>
-							<i class="hill hill-one"></i>
-							<i class="hill hill-two"></i>
-							<i class="wind wind-one"></i>
-							<i class="wind wind-two"></i>
-						</div>
-						<div>
-							<p>Climate technology</p>
-							<h3>The week in<br />climate technology</h3>
-							<span>8 min · 14 sources · cited</span>
-						</div>
-					</div>
-
-					<p class="brief-excerpt">
-						Three developments mattered this week: long-duration storage moved closer to
-						commercial scale, heat-pump adoption accelerated, and a new carbon market
-						standard changed how removals will be verified.
-					</p>
-
-					<div class="audio-player" aria-label="Sample voice brief player">
-						<button type="button" aria-label="Play sample brief"><PlayIcon /></button>
-						<span>0:00</span>
-						<div class="audio-track"><i></i></div>
-						<span>8:00</span>
-						<b><HeadphonesIcon /> Voice brief</b>
-					</div>
-
-					<span class="read-report">
-						Text report included
-						<FileTextIcon aria-hidden="true" />
-					</span>
-				</article>
-			</div>
-
-			<div class="brief-flow section-shell" aria-label="How scheduled briefs work">
-				<div>
-					<span>01</span>
-					<b>Follow your sources</b>
-				</div>
-				<i aria-hidden="true"></i>
-				<div>
-					<span>02</span>
-					<b>Briefly reads ahead</b>
-				</div>
-				<i aria-hidden="true"></i>
-				<div>
-					<span>03</span>
-					<b>Read or listen</b>
+				<div class="brief-path" aria-label="Sources become one scheduled brief">
+					<div><span>01</span><strong>Sources you choose</strong></div>
+					<i aria-hidden="true"></i>
+					<div><span>02</span><strong>One cited brief</strong></div>
+					<i aria-hidden="true"></i>
+					<div><span>03</span><strong>Read or listen</strong></div>
 				</div>
 			</div>
 		</section>
 
-		<section class="share-section section-shell">
-			<div class="share-copy">
-				<p class="eyebrow">Share</p>
-				<h2>Share the<br />useful version.</h2>
-				<p>Send a clean reader. Your captured source stays private.</p>
-			</div>
-			<div class="share-card">
-				<div class="share-card-top">
-					<span><ShareIcon /> Shared summary</span>
-					<span>Source linked</span>
-				</div>
-				<h3>A practical guide to biological networks</h3>
-				<p>Concise · 2 min read</p>
-				<div class="share-link">
-					<span>readbriefly.fyi/share/biological-networks</span>
-					<b>Copy link</b>
-				</div>
-			</div>
+		<section class="privacy section-shell">
+			<p class="eyebrow">Private by default</p>
+			<h2>Your library stays private.</h2>
+			<p>
+				It stays on your Apple devices and iCloud. Nothing is public unless you share it.
+			</p>
 		</section>
 
-		<section class="pricing-section" id="pricing">
-			<div class="pricing-inner section-shell">
-				<div class="pricing-copy">
-					<p class="eyebrow">Briefly membership</p>
-					<h2>Your library.<br />Working ahead.</h2>
-					<p>
-						Save, follow, and let Briefly prepare the reading.
-					</p>
-				</div>
-
-				<article class="plan-card">
-					<div class="plan-card-top">
-						<span>Briefly membership</span>
-						<strong>Monthly</strong>
-					</div>
-					<h3>One plan. Subscribe in the app.</h3>
-					<p>The App Store shows your local launch price before purchase.</p>
-
-					<ul>
-						<li><CheckCircleIcon /> Save links, files, and notes</li>
-						<li><CheckCircleIcon /> Four useful reading depths</li>
-						<li><CheckCircleIcon /> Follow sources and schedule briefs</li>
-						<li><CheckCircleIcon /> Read or listen to every brief</li>
-						<li><CheckCircleIcon /> Searchable local Markdown library</li>
-						<li><CheckCircleIcon /> Sync across your devices</li>
-					</ul>
-
-					<button type="button" disabled>
-						Subscribe on Mac or iPhone
-						<ArrowRightIcon aria-hidden="true" />
-					</button>
-
-					<p class="pricing-note">
-						Purchased and managed through Apple · Cancel anytime<br />
-						High fair-use limits apply to hosted processing and public storage. By
-						subscribing, you agree to the <a href="/terms">Terms</a> and acknowledge the
-						<a href="/privacy">Privacy Notice</a>.
-					</p>
-				</article>
-			</div>
-
-			<div class="download-gate section-shell">
-				<LockIcon />
-				<div>
-					<h3>Built for Apple platforms.</h3>
-					<p>Briefly is focused on Mac and iPhone first.</p>
-				</div>
-				<span class="button button-secondary">Coming to the App Store</span>
-			</div>
-		</section>
-
-		<section class="final-cta">
-			<div class="final-cta-inner">
-				<img src="/icons/icon-192.png" alt="" />
-				<p>A quieter way to stay curious</p>
-				<h2>Keep what matters.<br />Skip the feed.</h2>
-				<a class="button button-light" href="#pricing">Get Briefly</a>
-				<span>One account · Mac · iPhone</span>
-			</div>
+		<section class="final-cta section-shell" id="get-briefly">
+			<img src="/icons/icon-192.png" alt="" />
+			<h2>Make space for what matters.</h2>
+			<p>Briefly is coming to Mac and iPhone.</p>
+			<span class="availability">Coming to the App Store</span>
 		</section>
 	</main>
 
@@ -276,7 +167,7 @@
 			<img src="/icons/icon-192.png" alt="" />
 			<span>Briefly</span>
 		</a>
-		<p>Your private library, working ahead.</p>
+		<p>A quieter way to stay curious.</p>
 		<div>
 			<a href="/feedback">Feedback</a>
 			<a href="/privacy">Privacy</a>
@@ -306,14 +197,11 @@
 	}
 
 	.landing {
-		--cream: #f4efe5;
 		--paper: #fffaf1;
 		--forest: #10372d;
 		--forest-deep: #082a22;
 		--orange: #d85312;
-		--lavender: #d6c4df;
-		--cobalt: #2448c7;
-		--line: rgb(16 55 45 / 16%);
+		--line: rgb(16 55 45 / 15%);
 		min-height: 100vh;
 		overflow: clip;
 		background: #fbfaf7;
@@ -330,7 +218,6 @@
 		text-decoration: none;
 	}
 
-	.landing button,
 	.landing a {
 		-webkit-tap-highlight-color: transparent;
 	}
@@ -349,15 +236,6 @@
 		padding-block: 18px;
 	}
 
-	.landing-nav .landing-brand {
-		gap: 10px;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 27px;
-		font-weight: 600;
-		letter-spacing: -0.03em;
-		text-transform: none;
-	}
-
 	.landing-brand {
 		display: inline-flex;
 		width: fit-content;
@@ -373,6 +251,15 @@
 		width: 38px;
 		height: 38px;
 		border-radius: 10px;
+	}
+
+	.landing-nav .landing-brand {
+		gap: 10px;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 27px;
+		font-weight: 600;
+		letter-spacing: -0.03em;
+		text-transform: none;
 	}
 
 	.landing-nav nav,
@@ -393,7 +280,6 @@
 
 	.nav-actions {
 		justify-self: end;
-		gap: 18px;
 	}
 
 	.nav-cta {
@@ -403,13 +289,6 @@
 		background: var(--forest);
 		color: var(--paper) !important;
 		font-weight: 650;
-		transition:
-			background 180ms ease,
-			color 180ms ease;
-	}
-
-	.nav-cta:hover {
-		background: var(--forest-deep);
 	}
 
 	.hero {
@@ -434,27 +313,17 @@
 		z-index: 2;
 	}
 
-	.eyebrow {
-		margin: 0 0 20px;
-		color: var(--orange);
-		font-size: 12px;
-		font-weight: 750;
-		letter-spacing: 0.2em;
-		line-height: 1.4;
-		text-transform: uppercase;
-	}
-
 	.hero h1,
-	.section-copy h2,
-	.briefs-copy h2,
-	.share-section h2,
-	.pricing-copy h2,
+	.section-heading h2,
+	.depth-copy h2,
+	.briefs h2,
+	.privacy h2,
 	.final-cta h2 {
 		margin: 0;
 		font-family: 'Source Serif 4 Variable', Georgia, serif;
 		font-weight: 480;
 		letter-spacing: -0.055em;
-		line-height: 0.94;
+		line-height: 0.98;
 	}
 
 	.hero h1 {
@@ -471,42 +340,22 @@
 		line-height: 1.55;
 	}
 
-	.hero-message .button {
-		margin-top: 27px;
-	}
-
 	.button {
 		display: inline-flex;
 		min-height: 52px;
 		align-items: center;
 		justify-content: center;
-		gap: 10px;
 		padding: 0 23px;
-		border: 0;
 		border-radius: 8px;
 		font-size: 14px;
 		font-weight: 700;
-		transition:
-			transform 180ms ease,
-			box-shadow 180ms ease;
-	}
-
-	.button:hover {
-		transform: translateY(-2px);
-	}
-
-	.button :global(svg) {
-		width: 17px;
 	}
 
 	.button-primary {
+		margin-top: 27px;
 		box-shadow: 0 12px 28px rgb(16 55 45 / 15%);
 		background: var(--forest);
 		color: white !important;
-	}
-
-	.button-primary:hover {
-		box-shadow: 0 16px 34px rgb(16 55 45 / 22%);
 	}
 
 	.hero-product {
@@ -533,681 +382,214 @@
 		box-shadow: 0 24px 50px rgb(8 42 34 / 24%);
 	}
 
-	.reads-ahead {
-		display: flex;
-		min-height: 70px;
-		align-items: center;
-		justify-content: center;
-		gap: 14px;
-		padding: 18px 24px;
-		background: var(--forest);
-		color: var(--paper) !important;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: clamp(20px, 2vw, 28px);
+	.eyebrow {
+		margin: 0 0 18px;
+		color: var(--orange);
+		font-size: 11px;
+		font-weight: 750;
+		letter-spacing: 0.18em;
+		line-height: 1.4;
+		text-transform: uppercase;
+	}
+
+	.outcomes {
+		padding-block: clamp(110px, 13vw, 180px);
+	}
+
+	.section-heading {
+		max-width: 820px;
+		margin-inline: auto;
 		text-align: center;
 	}
 
-	.reads-ahead :global(svg) {
-		width: 20px;
-		transition: transform 180ms ease;
+	.section-heading h2 {
+		font-size: clamp(52px, 6vw, 82px);
 	}
 
-	.reads-ahead:hover :global(svg) {
-		transform: translateX(5px);
-	}
-
-	.library-section {
-		display: grid;
-		grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.5fr);
-		gap: clamp(44px, 7vw, 105px);
-		align-items: center;
-		padding-block: clamp(90px, 11vw, 160px);
-	}
-
-	.section-copy h2,
-	.briefs-copy h2,
-	.share-section h2,
-	.pricing-copy h2 {
-		font-size: clamp(48px, 5.5vw, 78px);
-	}
-
-	.section-copy > p:not(.eyebrow),
-	.briefs-copy > p:not(.eyebrow),
-	.share-copy > p:not(.eyebrow),
-	.pricing-copy > p:not(.eyebrow) {
-		margin: 26px 0 0;
-		color: rgb(16 55 45 / 70%);
+	.section-heading > p:last-child,
+	.depth-copy > p:last-child,
+	.briefs-copy > p:last-child,
+	.privacy > p:last-child {
+		color: rgb(16 55 45 / 68%);
 		font-size: 17px;
-		line-height: 1.68;
+		line-height: 1.7;
 	}
 
-	.reader-demo {
-		height: 560px;
-		overflow: hidden;
-		border: 8px solid #211929;
-		border-radius: 20px;
-		box-shadow: 0 28px 80px rgb(16 55 45 / 12%);
-		background: #211929;
+	.section-heading > p:last-child {
+		max-width: 610px;
+		margin: 28px auto 0;
 	}
 
-	.reader-demo img {
-		display: block;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		object-position: top left;
-	}
-
-	.briefs-section {
-		padding-block: clamp(88px, 10vw, 145px);
-		background:
-			radial-gradient(circle at 82% 24%, rgb(60 119 102 / 34%), transparent 25rem),
-			var(--forest-deep);
-		color: var(--paper);
-	}
-
-	.briefs-inner {
+	.outcome-list {
 		display: grid;
-		grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
-		gap: clamp(48px, 8vw, 120px);
-		align-items: center;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0;
+		margin: clamp(70px, 8vw, 110px) 0 0;
+		padding: 0;
+		border-block: 1px solid var(--line);
+		list-style: none;
 	}
 
-	.briefs-copy .eyebrow {
-		color: #f07e42;
+	.outcome-list li {
+		padding: 34px clamp(24px, 4vw, 54px) 38px;
 	}
 
-	.briefs-copy > p:not(.eyebrow) {
-		color: rgb(255 250 241 / 72%);
+	.outcome-list li + li {
+		border-left: 1px solid var(--line);
 	}
 
-	.schedule-chip {
-		display: flex;
-		width: fit-content;
-		align-items: center;
-		gap: 10px;
-		margin-top: 30px;
-		padding: 9px 11px;
-		border: 1px solid rgb(255 250 241 / 19%);
-		border-radius: 8px;
-		background: rgb(255 255 255 / 5%);
+	.outcome-list span {
+		color: var(--orange);
 		font-size: 11px;
-	}
-
-	.schedule-chip span,
-	.schedule-chip b {
-		padding: 5px 8px;
-	}
-
-	.schedule-chip b {
-		border-radius: 5px;
-		background: var(--paper);
-		color: var(--forest);
-	}
-
-	.channel-list {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 8px;
-		margin-top: 19px;
-	}
-
-	.channel-list span {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		padding: 7px 10px;
-		border-radius: 999px;
-		background: rgb(255 250 241 / 9%);
-		color: rgb(255 250 241 / 78%);
-		font-size: 11px;
-		font-weight: 650;
-	}
-
-	.channel-list :global(svg) {
-		width: 13px;
-	}
-
-	.source-youtube :global(svg) {
-		color: #ff645b;
-	}
-
-	.source-podcast :global(svg) {
-		color: #c7a6e8;
-	}
-
-	.source-rss :global(svg) {
-		color: #f29b4b;
-	}
-
-	.brief-card {
-		padding: clamp(18px, 2.4vw, 30px);
-		border-radius: 18px;
-		box-shadow: 0 34px 90px rgb(0 0 0 / 24%);
-		background: var(--paper);
-		color: var(--forest);
-		transform: rotate(0.7deg);
-	}
-
-	.brief-card-top {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding-bottom: 14px;
-		border-bottom: 1px solid var(--line);
-		color: rgb(16 55 45 / 55%);
-		font-size: 10px;
 		font-weight: 750;
 		letter-spacing: 0.14em;
-		text-transform: uppercase;
 	}
 
-	.brief-cover {
-		display: grid;
-		grid-template-columns: 175px 1fr;
-		gap: 28px;
-		align-items: center;
-		padding-block: 24px 20px;
+	.outcome-list h3 {
+		margin: 48px 0 13px;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: clamp(27px, 2.5vw, 36px);
+		font-weight: 520;
+		letter-spacing: -0.04em;
+		line-height: 1.04;
 	}
 
-	.brief-art {
-		position: relative;
-		min-height: 190px;
-		overflow: hidden;
-		border-radius: 10px;
-		background: #c8d4bd;
-	}
-
-	.brief-art .sun {
-		position: absolute;
-		top: 25px;
-		right: 28px;
-		width: 28px;
-		height: 28px;
-		border-radius: 50%;
-		background: #fff1ce;
-	}
-
-	.hill {
-		position: absolute;
-		right: -45px;
-		bottom: -90px;
-		left: -45px;
-		height: 220px;
-		border-radius: 50% 50% 0 0;
-		background: #316a54;
-		transform: rotate(-8deg);
-	}
-
-	.hill-two {
-		right: -75px;
-		bottom: -135px;
-		left: -75px;
-		background: var(--forest);
-		transform: rotate(9deg);
-	}
-
-	.wind {
-		position: absolute;
-		z-index: 3;
-		bottom: 65px;
-		left: 55px;
-		width: 2px;
-		height: 62px;
-		background: #fff4d8;
-	}
-
-	.wind::before,
-	.wind::after {
-		position: absolute;
-		top: 0;
-		left: 1px;
-		width: 38px;
-		height: 1px;
-		background: #fff4d8;
-		content: '';
-		transform-origin: left;
-	}
-
-	.wind::before {
-		transform: rotate(18deg);
-	}
-
-	.wind::after {
-		transform: rotate(138deg);
-	}
-
-	.wind-two {
-		bottom: 74px;
-		left: 112px;
-		height: 44px;
-		transform: scale(0.76);
-	}
-
-	.brief-cover p {
-		margin: 0 0 7px;
-		color: var(--orange);
-		font-size: 10px;
-		font-weight: 750;
-		letter-spacing: 0.15em;
-		text-transform: uppercase;
-	}
-
-	.brief-cover h3 {
+	.outcome-list p {
 		margin: 0;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: clamp(32px, 3.3vw, 48px);
-		font-weight: 500;
-		letter-spacing: -0.045em;
-		line-height: 0.98;
+		color: rgb(16 55 45 / 63%);
+		font-size: 14px;
+		line-height: 1.65;
 	}
 
-	.brief-cover span {
-		display: block;
-		margin-top: 15px;
-		color: rgb(16 55 45 / 58%);
-		font-size: 11px;
+	.depth-panel {
+		display: grid;
+		grid-template-columns: minmax(0, 0.9fr) minmax(360px, 1.1fr);
+		gap: clamp(55px, 9vw, 130px);
+		align-items: center;
+		padding: clamp(55px, 7vw, 90px);
+		border-radius: 24px;
+		background: #f0f1ee;
 	}
 
-	.brief-excerpt {
+	.depth-copy h2,
+	.briefs h2,
+	.privacy h2 {
+		font-size: clamp(46px, 5vw, 72px);
+	}
+
+	.depth-copy > p:last-child {
+		margin: 26px 0 0;
+	}
+
+	.depth-list {
 		margin: 0;
-		padding: 18px 0;
-		border-block: 1px solid var(--line);
-		color: rgb(16 55 45 / 77%);
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 16px;
-		line-height: 1.55;
+		padding: 0;
+		border-top: 1px solid var(--line);
+		list-style: none;
 	}
 
-	.audio-player {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 18px 0;
-	}
-
-	.audio-player button {
+	.depth-list li {
 		display: grid;
-		flex: 0 0 auto;
-		width: 42px;
-		height: 42px;
-		place-items: center;
-		border: 0;
-		border-radius: 50%;
-		background: var(--cobalt);
-		color: white;
-		cursor: pointer;
-	}
-
-	.audio-player button :global(svg) {
-		width: 18px;
-		fill: currentColor;
-	}
-
-	.audio-player > span {
-		color: rgb(16 55 45 / 55%);
-		font-size: 10px;
-	}
-
-	.audio-track {
-		position: relative;
-		flex: 1;
-		height: 3px;
-		border-radius: 999px;
-		background: rgb(16 55 45 / 16%);
-	}
-
-	.audio-track i {
-		position: absolute;
-		inset: 0 auto 0 0;
-		width: 17%;
-		border-radius: inherit;
-		background: var(--cobalt);
-	}
-
-	.audio-player b {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		color: var(--cobalt);
-		font-size: 10px;
-		white-space: nowrap;
-	}
-
-	.audio-player b :global(svg) {
-		width: 13px;
-	}
-
-	.read-report {
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		color: var(--cobalt) !important;
-		font-size: 12px;
-		font-weight: 750;
-	}
-
-	.read-report :global(svg) {
-		width: 15px;
-	}
-
-	.brief-flow {
-		display: grid;
-		grid-template-columns: 1fr auto 1fr auto 1fr;
-		gap: 28px;
-		align-items: center;
-		margin-top: clamp(64px, 8vw, 100px);
-		padding-top: 32px;
-		border-top: 1px solid rgb(255 250 241 / 16%);
-	}
-
-	.brief-flow > div {
-		display: grid;
-		gap: 7px;
-	}
-
-	.brief-flow span {
-		color: #f07e42;
-		font-size: 10px;
-		font-weight: 800;
-		letter-spacing: 0.12em;
-	}
-
-	.brief-flow b {
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 22px;
-		font-weight: 530;
-	}
-
-	.brief-flow > i {
-		width: 34px;
-		height: 1px;
-		background: rgb(255 250 241 / 24%);
-	}
-
-	.share-section {
-		display: grid;
-		grid-template-columns: 0.8fr 1.2fr;
-		gap: clamp(50px, 9vw, 135px);
-		align-items: center;
-		padding-block: clamp(95px, 11vw, 160px);
-	}
-
-	.share-card {
-		padding: clamp(28px, 5vw, 58px);
-		border: 1px solid var(--line);
-		border-radius: 18px;
-		box-shadow: 0 25px 70px rgb(16 55 45 / 10%);
-		background:
-			linear-gradient(rgb(255 250 241 / 92%), rgb(255 250 241 / 92%)),
-			repeating-linear-gradient(
-				to bottom,
-				transparent 0 31px,
-				rgb(16 55 45 / 9%) 32px
-			);
-	}
-
-	.share-card-top {
-		display: flex;
-		justify-content: space-between;
+		grid-template-columns: 120px 1fr;
 		gap: 20px;
-		color: rgb(16 55 45 / 48%);
-		font-size: 9px;
+		align-items: center;
+		padding: 22px 0;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.depth-list span {
+		color: var(--orange);
+		font-size: 11px;
 		font-weight: 750;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
 	}
 
-	.share-card-top span {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
-	.share-card-top :global(svg) {
-		width: 14px;
-		color: var(--orange);
-	}
-
-	.share-card h3 {
-		max-width: 600px;
-		margin: 54px 0 12px;
+	.depth-list strong {
 		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: clamp(32px, 4vw, 54px);
+		font-size: clamp(21px, 2vw, 27px);
 		font-weight: 520;
-		letter-spacing: -0.04em;
-		line-height: 1.02;
 	}
 
-	.share-card > p {
-		margin: 0;
-		color: var(--cobalt);
-		font-size: 10px;
-		font-weight: 750;
-		text-transform: uppercase;
-	}
-
-	.share-link {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 16px;
-		margin-top: 52px;
-		padding: 9px 9px 9px 13px;
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		background: rgb(255 255 255 / 70%);
-		color: rgb(16 55 45 / 50%);
-		font-size: 10px;
-	}
-
-	.share-link span {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.share-link b {
-		flex: 0 0 auto;
-		padding: 8px 10px;
-		border-radius: 6px;
-		background: var(--forest);
+	.briefs {
+		margin-top: clamp(110px, 13vw, 180px);
+		padding-block: clamp(100px, 11vw, 150px);
+		background: var(--forest-deep);
 		color: var(--paper);
-		font-size: 9px;
 	}
 
-	.pricing-section {
-		padding-block: clamp(90px, 10vw, 140px);
-		background: #dfd6e3;
-	}
-
-	.pricing-inner {
+	.briefs-inner {
 		display: grid;
-		grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
-		gap: clamp(45px, 8vw, 120px);
-		align-items: start;
+		grid-template-columns: minmax(0, 0.85fr) minmax(440px, 1.15fr);
+		gap: clamp(60px, 9vw, 140px);
+		align-items: end;
 	}
 
-	.plan-card {
-		padding: clamp(25px, 4vw, 48px);
-		border: 1px solid rgb(16 55 45 / 18%);
-		border-radius: 18px;
-		box-shadow: 0 25px 70px rgb(16 55 45 / 10%);
-		background: var(--paper);
+	.briefs .eyebrow {
+		color: #f07e42;
 	}
 
-	.plan-card-top {
-		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
+	.briefs-copy > p:last-child {
+		max-width: 570px;
+		margin: 28px 0 0;
+		color: rgb(255 250 241 / 70%);
+	}
+
+	.brief-path {
+		display: grid;
+		grid-template-columns: 1fr auto 1fr auto 1fr;
 		gap: 20px;
-		padding-bottom: 22px;
-		border-bottom: 1px solid var(--line);
-		color: rgb(16 55 45 / 55%);
-		font-size: 11px;
-		font-weight: 750;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
+		align-items: center;
+		padding-block: 28px;
+		border-block: 1px solid rgb(255 250 241 / 18%);
 	}
 
-	.plan-card-top strong {
-		color: var(--forest);
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 40px;
-		font-weight: 520;
-		letter-spacing: -0.045em;
-		line-height: 0.8;
-	}
-
-	.plan-card h3 {
-		margin: 28px 0 9px;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 30px;
-		font-weight: 520;
-		letter-spacing: -0.035em;
-	}
-
-	.plan-card > p {
-		margin: 0;
-		color: rgb(16 55 45 / 65%);
-		font-size: 13px;
-	}
-
-	.plan-card ul {
+	.brief-path div {
 		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 12px 22px;
-		margin: 27px 0;
-		padding: 0;
-		list-style: none;
-		font-size: 12px;
+		gap: 18px;
 	}
 
-	.plan-card li {
-		display: flex;
-		align-items: center;
-		gap: 8px;
+	.brief-path span {
+		color: #f07e42;
+		font-size: 10px;
+		font-weight: 800;
+		letter-spacing: 0.13em;
 	}
 
-	.plan-card li :global(svg) {
-		width: 15px;
-		color: var(--orange);
+	.brief-path strong {
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: clamp(19px, 2vw, 26px);
+		font-weight: 520;
+		line-height: 1.1;
 	}
 
-	.plan-card > button {
-		display: flex;
-		width: 100%;
-		min-height: 50px;
-		align-items: center;
-		justify-content: center;
-		gap: 9px;
-		border: 0;
-		border-radius: 8px;
-		background: var(--orange);
-		color: white;
-		cursor: pointer;
-		font: inherit;
-		font-size: 13px;
-		font-weight: 750;
+	.brief-path i {
+		width: 26px;
+		height: 1px;
+		background: rgb(255 250 241 / 25%);
 	}
 
-	.plan-card > button:disabled {
-		cursor: default;
-		opacity: 0.62;
-	}
-
-	.plan-card > button :global(svg) {
-		width: 16px;
-	}
-
-	.plan-card .pricing-note {
-		margin-top: 14px;
-		color: rgb(16 55 45 / 48%);
-		font-size: 9px;
-		line-height: 1.55;
+	.privacy {
+		max-width: 880px;
+		padding-block: clamp(120px, 14vw, 200px);
 		text-align: center;
 	}
 
-	.pricing-note a {
-		text-decoration: underline;
-		text-underline-offset: 2px;
-	}
-
-	.download-gate {
-		display: grid;
-		grid-template-columns: auto 1fr auto;
-		gap: 18px;
-		align-items: center;
-		margin-top: 28px;
-		padding: 20px 24px;
-		border: 1px solid rgb(16 55 45 / 15%);
-		border-radius: 12px;
-		background: rgb(255 250 241 / 48%);
-	}
-
-	.download-gate > :global(svg) {
-		width: 21px;
-	}
-
-	.download-gate h3 {
-		margin: 0;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 19px;
-		font-weight: 550;
-	}
-
-	.download-gate p {
-		margin: 3px 0 0;
-		color: rgb(16 55 45 / 60%);
-		font-size: 11px;
-	}
-
-	.button-secondary {
-		min-height: 44px;
-		border: 1px solid var(--forest);
-		background: transparent;
-		color: var(--forest) !important;
+	.privacy > p:last-child {
+		max-width: 620px;
+		margin: 28px auto 0;
 	}
 
 	.final-cta {
-		position: relative;
 		display: grid;
-		min-height: 610px;
+		min-height: 520px;
 		place-items: center;
-		padding: 80px 24px;
-		overflow: hidden;
-		background:
-			radial-gradient(circle at 50% 0, rgb(255 250 241 / 18%), transparent 28rem),
-			var(--orange);
+		align-content: center;
+		padding: 70px 24px;
+		border-radius: 24px;
+		background: var(--orange);
 		color: white;
 		text-align: center;
-	}
-
-	.final-cta::before,
-	.final-cta::after {
-		position: absolute;
-		width: 360px;
-		height: 360px;
-		border: 1px solid rgb(255 255 255 / 20%);
-		border-radius: 50%;
-		content: '';
-	}
-
-	.final-cta::before {
-		top: -180px;
-		left: -120px;
-	}
-
-	.final-cta::after {
-		right: -120px;
-		bottom: -190px;
-	}
-
-	.final-cta-inner {
-		position: relative;
-		z-index: 2;
-		display: grid;
-		justify-items: center;
 	}
 
 	.final-cta img {
@@ -1216,28 +598,25 @@
 		border-radius: 14px;
 	}
 
-	.final-cta p {
-		margin: 26px 0 22px;
-		font-size: 11px;
-		font-weight: 750;
-		letter-spacing: 0.2em;
-		text-transform: uppercase;
-	}
-
 	.final-cta h2 {
-		font-size: clamp(58px, 7vw, 96px);
+		max-width: 820px;
+		margin-top: 28px;
+		font-size: clamp(54px, 7vw, 92px);
 	}
 
-	.button-light {
-		margin-top: 34px;
+	.final-cta p {
+		margin: 24px 0 0;
+		font-size: 16px;
+	}
+
+	.availability {
+		margin-top: 30px;
+		padding: 15px 22px;
+		border-radius: 8px;
 		background: var(--paper);
-		color: var(--forest) !important;
-	}
-
-	.final-cta span {
-		margin-top: 18px;
-		font-size: 10px;
-		opacity: 0.65;
+		color: var(--forest);
+		font-size: 13px;
+		font-weight: 750;
 	}
 
 	.landing-footer {
@@ -1274,10 +653,6 @@
 		font-size: 10px;
 	}
 
-	.landing-footer > div a:hover {
-		color: var(--forest);
-	}
-
 	@media (max-width: 1000px) {
 		.landing-nav {
 			grid-template-columns: 1fr auto;
@@ -1287,22 +662,14 @@
 			display: none;
 		}
 
-		.library-section,
-		.briefs-inner,
-		.share-section,
-		.pricing-inner {
+		.depth-panel,
+		.briefs-inner {
 			grid-template-columns: 1fr;
 		}
 
-		.section-copy,
-		.briefs-copy,
-		.share-copy,
-		.pricing-copy {
-			max-width: 650px;
-		}
-
-		.brief-card {
-			max-width: 760px;
+		.depth-copy,
+		.briefs-copy {
+			max-width: 680px;
 		}
 	}
 
@@ -1359,65 +726,46 @@
 			border-width: 2px;
 		}
 
-		.reads-ahead {
-			font-size: 18px;
-		}
-
-		.reader-demo {
-			height: 600px;
-			border-width: 5px;
-			border-radius: 14px;
-		}
-
-		.brief-cover {
-			grid-template-columns: 112px 1fr;
-			gap: 15px;
-		}
-
-		.brief-art {
-			min-height: 150px;
-		}
-
-		.brief-cover h3 {
-			font-size: 29px;
-		}
-
-		.audio-player b {
-			display: none;
-		}
-
-		.brief-flow {
+		.outcome-list {
 			grid-template-columns: 1fr;
 		}
 
-		.brief-flow > i {
+		.outcome-list li {
+			padding-inline: 0;
+		}
+
+		.outcome-list li + li {
+			border-top: 1px solid var(--line);
+			border-left: 0;
+		}
+
+		.outcome-list h3 {
+			margin-top: 26px;
+		}
+
+		.depth-panel {
+			padding: 42px 24px;
+			border-radius: 18px;
+		}
+
+		.depth-list li {
+			grid-template-columns: 1fr;
+			gap: 7px;
+		}
+
+		.brief-path {
+			grid-template-columns: 1fr;
+		}
+
+		.brief-path i {
 			width: 1px;
 			height: 20px;
 			margin-left: 3px;
 		}
 
-		.share-card {
-			padding: 24px;
-		}
-
-		.share-card h3 {
-			margin-top: 40px;
-		}
-
-		.share-link {
-			margin-top: 40px;
-		}
-
-		.plan-card ul {
-			grid-template-columns: 1fr;
-		}
-
-		.download-gate {
-			grid-template-columns: auto 1fr;
-		}
-
-		.download-gate .button {
-			grid-column: 1 / -1;
+		.final-cta {
+			min-height: 470px;
+			border-radius: 18px;
 		}
 
 		.landing-footer {
@@ -1432,13 +780,6 @@
 	@media (prefers-reduced-motion: reduce) {
 		:global(html) {
 			scroll-behavior: auto;
-		}
-
-		.landing *,
-		.landing *::before,
-		.landing *::after {
-			scroll-behavior: auto !important;
-			transition-duration: 0.01ms !important;
 		}
 	}
 </style>
