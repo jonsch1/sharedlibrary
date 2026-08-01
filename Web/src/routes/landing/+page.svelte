@@ -47,7 +47,6 @@
 		<nav aria-label="Main navigation">
 			<a href="#library">How it works</a>
 			<a href="#briefs">Briefs</a>
-			<a href="#pricing">Pricing</a>
 		</nav>
 
 		<div class="nav-actions">
@@ -56,37 +55,34 @@
 	</header>
 
 	<main>
-		<section class="hero">
-			<div class="paper-shape paper-shape-lavender" aria-hidden="true"></div>
-			<div class="paper-shape paper-shape-orange" aria-hidden="true"></div>
-			<div class="hero-leaf" aria-hidden="true">
-				<i></i><i></i><i></i>
-			</div>
-
-			<div class="hero-inner section-shell">
-				<p class="eyebrow">A quieter way to stay curious</p>
-				<h1>Keep what interests you.<br />Get the gist—or go deep.</h1>
-				<p class="hero-copy">
-					Save videos, podcasts, articles, and posts. Get four summaries—from 20 seconds to
-					a deep read—in one private library.
-				</p>
-				<div class="hero-actions">
-					<a class="button button-primary" href="#pricing">
-						Get Briefly
-						<ArrowRightIcon aria-hidden="true" />
-					</a>
-					<a class="text-link" href="#briefs">
-						See scheduled briefs
-						<ArrowRightIcon aria-hidden="true" />
-					</a>
+		<section class="hero section-shell">
+			<div class="hero-inner">
+				<div class="hero-message">
+					<h1>Stay curious. Skip the feed.</h1>
+					<p>
+						Save what interests you. Briefly gives you the useful version, at the depth you
+						choose.
+					</p>
+					<a class="button button-primary" href="#pricing">Get Briefly</a>
 				</div>
 
-				<div class="source-rail" aria-label="Supported content types">
-					<span><PlayIcon /> YouTube</span>
-					<span><HeadphonesIcon /> Podcasts</span>
-					<span><FileTextIcon /> Articles & PDFs</span>
-					<span><RssIcon /> Blogs & feeds</span>
-					<span><b>@</b> Social posts</span>
+				<div class="hero-product">
+					<img
+						class="hero-mac"
+						src="/landing-mac.webp"
+						alt="Briefly on Mac showing a saved article at the selected reading depth"
+						width="2400"
+						height="1620"
+						fetchpriority="high"
+					/>
+					<img
+						class="hero-phone"
+						src="/landing-iphone.webp"
+						alt="Briefly on iPhone playing an audio brief"
+						width="738"
+						height="1600"
+						fetchpriority="high"
+					/>
 				</div>
 			</div>
 		</section>
@@ -301,7 +297,7 @@
 	:global(body:has(.landing)) {
 		overflow-x: hidden;
 		overflow-y: auto;
-		background: #f4efe5;
+		background: #fbfaf7;
 		color: #10372d;
 	}
 
@@ -320,20 +316,9 @@
 		--line: rgb(16 55 45 / 16%);
 		min-height: 100vh;
 		overflow: clip;
-		background: var(--cream);
+		background: #fbfaf7;
 		color: var(--forest);
 		font-family: 'DM Sans Variable', 'DM Sans', sans-serif;
-	}
-
-	.landing::after {
-		content: '';
-		position: fixed;
-		z-index: 50;
-		inset: 0;
-		pointer-events: none;
-		background: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='.75'/%3E%3C/svg%3E");
-		mix-blend-mode: multiply;
-		opacity: 0.11;
 	}
 
 	.landing :global(*) {
@@ -361,7 +346,16 @@
 		display: grid;
 		grid-template-columns: 1fr auto 1fr;
 		align-items: center;
-		padding-block: 24px;
+		padding-block: 18px;
+	}
+
+	.landing-nav .landing-brand {
+		gap: 10px;
+		font-family: 'Source Serif 4 Variable', Georgia, serif;
+		font-size: 27px;
+		font-weight: 600;
+		letter-spacing: -0.03em;
+		text-transform: none;
 	}
 
 	.landing-brand {
@@ -406,6 +400,8 @@
 		padding: 11px 17px;
 		border: 1px solid var(--forest);
 		border-radius: 999px;
+		background: var(--forest);
+		color: var(--paper) !important;
 		font-weight: 650;
 		transition:
 			background 180ms ease,
@@ -413,28 +409,29 @@
 	}
 
 	.nav-cta:hover {
-		background: var(--forest);
-		color: var(--paper);
+		background: var(--forest-deep);
 	}
 
 	.hero {
 		position: relative;
-		min-height: 690px;
-		display: grid;
-		align-items: center;
-		padding: 72px 0 96px;
+		min-height: 830px;
+		padding: 64px 28px 0;
 		overflow: hidden;
-		background:
-			radial-gradient(circle at 50% 20%, rgb(255 255 255 / 72%), transparent 38rem),
-			var(--cream);
+		border-radius: 24px;
+		background: #f0f1ee;
 	}
 
 	.hero-inner {
-		position: relative;
-		z-index: 3;
-		display: grid;
-		justify-items: center;
+		display: flex;
+		min-height: 766px;
+		flex-direction: column;
+		align-items: center;
 		text-align: center;
+	}
+
+	.hero-message {
+		position: relative;
+		z-index: 2;
 	}
 
 	.eyebrow {
@@ -461,23 +458,21 @@
 	}
 
 	.hero h1 {
-		max-width: 1080px;
-		font-size: clamp(56px, 7.3vw, 104px);
+		max-width: 980px;
+		font-size: clamp(50px, 6vw, 80px);
+		line-height: 1.02;
 	}
 
-	.hero-copy {
+	.hero-message p {
 		max-width: 700px;
-		margin: 27px 0 0;
+		margin: 20px auto 0;
 		color: rgb(16 55 45 / 76%);
-		font-size: clamp(17px, 1.5vw, 20px);
-		line-height: 1.6;
+		font-size: clamp(16px, 1.4vw, 19px);
+		line-height: 1.55;
 	}
 
-	.hero-actions {
-		display: flex;
-		align-items: center;
-		gap: 28px;
-		margin-top: 34px;
+	.hero-message .button {
+		margin-top: 27px;
 	}
 
 	.button {
@@ -505,121 +500,37 @@
 	}
 
 	.button-primary {
-		box-shadow: 0 14px 32px rgb(216 83 18 / 18%);
-		background: var(--orange);
+		box-shadow: 0 12px 28px rgb(16 55 45 / 15%);
+		background: var(--forest);
 		color: white !important;
 	}
 
 	.button-primary:hover {
-		box-shadow: 0 18px 38px rgb(216 83 18 / 28%);
+		box-shadow: 0 16px 34px rgb(16 55 45 / 22%);
 	}
 
-	.text-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding-block: 8px;
-		border-bottom: 1px solid currentColor;
-		color: var(--cobalt) !important;
-		font-size: 14px;
-		font-weight: 650;
+	.hero-product {
+		position: relative;
+		width: min(100%, 1040px);
+		margin-top: 42px;
 	}
 
-	.text-link :global(svg) {
-		width: 17px;
+	.hero-mac {
+		display: block;
+		width: 100%;
+		height: auto;
+		filter: drop-shadow(0 24px 32px rgb(8 42 34 / 13%));
 	}
 
-	.source-rail {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
-		gap: 10px;
-		margin-top: 64px;
-	}
-
-	.source-rail span {
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		padding: 9px 13px;
-		border: 1px solid var(--line);
-		border-radius: 999px;
-		background: rgb(255 250 241 / 70%);
-		color: rgb(16 55 45 / 72%);
-		font-size: 12px;
-		font-weight: 650;
-		backdrop-filter: blur(10px);
-	}
-
-	.source-rail :global(svg) {
-		width: 15px;
-		height: 15px;
-	}
-
-	.paper-shape {
+	.hero-phone {
 		position: absolute;
-		z-index: 1;
-		border: 1px solid rgb(16 55 45 / 8%);
-		filter: saturate(0.9);
-	}
-
-	.paper-shape-lavender {
-		bottom: -180px;
-		left: -230px;
-		width: 540px;
-		height: 440px;
-		border-radius: 44% 56% 48% 52%;
-		background:
-			repeating-linear-gradient(8deg, transparent 0 23px, rgb(216 83 18 / 24%) 24px 25px),
-			var(--lavender);
-		transform: rotate(14deg);
-	}
-
-	.paper-shape-orange {
-		right: -120px;
-		bottom: -240px;
-		width: 360px;
-		height: 420px;
-		border-radius: 50%;
-		background: #df6b34;
-	}
-
-	.hero-leaf {
-		position: absolute;
-		z-index: 2;
-		right: 55px;
-		bottom: 28px;
-		width: 120px;
-		height: 220px;
-		border-left: 2px solid var(--forest);
-		transform: rotate(16deg);
-		opacity: 0.72;
-	}
-
-	.hero-leaf i {
-		position: absolute;
-		width: 46px;
-		height: 84px;
-		border: 2px solid var(--forest);
-		border-radius: 100% 0 100% 0;
-	}
-
-	.hero-leaf i:nth-child(1) {
-		top: 32px;
-		left: -45px;
-		transform: rotate(-30deg);
-	}
-
-	.hero-leaf i:nth-child(2) {
-		top: 76px;
-		left: 8px;
-		transform: rotate(38deg);
-	}
-
-	.hero-leaf i:nth-child(3) {
-		top: 125px;
-		left: -44px;
-		transform: rotate(-34deg) scale(0.82);
+		right: -1%;
+		bottom: 3%;
+		width: clamp(145px, 19vw, 225px);
+		height: auto;
+		border: 4px solid #111315;
+		border-radius: 13% / 6%;
+		box-shadow: 0 24px 50px rgb(8 42 34 / 24%);
 	}
 
 	.reads-ahead {
@@ -1410,6 +1321,10 @@
 			height: 32px;
 		}
 
+		.landing-nav .landing-brand {
+			font-size: 22px;
+		}
+
 		.nav-cta {
 			padding: 9px 12px;
 			font-size: 11px;
@@ -1417,33 +1332,31 @@
 
 		.hero {
 			min-height: 650px;
-			padding: 70px 0 74px;
+			padding: 52px 16px 0;
+			border-radius: 18px;
+		}
+
+		.hero-inner {
+			min-height: auto;
 		}
 
 		.hero h1 {
-			font-size: clamp(47px, 14vw, 68px);
+			font-size: clamp(43px, 12vw, 62px);
 		}
 
-		.hero-copy {
+		.hero-message p {
 			font-size: 16px;
 		}
 
-		.hero-actions {
-			flex-direction: column;
-			gap: 12px;
+		.hero-product {
+			width: 108%;
+			margin-top: 38px;
 		}
 
-		.source-rail {
-			margin-top: 46px;
-		}
-
-		.paper-shape-lavender {
-			left: -390px;
-		}
-
-		.paper-shape-orange,
-		.hero-leaf {
-			display: none;
+		.hero-phone {
+			right: 1%;
+			width: 28%;
+			border-width: 2px;
 		}
 
 		.reads-ahead {
