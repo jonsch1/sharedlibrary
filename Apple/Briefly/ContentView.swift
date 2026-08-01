@@ -219,6 +219,7 @@ final class LibraryModel {
         if usesDemo {
             projection = .demo
             status = "Showing the sample library"
+            isReady = true
         } else {
             let directory = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
