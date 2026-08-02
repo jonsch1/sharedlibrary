@@ -941,6 +941,84 @@ struct ChannelLoginView: View {
     }
 }
 
+#if os(macOS)
+struct ChannelPreview: View {
+    @State private var loadedURL: URL
+    @StateObject private var navigation = ChannelBrowserNavigation()
+
+    init(source: String) {
+        _loadedURL = State(
+            initialValue: validatedHTTPURL(source) ?? URL(string: "about:blank")!
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Circle().fill(.red.opacity(0.8))
+                    Circle().fill(.yellow.opacity(0.8))
+                    Circle().fill(.green.opacity(0.8))
+                }
+                .frame(width: 48)
+                .accessibilityHidden(true)
+
+                Button(action: navigation.goBack) {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!navigation.canGoBack)
+                .accessibilityLabel("Back")
+
+                Button(action: navigation.goForward) {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!navigation.canGoForward)
+                .accessibilityLabel("Forward")
+
+                Button(action: navigation.reload) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Reload")
+
+                HStack(spacing: 7) {
+                    Image(systemName: "globe")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(loadedURL.absoluteString)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.callout)
+                .padding(.horizontal, 11)
+                .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                .background(.quaternary.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+
+                Link(destination: loadedURL) {
+                    Image(systemName: "arrow.up.right")
+                }
+                .accessibilityLabel("Open in default browser")
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+
+            ChannelWebView(url: $loadedURL, navigation: navigation) { url in
+                if loadedURL != url { loadedURL = url }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(.separator, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+    }
+}
+#endif
+
 @MainActor
 private final class ChannelBrowserNavigation: ObservableObject {
     @Published private(set) var canGoBack = false

@@ -26,7 +26,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         switch self {
         case .items: "Item"
         case .channels: "Channel"
-        case .briefs: "Voice brief"
+        case .briefs: "Brief"
         }
     }
 
@@ -1337,7 +1337,7 @@ final class LibraryModel {
     private func selectInitialContent() async {
         showingHighlights = false
         expandedVoiceBriefIDs = Set(projection.voiceBriefDefinitions.map(\.id))
-        expandedChannelSources = Set(channels.map(\.source))
+        expandedChannelSources = []
         let briefWithEpisode = projection.voiceBriefDefinitions.lazy.compactMap { brief in
             self.projection.episodes(for: brief.id).first.map { (brief, $0) }
         }.first
@@ -1636,42 +1636,48 @@ struct ContentView: View {
         Group {
             if model.isReady {
                 #if os(macOS)
-                HStack(spacing: 6) {
-                if sidebarVisible {
-                    LibrarySidebar(
-                        model: model,
-                        showsSettings: $showsSettings,
-                        sidebarVisible: $sidebarVisible,
-                        reservesWindowControls: windowControlsVisible
-                    )
-                    .frame(width: 326)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-
-                LibraryDetail(
-                    model: model,
-                    showsChannelBrowser: $showsChannelBrowser,
-                    audioPlayer: audioPlayer
-                )
-                .overlay(alignment: .topLeading) {
-                    if !sidebarVisible {
-                        Button {
-                            withAnimation(.snappy(duration: 0.18)) {
-                                sidebarVisible = true
-                            }
-                        } label: {
-                            Image(systemName: "sidebar.left")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .frame(width: 64, height: 45)
-                        .padding(.leading, windowControlsVisible ? 72 : 0)
-                        .keyboardShortcut("s", modifiers: [.command, .control])
-                        .accessibilityLabel("Show sidebar")
-                        .help("Show sidebar")
+                HSplitView {
+                    if sidebarVisible {
+                        LibrarySidebar(
+                            model: model,
+                            showsSettings: $showsSettings,
+                            sidebarVisible: $sidebarVisible,
+                            reservesWindowControls: windowControlsVisible
+                        )
+                        .padding(.top, 6)
+                        .ignoresSafeArea(.container, edges: .top)
+                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 420)
+                        .frame(maxHeight: .infinity)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                }
+
+                    LibraryDetail(
+                        model: model,
+                        showsChannelBrowser: $showsChannelBrowser,
+                        audioPlayer: audioPlayer
+                    )
+                    .layoutPriority(1)
+                    .overlay(alignment: .topLeading) {
+                        if !sidebarVisible {
+                            Button {
+                                withAnimation(.snappy(duration: 0.18)) {
+                                    sidebarVisible = true
+                                }
+                            } label: {
+                                Image(systemName: "sidebar.left")
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: 64, height: 45)
+                            .padding(.leading, windowControlsVisible ? 72 : 0)
+                            .padding(.top, 6)
+                            .ignoresSafeArea(.container, edges: .top)
+                            .keyboardShortcut("s", modifiers: [.command, .control])
+                            .accessibilityLabel("Show sidebar")
+                            .help("Show sidebar")
+                        }
+                    }
                 }
                 .padding(6)
                 .background(appBackground)
@@ -2613,34 +2619,7 @@ private struct LibrarySidebar: View {
                         .accessibilityHidden(true)
                 }
 
-                ForEach(LibrarySection.allCases) { section in
-                    Button {
-                        Task { await model.show(section) }
-                    } label: {
-                        Image(systemName: section.icon)
-                            .font(
-                                .system(
-                                    size: 15,
-                                    weight: model.activeSection == section
-                                        ? .semibold
-                                        : .regular
-                                )
-                            )
-                            .foregroundStyle(
-                                model.activeSection == section
-                                    ? Color.primary
-                                    : Color.secondary
-                            )
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(section.title)
-                    .accessibilityAddTraits(
-                        model.activeSection == section ? .isSelected : []
-                    )
-                    .help(section.title)
-                }
+                Spacer()
 
                 Button {
                     withAnimation(.snappy(duration: 0.18)) {
@@ -2657,6 +2636,7 @@ private struct LibrarySidebar: View {
                 .keyboardShortcut("s", modifiers: [.command, .control])
                 .accessibilityLabel("Hide sidebar")
                 .help("Hide sidebar")
+                .frame(width: 64)
             }
             .frame(height: 45)
             #endif
@@ -2715,18 +2695,48 @@ private struct LibrarySidebar: View {
             #endif
 
             #if os(macOS)
-            HStack(spacing: 0) {
-                Button {
-                    showsSettings = true
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .contentShape(Rectangle())
+            Group {
+                if #available(macOS 26.0, *) {
+                    sidebarNavigation
+                        .glassEffect(.regular.interactive(), in: Capsule())
+                } else {
+                    sidebarNavigation
+                        .background(.regularMaterial, in: Capsule())
                 }
-                .buttonStyle(.plain)
             }
-            .font(.system(size: 13, weight: .semibold))
+            .padding(8)
+            .overlay(alignment: .topTrailing) {
+                if model.activeSection != .items {
+                    Button {
+                        model.query = ""
+                        model.selectedID = ""
+                        model.selectedIDs = []
+                        if model.activeSection == .channels {
+                            model.selectedChannelSource = "new"
+                        } else {
+                            model.selectedVoiceBriefID = "new"
+                        }
+                        onOpenDetail()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor, in: Circle())
+                    .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                    .padding(.trailing, 14)
+                    .offset(y: -36)
+                    .accessibilityLabel(
+                        model.activeSection == .channels
+                            ? "New channel"
+                            : "New voice brief"
+                    )
+                }
+            }
             #endif
         }
         #if os(macOS)
@@ -2740,6 +2750,61 @@ private struct LibrarySidebar: View {
         .background(sidebarBackground.ignoresSafeArea())
         #endif
     }
+
+    #if os(macOS)
+    private var sidebarNavigation: some View {
+        HStack(spacing: 0) {
+            ForEach(LibrarySection.allCases) { section in
+                Button {
+                    Task { await model.show(section) }
+                } label: {
+                    sidebarTab(
+                        icon: section.icon,
+                        title: section.title,
+                        selected: model.activeSection == section
+                    )
+                }
+                .accessibilityAddTraits(
+                    model.activeSection == section ? .isSelected : []
+                )
+                .help(section.title)
+            }
+
+            Button {
+                showsSettings = true
+            } label: {
+                sidebarTab(icon: "gearshape", title: "Settings", selected: false)
+            }
+            .help("Settings")
+        }
+        .buttonStyle(.plain)
+        .padding(4)
+        .frame(height: 58)
+    }
+
+    private func sidebarTab(
+        icon: String,
+        title: String,
+        selected: Bool
+    ) -> some View {
+        VStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(selected ? Color.accentColor : Color.primary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .background {
+            if selected {
+                Capsule().fill(Color.primary.opacity(0.1))
+            }
+        }
+    }
+    #endif
 }
 
 private struct FilterStrip: View {
@@ -2996,39 +3061,6 @@ private struct VoiceBriefRows: View {
     let onOpenDetail: () -> Void
 
     var body: some View {
-        #if os(macOS)
-        Button {
-            model.selectedID = ""
-            model.selectedIDs = []
-            model.selectedVoiceBriefID = "new"
-            onOpenDetail()
-        } label: {
-            Label("New voice brief", systemImage: "plus")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 11)
-                .frame(height: 39)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.accentColor)
-        .background {
-            RoundedRectangle(cornerRadius: 9)
-                .fill(
-                    model.selectedVoiceBriefID == "new"
-                        ? Color.accentColor.opacity(0.1)
-                        : Color.clear
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 9)
-                .stroke(
-                    Color.primary.opacity(0.17),
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                )
-                }
-        }
-        .padding(.bottom, 6)
-        #endif
-
         if model.filteredVoiceBriefs.isEmpty {
             SidebarEmpty(icon: "headphones", title: "No voice briefs")
         } else {
@@ -3111,39 +3143,6 @@ private struct ChannelRows: View {
     let onOpenDetail: () -> Void
 
     var body: some View {
-        #if os(macOS)
-        Button {
-            model.selectedID = ""
-            model.selectedIDs = []
-            model.selectedChannelSource = "new"
-            onOpenDetail()
-        } label: {
-            Label("New channel", systemImage: "plus")
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 11)
-                .frame(height: 39)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.accentColor)
-        .background {
-            RoundedRectangle(cornerRadius: 9)
-                .fill(
-                    model.selectedChannelSource == "new"
-                        ? Color.accentColor.opacity(0.1)
-                        : Color.clear
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 9)
-                .stroke(
-                    Color.primary.opacity(0.17),
-                    style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                )
-                }
-        }
-        .padding(.bottom, 6)
-        #endif
-
         if model.filteredChannels.isEmpty {
             SidebarEmpty(icon: "dot.radiowaves.left.and.right", title: "No channels")
         } else {
@@ -4155,6 +4154,7 @@ private struct LibraryDocument: View {
                     ),
                     isEditing: isEditing
                 )
+                .frame(maxWidth: 844)
                 .id("\(entry.id):\(model.selectedVariant.rawValue)")
             }
 
@@ -5019,6 +5019,144 @@ private struct ChannelConfiguration: View {
                     }
                 }
             } else if let channel = model.selectedChannel {
+                #if os(macOS)
+                VStack(alignment: .leading, spacing: 30) {
+                    HStack(alignment: .top, spacing: 18) {
+                        Image(
+                            systemName: channel.kind == .podcast
+                                ? "waveform"
+                                : "dot.radiowaves.left.and.right"
+                        )
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 58, height: 58)
+                        .background(Color.accentColor.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("CHANNEL")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(channel.title)
+                                .font(.system(.largeTitle, design: .serif, weight: .bold))
+                            Text(channel.source)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+
+                        Spacer(minLength: 20)
+
+                        Button {
+                            Task { await model.checkSelectedChannel() }
+                        } label: {
+                            if model.isCheckingChannel {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Check now", systemImage: "arrow.clockwise")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.isCheckingChannel)
+
+                        Menu {
+                            Button {
+                                Task { await model.checkSelectedChannel(loadMore: true) }
+                            } label: {
+                                Label("Load more", systemImage: "arrow.down")
+                            }
+                            .disabled(model.isCheckingChannel || !channel.canLoadMore)
+                            Button {
+                                showsChannelBrowser = true
+                            } label: {
+                                Label("Sign in", systemImage: "person.crop.circle")
+                            }
+                            Divider()
+                            Button("Remove channel", role: .destructive) {
+                                confirmsRemoval = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .accessibilityLabel("More channel actions")
+                    }
+
+                    Divider()
+
+                    Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
+                        GridRow {
+                            Text("CAPTURED ITEMS")
+                            Text("TYPE")
+                            Text("LAST CHECKED")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        GridRow {
+                            Text(model.channelEntries(for: channel.source).count.formatted())
+                            Text(channel.kind?.rawValue.capitalized ?? "Not checked")
+                            Text(channel.lastCheckedAt ?? "Never")
+                        }
+                        .font(.title3.weight(.semibold))
+                    }
+
+                    if let error = channel.error {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Channel preview")
+                            .font(.title2.weight(.semibold))
+                        ChannelPreview(source: channel.source)
+                            .id(channel.source)
+                            .frame(height: 500)
+                    }
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Refresh depth")
+                                .font(.headline)
+                            Text("How many recent items Briefly gathers on each check.")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Stepper(
+                            "Items per check: \(retrievalCount)",
+                            value: $retrievalCount,
+                            in: 1...100
+                        )
+                        .fixedSize()
+                        .onChange(of: retrievalCount) {
+                            Task {
+                                await model.updateSelectedChannel(
+                                    retrievalCount: retrievalCount
+                                )
+                            }
+                        }
+                    }
+
+                    if !channel.briefTitles.isEmpty {
+                        LabeledContent(
+                            "Voice briefs",
+                            value: channel.briefTitles.joined(separator: ", ")
+                        )
+                    }
+                }
+                .frame(maxWidth: 1000, alignment: .leading)
+                .padding(.horizontal, 40)
+                .padding(.vertical, 44)
+                .frame(maxWidth: .infinity)
+                #else
                 ConfigurationCard(
                     eyebrow: "CHANNEL",
                     title: channel.title,
@@ -5099,6 +5237,7 @@ private struct ChannelConfiguration: View {
                         confirmsRemoval = true
                     }
                 }
+                #endif
             } else {
                 ContentUnavailableView(
                     "No channels",
