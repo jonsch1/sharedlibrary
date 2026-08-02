@@ -198,6 +198,31 @@ public final class SQLiteLibrary: @unchecked Sendable {
             if !columns.contains("media_url") {
                 try execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
             }
+            let attachmentParents = try query("PRAGMA foreign_key_list(attachments)") {
+                columnText($0, 2)
+            }
+            if attachmentParents.contains("documents") {
+                try transaction {
+                    try execute(
+                        """
+                        ALTER TABLE attachments RENAME TO attachments_with_document_fk;
+                        CREATE TABLE attachments(
+                          id TEXT PRIMARY KEY,
+                          document_id TEXT NOT NULL,
+                          kind TEXT NOT NULL,
+                          mime_type TEXT NOT NULL,
+                          data BLOB NOT NULL,
+                          revision INTEGER NOT NULL DEFAULT 1,
+                          deleted_at REAL,
+                          cloud_record BLOB
+                        );
+                        INSERT INTO attachments
+                        SELECT * FROM attachments_with_document_fk;
+                        DROP TABLE attachments_with_document_fk;
+                        """
+                    )
+                }
+            }
         } catch {
             sqlite3_close(database)
             throw error
@@ -1573,7 +1598,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
     );
     CREATE TABLE IF NOT EXISTS attachments(
       id TEXT PRIMARY KEY,
-      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      document_id TEXT NOT NULL,
       kind TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       data BLOB NOT NULL,

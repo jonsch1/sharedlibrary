@@ -383,7 +383,9 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     }
 
     public var isMainLibraryEntry: Bool {
-        entryType != "voice_brief_episode" && entryType != "voice_brief_source"
+        entryType != "voice_brief_episode" &&
+            entryType != "voice_brief_source" &&
+            entryType != "highlights"
     }
 
     public var preferredVariant: LibraryVariant {

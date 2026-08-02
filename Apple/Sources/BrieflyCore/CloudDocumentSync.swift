@@ -3,7 +3,7 @@ import CryptoKit
 import Foundation
 
 @available(macOS 14.0, iOS 17.0, *)
-public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable {
+public final actor CloudDocumentSync: CKSyncEngineDelegate {
     private struct Payload: Codable {
         let topicIDs: [String]
         let tags: [String]
@@ -18,8 +18,8 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         ownerName: CKCurrentUserDefaultName
     )
     private let assetDirectory: URL
-    private let assetLock = NSLock()
     private var assets = Set<URL>()
+    private var eventError: Error?
     private lazy var engine: CKSyncEngine = {
         let serialization = try? store.syncState().flatMap {
             try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
@@ -46,6 +46,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
     }
 
     public func synchronize() async throws {
+        eventError = nil
         try store.enqueueInitialCloudUploadIfNeeded()
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
         let pending = try store.outbox().map { item in
@@ -55,7 +56,9 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         }
         engine.state.add(pendingRecordZoneChanges: pending)
         try await engine.fetchChanges()
+        if let eventError { throw eventError }
         try await engine.sendChanges()
+        if let eventError { throw eventError }
         try store.markInitialCloudUploadCompleted()
     }
 
@@ -63,7 +66,9 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         do {
             switch event {
             case .stateUpdate(let update):
-                try store.saveSyncState(try JSONEncoder().encode(update.stateSerialization))
+                if eventError == nil {
+                    try store.saveSyncState(try JSONEncoder().encode(update.stateSerialization))
+                }
             case .fetchedRecordZoneChanges(let changes):
                 for modification in changes.modifications
                 {
@@ -101,11 +106,13 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
                 }
             case .didSendChanges:
                 removeTemporaryAssets()
+            case .didFetchRecordZoneChanges(let result):
+                if let error = result.error { throw error }
             default:
                 break
             }
         } catch {
-            // CKSyncEngine retains failed pending changes; the next sync retries them.
+            eventError = eventError ?? error
         }
     }
 
@@ -118,7 +125,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         }
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) {
             [weak self] recordID in
-            try? self?.record(for: recordID)
+            try? await self?.record(for: recordID)
         }
     }
 
@@ -160,9 +167,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         )
         let url = assetDirectory.appending(path: UUID().uuidString)
         try payload.write(to: url, options: .atomic)
-        assetLock.lock()
         assets.insert(url)
-        assetLock.unlock()
         record["payload"] = CKAsset(fileURL: url)
         return record
     }
@@ -194,9 +199,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         try FileManager.default.createDirectory(at: assetDirectory, withIntermediateDirectories: true)
         let url = assetDirectory.appending(path: UUID().uuidString)
         try attachment.data.write(to: url, options: .atomic)
-        assetLock.lock()
         assets.insert(url)
-        assetLock.unlock()
         record["payload"] = CKAsset(fileURL: url)
         return record
     }
@@ -301,10 +304,8 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
     }
 
     private func removeTemporaryAssets() {
-        assetLock.lock()
         let urls = assets
         assets.removeAll()
-        assetLock.unlock()
         for url in urls { try? FileManager.default.removeItem(at: url) }
     }
 }

@@ -444,12 +444,12 @@ public actor SQLiteLibraryStore {
 
     public func documentDatabase() throws -> SQLiteLibrary { try database() }
 
-    public func loadProjection() throws -> LibraryProjection {
+    public func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
         let database = try database()
         let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
             ($0.id, $0.title)
         })
-        let entries = try database.allDocuments().map { document in
+        let entries = try database.allDocuments(includeDeleted: includeDeleted).map { document in
             let audio = try database.attachment(documentID: document.id, kind: "audio")
             let favicon = try database.attachment(documentID: document.id, kind: "favicon")
             let references: [LibraryText] = LibraryVariant.allCases.compactMap { variant in

@@ -2,6 +2,32 @@ import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
+    func testCloudAttachmentCanArriveBeforeItsDocument() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try SQLiteLibrary(databaseURL: root.appending(path: "library.sqlite3"))
+        let audio = Data("audio".utf8)
+
+        try database.applyRemote(SQLiteAttachment(
+            id: "document:audio",
+            documentID: "document",
+            kind: "audio",
+            mimeType: "audio/mp4",
+            data: audio,
+            revision: 1,
+            cloudRecordData: nil
+        ))
+        try database.applyRemote(SQLiteDocument(
+            id: "document",
+            captureID: "capture",
+            title: "Fetched document",
+            texts: [.source: "Fetched body"]
+        ))
+
+        XCTAssertEqual(try database.attachment(documentID: "document", kind: "audio")?.1, audio)
+    }
+
     func testCanonicalCaptureAndMediaPersistence() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -514,6 +540,11 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertTrue(outbox.contains {
             $0.recordType == "document" && $0.documentID == capturedID
         })
+        try await workspace.moveToTrash(entryID: pdfID)
+        let activeEntries = try await workspace.loadProjection().entries
+        let allEntries = try await workspace.loadProjection(includeDeleted: true).entries
+        XCTAssertFalse(activeEntries.contains { $0.id == pdfID })
+        XCTAssertTrue(allEntries.contains { $0.id == pdfID })
         #endif
 
     }
