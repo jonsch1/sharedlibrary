@@ -383,6 +383,7 @@ private struct VoiceBriefWatcherState: Codable {
     struct Source: Codable {
         var title: String? = nil
         var kind: LibraryChannelKind? = nil
+        var schedule: String? = nil
         var lastCheckedAt: String? = nil
         var error: String? = nil
         var retrievalCount: Int? = nil
@@ -449,9 +450,49 @@ public actor SQLiteLibraryStore {
         let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
             ($0.id, $0.title)
         })
-        let entries = try database.allDocuments(includeDeleted: includeDeleted).map { document in
-            let audio = try database.attachment(documentID: document.id, kind: "audio")
-            let favicon = try database.attachment(documentID: document.id, kind: "favicon")
+        let attachmentsByDocument = Dictionary(
+            grouping: try database.attachmentMetadata(),
+            by: \.documentID
+        )
+        let entries = projectEntries(
+            try database.allDocuments(includeDeleted: includeDeleted),
+            topicNames: topicNames,
+            attachmentsByDocument: attachmentsByDocument
+        )
+        return LibraryProjection(
+            schemaVersion: librarySchemaVersion,
+            generatedAt: Date().iso8601,
+            files: [],
+            entries: entries,
+            voiceBriefs: try readVoiceBriefs()
+        )
+    }
+
+    public func loadTrash() throws -> [LibraryEntry] {
+        let database = try database()
+        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
+            ($0.id, $0.title)
+        })
+        let attachmentsByDocument = Dictionary(
+            grouping: try database.attachmentMetadata(),
+            by: \.documentID
+        )
+        return projectEntries(
+            try database.deletedDocuments(),
+            topicNames: topicNames,
+            attachmentsByDocument: attachmentsByDocument
+        )
+    }
+
+    private func projectEntries(
+        _ documents: [SQLiteDocument],
+        topicNames: [String: String],
+        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]]
+    ) -> [LibraryEntry] {
+        documents.map { document in
+            let attachments = attachmentsByDocument[document.id] ?? []
+            let audio = attachments.contains { $0.kind == "audio" }
+            let favicon = attachments.first { $0.kind == "favicon" }
             let references: [LibraryText] = LibraryVariant.allCases.compactMap { variant in
                 guard let text = document.texts[variant] else { return nil }
                 return LibraryText(
@@ -477,12 +518,14 @@ public actor SQLiteLibraryStore {
                 tags: document.tags,
                 sourceURL: document.sourceURL,
                 mediaURL: document.mediaURL,
-                faviconFile: favicon.map { "\(document.captureID).\(fileExtension(for: $0.0))" },
+                faviconFile: favicon.map {
+                    "\(document.captureID).\(fileExtension(for: $0.mimeType))"
+                },
                 audio: nil,
                 favicon: nil,
                 sourceIDs: document.sourceIDs,
                 sourceURLs: document.sourceURLs,
-                hasAudio: audio != nil,
+                hasAudio: audio,
                 createdAt: document.createdAt.iso8601,
                 updatedAt: document.updatedAt.iso8601,
                 reviewedAt: nil,
@@ -493,13 +536,6 @@ public actor SQLiteLibraryStore {
                 texts: references
             )
         }
-        return LibraryProjection(
-            schemaVersion: librarySchemaVersion,
-            generatedAt: Date().iso8601,
-            files: [],
-            entries: entries,
-            voiceBriefs: try readVoiceBriefs()
-        )
     }
 
     @discardableResult
@@ -631,6 +667,7 @@ public actor SQLiteLibraryStore {
         let source = try normalizedChannelSource(value)
         var state = readChannelState()
         state.sources[source] = state.sources[source] ?? .init(
+            schedule: "manual",
             retrievalCount: 5,
             seen: [],
             items: []
@@ -638,10 +675,18 @@ public actor SQLiteLibraryStore {
         try writeChannelState(state)
     }
 
-    public func updateChannel(_ value: String, retrievalCount: Int) throws {
+    public func updateChannel(
+        _ value: String,
+        retrievalCount: Int,
+        schedule valueSchedule: String
+    ) throws {
         let source = try normalizedChannelSource(value)
         guard (1...100).contains(retrievalCount) else {
             throw LibraryError.invalidChannelRetrievalCount
+        }
+        let schedule = valueSchedule.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validSchedule(schedule.isEmpty ? "manual" : schedule) else {
+            throw LibraryError.invalidChannelSchedule
         }
         var state = readChannelState()
         let isDefined = try readVoiceBriefs().contains { $0.sources.contains(source) }
@@ -650,6 +695,7 @@ public actor SQLiteLibraryStore {
         }
         var current = state.sources[source] ?? .init(seen: [], items: [])
         current.retrievalCount = retrievalCount
+        current.schedule = schedule.isEmpty ? "manual" : schedule
         state.sources[source] = current
         try writeChannelState(state)
     }
@@ -977,6 +1023,18 @@ public actor SQLiteLibraryStore {
                 .compactMap { $0.flatMap(ISO8601DateFormatter().date(from:)) }
                 .max()
             return attempted == nil || attempted! < scheduled ? brief.id : nil
+        }
+    }
+
+    public func dueChannelSources(at date: Date = Date()) throws -> [String] {
+        try buildChannels(from: readChannelState()).compactMap { channel in
+            guard let scheduled = mostRecentScheduledDate(channel.schedule, at: date) else {
+                return nil
+            }
+            let checked = channel.lastCheckedAt.flatMap {
+                ISO8601DateFormatter().date(from: $0)
+            }
+            return checked == nil || checked! < scheduled ? channel.source : nil
         }
     }
 
@@ -1637,6 +1695,7 @@ public actor SQLiteLibraryStore {
                 (record.source, VoiceBriefWatcherState.Source(
                     title: record.title,
                     kind: record.kind,
+                    schedule: record.schedule,
                     lastCheckedAt: record.lastCheckedAt,
                     error: record.error,
                     retrievalCount: record.retrievalCount,
@@ -1664,6 +1723,7 @@ public actor SQLiteLibraryStore {
                 source: source,
                 title: value.title,
                 kind: value.kind,
+                schedule: value.schedule ?? "manual",
                 lastCheckedAt: value.lastCheckedAt,
                 error: value.error,
                 retrievalCount: value.retrievalCount ?? 5,
@@ -1703,6 +1763,7 @@ public actor SQLiteLibraryStore {
                 source: source,
                 title: value?.title ?? channelDisplayTitle(source),
                 kind: value?.kind,
+                schedule: value?.schedule ?? "manual",
                 lastCheckedAt: value?.lastCheckedAt,
                 error: value?.error,
                 retrievalCount: value?.retrievalCount ?? 5,
@@ -1731,6 +1792,7 @@ public enum LibraryError: LocalizedError {
     case missingVoiceBrief
     case invalidChannel
     case invalidChannelRetrievalCount
+    case invalidChannelSchedule
     case channelFailed(String)
     case invalidProcessingOutput
     case invalidProcessingPrompt
@@ -1764,6 +1826,8 @@ public enum LibraryError: LocalizedError {
         case .invalidChannel: "Channels must be HTTP(S) URLs or arXiv queries."
         case .invalidChannelRetrievalCount:
             "Items per check must be between 1 and 100."
+        case .invalidChannelSchedule:
+            "Schedule must be manual, daily HH:MM, or weekly MON HH:MM."
         case .channelFailed(let message): message
         case .invalidProcessingOutput:
             "AI processing did not return the required summaries and topic."

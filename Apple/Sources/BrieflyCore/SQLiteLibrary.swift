@@ -132,10 +132,17 @@ public struct SQLiteAttachment: Equatable, Sendable {
     public let cloudRecordData: Data?
 }
 
+public struct SQLiteAttachmentMetadata: Sendable {
+    public let documentID: String
+    public let kind: String
+    public let mimeType: String
+}
+
 public struct SQLiteChannelRecord: Sendable {
     public var source: String
     public var title: String?
     public var kind: LibraryChannelKind?
+    public var schedule: String
     public var lastCheckedAt: String?
     public var error: String?
     public var retrievalCount: Int
@@ -197,6 +204,10 @@ public final class SQLiteLibrary: @unchecked Sendable {
             let columns = try query("PRAGMA table_info(documents)") { columnText($0, 1) }
             if !columns.contains("media_url") {
                 try execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
+            }
+            let channelColumns = try query("PRAGMA table_info(channels)") { columnText($0, 1) }
+            if !channelColumns.contains("schedule") {
+                try execute("ALTER TABLE channels ADD COLUMN schedule TEXT NOT NULL DEFAULT 'manual'")
             }
             let attachmentParents = try query("PRAGMA foreign_key_list(attachments)") {
                 columnText($0, 2)
@@ -293,14 +304,11 @@ public final class SQLiteLibrary: @unchecked Sendable {
     }
 
     public func allDocuments(includeDeleted: Bool = false) throws -> [SQLiteDocument] {
-        try locked {
-            let sql = "SELECT id FROM documents" +
-                (includeDeleted ? "" : " WHERE deleted = 0") +
-                " ORDER BY updated_at DESC, id"
-            return try query(sql) { statement in
-                String(cString: sqlite3_column_text(statement, 0))
-            }.compactMap { try readDocument($0) }
-        }
+        try documents(where: includeDeleted ? nil : "deleted = 0")
+    }
+
+    public func deletedDocuments() throws -> [SQLiteDocument] {
+        try documents(where: "deleted = 1")
     }
 
     public func search(_ text: String, limit: Int = 50) throws -> [SQLiteSearchResult] {
@@ -466,20 +474,20 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try locked {
             let rows = try query(
                 """
-                SELECT c.source_url, c.title, c.kind, s.last_checked_at, s.last_error,
-                       c.retrieval_count, s.can_load_more
+                SELECT c.source_url, c.title, c.kind, c.schedule, s.last_checked_at,
+                       s.last_error, c.retrieval_count, s.can_load_more
                 FROM channels c LEFT JOIN channel_state s ON s.channel_id = c.id
                 WHERE c.deleted_at IS NULL ORDER BY c.source_url
                 """
             ) { statement in
                 (
                     columnText(statement, 0), columnOptionalText(statement, 1),
-                    columnOptionalText(statement, 2), columnOptionalDate(statement, 3),
-                    columnOptionalText(statement, 4), Int(sqlite3_column_int(statement, 5)),
-                    sqlite3_column_int(statement, 6) != 0
+                    columnOptionalText(statement, 2), columnText(statement, 3),
+                    columnOptionalDate(statement, 4), columnOptionalText(statement, 5),
+                    Int(sqlite3_column_int(statement, 6)), sqlite3_column_int(statement, 7) != 0
                 )
             }
-            return try rows.map { source, title, kind, checked, error, count, more in
+            return try rows.map { source, title, kind, schedule, checked, error, count, more in
                 let items = try query(
                     """
                     SELECT item_id, title, url, published_at, content, linked_url,
@@ -504,6 +512,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 return SQLiteChannelRecord(
                     source: source, title: title,
                     kind: kind.flatMap(LibraryChannelKind.init(rawValue:)),
+                    schedule: schedule,
                     lastCheckedAt: checked, error: error, retrievalCount: count,
                     canLoadMore: more, seen: seen, items: items
                 )
@@ -516,25 +525,29 @@ public final class SQLiteLibrary: @unchecked Sendable {
             try transaction {
                 for record in records {
                     let existing = try query(
-                        "SELECT title, kind, retrieval_count, revision FROM channels WHERE id = ?",
+                        "SELECT title, kind, schedule, retrieval_count, revision FROM channels WHERE id = ?",
                         bindings: [.text(record.source)]
                     ) { (columnOptionalText($0, 0), columnOptionalText($0, 1),
-                         Int(sqlite3_column_int($0, 2)), sqlite3_column_int64($0, 3)) }.first
+                         columnText($0, 2), Int(sqlite3_column_int($0, 3)),
+                         sqlite3_column_int64($0, 4)) }.first
                     let changed = existing?.0 != record.title ||
-                        existing?.1 != record.kind?.rawValue || existing?.2 != record.retrievalCount
-                    let revision = (existing?.3 ?? 0) + (changed ? 1 : 0)
+                        existing?.1 != record.kind?.rawValue || existing?.2 != record.schedule ||
+                        existing?.3 != record.retrievalCount
+                    let revision = (existing?.4 ?? 0) + (changed ? 1 : 0)
                     try run(
                         """
-                        INSERT INTO channels(id, source_url, title, kind, retrieval_count, revision)
-                        VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                        INSERT INTO channels(id, source_url, title, kind, schedule, retrieval_count, revision)
+                        VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
                           title = excluded.title, kind = excluded.kind,
+                          schedule = excluded.schedule,
                           retrieval_count = excluded.retrieval_count,
                           revision = excluded.revision, deleted_at = NULL
                         """,
                         bindings: [
                             .text(record.source), .text(record.source),
                             .optionalText(record.title), .optionalText(record.kind?.rawValue),
-                            .int(Int64(record.retrievalCount)), .int(max(1, revision))
+                            .text(record.schedule), .int(Int64(record.retrievalCount)),
+                            .int(max(1, revision))
                         ]
                     )
                     try run(
@@ -798,22 +811,24 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
             case "channel":
                 guard let row = try query(
-                    "SELECT source_url, title, kind, retrieval_count, revision, deleted_at, " +
+                    "SELECT source_url, title, kind, schedule, retrieval_count, revision, deleted_at, " +
                         "cloud_record FROM channels WHERE id = ?",
                     bindings: [.text(id)],
                     transform: { (columnText($0, 0), columnOptionalText($0, 1),
-                        columnOptionalText($0, 2), Int(sqlite3_column_int($0, 3)),
-                        sqlite3_column_int64($0, 4), sqlite3_column_type($0, 5) != SQLITE_NULL,
-                        columnOptionalBlob($0, 6)) }
+                        columnOptionalText($0, 2), columnText($0, 3),
+                        Int(sqlite3_column_int($0, 4)), sqlite3_column_int64($0, 5),
+                        sqlite3_column_type($0, 6) != SQLITE_NULL, columnOptionalBlob($0, 7)) }
                 ).first
                 else { throw SQLiteLibraryError.invalidDocument }
-                var payload: [String: Any] = ["sourceURL": row.0, "retrievalCount": row.3]
+                var payload: [String: Any] = [
+                    "sourceURL": row.0, "schedule": row.3, "retrievalCount": row.4
+                ]
                 if let title = row.1 { payload["title"] = title }
                 if let kind = row.2 { payload["kind"] = kind }
                 return SQLiteLogicalRecord(
-                    id: id, revision: row.4, deleted: row.5,
+                    id: id, revision: row.5, deleted: row.6,
                     payload: try JSONSerialization.data(withJSONObject: payload),
-                    cloudRecordData: row.6
+                    cloudRecordData: row.7
                 )
             case "voice_brief":
                 guard let row = try query(
@@ -892,14 +907,16 @@ public final class SQLiteLibrary: @unchecked Sendable {
                         throw SQLiteLibraryError.invalidDocument
                     }
                     try run(
-                        "INSERT INTO channels(id,source_url,title,kind,retrieval_count,revision,deleted_at," +
-                            "cloud_record) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET " +
+                        "INSERT INTO channels(id,source_url,title,kind,schedule,retrieval_count,revision," +
+                            "deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET " +
                             "source_url=excluded.source_url,title=excluded.title,kind=excluded.kind," +
-                            "retrieval_count=excluded.retrieval_count,revision=excluded.revision," +
+                            "schedule=excluded.schedule,retrieval_count=excluded.retrieval_count," +
+                            "revision=excluded.revision," +
                             "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
                         bindings: [
                             .text(id), .text(source), .optionalText(object["title"] as? String),
                             .optionalText(object["kind"] as? String),
+                            .text(object["schedule"] as? String ?? "manual"),
                             .int(Int64(object["retrievalCount"] as? Int ?? 5)), .int(revision),
                             deletedAt, .blob(cloudRecordData)
                         ]
@@ -983,6 +1000,21 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 bindings: [.text(documentID), .text(kind)],
                 transform: { (columnText($0, 0), columnBlob($0, 1)) }
             ).first
+        }
+    }
+
+    public func attachmentMetadata() throws -> [SQLiteAttachmentMetadata] {
+        try locked {
+            try query(
+                "SELECT document_id, kind, mime_type FROM attachments " +
+                    "WHERE deleted_at IS NULL"
+            ) {
+                SQLiteAttachmentMetadata(
+                    documentID: columnText($0, 0),
+                    kind: columnText($0, 1),
+                    mimeType: columnText($0, 2)
+                )
+            }
         }
     }
 
@@ -1287,6 +1319,17 @@ public final class SQLiteLibrary: @unchecked Sendable {
         return document
     }
 
+    private func documents(where predicate: String?) throws -> [SQLiteDocument] {
+        try locked {
+            let sql = "SELECT id FROM documents" +
+                (predicate.map { " WHERE \($0)" } ?? "") +
+                " ORDER BY updated_at DESC, id"
+            return try query(sql) { statement in
+                String(cString: sqlite3_column_text(statement, 0))
+            }.compactMap { try readDocument($0) }
+        }
+    }
+
     private func upsertText(_ id: String, _ variant: LibraryVariant, _ body: String) throws {
         try run(
             "INSERT INTO document_texts(document_id, variant, body) VALUES(?, ?, ?) " +
@@ -1524,6 +1567,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
       source_url TEXT NOT NULL UNIQUE,
       title TEXT,
       kind TEXT,
+      schedule TEXT NOT NULL DEFAULT 'manual',
       retrieval_count INTEGER NOT NULL DEFAULT 5,
       revision INTEGER NOT NULL DEFAULT 1,
       deleted_at REAL,
@@ -1606,6 +1650,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
       deleted_at REAL,
       cloud_record BLOB
     );
+    CREATE INDEX IF NOT EXISTS attachments_document_kind_idx
+      ON attachments(document_id, kind, deleted_at);
     CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING fts5(
       document_id UNINDEXED, variant UNINDEXED, title, body,
       tokenize = 'unicode61 remove_diacritics 2'

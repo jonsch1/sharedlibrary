@@ -142,7 +142,9 @@ final class LibraryModel {
         if isRunningVoiceBrief { return "Creating brief" }
         if isProcessing { return "Processing" }
         if isIngesting || isCheckingChannel { return "Ingesting" }
-        if isSyncing { return "Syncing" }
+        if isSyncing {
+            return syncTotal > 0 ? "Syncing \(syncCompleted)/\(syncTotal)" : "Syncing"
+        }
         if isTestingAI { return "Testing" }
         return nil
     }
@@ -175,7 +177,8 @@ final class LibraryModel {
     var filteredEntries: [LibraryEntry] {
         (showingTrash ? trashEntries : projection.entries).filter {
             $0.isMainLibraryEntry &&
-                (selectedTopic == "All" || $0.topicNames.contains(selectedTopic)) &&
+                (selectedTopic.isEmpty || selectedTopic == "All" ||
+                    $0.topicNames.contains(selectedTopic)) &&
                 $0.matches(query)
         }
     }
@@ -230,6 +233,7 @@ final class LibraryModel {
         }
         await selectInitialContent()
         await refreshAccount()
+        await runDueChannelChecks()
         await runDueVoiceBriefs()
     }
 
@@ -459,13 +463,7 @@ final class LibraryModel {
         selectedTopic = topic
         showingHighlights = false
         showingTrash = false
-        #if os(macOS)
         clearEntrySelection()
-        #else
-        if !filteredEntries.contains(where: { $0.id == selectedID }) {
-            await select(filteredEntries.first?.id ?? "")
-        }
-        #endif
     }
 
     func trashSelected() async {
@@ -554,15 +552,17 @@ final class LibraryModel {
         }
     }
 
-    func updateSelectedChannel(retrievalCount: Int) async {
+    func updateSelectedChannel(retrievalCount: Int, schedule: String) async {
         guard let library, let channel = selectedChannel else { return }
         do {
             try await library.updateChannel(
                 channel.source,
-                retrievalCount: retrievalCount
+                retrievalCount: retrievalCount,
+                schedule: schedule
             )
             libraryChannels = try await library.loadChannels()
             status = "Channel settings saved"
+            requestSync()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -692,21 +692,15 @@ final class LibraryModel {
 
     func runDueChannelChecks() async {
         guard let library, !isCheckingChannel, !isRunningVoiceBrief else { return }
-        let cutoff = Date().addingTimeInterval(-30 * 60)
-        let due = libraryChannels.filter {
-            guard let value = $0.lastCheckedAt,
-                  let date = ISO8601DateFormatter().date(from: value) else { return true }
-            return date < cutoff
-        }
-        guard !due.isEmpty else { return }
+        guard let due = try? await library.dueChannelSources(), !due.isEmpty else { return }
         isCheckingChannel = true
         defer { isCheckingChannel = false }
         var newEntryIDs = [String]()
-        for channel in due {
+        for source in due {
             do {
                 newEntryIDs += try await retrieveChannel(
                     library,
-                    source: channel.source
+                    source: source
                 ).newEntryIDs
             } catch {
                 continue
@@ -1119,9 +1113,10 @@ final class LibraryModel {
         clearEntrySelection()
         switch section {
         case .items:
-            selectedTopic = "All"
             #if os(iOS)
-            await select(filteredEntries.first?.id ?? "")
+            selectedTopic = ""
+            #else
+            selectedTopic = "All"
             #endif
         case .channels:
             selectedChannelDomain = "All"
@@ -1251,8 +1246,15 @@ final class LibraryModel {
             guard try await cloud.accountStatus() == .available else {
                 throw NativeLibraryError.iCloudUnavailable
             }
-            status = "Synchronizing records…"
-            try await cloud.synchronize()
+            status = "Checking iCloud for changes…"
+            try await cloud.synchronize { [weak self] completed, total in
+                guard let self else { return }
+                syncCompleted = completed
+                syncTotal = total
+                status = total > 0
+                    ? "Uploading \(completed) of \(total) changes…"
+                    : "Finishing iCloud sync…"
+            }
             projection = try await library.loadProjection()
             try await refreshTrash(from: library)
             libraryChannels = try await library.loadChannels()
@@ -1506,7 +1508,7 @@ final class LibraryModel {
         #else
         switch activeSection {
         case .items:
-            await select(filteredEntries.first?.id ?? "")
+            break
         case .channels:
             if selectedChannelSource != "new" &&
                 !channels.contains(where: { $0.source == selectedChannelSource })
@@ -1526,10 +1528,7 @@ final class LibraryModel {
     }
 
     private func refreshTrash(from store: SQLiteLibraryStore) async throws {
-        let activeIDs = Set(projection.entries.map(\.id))
-        trashEntries = try await store.loadProjection(includeDeleted: true).entries.filter {
-            $0.isMainLibraryEntry && !activeIDs.contains($0.id)
-        }
+        trashEntries = try await store.loadTrash().filter(\.isMainLibraryEntry)
     }
 
     private func loadSelectedText() async {
@@ -1924,7 +1923,17 @@ struct ContentView: View {
             Text(model.errorMessage ?? "")
         }
         .overlay(alignment: .bottomTrailing) {
-            if model.isProcessing {
+            if model.isSyncing {
+                SyncActivityView(model: model)
+                    #if os(iOS)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 152)
+                    #else
+                    .padding(18)
+                    #endif
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if model.isProcessing {
                 HStack(spacing: 9) {
                     ProgressView()
                         .controlSize(.small)
@@ -1938,6 +1947,7 @@ struct ContentView: View {
                 .accessibilityElement(children: .combine)
             }
         }
+        .animation(.snappy(duration: 0.24), value: model.isSyncing)
         #if os(iOS)
         .overlay(alignment: .bottom) {
             MobileLibraryNavigation(
@@ -2038,9 +2048,8 @@ private struct MobileHome: View {
                 ScrollView {
                     LazyVStack(spacing: 10) {
                         ForEach(entries) { entry in
-                            MobileEntryCard(
-                                entry: entry,
-                                kind: entry.voiceBriefID == nil ? .item : .brief
+                            MobileHomeEntryCard(
+                                entry: entry
                             ) {
                                 Task {
                                     model.activeSection = entry.voiceBriefID == nil
@@ -2065,24 +2074,25 @@ private struct MobileHome: View {
     }
 }
 
+private struct MobileHomeEntryCard: View {
+    let entry: LibraryEntry
+    let action: () -> Void
+
+    var body: some View {
+        GrainyEntryCard(entry: entry, action: action)
+    }
+}
+
 private enum MobileEntryKind {
     case item
     case channel
     case brief
 
-    var label: String {
+    var palette: GrainyGradientPalette {
         switch self {
-        case .item: "Item"
-        case .channel: "Channel"
-        case .brief: "Voice brief"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .item: .purple
-        case .channel: .orange
-        case .brief: .blue
+        case .item: .item
+        case .channel: .channel
+        case .brief: .brief
         }
     }
 }
@@ -2091,56 +2101,16 @@ private struct MobileEntryCard: View {
     let entry: LibraryEntry
     let kind: MobileEntryKind
     var selected = false
+    var minimumHeight: CGFloat? = nil
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(kind.label.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .tracking(0.4)
-                        .foregroundStyle(kind.color)
-                    Spacer(minLength: 6)
-                    if
-                        let value = entry.createdAt ?? entry.updatedAt,
-                        let date = try? Date(value, strategy: .iso8601)
-                    {
-                        Text(
-                            date.formatted(
-                                .relative(
-                                    presentation: .named,
-                                    unitsStyle: .abbreviated
-                                )
-                            )
-                        )
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                Text(entry.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
-
-                if !entry.excerpt.isEmpty {
-                    Text(entry.excerpt)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .mobileGlass(
-            in: RoundedRectangle(cornerRadius: 16, style: .continuous),
-            tint: selected ? kind.color.opacity(0.18) : nil
+        GrainyEntryCard(
+            entry: entry,
+            palette: kind.palette,
+            selected: selected,
+            minimumHeight: minimumHeight,
+            action: action
         )
     }
 }
@@ -2208,15 +2178,7 @@ private struct MobileLibraryNavigation: View {
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(spacing: 12) {
-                    if
-                        !homeSelected,
-                        preferredCompactColumn == .sidebar
-                    {
-                        FilterStrip(model: model) {
-                            preferredCompactColumn = .detail
-                        }
-                        .frame(height: 58)
-                    } else if isItemDetail, let entry = model.selectedEntry {
+                    if isItemDetail, let entry = model.selectedEntry {
                         ReadingDepthStrip(model: model, entry: entry)
                             .frame(height: 58)
                     } else {
@@ -2278,7 +2240,7 @@ private struct MobileLibraryNavigation: View {
                 VStack(spacing: 12) {
                     if !isItemDetail || selectedEntryHasAudio {
                         Button(action: primaryAction) {
-                            Image(systemName: isPlayableDetail ? "play.fill" : "plus")
+                            Image(systemName: primaryActionIcon)
                                 .font(.system(size: 23, weight: .medium))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .contentShape(Circle())
@@ -2288,6 +2250,7 @@ private struct MobileLibraryNavigation: View {
                         .frame(width: 58, height: 58)
                         .mobileGlass(in: Circle(), tint: .accentColor)
                         .accessibilityLabel(primaryActionLabel)
+                        .disabled(primaryActionDisabled)
                     }
 
                     Button {
@@ -2369,8 +2332,34 @@ private struct MobileLibraryNavigation: View {
         isVoiceBriefDetail || (isItemDetail && selectedEntryHasAudio)
     }
 
+    private var isChannelPage: Bool {
+        !homeSelected && model.activeSection == .channels &&
+            model.selectedChannel != nil && model.selectedID.isEmpty
+    }
+
+    private var isVoiceBriefPage: Bool {
+        !homeSelected && model.activeSection == .briefs &&
+            model.selectedVoiceBrief != nil && model.selectedID.isEmpty
+    }
+
+    private var primaryActionIcon: String {
+        if isPlayableDetail { return "play.fill" }
+        if isChannelPage { return "arrow.clockwise" }
+        if isVoiceBriefPage { return "sparkles" }
+        return "plus"
+    }
+
     private var primaryActionLabel: String {
-        isPlayableDetail ? "Play audio" : createLabel
+        if isPlayableDetail { return "Play audio" }
+        if isChannelPage { return "Check channel now" }
+        if isVoiceBriefPage { return "Generate fresh voice brief" }
+        return createLabel
+    }
+
+    private var primaryActionDisabled: Bool {
+        (isChannelPage && model.isCheckingChannel) ||
+            (isVoiceBriefPage &&
+                (model.isRunningVoiceBrief || model.selectedVoiceBrief?.sources.isEmpty != false))
     }
 
     private func primaryAction() {
@@ -2389,6 +2378,12 @@ private struct MobileLibraryNavigation: View {
                     model.errorMessage = error.localizedDescription
                 }
             }
+            return
+        }
+        if isChannelPage {
+            Task { await model.checkSelectedChannel() }
+        } else if isVoiceBriefPage {
+            Task { await model.runSelectedVoiceBrief() }
         } else {
             create()
         }
@@ -2769,6 +2764,69 @@ private struct BrieflyLogo: View {
     }
 }
 
+private struct SyncActivityView: View {
+    @Bindable var model: LibraryModel
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "icloud")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Syncing with iCloud")
+                    .font(.subheadline.weight(.semibold))
+
+                if model.syncTotal > 0 {
+                    HStack {
+                        Text("\(model.syncCompleted) of \(model.syncTotal) changes")
+                        Spacer(minLength: 16)
+                        Text(
+                            Double(model.syncCompleted) / Double(model.syncTotal),
+                            format: .percent.precision(.fractionLength(0))
+                        )
+                        .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    ProgressView(
+                        value: Double(model.syncCompleted),
+                        total: Double(model.syncTotal)
+                    )
+                    .tint(.accentColor)
+                } else {
+                    HStack(spacing: 7) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(model.status)
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 210, alignment: .leading)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(.primary.opacity(0.08))
+        }
+        .shadow(color: .black.opacity(0.13), radius: 16, y: 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Syncing with iCloud")
+        .accessibilityValue(
+            model.syncTotal > 0
+                ? "\(model.syncCompleted) of \(model.syncTotal) changes"
+                : model.status
+        )
+    }
+}
+
 private struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
@@ -2806,19 +2864,12 @@ private struct LibrarySidebar: View {
             .frame(height: 44)
             #endif
 
-            ScrollView {
-                #if os(iOS)
-                LazyVStack(spacing: 8) {
-                    MobileEntryRows(model: model, onOpenDetail: onOpenDetail)
-                }
-                .padding(.horizontal, 8)
-                #else
-                MacSidebarFilters(model: model)
-                #endif
-            }
             #if os(iOS)
-            .defaultScrollAnchor(.bottom)
-            .padding(.bottom, 150)
+            MobileLibraryRows(model: model, onOpenDetail: onOpenDetail)
+            #else
+            ScrollView {
+                MacSidebarFilters(model: model)
+            }
             #endif
 
             #if os(macOS)
@@ -3096,107 +3147,6 @@ private struct SidebarSectionHeader: View {
 }
 #endif
 
-private struct FilterStrip: View {
-    @Bindable var model: LibraryModel
-    let onOpenDetail: () -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                switch model.activeSection {
-                case .items:
-                    TopicButton(
-                        title: "All",
-                        selected: model.selectedTopic == "All" &&
-                            !model.showingHighlights
-                    ) {
-                        Task { await model.showTopic("All") }
-                    }
-                    TopicButton(
-                        title: model.highlightCount == 0
-                            ? "Highlights"
-                            : "Highlights \(model.highlightCount)",
-                        selected: model.showingHighlights
-                    ) {
-                        model.showHighlights()
-                        onOpenDetail()
-                    }
-                    ForEach(model.projection.documentTopics, id: \.self) { topic in
-                        TopicButton(
-                            title: topic,
-                            selected: model.selectedTopic == topic &&
-                                !model.showingHighlights
-                        ) {
-                            Task { await model.showTopic(topic) }
-                        }
-                    }
-                case .channels:
-                    TopicButton(
-                        title: "All",
-                        selected: model.selectedChannelSource.isEmpty
-                    ) {
-                        model.selectedChannelSource = ""
-                        model.selectedID = ""
-                        model.selectedIDs = []
-                    }
-                    ForEach(model.channels) { channel in
-                        TopicButton(
-                            title: channel.title,
-                            selected: model.selectedChannelSource == channel.source
-                        ) {
-                            model.selectedChannelSource = channel.source
-                            model.selectedID = ""
-                            model.selectedIDs = []
-                        }
-                    }
-                case .briefs:
-                    TopicButton(
-                        title: "All",
-                        selected: model.selectedVoiceBriefID.isEmpty
-                    ) {
-                        model.selectedVoiceBriefID = ""
-                        model.selectedID = ""
-                        model.selectedIDs = []
-                    }
-                    ForEach(model.projection.voiceBriefDefinitions, id: \.id) { brief in
-                        TopicButton(
-                            title: brief.title,
-                            selected: model.selectedVoiceBriefID == brief.id
-                        ) {
-                            model.selectedVoiceBriefID = brief.id
-                            model.selectedID = ""
-                            model.selectedIDs = []
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-        }
-    }
-}
-
-private struct TopicButton: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .background(selected ? Color.accentColor : Color.primary.opacity(0.055))
-        .foregroundStyle(selected ? Color.white : Color.primary)
-        .clipShape(Capsule())
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
 #if os(iOS)
 private struct ReadingDepthStrip: View {
     @Bindable var model: LibraryModel
@@ -3240,24 +3190,72 @@ private struct ReadingDepthStrip: View {
 #endif
 
 #if os(iOS)
-private struct MobileEntryRows: View {
+private struct MobileLibraryRows: View {
     @Bindable var model: LibraryModel
     let onOpenDetail: () -> Void
+
+    private var notes: [LibraryEntry] {
+        model.projection.entries.filter {
+            $0.isMainLibraryEntry && $0.matches(model.query)
+        }
+    }
+
+    private var trashNotes: [LibraryEntry] {
+        model.trashEntries.filter { $0.matches(model.query) }
+    }
+
+    private var topics: [(name: String, count: Int)] {
+        model.projection.documentTopics.compactMap { topic in
+            let count = notes.count { $0.topicNames.contains(topic) }
+            guard model.query.isEmpty || count > 0 else { return nil }
+            return (name: topic, count: count)
+        }
+        .sorted {
+            $0.count != $1.count
+                ? $0.count > $1.count
+                : $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private var channels: [LibraryChannel] {
+        model.filteredChannels.sorted {
+            let leftCount = model.channelEntries(for: $0.source).count
+            let rightCount = model.channelEntries(for: $1.source).count
+            return leftCount != rightCount
+                ? leftCount > rightCount
+                : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private var briefs: [LibraryVoiceBrief] {
+        let query = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = model.projection.voiceBriefDefinitions.filter { brief in
+            guard !query.isEmpty else { return true }
+            return brief.title.localizedCaseInsensitiveContains(query) ||
+                model.projection.episodes(for: brief.id).contains { $0.matches(query) }
+        }
+        return matching.sorted {
+            let leftCount = model.projection.episodes(for: $0.id).count
+            let rightCount = model.projection.episodes(for: $1.id).count
+            return leftCount != rightCount
+                ? leftCount > rightCount
+                : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private var itemCollectionCount: Int {
+        1 + (model.query.isEmpty ? 1 : 0) + topics.count +
+            (model.query.isEmpty || !trashNotes.isEmpty ? 1 : 0)
+    }
 
     private var entries: [LibraryEntry] {
         let candidates = switch model.activeSection {
         case .items:
             model.filteredEntries
         case .channels:
-            (model.selectedChannelSource.isEmpty
-                ? model.channels.map(\.source)
-                : [model.selectedChannelSource]
-            ).flatMap { model.channelEntries(for: $0) }
+            model.channelEntries(for: model.selectedChannelSource)
         case .briefs:
-            (model.selectedVoiceBriefID.isEmpty
-                ? model.projection.voiceBriefDefinitions.map(\.id)
-                : [model.selectedVoiceBriefID]
-            ).flatMap { model.projection.episodes(for: $0) }
+            model.projection.episodes(for: model.selectedVoiceBriefID)
         }
         return candidates
             .filter { $0.matches(model.query) }
@@ -3271,7 +3269,9 @@ private struct MobileEntryRows: View {
         switch model.activeSection {
         case .items:
             model.query.isEmpty
-                ? model.selectedTopic == "All"
+                ? model.showingTrash
+                    ? "Trash is empty"
+                    : model.selectedTopic == "All"
                     ? "No documents yet"
                     : "No documents in \(model.selectedTopic)"
                 : "No matching documents"
@@ -3290,27 +3290,503 @@ private struct MobileEntryRows: View {
         }
     }
 
+    private var collectionTitle: String {
+        switch model.activeSection {
+        case .items:
+            model.showingTrash
+                ? "Trash"
+                : model.selectedTopic == "All" ? "Inbox" : model.selectedTopic
+        case .channels:
+            model.selectedChannel?.title ?? "Channel"
+        case .briefs:
+            model.selectedVoiceBrief?.title ?? "Voice Brief"
+        }
+    }
+
     var body: some View {
-        if entries.isEmpty {
-            SidebarEmpty(icon: "doc.text", title: emptyTitle)
-        } else {
-            ForEach(entries) { entry in
-                MobileEntryCard(
-                    entry: entry,
-                    kind: kind,
-                    selected: model.selectedIDs.contains(entry.id)
+        Group {
+            switch model.activeSection {
+            case .items:
+                if model.selectedTopic.isEmpty && !model.showingTrash {
+                    itemCollections
+                } else {
+                    entryCollection
+                }
+            case .channels:
+                if model.selectedChannelSource.isEmpty || model.selectedChannelSource == "new" {
+                    channelCollections
+                } else {
+                    entryCollection
+                }
+            case .briefs:
+                if model.selectedVoiceBriefID.isEmpty || model.selectedVoiceBriefID == "new" {
+                    briefCollections
+                } else {
+                    entryCollection
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func collectionScroll<Content: View>(
+        @ViewBuilder content: @escaping (CGFloat) -> Content
+    ) -> some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 8) {
+                    content(geometry.size.height)
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+                .padding(.bottom, 150)
+                .frame(minHeight: geometry.size.height, alignment: .top)
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private var itemCollections: some View {
+        collectionScroll { height in
+            MobileCollectionCard(
+                key: "notes:inbox",
+                minimumHeight: itemCollectionCount == 1 ? height : nil,
+                icon: "tray",
+                eyebrow: "LIBRARY",
+                title: "Inbox",
+                subtitle: "\(notes.count) notes"
+            ) {
+                Task { await model.showTopic("All") }
+            }
+
+            if model.query.isEmpty {
+                MobileCollectionCard(
+                    key: "notes:highlights",
+                    icon: "highlighter",
+                    eyebrow: "LIBRARY",
+                    title: "Highlights",
+                    subtitle: "\(model.highlightCount) highlights"
                 ) {
-                    Task {
-                        await model.select(entry.id)
-                        onOpenDetail()
+                    model.showHighlights()
+                    onOpenDetail()
+                }
+            }
+
+            ForEach(topics, id: \.name) { topic in
+                MobileCollectionCard(
+                    key: "topic:\(topic.name)",
+                    icon: "folder",
+                    eyebrow: "TOPIC",
+                    title: topic.name,
+                    subtitle: "\(topic.count) notes"
+                ) {
+                    Task { await model.showTopic(topic.name) }
+                }
+            }
+
+            if model.query.isEmpty || !trashNotes.isEmpty {
+                MobileCollectionCard(
+                    key: "notes:trash",
+                    icon: "trash",
+                    eyebrow: "LIBRARY",
+                    title: "Trash",
+                    subtitle: "\(trashNotes.count) notes"
+                ) {
+                    model.showTrash()
+                }
+            }
+        }
+    }
+
+    private var channelCollections: some View {
+        collectionScroll { height in
+            if channels.isEmpty {
+                SidebarEmpty(
+                    icon: "dot.radiowaves.left.and.right",
+                    title: model.query.isEmpty ? "No channels yet" : "No matching channels"
+                )
+            } else {
+                ForEach(channels) { channel in
+                    MobileCollectionCard(
+                        key: "channel:\(channel.source)",
+                        palette: .channel,
+                        minimumHeight: channels.count == 1 ? height : nil,
+                        icon: channel.kind == .podcast
+                            ? "waveform"
+                            : "dot.radiowaves.left.and.right",
+                        eyebrow: channelDomain(channel.source).uppercased(),
+                        title: channel.title,
+                        subtitle: "\(model.channelEntries(for: channel.source).count) notes",
+                        settingsLabel: "Settings for \(channel.title)",
+                        settingsAction: {
+                            model.showChannelSettings(channel.source)
+                            onOpenDetail()
+                        }
+                    ) {
+                        model.selectChannel(channel.source)
                     }
                 }
-                .modifier(EntryContextMenu(model: model, entry: entry))
+            }
+        }
+    }
+
+    private var briefCollections: some View {
+        collectionScroll { height in
+            if briefs.isEmpty {
+                SidebarEmpty(
+                    icon: "headphones",
+                    title: model.query.isEmpty ? "No voice briefs yet" : "No matching voice briefs"
+                )
+            } else {
+                ForEach(briefs, id: \.id) { brief in
+                    MobileCollectionCard(
+                        key: "brief:\(brief.id)",
+                        palette: .brief,
+                        minimumHeight: briefs.count == 1 ? height : nil,
+                        icon: "headphones",
+                        eyebrow: "VOICE BRIEF",
+                        title: brief.title,
+                        subtitle: "\(model.projection.episodes(for: brief.id).count) episodes",
+                        settingsLabel: "Settings for \(brief.title)",
+                        settingsAction: {
+                            model.showVoiceBriefSettings(brief.id)
+                            onOpenDetail()
+                        }
+                    ) {
+                        model.selectVoiceBrief(brief.id)
+                    }
+                }
+            }
+        }
+    }
+
+    private var entryCollection: some View {
+        VStack(spacing: 0) {
+            MobileCollectionHeader(title: collectionTitle, count: entries.count) {
+                Task { await model.show(model.activeSection) }
+            }
+
+            if entries.isEmpty {
+                SidebarEmpty(icon: "doc.text", title: emptyTitle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                GeometryReader { geometry in
+                    ScrollView {
+                        Group {
+                            if entries.count == 1 {
+                                entryCard(entries[0], minimumHeight: geometry.size.height)
+                            } else {
+                                LazyVStack(spacing: 8) {
+                                    ForEach(entries) { entry in
+                                        entryCard(entry)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 150)
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: geometry.size.height,
+                            alignment: .top
+                        )
+                    }
+                    .defaultScrollAnchor(.bottom)
+                    .scrollIndicators(.hidden)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func entryCard(
+        _ entry: LibraryEntry,
+        minimumHeight: CGFloat? = nil
+    ) -> some View {
+        MobileEntryCard(
+            entry: entry,
+            kind: kind,
+            selected: model.selectedIDs.contains(entry.id),
+            minimumHeight: minimumHeight
+        ) {
+            Task {
+                await model.select(entry.id)
+                onOpenDetail()
+            }
+        }
+        .modifier(EntryContextMenu(model: model, entry: entry))
+    }
+}
+
+private struct MobileCollectionHeader: View {
+    let title: String
+    let count: Int
+    let back: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: back) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 15, weight: .bold))
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .mobileGlass(in: Circle())
+            .accessibilityLabel("Back to collections")
+
+            Text(title)
+                .font(.title3.weight(.bold))
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Text(count.formatted())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
+
+private struct MobileCollectionCard: View {
+    let key: String
+    var palette: GrainyGradientPalette = .item
+    var minimumHeight: CGFloat? = nil
+    let icon: String
+    let eyebrow: String
+    let title: String
+    let subtitle: String
+    var settingsLabel = "Settings"
+    var settingsAction: (() -> Void)?
+    let action: () -> Void
+
+    var body: some View {
+        GrainyCard(palette: palette, variationKey: key) {
+            ZStack(alignment: .topTrailing) {
+                Button(action: action) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label(eyebrow, systemImage: icon)
+                            .font(.system(size: 10, weight: .bold))
+                            .tracking(0.5)
+                        Text(title)
+                            .font(.title2.weight(.bold))
+                            .lineLimit(2)
+                        Text(subtitle)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(3)
+                            .opacity(0.85)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: minimumHeight ?? 132,
+                        alignment: .topLeading
+                    )
+                    .padding(14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if let settingsAction {
+                    Button(action: settingsAction) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(.black.opacity(0.2), in: Circle())
+                    .padding(12)
+                    .accessibilityLabel(settingsLabel)
+                }
             }
         }
     }
 }
+
 #endif
+
+private enum GrainyGradientPalette {
+    case item
+    case channel
+    case brief
+
+    var baseHue: Float {
+        switch self {
+        case .item: 0.18
+        case .channel: 0.06
+        case .brief: 0.34
+        }
+    }
+}
+
+private struct GrainyGradientBackground: View {
+    private let seed: Float
+    private let baseHue: Float
+    private let hueVariation: Float
+
+    init(palette: GrainyGradientPalette, variationKey: String) {
+        let seed = Self.seed(for: variationKey)
+        self.seed = seed
+        self.baseHue = palette.baseHue
+        self.hueVariation = seed
+    }
+
+    private static func seed(for key: String) -> Float {
+        let digest = SHA256.hash(data: Data(key.utf8))
+        return digest.withUnsafeBytes {
+            Float(UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self))) /
+                Float(UInt32.max)
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.white.colorEffect(
+                ShaderLibrary.grainyGradient(
+                    .float2(geometry.size),
+                    .float(seed),
+                    .float(baseHue),
+                    .float(hueVariation)
+                )
+            )
+        }
+    }
+}
+
+private struct GrainyCard<Content: View>: View {
+    let background: GrainyGradientBackground
+    let content: Content
+
+    init(
+        palette: GrainyGradientPalette,
+        variationKey: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.background = GrainyGradientBackground(
+            palette: palette,
+            variationKey: variationKey
+        )
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .background {
+                ZStack {
+                    background
+                    LinearGradient(
+                        colors: [.black.opacity(0.06), .black.opacity(0.46)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(.white.opacity(0.16))
+            }
+            .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+    }
+}
+
+private struct GrainyEntryCard: View {
+    let entry: LibraryEntry
+    let paletteOverride: GrainyGradientPalette?
+    let selected: Bool
+    let minimumHeight: CGFloat?
+    let action: () -> Void
+
+    private var palette: GrainyGradientPalette {
+        paletteOverride ?? (entry.voiceBriefID == nil ? .item : .brief)
+    }
+
+    init(
+        entry: LibraryEntry,
+        palette: GrainyGradientPalette? = nil,
+        selected: Bool = false,
+        minimumHeight: CGFloat? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.entry = entry
+        self.paletteOverride = palette
+        self.selected = selected
+        self.minimumHeight = minimumHeight
+        self.action = action
+    }
+
+    private var cardMinimumHeight: CGFloat? {
+        if let minimumHeight { return minimumHeight }
+        #if os(macOS)
+        return nil
+        #else
+        return 132
+        #endif
+    }
+
+    private var dateText: String? {
+        guard
+            let value = entry.createdAt ?? entry.updatedAt,
+            let date = try? Date(value, strategy: .iso8601)
+        else { return nil }
+        return date.formatted(
+            .relative(presentation: .named, unitsStyle: .abbreviated)
+        )
+    }
+
+    var body: some View {
+        GrainyCard(palette: palette, variationKey: entry.id) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(entry.title)
+                            .font(.title2.weight(.bold))
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if let dateText {
+                            Text(dateText)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .opacity(0.85)
+                        }
+                    }
+
+                    if !entry.excerpt.isEmpty {
+                        Text(entry.excerpt)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(5)
+                            .multilineTextAlignment(.leading)
+                            .opacity(0.85)
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: cardMinimumHeight,
+                    alignment: .topLeading
+                )
+                .padding(14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(
+                    selected ? .white.opacity(0.7) : .clear,
+                    lineWidth: selected ? 2 : 0
+                )
+        }
+    }
+}
 
 private struct ChannelDomainGroup: Identifiable {
     let domain: String
@@ -3537,7 +4013,7 @@ private struct SidebarEmpty: View {
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
-        .padding(.top, 45)
+        .padding(.top, 12)
     }
 }
 
@@ -3648,6 +4124,111 @@ private struct LibraryDetail: View {
 }
 
 #if os(macOS)
+private struct MasonryLayout: Layout {
+    let minimumColumnWidth: CGFloat
+    let maximumColumnWidth: CGFloat
+    let spacing: CGFloat
+
+    struct Cache {
+        var frames = [CGRect]()
+        var size = CGSize.zero
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        guard !subviews.isEmpty else {
+            cache = Cache()
+            return .zero
+        }
+
+        let availableWidth = max(
+            1,
+            proposal.width ?? maximumColumnWidth
+        )
+        let columnCount = max(
+            1,
+            Int(
+                floor(
+                    (availableWidth + spacing) /
+                        (minimumColumnWidth + spacing)
+                )
+            )
+        )
+        let columnWidth = min(
+            maximumColumnWidth,
+            (availableWidth - CGFloat(columnCount - 1) * spacing) /
+                CGFloat(columnCount)
+        )
+        var columnHeights = Array(repeating: CGFloat.zero, count: columnCount)
+        var frames = Array(repeating: CGRect.zero, count: subviews.count)
+
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(
+                ProposedViewSize(width: columnWidth, height: nil)
+            )
+            let column = columnHeights.enumerated().min {
+                if $0.element == $1.element {
+                    return $0.offset < $1.offset
+                }
+                return $0.element < $1.element
+            }?.offset ?? 0
+            let origin = CGPoint(
+                x: CGFloat(column) * (columnWidth + spacing),
+                y: columnHeights[column]
+            )
+            frames[index] = CGRect(
+                origin: origin,
+                size: CGSize(width: columnWidth, height: size.height)
+            )
+            columnHeights[column] = origin.y + size.height + spacing
+        }
+
+        let height = max(0, (columnHeights.max() ?? 0) - spacing)
+        cache.frames = frames
+        cache.size = CGSize(width: availableWidth, height: height)
+        return cache.size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        if cache.frames.count != subviews.count ||
+            abs(cache.size.width - bounds.width) > 0.5
+        {
+            _ = sizeThatFits(
+                proposal: ProposedViewSize(width: bounds.width, height: bounds.height),
+                subviews: subviews,
+                cache: &cache
+            )
+        }
+
+        for index in subviews.indices {
+            let frame = cache.frames[index]
+            subviews[index].place(
+                at: CGPoint(
+                    x: bounds.minX + frame.minX,
+                    y: bounds.minY + frame.minY
+                ),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(
+                    width: frame.width,
+                    height: nil
+                )
+            )
+        }
+    }
+}
+
 private struct LibraryCardBrowser: View {
     @Bindable var model: LibraryModel
 
@@ -3678,22 +4259,6 @@ private struct LibraryCardBrowser: View {
         }
     }
 
-    private var title: String {
-        switch model.activeSection {
-        case .items:
-            model.showingTrash
-                ? "Trash"
-                : model.selectedTopic == "All" ? "Inbox" : model.selectedTopic
-        case .channels:
-            model.selectedChannel?.title ??
-                (model.selectedChannelDomain == "All"
-                    ? "Channels"
-                    : model.selectedChannelDomain)
-        case .briefs:
-            model.selectedVoiceBrief?.title ?? "All Voice Briefs"
-        }
-    }
-
     private var count: Int {
         switch model.activeSection {
         case .items: model.filteredEntries.count
@@ -3707,30 +4272,7 @@ private struct LibraryCardBrowser: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(.system(.largeTitle, design: .serif, weight: .bold))
-                    Text(count.formatted())
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 9)
-                        .frame(minHeight: 26)
-                        .background(Color.primary.opacity(0.055), in: Capsule())
-                    Spacer()
-                    if model.activeSection == .briefs,
-                        let brief = model.selectedVoiceBrief
-                    {
-                        Button {
-                            model.showVoiceBriefSettings(brief.id)
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Settings for \(brief.title)")
-                        .help("Settings for \(brief.title)")
-                    }
-                }
+                desktopActions
 
                 if count == 0 {
                     ContentUnavailableView(
@@ -3740,15 +4282,9 @@ private struct LibraryCardBrowser: View {
                     )
                     .frame(maxWidth: .infinity, minHeight: 360)
                 } else {
-                    LazyVGrid(
-                        columns: [
-                            GridItem(
-                                .adaptive(minimum: 230, maximum: 340),
-                                spacing: 16,
-                                alignment: .top
-                            )
-                        ],
-                        alignment: .leading,
+                    MasonryLayout(
+                        minimumColumnWidth: 250,
+                        maximumColumnWidth: 360,
                         spacing: 16
                     ) {
                         switch model.activeSection {
@@ -3783,27 +4319,70 @@ private struct LibraryCardBrowser: View {
     }
 
     @ViewBuilder
-    private func noteCard(_ entry: LibraryEntry) -> some View {
-        let card = BrowserCard {
-            Task { await model.select(entry.id) }
-        } content: {
-            CardEyebrow(
-                icon: entry.origin == .shared ? "person.2" : "doc.text",
-                title: entry.entryType == "voice_brief_episode"
-                    ? "Voice Brief"
-                    : entry.topicNames.first ?? "Note",
-                date: entry.createdAt ?? entry.updatedAt
-            )
-            Text(entry.title)
-                .font(.title3.weight(.semibold))
-                .lineLimit(2)
-            if !entry.excerpt.isEmpty {
-                Text(entry.excerpt)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
+    private var desktopActions: some View {
+        if model.activeSection == .channels,
+            let channel = model.selectedChannel
+        {
+            HStack {
+                Spacer()
+                Button {
+                    Task { await model.checkSelectedChannel() }
+                } label: {
+                    if model.isCheckingChannel {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Check now", systemImage: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isCheckingChannel)
+
+                Button {
+                    model.showChannelSettings(channel.source)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Settings for \(channel.title)")
+                .help("Settings for \(channel.title)")
+            }
+        } else if model.activeSection == .briefs,
+            let brief = model.selectedVoiceBrief
+        {
+            HStack {
+                Spacer()
+                Button {
+                    Task { await model.runSelectedVoiceBrief() }
+                } label: {
+                    if model.isRunningVoiceBrief {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Generate fresh", systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
+
+                Button {
+                    model.showVoiceBriefSettings(brief.id)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Settings for \(brief.title)")
+                .help("Settings for \(brief.title)")
             }
         }
+    }
+
+    @ViewBuilder
+    private func noteCard(_ entry: LibraryEntry) -> some View {
+        let card = GrainyEntryCard(
+            entry: entry,
+            action: { Task { await model.select(entry.id) } }
+        )
         if model.showingTrash {
             card
         } else {
@@ -3815,7 +4394,9 @@ private struct LibraryCardBrowser: View {
         BrowserCard(
             action: { model.selectChannel(channel.source) },
             settingsAction: { model.showChannelSettings(channel.source) },
-            settingsLabel: "Settings for \(channel.title)"
+            settingsLabel: "Settings for \(channel.title)",
+            palette: .channel,
+            variationKey: channel.source
         ) {
             CardEyebrow(
                 icon: channel.kind == .podcast
@@ -3828,7 +4409,7 @@ private struct LibraryCardBrowser: View {
                 .lineLimit(2)
             Text(channel.source)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.82))
                 .lineLimit(2)
                 .truncationMode(.middle)
             Label(
@@ -3836,7 +4417,7 @@ private struct LibraryCardBrowser: View {
                 systemImage: "doc.text"
             )
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.white.opacity(0.82))
         }
     }
 
@@ -3879,6 +4460,8 @@ private struct LibraryCardBrowser: View {
 }
 
 private struct BrowserCard<Content: View>: View {
+    let palette: GrainyGradientPalette
+    let variationKey: String
     let action: () -> Void
     let settingsAction: (() -> Void)?
     let settingsLabel: String
@@ -3888,8 +4471,12 @@ private struct BrowserCard<Content: View>: View {
         action: @escaping () -> Void,
         settingsAction: (() -> Void)? = nil,
         settingsLabel: String = "Settings",
+        palette: GrainyGradientPalette = .item,
+        variationKey: String = "",
         @ViewBuilder content: () -> Content
     ) {
+        self.palette = palette
+        self.variationKey = variationKey
         self.action = action
         self.settingsAction = settingsAction
         self.settingsLabel = settingsLabel
@@ -3897,38 +4484,34 @@ private struct BrowserCard<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Button(action: action) {
-                VStack(alignment: .leading, spacing: 10) {
-                    content
-                    Spacer(minLength: 0)
-                }
-                .padding(.leading, 17)
-                .padding(.vertical, 17)
-                .padding(.trailing, settingsAction == nil ? 17 : 48)
-                .frame(maxWidth: .infinity, minHeight: 178, alignment: .topLeading)
-                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            if let settingsAction {
-                Button(action: settingsAction) {
-                    Image(systemName: "gearshape")
-                        .frame(width: 30, height: 30)
-                        .contentShape(Circle())
+        GrainyCard(palette: palette, variationKey: variationKey) {
+            ZStack(alignment: .topTrailing) {
+                Button(action: action) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        content
+                    }
+                    .padding(.leading, 14)
+                    .padding(.vertical, 14)
+                    .padding(.trailing, settingsAction == nil ? 15 : 46)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
                 .buttonStyle(.plain)
-                .background(.regularMaterial, in: Circle())
-                .padding(10)
-                .accessibilityLabel(settingsLabel)
-                .help(settingsLabel)
+
+                if let settingsAction {
+                    Button(action: settingsAction) {
+                        Image(systemName: "gearshape")
+                            .frame(width: 30, height: 30)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(.black.opacity(0.2), in: Circle())
+                    .padding(10)
+                    .foregroundStyle(.white)
+                    .accessibilityLabel(settingsLabel)
+                    .help(settingsLabel)
+                }
             }
-        }
-        .background(Color.primary.opacity(0.035))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.09))
         }
     }
 }
@@ -3950,12 +4533,12 @@ private struct CardEyebrow: View {
                         .relative(presentation: .named, unitsStyle: .abbreviated)
                     )
                 )
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.white.opacity(0.72))
             }
         }
         .font(.system(size: 10, weight: .bold))
         .tracking(0.4)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.white.opacity(0.78))
     }
 }
 #endif
@@ -5277,18 +5860,12 @@ private struct VoiceBriefConfiguration: View {
                         }
                     }
 
-                    HStack(spacing: 18) {
-                        LabeledField(
-                            label: "Schedule",
-                            placeholder: "manual",
-                            value: $schedule
-                        )
-                        LabeledField(
-                            label: "Length",
-                            placeholder: "about 5 minutes",
-                            value: $length
-                        )
-                    }
+                    ScheduleEditor(schedule: $schedule)
+                    LabeledField(
+                        label: "Length",
+                        placeholder: "about 5 minutes",
+                        value: $length
+                    )
 
                     HStack {
                         if model.selectedVoiceBrief != nil {
@@ -5441,11 +6018,132 @@ private struct LabeledField: View {
     }
 }
 
+private enum ScheduleFrequency: String, CaseIterable, Identifiable {
+    case daily
+    case weekly
+
+    var id: Self { self }
+    var title: String { rawValue.capitalized }
+}
+
+private struct ScheduleEditor: View {
+    @Binding var schedule: String
+
+    private var isEnabled: Binding<Bool> {
+        Binding(
+            get: { schedule != "manual" },
+            set: { enabled in
+                schedule = enabled
+                    ? scheduledValue(frequency: .daily, weekday: weekday, time: time)
+                    : "manual"
+            }
+        )
+    }
+
+    private var frequency: ScheduleFrequency {
+        schedule.hasPrefix("weekly ") ? .weekly : .daily
+    }
+
+    private var frequencyBinding: Binding<ScheduleFrequency> {
+        Binding(
+            get: { frequency },
+            set: { schedule = scheduledValue(frequency: $0, weekday: weekday, time: time) }
+        )
+    }
+
+    private var weekday: Int {
+        guard schedule.hasPrefix("weekly ") else {
+            return Calendar.current.component(.weekday, from: Date())
+        }
+        let code = schedule.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+        return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            .firstIndex(of: code).map { $0 + 1 } ?? Calendar.current.firstWeekday
+    }
+
+    private var weekdayBinding: Binding<Int> {
+        Binding(
+            get: { weekday },
+            set: { schedule = scheduledValue(frequency: frequency, weekday: $0, time: time) }
+        )
+    }
+
+    private var time: Date {
+        let parts = schedule.split(separator: " ").last?
+            .split(separator: ":").compactMap { Int($0) } ?? []
+        guard parts.count == 2 else { return Date() }
+        return Calendar.current.date(
+            bySettingHour: parts[0],
+            minute: parts[1],
+            second: 0,
+            of: Date()
+        ) ?? Date()
+    }
+
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: { time },
+            set: { schedule = scheduledValue(frequency: frequency, weekday: weekday, time: $0) }
+        )
+    }
+
+    private var orderedWeekdays: [Int] {
+        (0..<7).map { (($0 + Calendar.current.firstWeekday - 1) % 7) + 1 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(isOn: isEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Schedule automatically")
+                        .font(.headline)
+                    Text("Leave this off to refresh only when you ask.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+
+            if isEnabled.wrappedValue {
+                Picker("Frequency", selection: frequencyBinding) {
+                    ForEach(ScheduleFrequency.allCases) {
+                        Text($0.title).tag($0)
+                    }
+                }
+                if frequency == .weekly {
+                    Picker("Weekday", selection: weekdayBinding) {
+                        ForEach(orderedWeekdays, id: \.self) {
+                            Text(Calendar.current.weekdaySymbols[$0 - 1]).tag($0)
+                        }
+                    }
+                }
+                DatePicker("Time", selection: timeBinding, displayedComponents: .hourAndMinute)
+            }
+        }
+        .padding(14)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func scheduledValue(
+        frequency: ScheduleFrequency,
+        weekday: Int,
+        time: Date
+    ) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: time)
+        let value = String(format: "%02d:%02d", components.hour ?? 9, components.minute ?? 0)
+        guard frequency == .weekly else { return "daily \(value)" }
+        let code = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][
+            min(7, max(1, weekday)) - 1
+        ]
+        return "weekly \(code) \(value)"
+    }
+}
+
 private struct ChannelConfiguration: View {
     @Bindable var model: LibraryModel
     @Binding var showsChannelBrowser: Bool
     @State private var source = ""
     @State private var retrievalCount = 5
+    @State private var schedule = "manual"
     @State private var confirmsRemoval = false
 
     var body: some View {
@@ -5575,6 +6273,9 @@ private struct ChannelConfiguration: View {
                             .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                     }
 
+                    ScheduleEditor(schedule: $schedule)
+                        .onChange(of: schedule) { saveSettings() }
+
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Channel preview")
                             .font(.title2.weight(.semibold))
@@ -5599,11 +6300,7 @@ private struct ChannelConfiguration: View {
                         )
                         .fixedSize()
                         .onChange(of: retrievalCount) {
-                            Task {
-                                await model.updateSelectedChannel(
-                                    retrievalCount: retrievalCount
-                                )
-                            }
+                            saveSettings()
                         }
                     }
 
@@ -5648,17 +6345,15 @@ private struct ChannelConfiguration: View {
                             .foregroundStyle(.red)
                             .textSelection(.enabled)
                     }
+                    ScheduleEditor(schedule: $schedule)
+                        .onChange(of: schedule) { saveSettings() }
                     Stepper(
                         "Items per check: \(retrievalCount)",
                         value: $retrievalCount,
                         in: 1...100
                     )
                     .onChange(of: retrievalCount) {
-                        Task {
-                            await model.updateSelectedChannel(
-                                retrievalCount: retrievalCount
-                            )
-                        }
+                        saveSettings()
                     }
                     HStack {
                         Button {
@@ -5713,6 +6408,7 @@ private struct ChannelConfiguration: View {
                 ? ""
                 : model.selectedChannelSource
             retrievalCount = model.selectedChannel?.retrievalCount ?? 5
+            schedule = model.selectedChannel?.schedule ?? "manual"
         }
         .confirmationDialog(
             "Remove this channel? Existing voice briefs keep their source reference.",
@@ -5721,6 +6417,15 @@ private struct ChannelConfiguration: View {
             Button("Remove Channel", role: .destructive) {
                 Task { await model.removeSelectedChannel() }
             }
+        }
+    }
+
+    private func saveSettings() {
+        Task {
+            await model.updateSelectedChannel(
+                retrievalCount: retrievalCount,
+                schedule: schedule
+            )
         }
     }
 }
@@ -5897,7 +6602,7 @@ private struct SettingsView: View {
             }
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -6016,14 +6721,8 @@ private struct SettingsView: View {
                     LabeledContent("Storage", value: "Local SQLite database")
                     LabeledContent("Status", value: model.status)
                     if model.isSyncing {
-                        if model.syncTotal > 0 {
-                            ProgressView(
-                                value: Double(model.syncCompleted),
-                                total: Double(model.syncTotal)
-                            )
-                        } else {
-                            ProgressView()
-                        }
+                        SyncActivityView(model: model)
+                            .padding(.vertical, 4)
                     }
                     if model.canEdit {
                         Button {
@@ -6035,7 +6734,10 @@ private struct SettingsView: View {
                     Button {
                         Task { await model.sync() }
                     } label: {
-                        Label("Sync with iCloud", systemImage: "arrow.triangle.2.circlepath")
+                        Label(
+                            model.isSyncing ? "Syncing…" : "Sync with iCloud",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
                     }
                     .disabled(model.isSyncing)
                 }

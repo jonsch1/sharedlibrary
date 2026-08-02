@@ -318,13 +318,18 @@ final class LibraryContractTests: XCTestCase {
         try await workspace.addChannel("https://example.com/feed")
         var channels = try await workspace.loadChannels()
         XCTAssertEqual(channels.first?.retrievalCount, 5)
+        XCTAssertEqual(channels.first?.schedule, "manual")
         XCTAssertEqual(channels.first?.briefTitles, ["Native Daily"])
+        let manuallyCheckedChannels = try await workspace.dueChannelSources()
+        XCTAssertTrue(manuallyCheckedChannels.isEmpty)
         try await workspace.updateChannel(
             "https://example.com/feed",
-            retrievalCount: 12
+            retrievalCount: 12,
+            schedule: "weekly thu 07:30"
         )
         channels = try await workspace.loadChannels()
         XCTAssertEqual(channels.first?.retrievalCount, 12)
+        XCTAssertEqual(channels.first?.schedule, "weekly thu 07:30")
         let ingestChannelItem: @Sendable (LibraryChannelCandidate) async throws -> String = {
             item in
             guard let url = URL(string: item.url) else {
@@ -510,6 +515,8 @@ final class LibraryContractTests: XCTestCase {
         )
         let initiallyDue = try await workspace.dueVoiceBriefIDs(at: scheduledCheck)
         XCTAssertTrue(initiallyDue.contains(voiceBriefID))
+        let dueChannels = try await workspace.dueChannelSources(at: scheduledCheck)
+        XCTAssertEqual(dueChannels, ["https://example.com/feed"])
         try await workspace.markVoiceBriefAttempt(
             id: voiceBriefID,
             at: scheduledCheck

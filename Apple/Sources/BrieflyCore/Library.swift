@@ -223,6 +223,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
     public let source: String
     public let title: String
     public let kind: LibraryChannelKind?
+    public let schedule: String
     public let lastCheckedAt: String?
     public let error: String?
     public let retrievalCount: Int
@@ -235,6 +236,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         source: String,
         title: String,
         kind: LibraryChannelKind? = nil,
+        schedule: String = "manual",
         lastCheckedAt: String? = nil,
         error: String? = nil,
         retrievalCount: Int = 5,
@@ -246,6 +248,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         self.source = source
         self.title = title
         self.kind = kind
+        self.schedule = schedule
         self.lastCheckedAt = lastCheckedAt
         self.error = error
         self.retrievalCount = retrievalCount

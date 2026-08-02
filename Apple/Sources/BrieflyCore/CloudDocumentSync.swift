@@ -20,6 +20,9 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
     private let assetDirectory: URL
     private var assets = Set<URL>()
     private var eventError: Error?
+    private var progressHandler: (@MainActor @Sendable (Int, Int) -> Void)?
+    private var completedChangeCount = 0
+    private var totalChangeCount = 0
     private lazy var engine: CKSyncEngine = {
         let serialization = try? store.syncState().flatMap {
             try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
@@ -45,8 +48,14 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         try await container.accountStatus()
     }
 
-    public func synchronize() async throws {
+    public func synchronize(
+        onProgress: (@MainActor @Sendable (Int, Int) -> Void)? = nil
+    ) async throws {
         eventError = nil
+        progressHandler = onProgress
+        completedChangeCount = 0
+        totalChangeCount = 0
+        defer { progressHandler = nil }
         try store.enqueueInitialCloudUploadIfNeeded()
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
         let pending = try store.outbox().map { item in
@@ -54,9 +63,11 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                 recordID(item.recordType, item.documentID)
             )
         }
+        totalChangeCount = pending.count
         engine.state.add(pendingRecordZoneChanges: pending)
         try await engine.fetchChanges()
         if let eventError { throw eventError }
+        await progressHandler?(completedChangeCount, totalChangeCount)
         try await engine.sendChanges()
         if let eventError { throw eventError }
         try store.markInitialCloudUploadCompleted()
@@ -104,6 +115,11 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                         )
                     }
                 }
+                completedChangeCount = min(
+                    totalChangeCount,
+                    completedChangeCount + changes.savedRecords.count
+                )
+                await progressHandler?(completedChangeCount, totalChangeCount)
             case .didSendChanges:
                 removeTemporaryAssets()
             case .didFetchRecordZoneChanges(let result):
