@@ -1877,6 +1877,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(readerBackground)
                 .ignoresSafeArea(.container, edges: .top)
+                .modifier(FullScreenToolbarBehavior())
                 .background(
                     WindowControlPositioner(
                         x: 10,
@@ -2702,6 +2703,17 @@ private extension View {
 #endif
 
 #if os(macOS)
+private struct FullScreenToolbarBehavior: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.windowToolbarFullScreenVisibility(.onHover)
+        } else {
+            content
+        }
+    }
+}
+
 private struct WindowControlPositioner: NSViewRepresentable {
     let x: CGFloat
     let y: CGFloat
