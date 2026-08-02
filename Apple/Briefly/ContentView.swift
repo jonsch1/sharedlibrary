@@ -1576,6 +1576,7 @@ private func synthesizeVoiceBriefAudio(_ text: String, to url: URL) async throws
                 if file == nil {
                     continuation.resume(throwing: NativeLibraryError.audioGenerationFailed)
                 } else {
+                    file = nil
                     continuation.resume()
                 }
                 return
