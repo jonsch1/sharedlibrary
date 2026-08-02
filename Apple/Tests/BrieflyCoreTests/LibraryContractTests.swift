@@ -52,6 +52,20 @@ final class LibraryContractTests: XCTestCase {
         let entry = try XCTUnwrap(projection.entries.first)
         XCTAssertEqual(entry.mediaURL, "https://cdn.example.com/episode.mp3")
         XCTAssertEqual(entry.text(for: .source)?.text, "Duplicate content")
+        let index = try await store.loadLibraryIndex()
+        let indexedEntry = try XCTUnwrap(index.entries.first)
+        XCTAssertEqual(indexedEntry.excerpt, "Duplicate content")
+        XCTAssertNotNil(indexedEntry.text(for: .source))
+        XCTAssertNil(indexedEntry.text(for: .source)?.text)
+        let indexedDocument = try await store.getDocument(indexedEntry.id)
+        XCTAssertEqual(indexedDocument.texts[.source], "Duplicate content")
+        try await store.writeText(
+            entryID: indexedEntry.id,
+            variant: .brief,
+            text: "# Stored excerpt"
+        )
+        let updatedIndex = try await store.loadLibraryIndex()
+        XCTAssertEqual(updatedIndex.entries.first?.excerpt, "Stored excerpt")
         let database = try await store.documentDatabase()
         let documentCount = try database.allDocuments().count
         XCTAssertEqual(documentCount, 1)

@@ -59,6 +59,12 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
     }
 }
 
+struct SQLiteDocumentIndex: Sendable {
+    var document: SQLiteDocument
+    var variants: [LibraryVariant]
+    var excerpt: String
+}
+
 public struct SQLiteSearchResult: Equatable, Sendable {
     public let id: String
     public let title: String
@@ -205,6 +211,12 @@ public final class SQLiteLibrary: @unchecked Sendable {
             if !columns.contains("media_url") {
                 try execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
             }
+            if !columns.contains("excerpt") {
+                try transaction {
+                    try execute("ALTER TABLE documents ADD COLUMN excerpt TEXT NOT NULL DEFAULT ''")
+                    try backfillExcerpts()
+                }
+            }
             let channelColumns = try query("PRAGMA table_info(channels)") { columnText($0, 1) }
             if !channelColumns.contains("schedule") {
                 try execute("ALTER TABLE channels ADD COLUMN schedule TEXT NOT NULL DEFAULT 'manual'")
@@ -309,6 +321,14 @@ public final class SQLiteLibrary: @unchecked Sendable {
 
     public func deletedDocuments() throws -> [SQLiteDocument] {
         try documents(where: "deleted = 1")
+    }
+
+    func documentIndex(includeDeleted: Bool = false) throws -> [SQLiteDocumentIndex] {
+        try indexDocuments(where: includeDeleted ? nil : "deleted = 0")
+    }
+
+    func deletedDocumentIndex() throws -> [SQLiteDocumentIndex] {
+        try indexDocuments(where: "deleted = 1")
     }
 
     public func search(_ text: String, limit: Int = 50) throws -> [SQLiteSearchResult] {
@@ -1240,6 +1260,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try replaceTags(document.id, document.tags)
         try replaceSources(document)
         for (variant, body) in document.texts { try upsertText(document.id, variant, body) }
+        try updateStoredExcerpt(document)
         try refreshSearch(document)
     }
 
@@ -1261,6 +1282,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try replaceTags(document.id, document.tags)
         try replaceSources(document)
         for (variant, body) in document.texts { try upsertText(document.id, variant, body) }
+        try updateStoredExcerpt(document)
         try refreshSearch(document)
     }
 
@@ -1271,27 +1293,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                    media_url, revision, deleted, cloud_record FROM documents WHERE id = ?
             """,
             bindings: [.text(id)]
-        ) { statement in
-            SQLiteDocument(
-                id: columnText(statement, 0),
-                captureID: columnText(statement, 1),
-                type: columnText(statement, 2),
-                voiceBriefID: columnOptionalText(statement, 3),
-                title: columnText(statement, 4),
-                sourceURL: columnOptionalText(statement, 5),
-                mediaURL: columnOptionalText(statement, 8),
-                createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
-                updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 7)),
-                revision: sqlite3_column_int64(statement, 9),
-                deleted: sqlite3_column_int(statement, 10) != 0,
-                topicIDs: [],
-                tags: [],
-                sourceIDs: [],
-                sourceURLs: [],
-                texts: [:],
-                cloudRecordData: columnOptionalBlob(statement, 11)
-            )
-        }
+        ) { decodeDocument($0) }
         guard var document = documents.first else { return nil }
         document.topicIDs = try query(
             "SELECT topic_id FROM document_topics WHERE document_id = ? ORDER BY topic_id",
@@ -1321,13 +1323,165 @@ public final class SQLiteLibrary: @unchecked Sendable {
 
     private func documents(where predicate: String?) throws -> [SQLiteDocument] {
         try locked {
-            let sql = "SELECT id FROM documents" +
-                (predicate.map { " WHERE \($0)" } ?? "") +
-                " ORDER BY updated_at DESC, id"
-            return try query(sql) { statement in
-                String(cString: sqlite3_column_text(statement, 0))
-            }.compactMap { try readDocument($0) }
+            var documents = try documentMetadata(where: predicate)
+            guard !documents.isEmpty else { return [] }
+            let indices = documentIndices(documents)
+            for (documentID, variant, body) in try query(
+                relationSQL(
+                    "document_texts",
+                    columns: "r.variant, r.body",
+                    order: "r.variant",
+                    predicate: predicate
+                ),
+                transform: { (columnText($0, 0), columnText($0, 1), columnText($0, 2)) }
+            ) {
+                if let index = indices[documentID],
+                   let variant = LibraryVariant(rawValue: variant) {
+                    documents[index].texts[variant] = body
+                }
+            }
+            return documents
         }
+    }
+
+    private func indexDocuments(where predicate: String?) throws -> [SQLiteDocumentIndex] {
+        try locked {
+            let documents = try documentMetadata(where: predicate)
+            let excerpts = Dictionary(uniqueKeysWithValues: try query(
+                "SELECT id, excerpt FROM documents" +
+                    (predicate.map { " WHERE \($0)" } ?? ""),
+                transform: { (columnText($0, 0), columnText($0, 1)) }
+            ))
+            var entries = documents.map {
+                SQLiteDocumentIndex(
+                    document: $0,
+                    variants: [],
+                    excerpt: excerpts[$0.id] ?? ""
+                )
+            }
+            guard !entries.isEmpty else { return [] }
+            let indices = documentIndices(documents)
+            for (documentID, rawVariant) in try query(
+                relationSQL(
+                    "document_texts",
+                    columns: "r.variant",
+                    order: "r.variant",
+                    predicate: predicate
+                ),
+                transform: { (columnText($0, 0), columnText($0, 1)) }
+            ) {
+                guard
+                    let index = indices[documentID],
+                    let variant = LibraryVariant(rawValue: rawVariant)
+                else { continue }
+                entries[index].variants.append(variant)
+            }
+            return entries
+        }
+    }
+
+    private func documentMetadata(where predicate: String?) throws -> [SQLiteDocument] {
+        let documentSQL =
+            "SELECT id, capture_id, type, voice_brief_id, title, source_url, " +
+            "created_at, updated_at, media_url, revision, deleted, cloud_record " +
+            "FROM documents" +
+            (predicate.map { " WHERE \($0)" } ?? "") +
+            " ORDER BY updated_at DESC, id"
+        var documents = try query(documentSQL) { decodeDocument($0) }
+        guard !documents.isEmpty else { return [] }
+        let indices = documentIndices(documents)
+
+        for (documentID, topicID) in try query(
+            relationSQL(
+                "document_topics",
+                columns: "r.topic_id",
+                order: "r.topic_id",
+                predicate: predicate
+            ),
+            transform: { (columnText($0, 0), columnText($0, 1)) }
+        ) {
+            if let index = indices[documentID] {
+                documents[index].topicIDs.append(topicID)
+            }
+        }
+        for (documentID, tag) in try query(
+            relationSQL(
+                "document_tags",
+                columns: "r.tag",
+                order: "r.tag",
+                predicate: predicate
+            ),
+            transform: { (columnText($0, 0), columnText($0, 1)) }
+        ) {
+            if let index = indices[documentID] {
+                documents[index].tags.append(tag)
+            }
+        }
+        for (documentID, sourceID) in try query(
+            relationSQL(
+                "document_source_documents",
+                columns: "r.source_document_id",
+                order: "r.source_document_id",
+                predicate: predicate
+            ),
+            transform: { (columnText($0, 0), columnText($0, 1)) }
+        ) {
+            if let index = indices[documentID] {
+                documents[index].sourceIDs.append(sourceID)
+            }
+        }
+        for (documentID, sourceURL) in try query(
+            relationSQL(
+                "document_source_urls",
+                columns: "r.source_url",
+                order: "r.source_url",
+                predicate: predicate
+            ),
+            transform: { (columnText($0, 0), columnText($0, 1)) }
+        ) {
+            if let index = indices[documentID] {
+                documents[index].sourceURLs.append(sourceURL)
+            }
+        }
+        return documents
+    }
+
+    private func documentIndices(_ documents: [SQLiteDocument]) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: documents.indices.map { (documents[$0].id, $0) })
+    }
+
+    private func relationSQL(
+        _ table: String,
+        columns: String,
+        order: String,
+        predicate: String?
+    ) -> String {
+        "SELECT r.document_id, \(columns) FROM \(table) r " +
+            "JOIN documents d ON d.id = r.document_id" +
+            (predicate.map { " WHERE \($0)" } ?? "") +
+            " ORDER BY r.document_id, \(order)"
+    }
+
+    private func decodeDocument(_ statement: OpaquePointer) -> SQLiteDocument {
+        SQLiteDocument(
+            id: columnText(statement, 0),
+            captureID: columnText(statement, 1),
+            type: columnText(statement, 2),
+            voiceBriefID: columnOptionalText(statement, 3),
+            title: columnText(statement, 4),
+            sourceURL: columnOptionalText(statement, 5),
+            mediaURL: columnOptionalText(statement, 8),
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
+            updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 7)),
+            revision: sqlite3_column_int64(statement, 9),
+            deleted: sqlite3_column_int(statement, 10) != 0,
+            topicIDs: [],
+            tags: [],
+            sourceIDs: [],
+            sourceURLs: [],
+            texts: [:],
+            cloudRecordData: columnOptionalBlob(statement, 11)
+        )
     }
 
     private func upsertText(_ id: String, _ variant: LibraryVariant, _ body: String) throws {
@@ -1336,6 +1490,35 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 "ON CONFLICT(document_id, variant) DO UPDATE SET body = excluded.body",
             bindings: [.text(id), .text(variant.rawValue), .text(body)]
         )
+    }
+
+    private func updateStoredExcerpt(_ document: SQLiteDocument) throws {
+        let body = document.texts[.brief] ?? document.texts[.concise] ??
+            document.texts[.source] ?? ""
+        try run(
+            "UPDATE documents SET excerpt = ? WHERE id = ?",
+            bindings: [.text(libraryExcerpt(body)), .text(document.id)]
+        )
+    }
+
+    private func backfillExcerpts() throws {
+        let rows = try query(
+            """
+            SELECT t.document_id, substr(t.body, 1, 4096)
+            FROM document_texts t
+            WHERE t.variant IN ('brief', 'concise', 'source')
+            ORDER BY t.document_id,
+              CASE t.variant WHEN 'brief' THEN 0 WHEN 'concise' THEN 1 ELSE 2 END
+            """,
+            transform: { (columnText($0, 0), columnText($0, 1)) }
+        )
+        var updated = Set<String>()
+        for (documentID, body) in rows where updated.insert(documentID).inserted {
+            try run(
+                "UPDATE documents SET excerpt = ? WHERE id = ?",
+                bindings: [.text(libraryExcerpt(body)), .text(documentID)]
+            )
+        }
     }
 
     private func replaceTopics(_ id: String, _ topicIDs: [String]) throws {
@@ -1523,6 +1706,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
       title TEXT NOT NULL,
       source_url TEXT,
       media_url TEXT,
+      excerpt TEXT NOT NULL DEFAULT '',
       created_at REAL NOT NULL,
       updated_at REAL NOT NULL,
       revision INTEGER NOT NULL CHECK(revision > 0),

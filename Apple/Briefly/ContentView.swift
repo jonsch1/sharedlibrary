@@ -67,6 +67,9 @@ final class LibraryModel {
     private var cloud: CloudDocumentSync?
     private var started = false
     private var library: SQLiteLibraryStore?
+    private var hasLoadedChannels = false
+    private var hasLoadedHighlights = false
+    private var hasLoadedTrash = false
     private var pendingProcessingIDs = [String]()
     private var pendingSync: Task<Void, Never>?
 
@@ -166,6 +169,14 @@ final class LibraryModel {
             .count { $0.hasPrefix("## ") }
     }
 
+    var loadedHighlightCount: Int? {
+        hasLoadedHighlights ? highlightCount : nil
+    }
+
+    var loadedTrashCount: Int? {
+        hasLoadedTrash ? trashEntries.count : nil
+    }
+
     var selectedVoiceBrief: LibraryVoiceBrief? {
         projection.voiceBriefDefinitions.first { $0.id == selectedVoiceBriefID }
     }
@@ -217,6 +228,7 @@ final class LibraryModel {
         if usesDemo {
             projection = .demo
             status = "Showing the sample library"
+            selectInitialContent()
             isReady = true
         } else {
             let directory = FileManager.default
@@ -231,23 +243,30 @@ final class LibraryModel {
                 : FileManager.default.fileExists(atPath: legacy.path) ? legacy : current
             await openLibrary(databaseURL: databaseURL)
         }
-        await selectInitialContent()
-        await refreshAccount()
-        await runDueChannelChecks()
-        await runDueVoiceBriefs()
+
+        async let selectedText: Void = loadSelectedText()
+        async let accountRefresh: Void = refreshAccount()
+        if library != nil {
+            async let cloudSync: Void = sync()
+            _ = await (selectedText, accountRefresh, cloudSync)
+            await runDueChannelChecks()
+            await runDueVoiceBriefs()
+        } else {
+            _ = await (selectedText, accountRefresh)
+        }
     }
 
     func openLibrary(databaseURL: URL) async {
         do {
             let next = SQLiteLibraryStore(databaseURL: databaseURL)
-            projection = try await next.loadProjection()
-            try await refreshTrash(from: next)
-            libraryChannels = try await next.loadChannels()
-            highlightsText = try await next.loadHighlights()
+            projection = try await next.loadLibraryIndex()
             topicsText = try await next.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
             library = next
+            status = "Opened local SQLite library"
+            selectInitialContent()
+            isReady = true
             let database = try await next.documentDatabase()
             cloud = Self.cloudKitAvailable
                 ? CloudDocumentSync(
@@ -255,10 +274,6 @@ final class LibraryModel {
                     containerIdentifier: "iCloud.fyi.readbriefly"
                 )
                 : nil
-            status = "Opened local SQLite library"
-            await selectInitialContent()
-            isReady = true
-            await sync()
         } catch {
             library = nil
             libraryChannels = []
@@ -271,10 +286,10 @@ final class LibraryModel {
     func refreshLibrary(selecting entryID: String? = nil) async {
         guard let library else { return }
         do {
-            projection = try await library.loadProjection()
-            try await refreshTrash(from: library)
-            libraryChannels = try await library.loadChannels()
-            highlightsText = try await library.loadHighlights()
+            projection = try await library.loadLibraryIndex()
+            if hasLoadedTrash { try await refreshTrash(from: library) }
+            if hasLoadedChannels { try await refreshChannels(from: library) }
+            if hasLoadedHighlights { try await refreshHighlights(from: library) }
             topicsText = try await library.topicDefinitions()
                 .map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
@@ -395,7 +410,7 @@ final class LibraryModel {
                 variant: variant,
                 text: text
             )
-            projection = try await library.loadProjection()
+            projection = try await library.loadLibraryIndex()
             if selectedID == entryID, selectedVariant == variant {
                 selectedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
@@ -414,7 +429,7 @@ final class LibraryModel {
                 variant: selectedVariant,
                 text: text
             )
-            highlightsText = try await library.loadHighlights()
+            try await refreshHighlights(from: library)
             status = "Added to Highlights"
             requestSync()
         } catch {
@@ -426,7 +441,7 @@ final class LibraryModel {
         guard let library else { return }
         do {
             guard try await library.removeHighlight(text) else { return }
-            highlightsText = try await library.loadHighlights()
+            try await refreshHighlights(from: library)
             status = "Removed from Highlights"
             requestSync()
         } catch {
@@ -441,6 +456,7 @@ final class LibraryModel {
         selectedText = ""
         showingTrash = false
         showingHighlights = true
+        Task { await loadHighlights() }
     }
 
     func showInbox() {
@@ -457,6 +473,7 @@ final class LibraryModel {
         showingHighlights = false
         showingTrash = true
         clearEntrySelection()
+        Task { await loadTrash() }
     }
 
     func showTopic(_ topic: String) async {
@@ -494,8 +511,8 @@ final class LibraryModel {
         }
         do {
             let id = try await library.saveVoiceBrief(draft)
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             activeSection = .briefs
             selectedID = ""
             selectedIDs = []
@@ -519,8 +536,8 @@ final class LibraryModel {
         }
         do {
             try await library.moveVoiceBriefToTrash(id: selectedVoiceBriefID)
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             selectedVoiceBriefID = ""
             showingVoiceBriefSettings = false
             selectedID = ""
@@ -539,7 +556,7 @@ final class LibraryModel {
         }
         do {
             try await library.addChannel(source)
-            libraryChannels = try await library.loadChannels()
+            try await refreshChannels(from: library)
             guard let added = libraryChannels.first(where: {
                 $0.source == source.trimmingCharacters(in: .whitespacesAndNewlines)
             }) else {
@@ -560,7 +577,7 @@ final class LibraryModel {
                 retrievalCount: retrievalCount,
                 schedule: schedule
             )
-            libraryChannels = try await library.loadChannels()
+            try await refreshChannels(from: library)
             status = "Channel settings saved"
             requestSync()
         } catch {
@@ -586,8 +603,8 @@ final class LibraryModel {
                 source: channel.source,
                 loadMore: loadMore
             )
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             selectedChannelSource = result.channel.source
             if let error = result.channel.error {
                 errorMessage = error
@@ -612,8 +629,8 @@ final class LibraryModel {
         guard let library, let channel = selectedChannel else { return }
         do {
             try await library.removeChannel(channel.source)
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             selectedChannelSource = ""
             showingChannelSettings = false
             selectedID = ""
@@ -648,8 +665,8 @@ final class LibraryModel {
                     channelErrors.append(error.localizedDescription)
                 }
             }
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             for entryID in newEntryIDs {
                 await enqueueProcessing(entryID)
             }
@@ -706,8 +723,8 @@ final class LibraryModel {
                 continue
             }
         }
-        projection = (try? await library.loadProjection()) ?? projection
-        libraryChannels = (try? await library.loadChannels()) ?? libraryChannels
+        projection = (try? await library.loadLibraryIndex()) ?? projection
+        try? await refreshChannels(from: library)
         for entryID in newEntryIDs { await enqueueProcessing(entryID) }
         if !newEntryIDs.isEmpty { requestSync() }
     }
@@ -737,8 +754,8 @@ final class LibraryModel {
                     continue
                 }
             }
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             for entryID in newEntryIDs {
                 await enqueueProcessing(entryID)
             }
@@ -770,8 +787,8 @@ final class LibraryModel {
                 to: audioURL
             )
             try await library.attachAudio(entryID: episode.entryID, file: audioURL)
-            projection = try await library.loadProjection()
-            libraryChannels = try await library.loadChannels()
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
             if selectEpisode {
                 selectedVoiceBriefID = brief.id
                 await select(episode.entryID)
@@ -903,7 +920,7 @@ final class LibraryModel {
             let saved = try await library.replaceTopicDefinitions(definitions)
             topicsText = saved.map { "\($0.id): \($0.title)" }
                 .joined(separator: "\n")
-            projection = try await library.loadProjection()
+            projection = try await library.loadLibraryIndex()
             status = "Topics saved"
             requestSync()
         } catch {
@@ -1040,13 +1057,17 @@ final class LibraryModel {
         guard let captureID = entry.captureID else {
             throw BrieflyBackendError.message("This document cannot be published.")
         }
+        guard let library else {
+            throw BrieflyBackendError.message("Open the local library before publishing.")
+        }
+        let document = try await library.getDocument(entry.id)
         let filename = captureID
         var texts = [BrieflyShareSource.Text]()
-        for reference in entry.texts where reference.variant != .source {
-            let markdown = (reference.text ?? "")
+        for variant in LibraryVariant.allCases where variant != .source {
+            let markdown = (document.texts[variant] ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !markdown.isEmpty {
-                texts.append(.init(variant: reference.variant.rawValue, markdown: markdown))
+                texts.append(.init(variant: variant.rawValue, markdown: markdown))
             }
         }
         guard !texts.isEmpty else {
@@ -1122,6 +1143,7 @@ final class LibraryModel {
             selectedChannelDomain = "All"
             selectedChannelSource = ""
             showingChannelSettings = false
+            await loadChannels()
         case .briefs:
             selectedVoiceBriefID = ""
             showingVoiceBriefSettings = false
@@ -1184,11 +1206,13 @@ final class LibraryModel {
     func showVoiceBriefSettings(_ id: String) {
         selectVoiceBrief(id)
         showingVoiceBriefSettings = true
+        Task { await loadChannels() }
     }
 
     func showChannelSettings(_ source: String) {
         selectChannel(source)
         showingChannelSettings = true
+        Task { await loadChannels() }
     }
 
     func showChannelDomain(_ domain: String) {
@@ -1255,10 +1279,13 @@ final class LibraryModel {
                     ? "Uploading \(completed) of \(total) changes…"
                     : "Finishing iCloud sync…"
             }
-            projection = try await library.loadProjection()
-            try await refreshTrash(from: library)
-            libraryChannels = try await library.loadChannels()
-            highlightsText = try await library.loadHighlights()
+            projection = try await library.loadLibraryIndex()
+            if hasLoadedTrash { try await refreshTrash(from: library) }
+            if hasLoadedChannels { try await refreshChannels(from: library) }
+            if hasLoadedHighlights { try await refreshHighlights(from: library) }
+            topicsText = try await library.topicDefinitions()
+                .map { "\($0.id): \($0.title)" }
+                .joined(separator: "\n")
             status = "Everything is up to date"
             await restoreSelection()
         } catch {
@@ -1450,7 +1477,7 @@ final class LibraryModel {
         }
     }
 
-    private func selectInitialContent() async {
+    private func selectInitialContent() {
         showingHighlights = false
         showingTrash = false
         #if os(macOS)
@@ -1473,7 +1500,10 @@ final class LibraryModel {
             selectedText = ""
         } else {
             activeSection = .items
-            await select(projection.entries.first(where: \.isMainLibraryEntry)?.id ?? "")
+            selectedID = projection.entries.first(where: \.isMainLibraryEntry)?.id ?? ""
+            selectedIDs = selectedID.isEmpty ? [] : [selectedID]
+            selectedVariant = selectedEntry?.preferredVariant ?? .concise
+            selectedText = ""
         }
         #endif
     }
@@ -1528,7 +1558,36 @@ final class LibraryModel {
     }
 
     private func refreshTrash(from store: SQLiteLibraryStore) async throws {
-        trashEntries = try await store.loadTrash().filter(\.isMainLibraryEntry)
+        trashEntries = try await store.loadTrashIndex().filter(\.isMainLibraryEntry)
+        hasLoadedTrash = true
+    }
+
+    private func loadTrash() async {
+        guard let library, !hasLoadedTrash else { return }
+        do {
+            try await refreshTrash(from: library)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshChannels(from store: SQLiteLibraryStore) async throws {
+        libraryChannels = try await store.loadChannels()
+        hasLoadedChannels = true
+    }
+
+    private func loadChannels() async {
+        guard let library, !hasLoadedChannels else { return }
+        do {
+            try await refreshChannels(from: library)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshHighlights(from store: SQLiteLibraryStore) async throws {
+        highlightsText = try await store.loadHighlights()
+        hasLoadedHighlights = true
     }
 
     private func loadSelectedText() async {
@@ -1539,17 +1598,35 @@ final class LibraryModel {
             selectedText = ""
             return
         }
+        guard let library else {
+            selectedText = reference.text ?? ""
+            return
+        }
+        let entryID = entry.id
+        let variant = selectedVariant
         isLoadingText = true
         defer { isLoadingText = false }
-        selectedText = reference.text ?? ""
+        do {
+            let document = try await library.getDocument(
+                entryID,
+                includeDeleted: showingTrash
+            )
+            guard selectedID == entryID, selectedVariant == variant else { return }
+            selectedText = document.texts[variant] ?? ""
+            await loadHighlights()
+        } catch {
+            errorMessage = error.localizedDescription
+            selectedText = ""
+        }
     }
 
     private func loadHighlights() async {
-        if let library {
-            highlightsText = (try? await library.loadHighlights()) ?? ""
-            return
+        guard let library, !hasLoadedHighlights else { return }
+        do {
+            try await refreshHighlights(from: library)
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        highlightsText = ""
     }
 }
 
@@ -3046,14 +3123,14 @@ private struct MacSidebarFilters: View {
                 SidebarRow(
                     icon: "highlighter",
                     title: "Highlights",
-                    count: model.highlightCount,
+                    count: model.loadedHighlightCount,
                     selected: model.showingHighlights,
                     action: model.showHighlights
                 )
                 SidebarRow(
                     icon: "trash",
                     title: "Trash",
-                    count: model.trashEntries.count,
+                    count: model.loadedTrashCount,
                     selected: model.showingTrash,
                     action: model.showTrash
                 )
@@ -3366,7 +3443,7 @@ private struct MobileLibraryRows: View {
                     icon: "highlighter",
                     eyebrow: "LIBRARY",
                     title: "Highlights",
-                    subtitle: "\(model.highlightCount) highlights"
+                    subtitle: model.loadedHighlightCount.map { "\($0) highlights" } ?? "Open to load"
                 ) {
                     model.showHighlights()
                     onOpenDetail()
@@ -3391,7 +3468,7 @@ private struct MobileLibraryRows: View {
                     icon: "trash",
                     eyebrow: "LIBRARY",
                     title: "Trash",
-                    subtitle: "\(trashNotes.count) notes"
+                    subtitle: model.loadedTrashCount.map { "\($0) notes" } ?? "Open to load"
                 ) {
                     model.showTrash()
                 }

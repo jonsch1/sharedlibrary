@@ -447,13 +447,7 @@ public actor SQLiteLibraryStore {
 
     public func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
         let database = try database()
-        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
-            ($0.id, $0.title)
-        })
-        let attachmentsByDocument = Dictionary(
-            grouping: try database.attachmentMetadata(),
-            by: \.documentID
-        )
+        let (topicNames, attachmentsByDocument) = try projectionResources(database)
         let entries = projectEntries(
             try database.allDocuments(includeDeleted: includeDeleted),
             topicNames: topicNames,
@@ -468,20 +462,54 @@ public actor SQLiteLibraryStore {
         )
     }
 
+    public func loadLibraryIndex(includeDeleted: Bool = false) throws -> LibraryProjection {
+        let database = try database()
+        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        let entries = projectIndexEntries(
+            try database.documentIndex(includeDeleted: includeDeleted),
+            topicNames: topicNames,
+            attachmentsByDocument: attachmentsByDocument
+        )
+        return LibraryProjection(
+            schemaVersion: librarySchemaVersion,
+            generatedAt: Date().iso8601,
+            files: [],
+            entries: entries,
+            voiceBriefs: try readVoiceBriefs()
+        )
+    }
+
     public func loadTrash() throws -> [LibraryEntry] {
         let database = try database()
-        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
-            ($0.id, $0.title)
-        })
-        let attachmentsByDocument = Dictionary(
-            grouping: try database.attachmentMetadata(),
-            by: \.documentID
-        )
+        let (topicNames, attachmentsByDocument) = try projectionResources(database)
         return projectEntries(
             try database.deletedDocuments(),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument
         )
+    }
+
+    public func loadTrashIndex() throws -> [LibraryEntry] {
+        let database = try database()
+        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        return projectIndexEntries(
+            try database.deletedDocumentIndex(),
+            topicNames: topicNames,
+            attachmentsByDocument: attachmentsByDocument
+        )
+    }
+
+    private func projectionResources(
+        _ database: SQLiteLibrary
+    ) throws -> ([String: String], [String: [SQLiteAttachmentMetadata]]) {
+        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
+            ($0.id, $0.title)
+        })
+        let attachments = Dictionary(
+            grouping: try database.attachmentMetadata(),
+            by: \.documentID
+        )
+        return (topicNames, attachments)
     }
 
     private func projectEntries(
@@ -490,52 +518,83 @@ public actor SQLiteLibraryStore {
         attachmentsByDocument: [String: [SQLiteAttachmentMetadata]]
     ) -> [LibraryEntry] {
         documents.map { document in
-            let attachments = attachmentsByDocument[document.id] ?? []
-            let audio = attachments.contains { $0.kind == "audio" }
-            let favicon = attachments.first { $0.kind == "favicon" }
             let references: [LibraryText] = LibraryVariant.allCases.compactMap { variant in
                 guard let text = document.texts[variant] else { return nil }
-                return LibraryText(
-                    variant: variant,
-                    wordCount: text.split(whereSeparator: \.isWhitespace).count,
-                    text: text.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
+                return LibraryText(variant: variant, text: text)
             }
-            let excerptText = references.first {
+            let excerptBody = references.first {
                 $0.variant == .brief || $0.variant == .concise
             }?.text ?? document.texts[.source] ?? ""
-            return LibraryEntry(
-                id: document.id,
-                captureID: document.captureID,
-                entryType: document.type,
-                voiceBriefID: document.voiceBriefID,
-                title: document.title,
-                excerpt: excerpt(excerptText),
-                topicIDs: document.topicIDs,
-                topicNames: document.topicIDs.map {
-                    topicNames[$0] ?? titleize($0)
-                },
-                tags: document.tags,
-                sourceURL: document.sourceURL,
-                mediaURL: document.mediaURL,
-                faviconFile: favicon.map {
-                    "\(document.captureID).\(fileExtension(for: $0.mimeType))"
-                },
-                audio: nil,
-                favicon: nil,
-                sourceIDs: document.sourceIDs,
-                sourceURLs: document.sourceURLs,
-                hasAudio: audio,
-                createdAt: document.createdAt.iso8601,
-                updatedAt: document.updatedAt.iso8601,
-                reviewedAt: nil,
-                origin: .personal,
-                sharedByUsername: nil,
-                sharedByDisplayName: nil,
-                inboxReferenceID: nil,
-                texts: references
+            return projectEntry(
+                document,
+                references: references,
+                excerptText: libraryExcerpt(excerptBody),
+                topicNames: topicNames,
+                attachments: attachmentsByDocument[document.id] ?? []
             )
         }
+    }
+
+    private func projectIndexEntries(
+        _ entries: [SQLiteDocumentIndex],
+        topicNames: [String: String],
+        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]]
+    ) -> [LibraryEntry] {
+        entries.map { entry in
+            let variants = Set(entry.variants)
+            let references = LibraryVariant.allCases.compactMap { variant in
+                variants.contains(variant) ? LibraryText(variant: variant) : nil
+            }
+            return projectEntry(
+                entry.document,
+                references: references,
+                excerptText: entry.excerpt,
+                topicNames: topicNames,
+                attachments: attachmentsByDocument[entry.document.id] ?? []
+            )
+        }
+    }
+
+    private func projectEntry(
+        _ document: SQLiteDocument,
+        references: [LibraryText],
+        excerptText: String,
+        topicNames: [String: String],
+        attachments: [SQLiteAttachmentMetadata]
+    ) -> LibraryEntry {
+        let audio = attachments.contains { $0.kind == "audio" }
+        let favicon = attachments.first { $0.kind == "favicon" }
+        return LibraryEntry(
+            id: document.id,
+            captureID: document.captureID,
+            entryType: document.type,
+            voiceBriefID: document.voiceBriefID,
+            title: document.title,
+            excerpt: excerptText,
+            topicIDs: document.topicIDs,
+            topicNames: document.topicIDs.map {
+                topicNames[$0] ?? titleize($0)
+            },
+            tags: document.tags,
+            sourceURL: document.sourceURL,
+            mediaURL: document.mediaURL,
+            faviconFile: favicon.map {
+                "\(document.captureID).\(fileExtension(for: $0.mimeType))"
+            },
+            audio: nil,
+            favicon: nil,
+            sourceIDs: document.sourceIDs,
+            sourceURLs: document.sourceURLs,
+            hasAudio: audio,
+            createdAt: document.createdAt.iso8601,
+            updatedAt: document.updatedAt.iso8601,
+            reviewedAt: nil,
+            origin: .personal,
+            sharedByUsername: nil,
+            sharedByDisplayName: nil,
+            inboxReferenceID: nil,
+            texts: references
+        )
     }
 
     @discardableResult
@@ -1218,8 +1277,11 @@ public actor SQLiteLibraryStore {
         try database().search(query, limit: limit)
     }
 
-    public func getDocument(_ id: String) throws -> SQLiteDocument {
-        try database().getDocument(id)
+    public func getDocument(
+        _ id: String,
+        includeDeleted: Bool = false
+    ) throws -> SQLiteDocument {
+        try database().getDocument(id, includeDeleted: includeDeleted)
     }
 
     @discardableResult
@@ -1470,7 +1532,7 @@ public actor SQLiteLibraryStore {
     ) throws -> [LibraryTopicDefinition] {
         let current = try topicDefinitions()
         let currentIDs = Set(current.map(\.id))
-        let usedIDs = Set(try loadProjection().entries.flatMap(\.topicIDs))
+        let usedIDs = Set(try loadLibraryIndex().entries.flatMap(\.topicIDs))
         var ids = Set<String>()
         var titles = Set<String>()
         var normalized = [LibraryTopicDefinition]()
@@ -2064,8 +2126,9 @@ private func httpURL(_ value: String) -> URL? {
     return url
 }
 
-private func excerpt(_ text: String) -> String {
-    var result = text
+func libraryExcerpt(_ text: String) -> String {
+    // The result is at most 240 characters; do not run every regex over a full document.
+    var result = String(text.prefix(4_096))
     for (pattern, replacement) in [
         (#"```[\s\S]*?```"#, " "),
         (#"!\[[^\]]*\]\([^)]+\)"#, " "),
