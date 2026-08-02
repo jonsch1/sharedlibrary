@@ -113,8 +113,7 @@
 <main class="feedback-page">
 	<header>
 		<a class="brand" href="/landing">
-			<img src="/icons/icon-192.png" alt="" />
-			<span>Briefly</span>
+			<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
 		</a>
 	</header>
 
@@ -236,15 +235,12 @@
 	}
 
 	.brand {
-		gap: 9px;
-		font-weight: 750;
 		text-decoration: none;
 	}
 
 	.brand img {
-		width: 34px;
-		height: 34px;
-		border-radius: 10px;
+		width: 112px;
+		height: auto;
 	}
 
 	.feedback-shell {

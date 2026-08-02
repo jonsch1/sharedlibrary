@@ -33,8 +33,7 @@
 <div class="landing">
 	<header class="landing-nav section-shell">
 		<a class="landing-brand" href="/landing" aria-label="Briefly home">
-			<img src="/icons/icon-192.png" alt="" />
-			<span>Briefly</span>
+			<img src="/brand/briefly-wordmark.svg" alt="" />
 		</a>
 
 		<nav aria-label="Main navigation">
@@ -155,7 +154,7 @@
 		</section>
 
 		<section class="final-cta section-shell" id="get-briefly">
-			<img src="/icons/icon-192.png" alt="" />
+			<img src="/brand/briefly-mark.svg" alt="" />
 			<h2>Make space for what matters.</h2>
 			<p>Briefly is coming to Mac and iPhone.</p>
 			<span class="availability">Coming to the App Store</span>
@@ -164,8 +163,7 @@
 
 	<footer class="landing-footer section-shell">
 		<a class="landing-brand" href="/landing">
-			<img src="/icons/icon-192.png" alt="" />
-			<span>Briefly</span>
+			<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
 		</a>
 		<p>A quieter way to stay curious.</p>
 		<div>
@@ -240,26 +238,16 @@
 		display: inline-flex;
 		width: fit-content;
 		align-items: center;
-		gap: 12px;
-		font-size: 20px;
-		font-weight: 720;
-		letter-spacing: 0.18em;
-		text-transform: uppercase;
 	}
 
 	.landing-brand img {
-		width: 38px;
-		height: 38px;
-		border-radius: 10px;
+		display: block;
+		width: 122px;
+		height: auto;
 	}
 
 	.landing-nav .landing-brand {
-		gap: 10px;
-		font-family: 'Source Serif 4 Variable', Georgia, serif;
-		font-size: 27px;
-		font-weight: 600;
-		letter-spacing: -0.03em;
-		text-transform: none;
+		width: 122px;
 	}
 
 	.landing-nav nav,
@@ -593,9 +581,8 @@
 	}
 
 	.final-cta img {
-		width: 54px;
-		height: 54px;
-		border-radius: 14px;
+		width: 42px;
+		height: auto;
 	}
 
 	.final-cta h2 {
@@ -628,13 +615,11 @@
 	}
 
 	.landing-footer .landing-brand {
-		font-size: 14px;
+		width: 96px;
 	}
 
 	.landing-footer .landing-brand img {
-		width: 30px;
-		height: 30px;
-		border-radius: 8px;
+		width: 96px;
 	}
 
 	.landing-footer > p {
@@ -678,18 +663,12 @@
 			width: min(100% - 30px, 1280px);
 		}
 
-		.landing-brand {
-			gap: 8px;
-			font-size: 15px;
-		}
-
 		.landing-brand img {
-			width: 32px;
-			height: 32px;
+			width: 105px;
 		}
 
 		.landing-nav .landing-brand {
-			font-size: 22px;
+			width: 105px;
 		}
 
 		.nav-cta {

@@ -9,7 +9,7 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+	<link rel="icon" type="image/svg+xml" href="/brand/briefly-mark.svg" />
 	<meta name="theme-color" content="#ffffff" />
 </svelte:head>
 {@render children()}
