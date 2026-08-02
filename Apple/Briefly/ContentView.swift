@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 import AppKit
 import Carbon.HIToolbox
 #elseif os(iOS)
+import MediaPlayer
 import UIKit
 #endif
 
@@ -125,10 +126,15 @@ final class LibraryModel {
     }
 
     private static var cloudKitAvailable: Bool {
-        FileManager.default.fileExists(
-            atPath: Bundle.main.bundleURL
-                .appending(path: "_CodeSignature/CodeResources")
-                .path
+        #if os(macOS)
+        let signature = Bundle.main.bundleURL
+            .appending(path: "Contents/_CodeSignature/CodeResources")
+        #else
+        let signature = Bundle.main.bundleURL
+            .appending(path: "_CodeSignature/CodeResources")
+        #endif
+        return FileManager.default.fileExists(
+            atPath: signature.path
         )
     }
 
@@ -1271,27 +1277,37 @@ final class LibraryModel {
                 throw NativeLibraryError.iCloudUnavailable
             }
             status = "Checking iCloud for changes…"
-            try await cloud.synchronize { [weak self] completed, total in
-                guard let self else { return }
-                syncCompleted = completed
-                syncTotal = total
-                status = total > 0
-                    ? "Uploading \(completed) of \(total) changes…"
-                    : "Finishing iCloud sync…"
-            }
-            projection = try await library.loadLibraryIndex()
-            if hasLoadedTrash { try await refreshTrash(from: library) }
-            if hasLoadedChannels { try await refreshChannels(from: library) }
-            if hasLoadedHighlights { try await refreshHighlights(from: library) }
-            topicsText = try await library.topicDefinitions()
-                .map { "\($0.id): \($0.title)" }
-                .joined(separator: "\n")
+            try await cloud.synchronize(
+                onProgress: { [weak self] completed, total in
+                    guard let self else { return }
+                    syncCompleted = completed
+                    syncTotal = total
+                    status = total > 0
+                        ? "Uploading \(completed) of \(total) changes…"
+                        : "Finishing iCloud sync…"
+                },
+                onFetchedChanges: { [weak self] in
+                    guard let self else { return }
+                    try await refreshLibraryAfterCloudFetch(from: library)
+                }
+            )
+            try await refreshLibraryAfterCloudFetch(from: library)
             status = "Everything is up to date"
-            await restoreSelection()
         } catch {
             errorMessage = error.localizedDescription
             status = "Using the last complete offline library"
         }
+    }
+
+    private func refreshLibraryAfterCloudFetch(from library: SQLiteLibraryStore) async throws {
+        projection = try await library.loadLibraryIndex()
+        if hasLoadedTrash { try await refreshTrash(from: library) }
+        if hasLoadedChannels { try await refreshChannels(from: library) }
+        if hasLoadedHighlights { try await refreshHighlights(from: library) }
+        topicsText = try await library.topicDefinitions()
+            .map { "\($0.id): \($0.title)" }
+            .joined(separator: "\n")
+        await restoreSelection()
     }
 
     func clearError() {
@@ -1678,9 +1694,13 @@ private func synthesizeVoiceBriefAudio(_ text: String, to url: URL) async throws
 private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var currentURL: URL?
+    private var currentTitle: String?
     private var positionKey: String?
     private var timer: Timer?
     private var sleepTimer: Timer?
+    #if os(iOS)
+    private var remoteCommandTargets = [(MPRemoteCommand, Any)]()
+    #endif
     private(set) var currentEntryID: String?
     var isPlaying = false
     var currentTime = 0.0
@@ -1691,7 +1711,22 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         ? 1
         : UserDefaults.standard.double(forKey: "BrieflyAudioVolume")
 
-    func toggle(_ url: URL, entryID: String) throws {
+    override init() {
+        super.init()
+        #if os(iOS)
+        configureRemoteCommands()
+        #endif
+    }
+
+    deinit {
+        #if os(iOS)
+        for (command, target) in remoteCommandTargets {
+            command.removeTarget(target)
+        }
+        #endif
+    }
+
+    func toggle(_ url: URL, entryID: String, title: String) throws {
         if currentURL == url, let player {
             if player.isPlaying {
                 pause()
@@ -1723,10 +1758,15 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         self.player = player
         currentURL = url
         currentEntryID = entryID
+        currentTitle = title
         positionKey = key
         isPlaying = true
         currentTime = player.currentTime
         duration = player.duration
+        #if os(iOS)
+        setRemoteCommandsEnabled(true)
+        updateNowPlayingInfo()
+        #endif
         startTimer()
     }
 
@@ -1735,6 +1775,9 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         player.currentTime = min(max(0, time), player.duration)
         currentTime = player.currentTime
         savePosition()
+        #if os(iOS)
+        updateNowPlayingInfo()
+        #endif
     }
 
     func skip(by seconds: Double) {
@@ -1746,15 +1789,24 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         player.pause()
         isPlaying = false
         savePosition()
+        #if os(iOS)
+        updateNowPlayingInfo()
+        #endif
     }
 
     func resume() {
         guard let player else { return }
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
         guard player.play() else {
             isPlaying = false
             return
         }
         isPlaying = true
+        #if os(iOS)
+        updateNowPlayingInfo()
+        #endif
         startTimer()
     }
 
@@ -1762,6 +1814,9 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         rate = value
         player?.rate = Float(value)
         UserDefaults.standard.set(value, forKey: "BrieflyAudioRate")
+        #if os(iOS)
+        updateNowPlayingInfo()
+        #endif
     }
 
     func setVolume(_ value: Double) {
@@ -1794,10 +1849,19 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         player = nil
         currentURL = nil
         currentEntryID = nil
+        currentTitle = nil
         positionKey = nil
         isPlaying = false
         currentTime = 0
         duration = 0
+        #if os(iOS)
+        setRemoteCommandsEnabled(false)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
+        #endif
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -1809,6 +1873,14 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         if let positionKey {
             UserDefaults.standard.removeObject(forKey: positionKey)
         }
+        #if os(iOS)
+        setRemoteCommandsEnabled(false)
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
+        #endif
     }
 
     private func startTimer() {
@@ -1826,6 +1898,95 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         guard let player, let positionKey else { return }
         UserDefaults.standard.set(player.currentTime, forKey: positionKey)
     }
+
+    #if os(iOS)
+    private func configureRemoteCommands() {
+        let commands = MPRemoteCommandCenter.shared()
+        commands.skipBackwardCommand.preferredIntervals = [15]
+        commands.skipForwardCommand.preferredIntervals = [30]
+        commands.nextTrackCommand.isEnabled = false
+        commands.previousTrackCommand.isEnabled = false
+        commands.seekBackwardCommand.isEnabled = false
+        commands.seekForwardCommand.isEnabled = false
+
+        remoteCommandTargets = [
+            (commands.playCommand, commands.playCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.resume() }
+                return .success
+            }),
+            (commands.pauseCommand, commands.pauseCommand.addTarget { [weak self] _ in
+                DispatchQueue.main.async { self?.pause() }
+                return .success
+            }),
+            (
+                commands.togglePlayPauseCommand,
+                commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.isPlaying ? self.pause() : self.resume()
+                    }
+                    return .success
+                }
+            ),
+            (
+                commands.skipBackwardCommand,
+                commands.skipBackwardCommand.addTarget { [weak self] event in
+                    guard let event = event as? MPSkipIntervalCommandEvent else {
+                        return .commandFailed
+                    }
+                    DispatchQueue.main.async { self?.skip(by: -event.interval) }
+                    return .success
+                }
+            ),
+            (
+                commands.skipForwardCommand,
+                commands.skipForwardCommand.addTarget { [weak self] event in
+                    guard let event = event as? MPSkipIntervalCommandEvent else {
+                        return .commandFailed
+                    }
+                    DispatchQueue.main.async { self?.skip(by: event.interval) }
+                    return .success
+                }
+            ),
+            (
+                commands.changePlaybackPositionCommand,
+                commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+                    guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+                        return .commandFailed
+                    }
+                    DispatchQueue.main.async { self?.seek(event.positionTime) }
+                    return .success
+                }
+            )
+        ]
+        setRemoteCommandsEnabled(false)
+    }
+
+    private func setRemoteCommandsEnabled(_ enabled: Bool) {
+        let commands = MPRemoteCommandCenter.shared()
+        commands.playCommand.isEnabled = enabled
+        commands.pauseCommand.isEnabled = enabled
+        commands.togglePlayPauseCommand.isEnabled = enabled
+        commands.skipBackwardCommand.isEnabled = enabled
+        commands.skipForwardCommand.isEnabled = enabled
+        commands.changePlaybackPositionCommand.isEnabled = enabled
+    }
+
+    private func updateNowPlayingInfo() {
+        guard let player, let currentEntryID else { return }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: currentTitle ?? "Briefly Audio",
+            MPMediaItemPropertyArtist: "Briefly",
+            MPMediaItemPropertyAlbumTitle: "Briefly",
+            MPMediaItemPropertyPlaybackDuration: player.duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: player.isPlaying ? Double(player.rate) : 0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: rate,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyExternalContentIdentifier: currentEntryID
+        ]
+    }
+    #endif
 }
 
 private extension Double {
@@ -2449,7 +2610,11 @@ private struct MobileLibraryNavigation: View {
                 }
                 do {
                     if audioPlayer.currentEntryID != entry.id || !audioPlayer.isPlaying {
-                        try audioPlayer.toggle(url, entryID: entry.id)
+                        try audioPlayer.toggle(
+                            url,
+                            entryID: entry.id,
+                            title: entry.title
+                        )
                     }
                     audioEntry = entry
                 } catch {
@@ -5451,7 +5616,11 @@ private struct LibraryDocument: View {
                                     if audioPlayer.currentEntryID != entry.id ||
                                         !audioPlayer.isPlaying
                                     {
-                                        try audioPlayer.toggle(url, entryID: entry.id)
+                                        try audioPlayer.toggle(
+                                            url,
+                                            entryID: entry.id,
+                                            title: entry.title
+                                        )
                                     }
                                     audioEntry = entry
                                 } catch {

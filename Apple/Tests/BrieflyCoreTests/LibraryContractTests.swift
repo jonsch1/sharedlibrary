@@ -2,6 +2,41 @@ import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
+    func testFailedFirstSyncDoesNotRequeueFetchedLibrary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try SQLiteLibrary(databaseURL: root.appending(path: "library.sqlite3"))
+
+        XCTAssertFalse(try database.prepareInitialCloudUploadIfNeeded())
+        try database.applyRemote(SQLiteDocument(
+            id: "remote-document",
+            captureID: "remote-capture",
+            title: "Fetched from iCloud",
+            texts: [.source: "Remote body"],
+            cloudRecordData: Data("cloud-system-fields".utf8)
+        ))
+
+        XCTAssertFalse(try database.prepareInitialCloudUploadIfNeeded())
+        XCTAssertTrue(try database.outbox().isEmpty)
+
+        let interruptedRoot = root.appending(path: "interrupted", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: interruptedRoot, withIntermediateDirectories: true)
+        let interrupted = try SQLiteLibrary(
+            databaseURL: interruptedRoot.appending(path: "library.sqlite3")
+        )
+        try interrupted.applyRemote(SQLiteDocument(
+            id: "partly-fetched-document",
+            captureID: "partly-fetched-capture",
+            title: "Already fetched",
+            texts: [.source: "Fetched before the old sync failed"],
+            cloudRecordData: Data("cloud-system-fields".utf8)
+        ))
+
+        XCTAssertTrue(try interrupted.prepareInitialCloudUploadIfNeeded())
+        XCTAssertTrue(try interrupted.outbox().isEmpty)
+    }
+
     func testCloudAttachmentCanArriveBeforeItsDocument() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -26,6 +61,53 @@ final class LibraryContractTests: XCTestCase {
         ))
 
         XCTAssertEqual(try database.attachment(documentID: "document", kind: "audio")?.1, audio)
+    }
+
+    func testCloudDocumentUpdatePreservesChannelReference() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = try SQLiteLibrary(databaseURL: root.appending(path: "library.sqlite3"))
+        let local = try database.createDocument(
+            title: "Local title",
+            body: "Local body"
+        )
+        try database.saveChannelRecords([SQLiteChannelRecord(
+            source: "https://example.com/feed",
+            title: "Example feed",
+            kind: .feed,
+            schedule: "manual",
+            lastCheckedAt: nil,
+            error: nil,
+            retrievalCount: 5,
+            canLoadMore: false,
+            seen: ["item"],
+            items: [LibraryChannelItem(
+                id: "item",
+                title: "Linked item",
+                url: "https://example.com/item",
+                entryID: local.id,
+                ingestedAt: ISO8601DateFormatter().string(from: Date())
+            )]
+        )])
+
+        try database.applyRemote(SQLiteDocument(
+            id: local.id,
+            captureID: local.captureID,
+            type: local.type,
+            title: "Updated in iCloud",
+            createdAt: local.createdAt,
+            updatedAt: local.updatedAt.addingTimeInterval(1),
+            revision: local.revision + 1,
+            texts: [.source: "Remote body"],
+            cloudRecordData: Data("cloud-system-fields".utf8)
+        ))
+
+        XCTAssertEqual(try database.getDocument(local.id).title, "Updated in iCloud")
+        XCTAssertEqual(try database.channelRecords().first?.items.first?.entryID, local.id)
+        XCTAssertFalse(try database.outbox().contains {
+            $0.recordType == "document" && $0.documentID == local.id
+        })
     }
 
     func testCanonicalCaptureAndMediaPersistence() async throws {
@@ -61,7 +143,7 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(indexedDocument.texts[.source], "Duplicate content")
         try await store.writeText(
             entryID: indexedEntry.id,
-            variant: .brief,
+            variant: .source,
             text: "# Stored excerpt"
         )
         let updatedIndex = try await store.loadLibraryIndex()
@@ -198,13 +280,12 @@ final class LibraryContractTests: XCTestCase {
         let workspace = SQLiteLibraryStore(databaseURL: databaseURL)
         let capturedID = try await workspace.capture("# Native capture\n\nEditable text.")
         let database = try await workspace.documentDatabase()
-        try database.enqueueInitialCloudUploadIfNeeded()
+        XCTAssertFalse(try database.prepareInitialCloudUploadIfNeeded())
         XCTAssertTrue(
             try database.outbox().contains {
                 $0.recordType == "document" && $0.documentID == capturedID
             }
         )
-        try database.markInitialCloudUploadCompleted()
         var workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.entries.first?.id, capturedID)
         XCTAssertEqual(

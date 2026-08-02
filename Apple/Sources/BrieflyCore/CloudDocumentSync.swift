@@ -2,6 +2,16 @@ import CloudKit
 import CryptoKit
 import Foundation
 
+private struct CloudDocumentSyncFailure: LocalizedError {
+    let context: String
+    let underlying: Error
+
+    var errorDescription: String? {
+        let error = underlying as NSError
+        return "\(context) (\(error.domain) \(error.code)): \(error.localizedDescription)"
+    }
+}
+
 @available(macOS 14.0, iOS 17.0, *)
 public final actor CloudDocumentSync: CKSyncEngineDelegate {
     private struct Payload: Codable {
@@ -49,15 +59,36 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
     }
 
     public func synchronize(
-        onProgress: (@MainActor @Sendable (Int, Int) -> Void)? = nil
+        onProgress: (@MainActor @Sendable (Int, Int) -> Void)? = nil,
+        onFetchedChanges: (@MainActor @Sendable () async throws -> Void)? = nil
     ) async throws {
         eventError = nil
         progressHandler = onProgress
         completedChangeCount = 0
         totalChangeCount = 0
-        defer { progressHandler = nil }
-        try store.enqueueInitialCloudUploadIfNeeded()
+        defer {
+            progressHandler = nil
+            removeTemporaryAssets()
+        }
+
+        if try store.prepareInitialCloudUploadIfNeeded() {
+            let recoveredChanges = try recoverInterruptedInitialUpload()
+            engine.state.remove(pendingRecordZoneChanges: recoveredChanges)
+            try store.markInitialCloudUploadPrepared()
+        }
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+
+        do {
+            try await engine.fetchChanges()
+        } catch {
+            throw eventError ?? CloudDocumentSyncFailure(
+                context: "Failed to fetch iCloud changes", underlying: error
+            )
+        }
+        if let eventError { throw eventError }
+        try removePendingChangesWithoutOutbox()
+        try await onFetchedChanges?()
+
         let pending = try store.outbox().map { item in
             CKSyncEngine.PendingRecordZoneChange.saveRecord(
                 recordID(item.recordType, item.documentID)
@@ -65,12 +96,15 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         }
         totalChangeCount = pending.count
         engine.state.add(pendingRecordZoneChanges: pending)
-        try await engine.fetchChanges()
-        if let eventError { throw eventError }
         await progressHandler?(completedChangeCount, totalChangeCount)
-        try await engine.sendChanges()
+        do {
+            try await engine.sendChanges()
+        } catch {
+            throw eventError ?? CloudDocumentSyncFailure(
+                context: "Failed to send iCloud changes", underlying: error
+            )
+        }
         if let eventError { throw eventError }
-        try store.markInitialCloudUploadCompleted()
     }
 
     public func handleEvent(_ event: CKSyncEngine.Event, syncEngine: CKSyncEngine) async {
@@ -81,15 +115,20 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                     try store.saveSyncState(try JSONEncoder().encode(update.stateSerialization))
                 }
             case .fetchedRecordZoneChanges(let changes):
-                for modification in changes.modifications
-                {
-                    if modification.record.recordType == "BrieflyDocument" {
-                        try apply(modification.record)
-                    } else if modification.record.recordType == "BrieflyAttachment" {
-                        try applyAttachment(modification.record)
-                    } else if let type = logicalType(modification.record.recordType) {
-                        try applyLogical(modification.record, recordType: type)
-                    }
+                for modification in changes.modifications {
+                    try applyRemoteRecord(modification.record)
+                }
+            case .sentDatabaseChanges(let changes):
+                if let failure = changes.failedZoneSaves.first {
+                    throw CloudDocumentSyncFailure(
+                        context: "Failed to save the Briefly iCloud zone",
+                        underlying: failure.error
+                    )
+                }
+                if let error = changes.failedZoneDeletes.values.first {
+                    throw CloudDocumentSyncFailure(
+                        context: "Failed to delete a Briefly iCloud zone", underlying: error
+                    )
                 }
             case .sentRecordZoneChanges(let changes):
                 for record in changes.savedRecords
@@ -115,6 +154,31 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                         )
                     }
                 }
+                var retries = [CKSyncEngine.PendingRecordZoneChange]()
+                for failure in changes.failedRecordSaves {
+                    guard failure.error.code == .serverRecordChanged,
+                          let serverRecord = failure.error.serverRecord
+                    else {
+                        let localID = failure.record["localID"] as? String
+                            ?? failure.record.recordID.recordName
+                        throw CloudDocumentSyncFailure(
+                            context: "Failed to save \(failure.record.recordType) \(localID)",
+                            underlying: failure.error
+                        )
+                    }
+                    try applyRemoteRecord(serverRecord)
+                    if try store.outbox().contains(where: {
+                        recordID($0.recordType, $0.documentID) == failure.record.recordID
+                    }) {
+                        retries.append(.saveRecord(failure.record.recordID))
+                    }
+                }
+                if let error = changes.failedRecordDeletes.values.first {
+                    throw CloudDocumentSyncFailure(
+                        context: "Failed to delete an iCloud record", underlying: error
+                    )
+                }
+                syncEngine.state.add(pendingRecordZoneChanges: retries)
                 completedChangeCount = min(
                     totalChangeCount,
                     completedChangeCount + changes.savedRecords.count
@@ -123,12 +187,65 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             case .didSendChanges:
                 removeTemporaryAssets()
             case .didFetchRecordZoneChanges(let result):
-                if let error = result.error { throw error }
+                if let error = result.error {
+                    throw CloudDocumentSyncFailure(
+                        context: "Failed to fetch the Briefly iCloud zone", underlying: error
+                    )
+                }
             default:
                 break
             }
         } catch {
+            print("Briefly CloudKit error: \(error.localizedDescription)")
             eventError = eventError ?? error
+        }
+    }
+
+    private func recoverInterruptedInitialUpload() throws
+        -> [CKSyncEngine.PendingRecordZoneChange]
+    {
+        var recovered = [CKSyncEngine.PendingRecordZoneChange]()
+        for item in try store.outbox() {
+            guard
+                let data = try store.cloudRecordData(
+                    recordType: item.recordType, id: item.documentID
+                ),
+                let record = try? NSKeyedUnarchiver.unarchivedObject(
+                    ofClass: CKRecord.self, from: data
+                ),
+                let cloudRevision = (record["revision"] as? NSNumber)?.int64Value,
+                cloudRevision >= item.revision
+            else { continue }
+            try store.acknowledgeOutbox(
+                recordType: item.recordType, id: item.documentID, revision: item.revision
+            )
+            recovered.append(.saveRecord(recordID(item.recordType, item.documentID)))
+        }
+        return recovered
+    }
+
+    private func removePendingChangesWithoutOutbox() throws {
+        let activeRecordIDs = Set(try store.outbox().map {
+            recordID($0.recordType, $0.documentID)
+        })
+        let obsolete = engine.state.pendingRecordZoneChanges.filter { change in
+            switch change {
+            case .saveRecord(let id), .deleteRecord(let id):
+                !activeRecordIDs.contains(id)
+            @unknown default:
+                false
+            }
+        }
+        engine.state.remove(pendingRecordZoneChanges: obsolete)
+    }
+
+    private func applyRemoteRecord(_ record: CKRecord) throws {
+        if record.recordType == "BrieflyDocument" {
+            try apply(record)
+        } else if record.recordType == "BrieflyAttachment" {
+            try applyAttachment(record)
+        } else if let type = logicalType(record.recordType) {
+            try applyLogical(record, recordType: type)
         }
     }
 
@@ -141,8 +258,22 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         }
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: pending) {
             [weak self] recordID in
-            try? await self?.record(for: recordID)
+            do {
+                return try await self?.record(for: recordID)
+            } catch {
+                await self?.recordProviderFailed(recordID: recordID, error: error)
+                return nil
+            }
         }
+    }
+
+    private func recordProviderFailed(recordID: CKRecord.ID, error: Error) {
+        let failure = CloudDocumentSyncFailure(
+            context: "Could not prepare iCloud record \(recordID.recordName)",
+            underlying: error
+        )
+        print("Briefly CloudKit error: \(failure.localizedDescription)")
+        eventError = eventError ?? failure
     }
 
     private func record(for id: CKRecord.ID) throws -> CKRecord {

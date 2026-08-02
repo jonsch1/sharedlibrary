@@ -745,12 +745,29 @@ public final class SQLiteLibrary: @unchecked Sendable {
         }
     }
 
-    public func enqueueInitialCloudUploadIfNeeded() throws {
+    /// Seeds the durable upload queue on a new installation. A `true` result means an
+    /// older build was interrupted after fetching CloudKit records but before recording
+    /// that the queue was prepared, so the caller must reconcile the existing outbox.
+    @discardableResult
+    public func prepareInitialCloudUploadIfNeeded() throws -> Bool {
         try locked {
             let alreadyQueued = try query(
                 "SELECT 1 FROM sync_state WHERE key = 'briefly-initial-upload' LIMIT 1"
             ) { _ in true }.first == true
-            guard !alreadyQueued else { return }
+            guard !alreadyQueued else { return false }
+
+            let hasFetchedCloudRecords = try query(
+                """
+                SELECT 1 FROM documents WHERE cloud_record IS NOT NULL
+                UNION ALL SELECT 1 FROM attachments WHERE cloud_record IS NOT NULL
+                UNION ALL SELECT 1 FROM topics WHERE cloud_record IS NOT NULL
+                UNION ALL SELECT 1 FROM channels WHERE cloud_record IS NOT NULL
+                UNION ALL SELECT 1 FROM voice_briefs WHERE cloud_record IS NOT NULL
+                LIMIT 1
+                """
+            ) { _ in true }.first == true
+            guard !hasFetchedCloudRecords else { return true }
+
             try transaction {
                 let documents = try query(
                     "SELECT id, revision, deleted FROM documents"
@@ -799,17 +816,38 @@ public final class SQLiteLibrary: @unchecked Sendable {
                         operation: "save"
                     )
                 }
+                try markInitialCloudUploadPrepared()
             }
+            return false
         }
     }
 
-    public func markInitialCloudUploadCompleted() throws {
+    public func markInitialCloudUploadPrepared() throws {
         try locked {
             try run(
                 "INSERT INTO sync_state(key, value) VALUES('briefly-initial-upload', ?) " +
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 bindings: [.blob(Data([1]))]
             )
+        }
+    }
+
+    public func cloudRecordData(recordType: String, id: String) throws -> Data? {
+        try locked {
+            let table: String
+            switch recordType {
+            case "document": table = "documents"
+            case "attachment": table = "attachments"
+            case "topic": table = "topics"
+            case "channel": table = "channels"
+            case "voice_brief": table = "voice_briefs"
+            default: throw SQLiteLibraryError.invalidDocument
+            }
+            return try query(
+                "SELECT cloud_record FROM \(table) WHERE id = ?",
+                bindings: [.text(id)],
+                transform: { columnOptionalBlob($0, 0) }
+            ).first ?? nil
         }
     }
 
@@ -907,7 +945,13 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     "SELECT revision FROM \(table) WHERE id = ?",
                     bindings: [.text(id)], transform: { sqlite3_column_int64($0, 0) }
                 ).first ?? 0
-                guard revision >= current else { return }
+                guard revision >= current else {
+                    try run(
+                        "UPDATE \(table) SET cloud_record = ? WHERE id = ?",
+                        bindings: [.blob(cloudRecordData), .text(id)]
+                    )
+                    return
+                }
                 let deletedAt: Binding = deleted
                     ? .double(Date().timeIntervalSince1970)
                     : .optionalDouble(nil)
@@ -978,6 +1022,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 default:
                     throw SQLiteLibraryError.invalidDocument
                 }
+                try acknowledgeOutbox(recordType: recordType, id: id, revision: revision)
             }
         }
     }
@@ -1057,23 +1102,41 @@ public final class SQLiteLibrary: @unchecked Sendable {
 
     public func applyRemote(_ attachment: SQLiteAttachment) throws {
         try locked {
-            try run(
-                """
-                INSERT INTO attachments(
-                  id, document_id, kind, mime_type, data, revision, cloud_record
-                ) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
-                  document_id = excluded.document_id, kind = excluded.kind,
-                  mime_type = excluded.mime_type, data = excluded.data,
-                  revision = excluded.revision, deleted_at = NULL,
-                  cloud_record = excluded.cloud_record
-                WHERE excluded.revision > attachments.revision
-                """,
-                bindings: [
-                    .text(attachment.id), .text(attachment.documentID), .text(attachment.kind),
-                    .text(attachment.mimeType), .blob(attachment.data), .int(attachment.revision),
-                    .optionalBlob(attachment.cloudRecordData)
-                ]
-            )
+            try transaction {
+                let currentRevision = try query(
+                    "SELECT revision FROM attachments WHERE id = ?",
+                    bindings: [.text(attachment.id)],
+                    transform: { sqlite3_column_int64($0, 0) }
+                ).first ?? 0
+                guard attachment.revision >= currentRevision else {
+                    try run(
+                        "UPDATE attachments SET cloud_record = ? WHERE id = ?",
+                        bindings: [
+                            .optionalBlob(attachment.cloudRecordData), .text(attachment.id)
+                        ]
+                    )
+                    return
+                }
+                try run(
+                    """
+                    INSERT INTO attachments(
+                      id, document_id, kind, mime_type, data, revision, cloud_record
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                      document_id = excluded.document_id, kind = excluded.kind,
+                      mime_type = excluded.mime_type, data = excluded.data,
+                      revision = excluded.revision, deleted_at = NULL,
+                      cloud_record = excluded.cloud_record
+                    """,
+                    bindings: [
+                        .text(attachment.id), .text(attachment.documentID), .text(attachment.kind),
+                        .text(attachment.mimeType), .blob(attachment.data), .int(attachment.revision),
+                        .optionalBlob(attachment.cloudRecordData)
+                    ]
+                )
+                try acknowledgeOutbox(
+                    recordType: "attachment", id: attachment.id, revision: attachment.revision
+                )
+            }
         }
     }
 
@@ -1123,13 +1186,24 @@ public final class SQLiteLibrary: @unchecked Sendable {
     public func applyRemote(_ document: SQLiteDocument) throws {
         try locked {
             try transaction {
-                if let current = try readDocument(document.id),
-                   current.revision > document.revision ||
-                    (current.revision == document.revision && current.updatedAt >= document.updatedAt) {
-                    return
+                if let current = try readDocument(document.id) {
+                    guard current.revision < document.revision ||
+                        (current.revision == document.revision && current.updatedAt < document.updatedAt)
+                    else {
+                        try run(
+                            "UPDATE documents SET cloud_record = ? WHERE id = ?",
+                            bindings: [.optionalBlob(document.cloudRecordData), .text(document.id)]
+                        )
+                        return
+                    }
+                    // Keep the parent row alive while replacing its contents. Channel items
+                    // can reference this document, so a delete-and-insert replacement violates
+                    // their foreign key even though it occurs within one transaction.
+                    try update(document)
+                } else {
+                    try insert(document)
                 }
-                try run("DELETE FROM documents WHERE id = ?", bindings: [.text(document.id)])
-                try insert(document)
+                try acknowledgeOutbox(documentID: document.id, revision: document.revision)
             }
         }
     }
