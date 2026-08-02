@@ -146,6 +146,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
         record["deleted"] = document.deleted as CKRecordValue
         record["voiceBriefID"] = document.voiceBriefID as CKRecordValue?
         record["sourceURL"] = document.sourceURL as CKRecordValue?
+        record["mediaURL"] = document.mediaURL as CKRecordValue?
         let payload = try JSONEncoder().encode(Payload(
             topicIDs: document.topicIDs,
             tags: document.tags,
@@ -220,6 +221,7 @@ public final class CloudDocumentSync: CKSyncEngineDelegate, @unchecked Sendable 
             voiceBriefID: record["voiceBriefID"] as? String,
             title: title,
             sourceURL: record["sourceURL"] as? String,
+            mediaURL: record["mediaURL"] as? String,
             createdAt: createdAt,
             updatedAt: updatedAt,
             revision: revision,

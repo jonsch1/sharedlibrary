@@ -10,8 +10,10 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
 - SQLite-canonical local library with typed document, topic, channel,
   voice-brief, and attachment records; FTS5 search; revision-checked writes;
   and attachments stored in SQLite.
-- RSS/Atom, podcasts, Reddit, Hacker News, arXiv, ordinary pages, and
-  authenticated X capture. Visible and hidden `WKWebView` instances share one
+- Native item inputs for text, PDF, web pages, arXiv, YouTube, podcasts,
+  Reddit, X, Bluesky, Threads, and TikTok; channel inputs for RSS/Atom,
+  YouTube, podcasts, Reddit, X, arXiv, Hacker News, and watched pages. Visible
+  and hidden `WKWebView` instances share one
   persistent cookie store. External Safari/default-browser links are for
   viewing only; authenticated extraction stays in-app so the session remains
   available to Briefly.
@@ -62,6 +64,8 @@ use their app-local SQLite database directly.
 ```bash
 swift test
 
+swift test --filter LiveInputURLTests
+
 xcodebuild -project Briefly.xcodeproj -scheme Briefly \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 
@@ -69,6 +73,9 @@ xcodebuild -project Briefly.xcodeproj -scheme Briefly \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
+The live input tests run as part of `swift test`. They ingest the registered
+public URL for every item input, then enumerate every channel and ingest one
+of its discovered items. The filtered command runs only those live journeys.
 The iOS check requires the iOS Simulator platform installed in Xcode.
 
 ## Platform-specific limits
@@ -77,5 +84,5 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
   uses Briefly AI.
 - Scheduled briefs run at launch, while active, and while the app remains
   running. Reliable background iOS execution still needs an App Refresh task.
-- The native clients retain generated voice-brief audio. Permanent download of
-  manually captured YouTube audio is not available on iOS.
+- The native clients retain generated voice-brief audio and can optionally
+  retain audio for manually captured YouTube items.

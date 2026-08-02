@@ -8,9 +8,35 @@
   administration, and native-backend surfaces. Do not add a customer account
   manager, checkout, or private web library reader.
 
-- After changing `Apple/`, run `swift test` there and build the `Briefly` scheme
-  for macOS and the generic iOS Simulator destination. The iOS build requires
-  the matching Xcode platform component to be installed.
+- After Apple feature work is complete, run `swift test` once from `Apple/`, then
+  rebuild and reopen the affected app from the repo-local derived-data path
+  using the platform-specific flow:
+  For macOS, from `Apple/` run:
+
+  ```bash
+  xcodebuild -project Briefly.xcodeproj -scheme Briefly \
+    -destination 'platform=macOS' \
+    -derivedDataPath .build/xcode/macos \
+    CODE_SIGNING_ALLOWED=NO build
+  osascript -e 'tell application "Briefly" to quit' 2>/dev/null || true
+  open .build/xcode/macos/Build/Products/Debug/Briefly.app
+  ```
+
+  For iOS changes, with a simulator booted, use:
+
+  ```bash
+  xcodebuild -project Briefly.xcodeproj -scheme Briefly \
+    -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath .build/xcode/ios-simulator \
+    CODE_SIGNING_ALLOWED=NO build
+  xcrun simctl terminate booted fyi.readbriefly.BrieflyNative 2>/dev/null || true
+  xcrun simctl install booted \
+    .build/xcode/ios-simulator/Build/Products/Debug-iphonesimulator/Briefly.app
+  xcrun simctl launch booted fyi.readbriefly.BrieflyNative
+  ```
+
+  For shared Apple changes, do both. The iOS build requires the matching Xcode
+  platform component to be installed.
 
 ## Test strategy
 

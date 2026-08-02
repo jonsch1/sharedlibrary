@@ -8,6 +8,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
     public var voiceBriefID: String?
     public var title: String
     public var sourceURL: String?
+    public var mediaURL: String?
     public var createdAt: Date
     public var updatedAt: Date
     public var revision: Int64
@@ -26,6 +27,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         voiceBriefID: String? = nil,
         title: String,
         sourceURL: String? = nil,
+        mediaURL: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         revision: Int64 = 1,
@@ -43,6 +45,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         self.voiceBriefID = voiceBriefID
         self.title = title
         self.sourceURL = sourceURL
+        self.mediaURL = mediaURL
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.revision = revision
@@ -71,6 +74,7 @@ public struct SQLiteDocumentCommit: Sendable {
     public let type: String?
     public let voiceBriefID: String?
     public let sourceURL: String?
+    public let mediaURL: String?
     public let topicIDs: [String]?
     public let tags: [String]?
     public let texts: [LibraryVariant: String]
@@ -83,6 +87,7 @@ public struct SQLiteDocumentCommit: Sendable {
         type: String? = nil,
         voiceBriefID: String? = nil,
         sourceURL: String? = nil,
+        mediaURL: String? = nil,
         topicIDs: [String]? = nil,
         tags: [String]? = nil,
         texts: [LibraryVariant: String] = [:],
@@ -94,6 +99,7 @@ public struct SQLiteDocumentCommit: Sendable {
         self.type = type
         self.voiceBriefID = voiceBriefID
         self.sourceURL = sourceURL
+        self.mediaURL = mediaURL
         self.topicIDs = topicIDs
         self.tags = tags
         self.texts = texts
@@ -188,6 +194,10 @@ public final class SQLiteLibrary: @unchecked Sendable {
         do {
             try execute("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;")
             try execute(Self.schema)
+            let columns = try query("PRAGMA table_info(documents)") { columnText($0, 1) }
+            if !columns.contains("media_url") {
+                try execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
+            }
         } catch {
             sqlite3_close(database)
             throw error
@@ -205,6 +215,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
         body: String,
         type: String = "document",
         sourceURL: String? = nil,
+        mediaURL: String? = nil,
         topicIDs: [String] = [],
         tags: [String] = [],
         voiceBriefID: String? = nil,
@@ -229,6 +240,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
             voiceBriefID: voiceBriefID,
             title: normalizedTitle,
             sourceURL: sourceURL,
+            mediaURL: mediaURL,
             createdAt: createdAt,
             updatedAt: createdAt,
             topicIDs: topicIDs,
@@ -638,6 +650,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     if let type = commit.type { current.type = type }
                     if let voiceBriefID = commit.voiceBriefID { current.voiceBriefID = voiceBriefID }
                     if let sourceURL = commit.sourceURL { current.sourceURL = sourceURL }
+                    if let mediaURL = commit.mediaURL { current.mediaURL = mediaURL }
                     if let topicIDs = commit.topicIDs { current.topicIDs = topicIDs }
                     if let tags = commit.tags { current.tags = tags }
                     if let deleted = commit.deleted { current.deleted = deleted }
@@ -1160,9 +1173,9 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try run(
             """
             INSERT INTO documents(
-                id, capture_id, type, voice_brief_id, title, source_url, created_at, updated_at,
-                revision, deleted, cloud_record
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, capture_id, type, voice_brief_id, title, source_url, media_url,
+                created_at, updated_at, revision, deleted, cloud_record
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             bindings: documentBindings(document)
         )
@@ -1176,12 +1189,12 @@ public final class SQLiteLibrary: @unchecked Sendable {
     private func update(_ document: SQLiteDocument) throws {
         try run(
             """
-            UPDATE documents SET type = ?, voice_brief_id = ?, title = ?, source_url = ?, updated_at = ?,
-                revision = ?, deleted = ?, cloud_record = ? WHERE id = ?
+            UPDATE documents SET type = ?, voice_brief_id = ?, title = ?, source_url = ?,
+                media_url = ?, updated_at = ?, revision = ?, deleted = ?, cloud_record = ? WHERE id = ?
             """,
             bindings: [
                 .text(document.type), .optionalText(document.voiceBriefID), .text(document.title),
-                .optionalText(document.sourceURL),
+                .optionalText(document.sourceURL), .optionalText(document.mediaURL),
                 .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
                 .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData),
                 .text(document.id)
@@ -1198,7 +1211,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
         let documents = try query(
             """
             SELECT id, capture_id, type, voice_brief_id, title, source_url, created_at, updated_at,
-                   revision, deleted, cloud_record FROM documents WHERE id = ?
+                   media_url, revision, deleted, cloud_record FROM documents WHERE id = ?
             """,
             bindings: [.text(id)]
         ) { statement in
@@ -1209,16 +1222,17 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 voiceBriefID: columnOptionalText(statement, 3),
                 title: columnText(statement, 4),
                 sourceURL: columnOptionalText(statement, 5),
+                mediaURL: columnOptionalText(statement, 8),
                 createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
                 updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 7)),
-                revision: sqlite3_column_int64(statement, 8),
-                deleted: sqlite3_column_int(statement, 9) != 0,
+                revision: sqlite3_column_int64(statement, 9),
+                deleted: sqlite3_column_int(statement, 10) != 0,
                 topicIDs: [],
                 tags: [],
                 sourceIDs: [],
                 sourceURLs: [],
                 texts: [:],
-                cloudRecordData: columnOptionalBlob(statement, 10)
+                cloudRecordData: columnOptionalBlob(statement, 11)
             )
         }
         guard var document = documents.first else { return nil }
@@ -1339,7 +1353,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
         [
             .text(document.id), .text(document.captureID), .text(document.type),
             .optionalText(document.voiceBriefID),
-            .text(document.title), .optionalText(document.sourceURL),
+            .text(document.title), .optionalText(document.sourceURL), .optionalText(document.mediaURL),
             .double(document.createdAt.timeIntervalSince1970),
             .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
             .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData)
@@ -1440,6 +1454,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
       voice_brief_id TEXT,
       title TEXT NOT NULL,
       source_url TEXT,
+      media_url TEXT,
       created_at REAL NOT NULL,
       updated_at REAL NOT NULL,
       revision INTEGER NOT NULL CHECK(revision > 0),

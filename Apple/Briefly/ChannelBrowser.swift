@@ -1,3 +1,4 @@
+import BrieflyCore
 import SwiftUI
 import WebKit
 
@@ -123,6 +124,79 @@ final class BrieflyBackend {
             throw BrieflyBackendError.message("Briefly AI returned no output.")
         }
         return output
+    }
+
+    func firecrawl(_ url: URL) async throws -> ItemDraft {
+        let body = try JSONSerialization.data(withJSONObject: ["url": url.absoluteString])
+        let (data, response) = try await request(
+            "api/extraction/firecrawl",
+            method: "POST",
+            body: body
+        )
+        try requireSuccess(response, data: data, fallback: "Briefly could not extract this page.")
+        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              payload["success"] as? Bool == true,
+              let result = payload["data"] as? [String: Any],
+              let markdown = (result["markdown"] as? String)?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ), !markdown.isEmpty else {
+            throw BrieflyBackendError.message("Briefly web extraction returned no readable content.")
+        }
+        let metadata = result["metadata"] as? [String: Any]
+        let source = [metadata?["sourceURL"], metadata?["url"]]
+            .compactMap { $0 as? String }.compactMap(URL.init(string:)).first ?? url
+        return ItemDraft(
+            inputID: .webPage,
+            title: (metadata?["title"] as? String)?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).nilIfEmpty ?? source.host ?? "Web page",
+            content: markdown,
+            sourceURL: url,
+            canonicalURL: source,
+            faviconURL: URL(string: "/favicon.ico", relativeTo: source)?.absoluteURL
+        )
+    }
+
+    func transcribe(_ url: URL) async throws -> InputTranscript {
+        let (audio, _) = try await downloadAudio(url)
+        let endpoint = URL(string: "https://jonsch1--briefly-whisper-transcribe.modal.run")!
+        let token = await cookies(for: Self.origin)
+            .first(where: { $0.name == "shared_library_session" })?.value
+        guard let token, !token.isEmpty else {
+            throw BrieflyBackendError.message("Sign in to generate a transcript.")
+        }
+        var request = URLRequest(url: endpoint, timeoutInterval: 1_800)
+        request.httpMethod = "POST"
+        request.httpBody = audio
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue("0", forHTTPHeaderField: "X-Briefly-Include-Timestamps")
+        let (data, rawResponse) = try await URLSession.shared.data(for: request)
+        guard let response = rawResponse as? HTTPURLResponse else {
+            throw BrieflyBackendError.message("The transcription service returned an invalid response.")
+        }
+        try requireSuccess(response, data: data, fallback: "The transcription service failed.")
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let text = (object["text"] as? String)?.trimmingCharacters(
+                in: .whitespacesAndNewlines
+              ), !text.isEmpty else {
+            throw BrieflyBackendError.message("The transcription service returned no transcript.")
+        }
+        return InputTranscript(text: text, language: object["language"] as? String)
+    }
+
+    func downloadAudio(_ url: URL) async throws -> (Data, String) {
+        var request = URLRequest(url: url, timeoutInterval: 180)
+        request.setValue("audio/*,*/*;q=0.1", forHTTPHeaderField: "Accept")
+        let (data, rawResponse) = try await URLSession.shared.data(for: request)
+        guard let response = rawResponse as? HTTPURLResponse,
+              (200..<300).contains(response.statusCode), !data.isEmpty,
+              data.count <= 250_000_000 else {
+            throw BrieflyBackendError.message("Briefly could not download this audio.")
+        }
+        let mime = response.value(forHTTPHeaderField: "Content-Type")?
+            .split(separator: ";").first.map(String.init) ?? "audio/mpeg"
+        return (data, mime.hasPrefix("audio/") ? mime : "audio/mpeg")
     }
 
     func shareStatus(captureID: String) async throws -> BrieflyShareLinkStatus {
@@ -255,6 +329,10 @@ enum BrieflyBackendError: LocalizedError {
         case .message(let value): value
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
 struct SignedInChannelItem: Decodable {

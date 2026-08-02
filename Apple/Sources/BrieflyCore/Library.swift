@@ -284,6 +284,11 @@ public struct LibraryChannelCandidate: Hashable, Sendable {
     public let publishedAt: String?
     public let content: String
     public let linkedURL: String?
+    public let preferredInput: ItemInputID?
+    public let mediaURL: String?
+    public let transcriptURL: String?
+    public let transcriptType: String?
+    public let transcriptLanguage: String?
 
     public init(
         id: String,
@@ -291,7 +296,12 @@ public struct LibraryChannelCandidate: Hashable, Sendable {
         url: String,
         publishedAt: String? = nil,
         content: String,
-        linkedURL: String? = nil
+        linkedURL: String? = nil,
+        preferredInput: ItemInputID? = nil,
+        mediaURL: String? = nil,
+        transcriptURL: String? = nil,
+        transcriptType: String? = nil,
+        transcriptLanguage: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -299,6 +309,11 @@ public struct LibraryChannelCandidate: Hashable, Sendable {
         self.publishedAt = publishedAt
         self.content = content
         self.linkedURL = linkedURL
+        self.preferredInput = preferredInput
+        self.mediaURL = mediaURL
+        self.transcriptURL = transcriptURL
+        self.transcriptType = transcriptType
+        self.transcriptLanguage = transcriptLanguage
     }
 }
 

@@ -414,6 +414,11 @@ struct DiscoveredChannel {
         var publishedAt: String? = nil
         var content: String? = nil
         var linkedURL: String? = nil
+        var preferredInput: ItemInputID? = nil
+        var mediaURL: String? = nil
+        var transcriptURL: String? = nil
+        var transcriptType: String? = nil
+        var transcriptLanguage: String? = nil
     }
 
     var title: String
@@ -471,7 +476,7 @@ public actor SQLiteLibraryStore {
                 },
                 tags: document.tags,
                 sourceURL: document.sourceURL,
-                mediaURL: nil,
+                mediaURL: document.mediaURL,
                 faviconFile: favicon.map { "\(document.captureID).\(fileExtension(for: $0.0))" },
                 audio: nil,
                 favicon: nil,
@@ -552,8 +557,74 @@ public actor SQLiteLibraryStore {
         )
     }
 
+    @discardableResult
+    public func captureItem(
+        _ draft: ItemDraft,
+        asVoiceBriefSource: Bool = false
+    ) throws -> String {
+        let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { throw LibraryError.emptyCapture }
+        let database = try database()
+        if let key = draft.canonicalKey {
+            // ponytail: linear scan is enough for a personal library; add a canonical_key index at 10k+ items.
+            if let existing = try database.allDocuments().first(where: {
+                $0.type != "voice_brief_episode" &&
+                    canonicalItemIdentity($0.sourceURL.flatMap(URL.init(string:))) == key
+            }) {
+                let sourceURL = (draft.canonicalURL ?? draft.sourceURL)?.absoluteString
+                let mediaURL = draft.mediaURL?.absoluteString
+                if existing.texts[.source] != content ||
+                    (existing.mediaURL == nil && mediaURL != nil) ||
+                    (existing.sourceURL == nil && sourceURL != nil) ||
+                    (existing.type == "voice_brief_source" && !asVoiceBriefSource) {
+                    _ = try database.commitDocument(SQLiteDocumentCommit(
+                        id: existing.id,
+                        baseRevision: existing.revision,
+                        type: existing.type == "voice_brief_source" && !asVoiceBriefSource
+                            ? "link"
+                            : nil,
+                        sourceURL: existing.sourceURL == nil ? sourceURL : nil,
+                        mediaURL: existing.mediaURL == nil ? mediaURL : nil,
+                        texts: existing.texts[.source] == content ? [:] : [.source: content]
+                    ))
+                }
+                try saveDraftAttachments(draft, documentID: existing.id, database: database)
+                return existing.id
+            }
+        }
+        let entryType: String = switch (asVoiceBriefSource, draft.inputID) {
+        case (true, _): "voice_brief_source"
+        case (_, .text): "text"
+        case (_, .pdf): "pdf"
+        default: "link"
+        }
+        return try saveCapture(
+            title: draft.title,
+            content: content,
+            sourceURL: draft.canonicalURL ?? draft.sourceURL,
+            mediaURL: draft.mediaURL,
+            entryType: entryType,
+            faviconData: draft.faviconData,
+            faviconFileExtension: draft.faviconFileExtension,
+            audioData: draft.audioData,
+            audioMimeType: draft.audioMimeType
+        )
+    }
+
     public func loadChannels() throws -> [LibraryChannel] {
-        try buildChannels(from: readChannelState())
+        var state = readChannelState()
+        var repaired = false
+        for source in Array(state.sources.keys) {
+            guard var current = state.sources[source] else { continue }
+            let count = current.items.count
+            try repairChannelState(&current)
+            if current.items.count != count {
+                state.sources[source] = current
+                repaired = true
+            }
+        }
+        if repaired { try writeChannelState(state) }
+        return try buildChannels(from: state)
     }
 
     public func addChannel(_ value: String) throws {
@@ -620,8 +691,10 @@ public actor SQLiteLibraryStore {
             throw LibraryError.missingChannel
         }
         var current = state.sources[source] ?? .init(seen: [], items: [])
+        try repairChannelState(&current)
         let limit = min(100, max(1, maximumItems ?? current.retrievalCount ?? 5))
         var newEntryIDs = [String]()
+        var failure: Error?
         do {
             let discovered = try await discoverChannel(source, maximumItems: limit)
             newEntryIDs = try await mergeChannel(
@@ -632,6 +705,7 @@ public actor SQLiteLibraryStore {
             )
         } catch {
             current.error = error.localizedDescription
+            failure = error
         }
         current.lastCheckedAt = Date().iso8601
         current.retrievalCount = current.retrievalCount ?? 5
@@ -639,7 +713,66 @@ public actor SQLiteLibraryStore {
         try writeChannelState(state)
         let channel = try buildChannels(from: state).first { $0.source == source }
         guard let channel else { throw LibraryError.missingChannel }
+        if let failure { throw failure }
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
+    }
+
+    public func checkChannelInput(
+        _ value: String,
+        maximumItems: Int? = nil,
+        discover: @Sendable (Int) async throws -> ChannelInputBatch,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> LibraryChannelRefresh {
+        let source = try normalizedChannelSource(value)
+        var state = readChannelState()
+        let isDefined = try readVoiceBriefs().contains { $0.sources.contains(source) }
+        guard state.sources[source] != nil || isDefined else { throw LibraryError.missingChannel }
+        var current = state.sources[source] ?? .init(seen: [], items: [])
+        try repairChannelState(&current)
+        let limit = min(100, max(1, maximumItems ?? current.retrievalCount ?? 5))
+        do {
+            let batch = try await discover(limit)
+            let discovered = DiscoveredChannel(
+                title: batch.title,
+                kind: batch.kind,
+                items: batch.items.map { item in
+                    .init(
+                        id: item.id,
+                        title: item.title,
+                        url: item.url.absoluteString,
+                        publishedAt: item.publishedAt,
+                        content: item.hints.content,
+                        linkedURL: item.hints.mediaURL?.absoluteString,
+                        preferredInput: item.hints.preferredInput,
+                        mediaURL: item.hints.mediaURL?.absoluteString,
+                        transcriptURL: item.hints.transcriptURL?.absoluteString,
+                        transcriptType: item.hints.transcriptType,
+                        transcriptLanguage: item.hints.transcriptLanguage
+                    )
+                }
+            )
+            let newEntryIDs = try await mergeChannel(
+                discovered,
+                into: &current,
+                limit: limit,
+                ingest: ingest
+            )
+            current.lastCheckedAt = Date().iso8601
+            current.retrievalCount = current.retrievalCount ?? 5
+            state.sources[source] = current
+            try writeChannelState(state)
+            guard let channel = try buildChannels(from: state).first(where: { $0.source == source }) else {
+                throw LibraryError.missingChannel
+            }
+            return .init(channel: channel, newEntryIDs: newEntryIDs)
+        } catch {
+            current.error = error.localizedDescription
+            current.lastCheckedAt = Date().iso8601
+            current.retrievalCount = current.retrievalCount ?? 5
+            state.sources[source] = current
+            try writeChannelState(state)
+            throw error
+        }
     }
 
     public func captureSignedInChannelPage(
@@ -948,9 +1081,12 @@ public actor SQLiteLibraryStore {
         title: String,
         content: String,
         sourceURL: URL?,
+        mediaURL: URL? = nil,
         entryType: String,
         faviconData: Data? = nil,
-        faviconFileExtension: String? = nil
+        faviconFileExtension: String? = nil,
+        audioData: Data? = nil,
+        audioMimeType: String? = nil
     ) throws -> String {
         // Media remains an immutable attachment concern; the Markdown record itself is
         // committed once, locally, with its CloudKit outbox entry in the same transaction.
@@ -959,23 +1095,49 @@ public actor SQLiteLibraryStore {
             title: title,
             body: content,
             type: entryType,
-            sourceURL: sourceURL?.absoluteString
+            sourceURL: sourceURL?.absoluteString,
+            mediaURL: mediaURL?.absoluteString
         )
-        if
-            let faviconData,
-            let fileExtension = faviconFileExtension?.lowercased(),
-            faviconData.count <= 1_000_000,
-            validFavicon(faviconData, fileExtension: fileExtension)
-        {
-            let mime = fileExtension == "svg" ? "image/svg+xml" : "image/\(fileExtension)"
+        try saveDraftAttachments(
+            ItemDraft(
+                inputID: .text,
+                title: title,
+                content: content,
+                faviconData: faviconData,
+                faviconFileExtension: faviconFileExtension,
+                audioData: audioData,
+                audioMimeType: audioMimeType
+            ),
+            documentID: document.id,
+            database: database
+        )
+        return document.id
+    }
+
+    private func saveDraftAttachments(
+        _ draft: ItemDraft,
+        documentID: String,
+        database: SQLiteLibrary
+    ) throws {
+        if let data = draft.faviconData,
+           let ext = draft.faviconFileExtension?.lowercased(),
+           data.count <= 1_000_000, validFavicon(data, fileExtension: ext) {
             try database.saveAttachment(
-                documentID: document.id,
+                documentID: documentID,
                 kind: "favicon",
-                mimeType: mime,
-                data: faviconData
+                mimeType: ext == "svg" ? "image/svg+xml" : ext == "jpg" ? "image/jpeg" : "image/\(ext)",
+                data: data
             )
         }
-        return document.id
+        if let data = draft.audioData, !data.isEmpty, data.count <= 100_000_000,
+           let mime = draft.audioMimeType, mime.lowercased().hasPrefix("audio/") {
+            try database.saveAttachment(
+                documentID: documentID,
+                kind: "audio",
+                mimeType: mime,
+                data: data
+            )
+        }
     }
 
     public func writeText(
@@ -1200,6 +1362,24 @@ public actor SQLiteLibraryStore {
             baseRevision: document.revision,
             deleted: true
         ))
+        var state = readChannelState()
+        var removedKeys = Set<String>()
+        for source in Array(state.sources.keys) {
+            guard var current = state.sources[source] else { continue }
+            let removed = current.items.filter { $0.entryID == entryID }
+            guard !removed.isEmpty else { continue }
+            removedKeys.formUnion(removed.map { voiceBriefItemKey(source, $0.id) })
+            let ids = Set(removed.map(\.id))
+            current.items.removeAll { ids.contains($0.id) }
+            current.seen.removeAll { ids.contains($0) }
+            state.sources[source] = current
+        }
+        if !removedKeys.isEmpty {
+            for id in Array(state.voiceBriefs.keys) {
+                state.voiceBriefs[id]?.consumed.removeAll { removedKeys.contains($0) }
+            }
+            try writeChannelState(state)
+        }
     }
 
     public func audioURL(entryID: String) throws -> URL? {
@@ -1390,14 +1570,22 @@ public actor SQLiteLibraryStore {
                 url: item.url,
                 publishedAt: item.publishedAt,
                 content: content ?? "",
-                linkedURL: item.linkedURL
+                linkedURL: item.linkedURL,
+                preferredInput: item.preferredInput,
+                mediaURL: item.mediaURL,
+                transcriptURL: item.transcriptURL,
+                transcriptType: item.transcriptType,
+                transcriptLanguage: item.transcriptLanguage
             )
             do {
                 let entryID = try await ingest(candidate)
-                let replacedIDs = Set(
-                    current.items.filter { $0.url == item.url }.map(\.id)
-                )
-                current.items.removeAll { $0.url == item.url }
+                let identity = canonicalItemIdentity(URL(string: item.url))
+                let replacedIDs = Set(current.items.filter {
+                    identity != nil && canonicalItemIdentity(URL(string: $0.url)) == identity
+                }.map(\.id))
+                current.items.removeAll {
+                    identity != nil && canonicalItemIdentity(URL(string: $0.url)) == identity
+                }
                 current.items.insert(
                     LibraryChannelItem(
                         id: item.id,
@@ -1428,6 +1616,15 @@ public actor SQLiteLibraryStore {
         current.error = ingestionError?.localizedDescription
         current.canLoadMore = discovered.items.count >= limit && limit < 100
         return newEntryIDs
+    }
+
+    private func repairChannelState(_ current: inout VoiceBriefWatcherState.Source) throws {
+        let missing = Set(current.items.compactMap { item in
+            (try? database().getDocument(item.entryID)) == nil ? item.id : nil
+        })
+        guard !missing.isEmpty else { return }
+        current.items.removeAll { missing.contains($0.id) }
+        current.seen.removeAll { missing.contains($0) }
     }
 
     private func readChannelState() -> VoiceBriefWatcherState {
@@ -1794,7 +1991,9 @@ private func httpURL(_ value: String) -> URL? {
         !value.contains(where: \.isWhitespace),
         let url = URL(string: value),
         url.scheme == "http" || url.scheme == "https",
-        url.host != nil
+        url.host != nil,
+        url.user == nil,
+        url.password == nil
     else {
         return nil
     }
@@ -1853,9 +2052,6 @@ private func voiceBriefItemKey(_ source: String, _ itemID: String) -> String {
 }
 
 private func channelDisplayTitle(_ source: String) -> String {
-    if source.lowercased().hasPrefix("arxiv:") {
-        return source.dropFirst(6).replacingOccurrences(of: "+", with: " ")
-    }
     guard let url = URL(string: source) else { return source }
     let path = url.path
         .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -1869,34 +2065,24 @@ private func discoverChannel(
     _ source: String,
     maximumItems: Int
 ) async throws -> DiscoveredChannel {
+    guard let url = httpURL(source) else { throw LibraryError.invalidChannel }
     let requestURL: URL
-    if source.lowercased().hasPrefix("arxiv:") {
-        var components = URLComponents(string: "https://export.arxiv.org/api/query")!
-        components.queryItems = [
-            URLQueryItem(name: "search_query", value: String(source.dropFirst(6))),
-            URLQueryItem(name: "start", value: "0"),
-            URLQueryItem(name: "max_results", value: String(maximumItems))
-        ]
+    if
+        url.host?.lowercased().hasSuffix("reddit.com") == true,
+        url.path.range(of: #"/r/[^/]+/?$"#, options: .regularExpression) != nil
+    {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        components.path = url.path.trimmingCharacters(
+            in: CharacterSet(charactersIn: "/")
+        ) + "/.rss"
+        components.path = "/" + components.path
+        components.queryItems = [URLQueryItem(
+            name: "limit",
+            value: String(maximumItems)
+        )]
         requestURL = components.url!
     } else {
-        guard let url = httpURL(source) else { throw LibraryError.invalidChannel }
-        if
-            url.host?.lowercased().hasSuffix("reddit.com") == true,
-            url.path.range(of: #"/r/[^/]+/?$"#, options: .regularExpression) != nil
-        {
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            components.path = url.path.trimmingCharacters(
-                in: CharacterSet(charactersIn: "/")
-            ) + "/.rss"
-            components.path = "/" + components.path
-            components.queryItems = [URLQueryItem(
-                name: "limit",
-                value: String(maximumItems)
-            )]
-            requestURL = components.url!
-        } else {
-            requestURL = url
-        }
+        requestURL = url
     }
 
     if let feedURL = youtubeFeedURL(in: "", relativeTo: requestURL) {
@@ -2237,13 +2423,20 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         } else if inItem, name == "link", let href = attributeDict["href"] {
             if attributeDict["rel"] == "enclosure" {
                 item.linkedURL = href
+                item.mediaURL = href
                 isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true
             } else if item.url.isEmpty || attributeDict["rel"] == "alternate" {
                 item.url = href
             }
         } else if inItem, name == "enclosure", let url = attributeDict["url"] {
             item.linkedURL = url
+            item.mediaURL = url
             isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true
+        } else if inItem, name == "transcript", let url = attributeDict["url"] {
+            item.transcriptURL = url
+            item.transcriptType = attributeDict["type"]
+            item.transcriptLanguage = attributeDict["language"]
+            isPodcast = true
         }
     }
 
@@ -2299,6 +2492,13 @@ private final class FeedParser: NSObject, XMLParserDelegate {
                 let url = URL(string: linkedURL, relativeTo: baseURL)?.absoluteURL
             {
                 item.linkedURL = url.absoluteString
+                item.mediaURL = url.absoluteString
+            }
+            if
+                let transcriptURL = item.transcriptURL,
+                let url = URL(string: transcriptURL, relativeTo: baseURL)?.absoluteURL
+            {
+                item.transcriptURL = url.absoluteString
             }
             if item.id.isEmpty { item.id = item.url }
             if item.title.isEmpty { item.title = item.content?.prefix(100).description ?? "Untitled" }
@@ -2370,14 +2570,16 @@ private func validFavicon(_ data: Data, fileExtension: String) -> Bool {
     case "webp":
         return bytes.starts(with: Array("RIFF".utf8)) &&
             bytes.dropFirst(8).starts(with: Array("WEBP".utf8))
+    case "svg":
+        let prefix = String(decoding: data.prefix(1_024), as: UTF8.self).lowercased()
+        return prefix.contains("<svg")
     default:
         return false
     }
 }
 
 private func validChannelSource(_ source: String) -> Bool {
-    httpURL(source) != nil ||
-        source.range(of: #"^arxiv:\S+"#, options: [.regularExpression, .caseInsensitive]) != nil
+    httpURL(source) != nil
 }
 
 private func validSchedule(_ value: String) -> Bool {

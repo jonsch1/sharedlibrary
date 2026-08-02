@@ -10,7 +10,7 @@ Web/.svelte-kit/
 Web/build/
 Web/dist/
 
-# Native Apple apps
+# Native Apple apps and repo-local Xcode derived data
 Apple/.build/
 Apple/.swiftpm/
 

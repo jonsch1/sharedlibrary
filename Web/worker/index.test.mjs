@@ -38,6 +38,26 @@ test('public requests cannot impersonate accounts or reach removed private-libra
 	assert.equal(library.status, 404);
 });
 
+test('unknown web routes remain unavailable', async () => {
+	const response = await worker.fetch(
+		new Request('https://library.example/not-a-briefly-page', {
+			headers: { Accept: 'text/html' }
+		}),
+		{
+			...environment(),
+			ASSETS: {
+				fetch: async (request) => {
+					const path = new URL(request.url).pathname;
+					return new Response(path === '/' ? 'landing' : 'not found', {
+						status: path === '/' ? 200 : 404
+					});
+				}
+			}
+		}
+	);
+	assert.equal(response.status, 404);
+});
+
 test('native services fail closed without an App Store entitlement', async () => {
 	const unavailable = await worker.fetch(
 		authenticatedRequest('/api/ai/process', {

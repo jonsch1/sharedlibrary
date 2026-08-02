@@ -4,7 +4,6 @@ import BrieflyCore
 import CloudKit
 import CryptoKit
 import Observation
-import PDFKit
 import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -299,17 +298,16 @@ final class LibraryModel {
                     ? $0
                     : nil
             }
-            let id: String
-            if let url {
-                status = "Extracting the signed-in page…"
-                do {
-                    id = try await ingestURL(url, in: library)
-                } catch {
-                    id = try await library.capture(trimmed)
-                }
-            } else {
-                id = try await library.capture(trimmed)
-            }
+            status = url == nil ? "Capturing text…" : "Extracting the item…"
+            let router = NativeItemInputRouter()
+            var request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
+            request.retainAudio = UserDefaults.standard.bool(forKey: "BrieflySaveCapturedAudio") &&
+                router.inputID(for: request) == .youtube
+            let draft = try await router.ingest(
+                request,
+                context: itemInputContext()
+            )
+            let id = try await library.captureItem(draft)
             await refreshLibrary(selecting: id)
             activeSection = .items
             status = "Captured. Preparing summaries…"
@@ -336,14 +334,15 @@ final class LibraryModel {
         isIngesting = true
         defer { isIngesting = false }
         do {
-            let id = try await library.captureWebPage(
+            let id = try await library.captureItem(ItemDraft(
+                inputID: .webPage,
                 title: page.title,
                 content: page.text,
                 sourceURL: url,
-                asVoiceBriefSource: activeSection == .channels,
+                canonicalURL: url,
                 faviconData: page.faviconData,
                 faviconFileExtension: page.faviconFileExtension
-            )
+            ))
             await refreshLibrary(selecting: id)
             status = "Saved the signed-in page. Preparing summaries…"
             isIngesting = false
@@ -365,21 +364,12 @@ final class LibraryModel {
         defer {
             if hasAccess { url.stopAccessingSecurityScopedResource() }
         }
-        guard
-            let document = PDFDocument(url: url),
-            let text = document.string
-        else {
-            errorMessage = "Briefly could not read that PDF."
-            return
-        }
-        let title = document.documentAttributes?[
-            PDFDocumentAttribute.titleAttribute
-        ] as? String ?? url.deletingPathExtension().lastPathComponent
         do {
-            let entryID = try await library.captureDocument(
-                title: title,
-                content: text
+            let draft = try await NativeItemInputRouter().ingest(
+                ItemInputRequest(source: .file(url)),
+                context: itemInputContext()
             )
+            let entryID = try await library.captureItem(draft)
             await refreshLibrary(selecting: entryID)
             status = "PDF captured. Preparing summaries…"
             isIngesting = false
@@ -580,10 +570,17 @@ final class LibraryModel {
             libraryChannels = try await library.loadChannels()
             selectedChannelSource = result.channel.source
             expandedChannelSources.insert(result.channel.source)
-            status = result.newEntryIDs.isEmpty
-                ? "Channel checked. No new items."
-                : "Gathered \(result.newEntryIDs.count) new " +
-                    (result.newEntryIDs.count == 1 ? "item" : "items")
+            if let error = result.channel.error {
+                errorMessage = error
+                status = result.newEntryIDs.isEmpty
+                    ? "Channel check failed."
+                    : "Gathered \(result.newEntryIDs.count) items; some failed and will retry."
+            } else {
+                status = result.newEntryIDs.isEmpty
+                    ? "Channel checked. No new items."
+                    : "Gathered \(result.newEntryIDs.count) new " +
+                        (result.newEntryIDs.count == 1 ? "item" : "items")
+            }
             for entryID in result.newEntryIDs {
                 await enqueueProcessing(entryID)
             }
@@ -622,9 +619,15 @@ final class LibraryModel {
             status = "Checking \(brief.sources.count) " +
                 (brief.sources.count == 1 ? "channel…" : "channels…")
             var newEntryIDs = [String]()
+            var channelErrors = [String]()
             for source in brief.sources {
-                let result = try await retrieveChannel(library, source: source)
-                newEntryIDs += result.newEntryIDs
+                do {
+                    let result = try await retrieveChannel(library, source: source)
+                    newEntryIDs += result.newEntryIDs
+                    if let error = result.channel.error { channelErrors.append(error) }
+                } catch {
+                    channelErrors.append(error.localizedDescription)
+                }
             }
             projection = try await library.loadProjection()
             libraryChannels = try await library.loadChannels()
@@ -635,6 +638,7 @@ final class LibraryModel {
                 ? "Channels checked. No new items."
                 : "Prepared \(newEntryIDs.count) new " +
                     (newEntryIDs.count == 1 ? "item" : "items")
+            if let error = channelErrors.first { errorMessage = error }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -667,6 +671,34 @@ final class LibraryModel {
         }
     }
 
+    func runDueChannelChecks() async {
+        guard let library, !isCheckingChannel, !isRunningVoiceBrief else { return }
+        let cutoff = Date().addingTimeInterval(-30 * 60)
+        let due = libraryChannels.filter {
+            guard let value = $0.lastCheckedAt,
+                  let date = ISO8601DateFormatter().date(from: value) else { return true }
+            return date < cutoff
+        }
+        guard !due.isEmpty else { return }
+        isCheckingChannel = true
+        defer { isCheckingChannel = false }
+        var newEntryIDs = [String]()
+        for channel in due {
+            do {
+                newEntryIDs += try await retrieveChannel(
+                    library,
+                    source: channel.source
+                ).newEntryIDs
+            } catch {
+                continue
+            }
+        }
+        projection = (try? await library.loadProjection()) ?? projection
+        libraryChannels = (try? await library.loadChannels()) ?? libraryChannels
+        for entryID in newEntryIDs { await enqueueProcessing(entryID) }
+        if !newEntryIDs.isEmpty { requestSync() }
+    }
+
     private func generateVoiceBrief(
         _ brief: LibraryVoiceBrief,
         selectEpisode: Bool,
@@ -683,10 +715,14 @@ final class LibraryModel {
             status = "Checking channels for \(brief.title)…"
             var newEntryIDs = [String]()
             for source in brief.sources {
-                newEntryIDs += try await retrieveChannel(
-                    library,
-                    source: source
-                ).newEntryIDs
+                do {
+                    newEntryIDs += try await retrieveChannel(
+                        library,
+                        source: source
+                    ).newEntryIDs
+                } catch {
+                    continue
+                }
             }
             projection = try await library.loadProjection()
             libraryChannels = try await library.loadChannels()
@@ -1223,77 +1259,110 @@ final class LibraryModel {
             return try await self.ingestURL(
                 url,
                 in: library,
-                candidate: candidate,
-                asVoiceBriefSource: true
+                candidate: candidate
             )
         }
-        let host = URL(string: source)?.host?.lowercased() ?? ""
-        if host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com") {
-            guard let url = URL(string: source) else {
-                throw LibraryError.invalidChannel
-            }
-            let page = try await ChannelBrowserSession.shared.extractPage(from: url)
-            if !page.items.isEmpty {
-                return try await library.captureSignedInChannelItems(
+        let channel = libraryChannels.first { $0.source == source }
+        let maximum = loadMore
+            ? min(100, (channel?.items.count ?? 0) + (channel?.retrievalCount ?? 5))
+            : nil
+        return try await library.checkChannelInput(
+            source,
+            maximumItems: maximum,
+            discover: { limit in
+                try await NativeChannelInputRouter().enumerate(
                     source: source,
-                    title: page.title,
-                    items: page.items.map {
-                        LibraryChannelCandidate(
-                            id: $0.id,
-                            title: $0.title,
-                            url: $0.url,
-                            publishedAt: $0.publishedAt,
-                            content: $0.content
-                        )
-                    },
-                    ingest: ingest
+                    maximumItems: limit,
+                    context: self.channelInputContext()
                 )
-            }
-            return try await library.captureSignedInChannelPage(
-                source: source,
-                title: page.title,
-                content: page.text,
-                ingest: ingest
-            )
-        }
-        if loadMore {
-            return try await library.loadMoreChannel(source, ingest: ingest)
-        }
-        return try await library.checkChannel(source, ingest: ingest)
+            },
+            ingest: ingest
+        )
     }
 
     private func ingestURL(
         _ url: URL,
         in library: SQLiteLibraryStore,
-        candidate: LibraryChannelCandidate? = nil,
-        asVoiceBriefSource: Bool = false
+        candidate: LibraryChannelCandidate? = nil
     ) async throws -> String {
-        do {
+        let hints = ItemInputHints(
+            preferredInput: candidate?.preferredInput,
+            title: candidate?.title,
+            content: candidate?.content,
+            mediaURL: candidate?.mediaURL.flatMap(URL.init(string:)),
+            transcriptURL: candidate?.transcriptURL.flatMap(URL.init(string:)),
+            transcriptType: candidate?.transcriptType,
+            transcriptLanguage: candidate?.transcriptLanguage
+        )
+        let draft = try await NativeItemInputRouter().ingest(
+            ItemInputRequest(source: .url(url), hints: hints),
+            context: itemInputContext()
+        )
+        return try await library.captureItem(draft, asVoiceBriefSource: true)
+    }
+
+    private func itemInputContext() -> ItemInputContext {
+        .init(
+            render: { url in
+                let page = try await ChannelBrowserSession.shared.extractPage(from: url)
+                return RenderedInputPage(
+                    title: page.title,
+                    content: page.text,
+                    sourceURL: url,
+                    faviconData: page.faviconData,
+                    faviconFileExtension: page.faviconFileExtension
+                )
+            },
+            firecrawl: { try await BrieflyBackend.shared.firecrawl($0) },
+            transcribe: { try await BrieflyBackend.shared.transcribe($0) },
+            downloadAudio: { try await BrieflyBackend.shared.downloadAudio($0) }
+        )
+    }
+
+    private func channelInputContext() -> ChannelInputContext {
+        .init(render: { url, limit in
             let page = try await ChannelBrowserSession.shared.extractPage(from: url)
-            return try await library.captureWebPage(
-                title: page.title,
-                content: page.text,
-                sourceURL: url,
-                asVoiceBriefSource: asVoiceBriefSource,
-                faviconData: page.faviconData,
-                faviconFileExtension: page.faviconFileExtension
-            )
-        } catch {
-            guard
-                let candidate,
-                !candidate.content.trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ).isEmpty
-            else {
-                throw error
+            let host = url.host?.lowercased() ?? ""
+            let isX = host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com")
+            if !page.items.isEmpty {
+                return ChannelInputBatch(
+                    inputID: isX ? .x : .page,
+                    title: page.title,
+                    kind: .page,
+                    items: page.items.prefix(limit).compactMap { item in
+                        guard let itemURL = URL(string: item.url) else { return nil }
+                        return ChannelItemReference(
+                            id: item.id,
+                            title: item.title,
+                            url: itemURL,
+                            publishedAt: item.publishedAt,
+                            hints: .init(
+                                preferredInput: isX ? .x : .webPage,
+                                title: item.title,
+                                content: item.content
+                            )
+                        )
+                    }
+                )
             }
-            return try await library.captureWebPage(
-                title: candidate.title,
-                content: candidate.content,
-                sourceURL: url,
-                asVoiceBriefSource: asVoiceBriefSource
+            let digest = SHA256.hash(data: Data(page.text.utf8))
+                .map { String(format: "%02x", $0) }.joined()
+            return ChannelInputBatch(
+                inputID: isX ? .x : .page,
+                title: page.title,
+                kind: .page,
+                items: [.init(
+                    id: digest,
+                    title: page.title,
+                    url: url,
+                    hints: .init(
+                        preferredInput: .webPage,
+                        title: page.title,
+                        content: page.text
+                    )
+                )]
             )
-        }
+        })
     }
 
     private func process(_ entryID: String) async {
@@ -1623,9 +1692,11 @@ struct ContentView: View {
     @State private var showsChannelBrowser = false
     @State private var showsSettings = false
     @State private var showsPDFImporter = false
-    @State private var sidebarVisible = true
     @State private var windowControlsVisible = true
     @State private var audioPlayer = NativeAudioPlayer()
+    #if os(macOS)
+    @State private var sidebarVisibility = NavigationSplitViewVisibility.all
+    #endif
     #if os(iOS)
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var audioEntry: LibraryEntry?
@@ -1636,51 +1707,25 @@ struct ContentView: View {
         Group {
             if model.isReady {
                 #if os(macOS)
-                HSplitView {
-                    if sidebarVisible {
-                        LibrarySidebar(
-                            model: model,
-                            showsSettings: $showsSettings,
-                            sidebarVisible: $sidebarVisible,
-                            reservesWindowControls: windowControlsVisible
-                        )
-                        .padding(.top, 6)
-                        .ignoresSafeArea(.container, edges: .top)
-                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 420)
-                        .frame(maxHeight: .infinity)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                    }
-
+                NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                    LibrarySidebar(
+                        model: model,
+                        showsSettings: $showsSettings
+                    )
+                    .ignoresSafeArea(.container, edges: .top)
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
+                } detail: {
                     LibraryDetail(
                         model: model,
                         showsChannelBrowser: $showsChannelBrowser,
                         audioPlayer: audioPlayer
                     )
                     .layoutPriority(1)
-                    .overlay(alignment: .topLeading) {
-                        if !sidebarVisible {
-                            Button {
-                                withAnimation(.snappy(duration: 0.18)) {
-                                    sidebarVisible = true
-                                }
-                            } label: {
-                                Image(systemName: "sidebar.left")
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .frame(width: 64, height: 45)
-                            .padding(.leading, windowControlsVisible ? 72 : 0)
-                            .padding(.top, 6)
-                            .ignoresSafeArea(.container, edges: .top)
-                            .keyboardShortcut("s", modifiers: [.command, .control])
-                            .accessibilityLabel("Show sidebar")
-                            .help("Show sidebar")
-                        }
-                    }
+                    .frame(maxHeight: .infinity)
+                    .ignoresSafeArea(.container, edges: .top)
                 }
-                .padding(6)
-                .background(appBackground)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(readerBackground)
                 .ignoresSafeArea(.container, edges: .top)
                 .background(
                     WindowControlPositioner(
@@ -1702,7 +1747,6 @@ struct ContentView: View {
                             LibrarySidebar(
                                 model: model,
                                 showsSettings: $showsSettings,
-                                sidebarVisible: .constant(true),
                                 onOpenDetail: { preferredCompactColumn = .detail }
                             )
                         }
@@ -1726,6 +1770,7 @@ struct ContentView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
+                await model.runDueChannelChecks()
                 await model.runDueVoiceBriefs()
             }
         }
@@ -1735,6 +1780,7 @@ struct ContentView: View {
                     #if os(iOS)
                     if model.canEdit { await model.sync() }
                     #endif
+                    await model.runDueChannelChecks()
                     await model.runDueVoiceBriefs()
                 }
             }
@@ -1857,6 +1903,7 @@ struct ContentView: View {
             appearance == "light" ? .light :
                 appearance == "dark" ? .dark : nil
         )
+        .fontDesign(.rounded)
     }
 }
 
@@ -1870,7 +1917,7 @@ private struct MobileHome: View {
         model.projection.entries
             .filter { $0.entryType != "voice_brief_source" && $0.matches(model.query) }
             .sorted {
-                ($0.createdAt ?? $0.updatedAt ?? "") >
+                ($0.createdAt ?? $0.updatedAt ?? "") <
                     ($1.createdAt ?? $1.updatedAt ?? "")
             }
     }
@@ -1894,17 +1941,7 @@ private struct MobileHome: View {
                     Spacer()
                 }
 
-                HStack(spacing: 8) {
-                    Image("BrieflyMark")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 32, height: 32)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                    Text("BRIEFLY")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .tracking(3)
-                }
-                .accessibilityElement(children: .combine)
+                BrieflyLogo()
             }
             .padding(.horizontal, 18)
             .frame(height: 64)
@@ -1943,6 +1980,7 @@ private struct MobileHome: View {
                     .padding(.top, 8)
                     .padding(.bottom, 150)
                 }
+                .defaultScrollAnchor(.bottom)
                 .scrollIndicators(.hidden)
             }
         }
@@ -2598,47 +2636,54 @@ private struct WindowControlPositioner: NSViewRepresentable {
         }
     }
 }
+
+private extension View {
+    @ViewBuilder
+    func actionBarGlass() -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            background(.regularMaterial, in: Capsule())
+        }
+    }
+}
 #endif
+
+private struct BrieflyLogo: View {
+    var body: some View {
+        Group {
+            #if os(macOS)
+            Image("BrieflyWordmark")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 76, height: 30)
+            #else
+            Image("BrieflyWordmark")
+                .resizable()
+                .renderingMode(.template)
+                .scaledToFit()
+                .frame(width: 97, height: 39)
+            #endif
+        }
+        .foregroundStyle(.primary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Briefly")
+    }
+}
 
 private struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
-    @Binding var sidebarVisible: Bool
-    var reservesWindowControls = false
     var onOpenDetail: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
             #if os(macOS)
-            HStack(spacing: 0) {
-                if reservesWindowControls {
-                    Color.clear
-                        .frame(width: 72)
-                        .frame(maxHeight: .infinity)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-
-                Spacer()
-
-                Button {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        sidebarVisible = false
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 15))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("s", modifiers: [.command, .control])
-                .accessibilityLabel("Hide sidebar")
-                .help("Hide sidebar")
-                .frame(width: 64)
-            }
+            Color.clear
             .frame(height: 45)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
             #endif
 
             #if os(macOS)
@@ -2695,16 +2740,9 @@ private struct LibrarySidebar: View {
             #endif
 
             #if os(macOS)
-            Group {
-                if #available(macOS 26.0, *) {
-                    sidebarNavigation
-                        .glassEffect(.regular.interactive(), in: Capsule())
-                } else {
-                    sidebarNavigation
-                        .background(.regularMaterial, in: Capsule())
-                }
-            }
-            .padding(8)
+            sidebarNavigation
+                .actionBarGlass()
+                .padding(8)
             .overlay(alignment: .topTrailing) {
                 if model.activeSection != .items {
                     Button {
@@ -2740,12 +2778,7 @@ private struct LibrarySidebar: View {
             #endif
         }
         #if os(macOS)
-        .background(sidebarBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.primary.opacity(0.08))
-        }
+        .background(sidebarBackground.ignoresSafeArea())
         #else
         .background(sidebarBackground.ignoresSafeArea())
         #endif
@@ -3126,7 +3159,6 @@ private func channelDomainGroups(
 }
 
 private func channelDomain(_ source: String) -> String {
-    if source.lowercased().hasPrefix("arxiv:") { return "arxiv.org" }
     let host = URL(string: source)?.host?.lowercased()
         .replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) ??
         "other"
@@ -3425,7 +3457,11 @@ private struct LibraryDetail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
         .background(readerBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .bottomTrailing) {
+            BrieflyLogo()
+                .padding(.bottom, 14)
+                .padding(.trailing, 14)
+        }
         #else
         .background(readerBackground.ignoresSafeArea())
         #endif
@@ -3760,6 +3796,14 @@ private final class MarkdownTextView: NSTextView {
     private var highlightedText = ""
     private var removesHighlight = false
     private var isRendering = false
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        textContainerInset = NSSize(
+            width: max(32, (newSize.width - 780) / 2),
+            height: 90
+        )
+    }
 
     func setMarkdown(_ text: String) {
         string = text
@@ -4154,7 +4198,7 @@ private struct LibraryDocument: View {
                     ),
                     isEditing: isEditing
                 )
-                .frame(maxWidth: 844)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id("\(entry.id):\(model.selectedVariant.rawValue)")
             }
 
@@ -4251,10 +4295,14 @@ private struct LibraryDocument: View {
                     RoundedRectangle(cornerRadius: 13)
                         .stroke(.primary.opacity(0.1))
                 }
+                #if os(macOS)
+                .padding(.bottom, 82)
+                #else
                 .padding(.bottom, 52)
+                #endif
             }
 
-            HStack(alignment: .bottom) {
+            HStack(alignment: .bottom, spacing: 0) {
                 if entry.texts.count > 1 && !usesMobileItemControls {
                     HStack(spacing: 0) {
                         ForEach(entry.texts.map(\.variant), id: \.self) { variant in
@@ -4282,6 +4330,7 @@ private struct LibraryDocument: View {
                             .help(variant == .source ? "Original" : variant.title)
                         }
                     }
+                    #if os(iOS)
                     .background(readerBackground)
                     .clipShape(
                         .rect(
@@ -4296,9 +4345,12 @@ private struct LibraryDocument: View {
                             .fill(.primary.opacity(0.08))
                             .frame(height: 1)
                     }
+                    #endif
                 }
 
+                #if os(iOS)
                 Spacer()
+                #endif
 
                 HStack(spacing: 0) {
                     if model.canEdit {
@@ -4371,6 +4423,7 @@ private struct LibraryDocument: View {
                         .accessibilityLabel("Share document")
                     }
                 }
+                #if os(iOS)
                 .background(readerBackground)
                 .clipShape(
                     .rect(
@@ -4385,8 +4438,19 @@ private struct LibraryDocument: View {
                         .fill(.primary.opacity(0.08))
                         .frame(height: 1)
                 }
+                #endif
             }
+            #if os(macOS)
+            .padding(4)
+            .frame(height: 58)
+            .fixedSize(horizontal: true, vertical: false)
+            .actionBarGlass()
+            .padding(8)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            #endif
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: entry.id) {
             isEditing = false
             audioPlayer.stop()
@@ -5398,6 +5462,7 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
 private struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("BrieflyAppearance") private var appearance = "system"
+    @AppStorage("BrieflySaveCapturedAudio") private var saveCapturedAudio = false
     #if os(macOS)
     @State private var captureShortcut = CaptureShortcut.load()
     @State private var shortcutRegistered = UserDefaults.standard.bool(
@@ -5621,6 +5686,12 @@ private struct SettingsView: View {
                     } label: {
                         Label("Signed-in browser", systemImage: "globe")
                     }
+                }
+                Section("Media") {
+                    Toggle("Save captured YouTube audio", isOn: $saveCapturedAudio)
+                    Text("Applies to manual link captures. Podcast episode audio remains streamed from its source.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                     case .account:

@@ -2,6 +2,113 @@ import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
+    func testCanonicalCaptureAndMediaPersistence() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+        let first = try await store.captureItem(ItemDraft(
+            inputID: .podcast,
+            title: "Canonical episode",
+            content: "Transcript",
+            sourceURL: URL(string: "https://www.example.com/episode?utm_source=test")!,
+            canonicalURL: URL(string: "https://example.com/episode")!,
+            mediaURL: URL(string: "https://cdn.example.com/episode.mp3")!
+        ))
+        let second = try await store.captureItem(ItemDraft(
+            inputID: .webPage,
+            title: "Duplicate route",
+            content: "Duplicate content",
+            sourceURL: URL(string: "https://example.com/episode?fbclid=tracking")!
+        ))
+        XCTAssertEqual(first, second)
+        let projection = try await store.loadProjection()
+        let entry = try XCTUnwrap(projection.entries.first)
+        XCTAssertEqual(entry.mediaURL, "https://cdn.example.com/episode.mp3")
+        XCTAssertEqual(entry.text(for: .source)?.text, "Duplicate content")
+        let database = try await store.documentDatabase()
+        let documentCount = try database.allDocuments().count
+        XCTAssertEqual(documentCount, 1)
+    }
+
+    func testChannelOnlyCheckpointsSuccessfulItemsAndTrashAllowsRetry() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+        let source = "https://feed.test/native"
+        try await store.addChannel(source)
+        let batch = ChannelInputBatch(
+            inputID: .feed,
+            title: "Native feed",
+            kind: .feed,
+            items: [
+                .init(id: "one", title: "One", url: URL(string: "https://story.test/one")!,
+                      hints: .init(title: "One", content: "First story")),
+                .init(id: "two", title: "Two", url: URL(string: "https://story.test/two")!,
+                      hints: .init(title: "Two", content: "Second story"))
+            ]
+        )
+        let attempts = ChannelAttemptLog()
+        let first = try await store.checkChannelInput(
+            source,
+            discover: { _ in batch },
+            ingest: { candidate in
+                await attempts.record(candidate.id)
+                if candidate.id == "two" { throw NativeInputError.unreadableContent }
+                return try await store.captureItem(ItemDraft(
+                    inputID: .webPage,
+                    title: candidate.title,
+                    content: candidate.content,
+                    sourceURL: URL(string: candidate.url)
+                ), asVoiceBriefSource: true)
+            }
+        )
+        XCTAssertEqual(first.channel.items.map(\.id), ["one"])
+        XCTAssertNotNil(first.channel.error)
+
+        let second = try await store.checkChannelInput(
+            source,
+            discover: { _ in batch },
+            ingest: { candidate in
+                await attempts.record(candidate.id)
+                return try await store.captureItem(ItemDraft(
+                    inputID: .webPage,
+                    title: candidate.title,
+                    content: candidate.content,
+                    sourceURL: URL(string: candidate.url)
+                ), asVoiceBriefSource: true)
+            }
+        )
+        XCTAssertEqual(second.newEntryIDs.count, 1)
+        let channelProjection = try await store.loadProjection()
+        let fetchedEntry = try XCTUnwrap(
+            channelProjection.entries.first {
+                $0.id == second.newEntryIDs.first
+            }
+        )
+        XCTAssertFalse(fetchedEntry.isMainLibraryEntry)
+        let attemptedIDs = await attempts.values()
+        XCTAssertEqual(attemptedIDs, ["two", "one", "two"])
+
+        let trashed = try XCTUnwrap(second.channel.items.first { $0.id == "two" }?.entryID)
+        try await store.moveToTrash(entryID: trashed)
+        let third = try await store.checkChannelInput(
+            source,
+            discover: { _ in batch },
+            ingest: { candidate in
+                try await store.captureItem(ItemDraft(
+                    inputID: .webPage,
+                    title: candidate.title,
+                    content: candidate.content,
+                    sourceURL: URL(string: candidate.url)
+                ), asVoiceBriefSource: true)
+            }
+        )
+        XCTAssertEqual(third.newEntryIDs.count, 1)
+        XCTAssertNotEqual(third.newEntryIDs.first, trashed)
+    }
+
     func testSQLiteCanonicalLibraryJourney() async throws {
         let projection = LibraryProjection.demo
         XCTAssertEqual(projection.schemaVersion, librarySchemaVersion)
@@ -410,4 +517,10 @@ final class LibraryContractTests: XCTestCase {
         #endif
 
     }
+}
+
+private actor ChannelAttemptLog {
+    private var items = [String]()
+    func record(_ value: String) { items.append(value) }
+    func values() -> [String] { items }
 }

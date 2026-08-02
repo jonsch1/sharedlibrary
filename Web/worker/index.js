@@ -2284,11 +2284,7 @@ const routeWorker = {
 			return json({ error: 'Not found.' }, { status: 404 });
 		}
 
-		const response = await env.ASSETS.fetch(request);
-		if (response.status !== 404 || request.method !== 'GET') return response;
-		const acceptsHTML = request.headers.get('accept')?.includes('text/html') ?? false;
-		if (!acceptsHTML) return response;
-		return env.ASSETS.fetch(new Request(new URL('/', request.url), request));
+		return env.ASSETS.fetch(request);
 	},
 	async scheduled(_controller, env, context) {
 		context.waitUntil(cleanServiceUsage(env));
