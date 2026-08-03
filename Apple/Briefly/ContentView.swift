@@ -2527,6 +2527,13 @@ struct ContentView: View {
             }
         }
         #endif
+        #if os(macOS)
+        .overlay(alignment: .bottomTrailing) {
+            BrieflyLogo()
+                .padding(.trailing, 24)
+                .padding(.bottom, 18)
+        }
+        #endif
         .overlay(alignment: .bottomTrailing) {
             if model.isSyncing {
                 SyncActivityView(model: model)
@@ -2535,7 +2542,8 @@ struct ContentView: View {
                     .padding(.horizontal, 18)
                     .padding(.bottom, 152)
                     #else
-                    .padding(18)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 66)
                     #endif
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if model.isProcessing || model.isGeneratingSpeech ||
@@ -2555,6 +2563,9 @@ struct ContentView: View {
                 .background(.regularMaterial, in: Capsule())
                 #endif
                 .padding(18)
+                #if os(macOS)
+                .padding(.bottom, 48)
+                #endif
                 .accessibilityElement(children: .combine)
             }
         }
@@ -2603,9 +2614,9 @@ private struct MacXLoadingWorkspace: View {
     var body: some View {
         HStack(alignment: .top, spacing: 24) {
             VStack(alignment: .leading, spacing: 5) {
-                BrieflyLogo()
-                    .padding(.leading, 12)
-                    .padding(.bottom, 12)
+                Color.clear
+                    .frame(height: 42)
+                    .accessibilityHidden(true)
                 ForEach([
                     ("house", "Home"),
                     ("dot.radiowaves.left.and.right", "Channels"),
@@ -2813,9 +2824,9 @@ private struct MacXNavigation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            BrieflyLogo()
-                .padding(.leading, 12)
-                .padding(.bottom, 12)
+            Color.clear
+                .frame(height: 42)
+                .accessibilityHidden(true)
 
             ForEach(LibrarySection.allCases) { section in
                 Button {
