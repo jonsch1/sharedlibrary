@@ -2339,10 +2339,6 @@ struct ContentView: View {
     @State private var windowControlsVisible = true
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
-    #if os(iOS)
-    @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
-    @State private var homeSelected = true
-    #endif
 
     var body: some View {
         Group {
@@ -2394,33 +2390,14 @@ struct ContentView: View {
                     )
                 )
                 #else
-                NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-                    Group {
-                        if homeSelected {
-                            MobileHome(
-                                model: model,
-                                showsSettings: $showsSettings,
-                                onOpenDetail: { preferredCompactColumn = .detail }
-                            )
-                        } else {
-                            LibrarySidebar(
-                                model: model,
-                                showsSettings: $showsSettings,
-                                audioPlayer: audioPlayer,
-                                audioEntry: $audioEntry,
-                                onOpenDetail: { preferredCompactColumn = .detail }
-                            )
-                        }
-                    }
-                    .navigationSplitViewColumnWidth(min: 285, ideal: 326)
-                } detail: {
-                    LibraryDetail(
-                        model: model,
-                        showsChannelBrowser: $showsChannelBrowser,
-                        audioPlayer: audioPlayer,
-                        audioEntry: $audioEntry
-                    )
-                }
+                MobileXAppShell(
+                    model: model,
+                    showsSettings: $showsSettings,
+                    showsCaptureComposer: $showsCaptureComposer,
+                    showsChannelBrowser: $showsChannelBrowser,
+                    audioPlayer: audioPlayer,
+                    audioEntry: $audioEntry
+                )
                 #endif
             } else {
                 #if os(macOS)
@@ -2485,8 +2462,21 @@ struct ContentView: View {
         }
         #endif
         #if os(iOS)
-        .sheet(isPresented: $showsSettings) {
+        .fullScreenCover(isPresented: $showsSettings) {
             SettingsView(model: model)
+        }
+        .fullScreenCover(isPresented: $showsCaptureComposer) {
+            MobileCaptureComposer(
+                model: model,
+                openPDFImporter: {
+                    showsCaptureComposer = false
+                    showsPDFImporter = true
+                },
+                openBrowser: {
+                    showsCaptureComposer = false
+                    showsChannelBrowser = true
+                }
+            )
         }
         #endif
         .fileImporter(
@@ -2569,18 +2559,6 @@ struct ContentView: View {
             }
         }
         .animation(.snappy(duration: 0.24), value: model.isSyncing)
-        #if os(iOS)
-        .overlay(alignment: .bottom) {
-            MobileLibraryNavigation(
-                model: model,
-                preferredCompactColumn: $preferredCompactColumn,
-                showsPDFImporter: $showsPDFImporter,
-                homeSelected: $homeSelected,
-                audioPlayer: audioPlayer,
-                audioEntry: $audioEntry
-            )
-        }
-        #endif
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
                 text: model.selectedID == entry.id && !model.selectedText.isEmpty
@@ -3086,6 +3064,684 @@ private struct MacXRightRail: View {
 #endif
 
 #if os(iOS)
+private enum MobilePrimaryTab: String, Hashable {
+    case home
+    case channels
+    case briefs
+    case library
+}
+
+private struct MobileXAppShell: View {
+    @Bindable var model: LibraryModel
+    @Binding var showsSettings: Bool
+    @Binding var showsCaptureComposer: Bool
+    @Binding var showsChannelBrowser: Bool
+    @Bindable var audioPlayer: NativeAudioPlayer
+    @Binding var audioEntry: LibraryEntry?
+    @AppStorage("BrieflyMobileTab") private var selectedTab = MobilePrimaryTab.home
+    @State private var showsDetail = false
+
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            mobileStack(.home)
+                .tabItem { Label("Home", systemImage: "house") }
+                .tag(MobilePrimaryTab.home)
+
+            mobileStack(.channels)
+                .tabItem { Label("Channels", systemImage: "dot.radiowaves.left.and.right") }
+                .tag(MobilePrimaryTab.channels)
+
+            mobileStack(.briefs)
+                .tabItem { Label("Briefs", systemImage: "headphones") }
+                .tag(MobilePrimaryTab.briefs)
+
+            NavigationStack {
+                MobileXLibraryScreen(
+                    model: model,
+                    showsSettings: $showsSettings,
+                    openEntry: openEntry
+                )
+                .navigationDestination(isPresented: $showsDetail) {
+                    MobileXDetail(
+                        model: model,
+                        showsChannelBrowser: $showsChannelBrowser,
+                        audioPlayer: audioPlayer,
+                        audioEntry: $audioEntry
+                    )
+                }
+            }
+            .tabItem { Label("Library", systemImage: "bookmark") }
+            .tag(MobilePrimaryTab.library)
+        }
+        .tint(.primary)
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                showsCaptureComposer = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Color.accentColor, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+            .padding(.trailing, 18)
+            .padding(.bottom, 58)
+            .accessibilityLabel("Capture")
+        }
+        .onChange(of: selectedTab) {
+            showsDetail = false
+            model.query = ""
+            Task { await activate(selectedTab) }
+        }
+        .task { await activate(selectedTab) }
+    }
+
+    private func mobileStack(_ tab: MobilePrimaryTab) -> some View {
+        NavigationStack {
+            MobileXFeedScreen(
+                model: model,
+                tab: tab,
+                showsSettings: $showsSettings,
+                openEntry: openEntry,
+                openConfiguration: {
+                    showsDetail = true
+                }
+            )
+            .navigationDestination(isPresented: $showsDetail) {
+                MobileXDetail(
+                    model: model,
+                    showsChannelBrowser: $showsChannelBrowser,
+                    audioPlayer: audioPlayer,
+                    audioEntry: $audioEntry
+                )
+            }
+        }
+    }
+
+    private func openEntry(_ entry: LibraryEntry) {
+        Task {
+            if entry.voiceBriefID != nil {
+                model.activeSection = .briefs
+                model.selectedVoiceBriefID = entry.voiceBriefID ?? ""
+            } else if selectedTab == .home {
+                model.activeSection = .items
+            }
+            await model.select(entry.id)
+            showsDetail = true
+        }
+    }
+
+    private func activate(_ tab: MobilePrimaryTab) async {
+        switch tab {
+        case .home: await model.show(.items)
+        case .channels: await model.show(.channels)
+        case .briefs: await model.show(.briefs)
+        case .library: break
+        }
+    }
+}
+
+private struct MobileXFeedScreen: View {
+    @Bindable var model: LibraryModel
+    let tab: MobilePrimaryTab
+    @Binding var showsSettings: Bool
+    let openEntry: (LibraryEntry) -> Void
+    let openConfiguration: () -> Void
+
+    private var entries: [LibraryEntry] {
+        let candidates: [LibraryEntry]
+        switch tab {
+        case .home:
+            candidates = model.filteredEntries
+        case .channels:
+            if model.selectedChannelSource.isEmpty {
+                var seen = Set<String>()
+                candidates = model.channels.flatMap { model.channelEntries(for: $0.source) }
+                    .filter { seen.insert($0.id).inserted }
+            } else {
+                candidates = model.channelEntries(for: model.selectedChannelSource)
+            }
+        case .briefs:
+            if model.selectedVoiceBriefID.isEmpty {
+                candidates = model.projection.voiceBriefDefinitions.flatMap {
+                    model.projection.episodes(for: $0.id)
+                }
+            } else {
+                candidates = model.projection.episodes(for: model.selectedVoiceBriefID)
+            }
+        case .library:
+            candidates = []
+        }
+        return candidates
+            .filter { $0.matches(model.query) }
+            .sorted {
+                ($0.createdAt ?? $0.updatedAt ?? "") >
+                    ($1.createdAt ?? $1.updatedAt ?? "")
+            }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MobileXHeader(
+                title: title,
+                showsSettings: $showsSettings,
+                trailing: trailingAction
+            )
+
+            MobileXSearchField(text: $model.query, prompt: searchPrompt)
+                .padding(.top, 8)
+
+            choices
+
+            if entries.isEmpty {
+                XEmptyState(
+                    icon: emptyIcon,
+                    title: emptyTitle,
+                    message: emptyMessage
+                )
+                .frame(maxWidth: 720, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(entries) { entry in
+                            FeedEntryRow(entry: entry) {
+                                openEntry(entry)
+                            }
+                            .modifier(EntryContextMenu(model: model, entry: entry))
+                        }
+                    }
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 96)
+                }
+                .scrollIndicators(.hidden)
+                .refreshable { await refresh() }
+            }
+        }
+        .background(readerBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var choices: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                choiceButton("All", selected: allSelected) {
+                    switch tab {
+                    case .home: Task { await model.showTopic("All") }
+                    case .channels: model.selectedChannelSource = ""
+                    case .briefs: model.selectedVoiceBriefID = ""
+                    case .library: break
+                    }
+                }
+
+                switch tab {
+                case .home:
+                    ForEach(model.projection.documentTopics, id: \.self) { topic in
+                        choiceButton(topic, selected: model.selectedTopic == topic) {
+                            Task { await model.showTopic(topic) }
+                        }
+                    }
+                case .channels:
+                    createChoice("New channel") {
+                        model.showChannelSettings("new")
+                        openConfiguration()
+                    }
+                    ForEach(model.channels) { channel in
+                        choiceButton(
+                            channel.title,
+                            selected: model.selectedChannelSource == channel.source
+                        ) {
+                            model.selectChannel(channel.source)
+                        }
+                    }
+                case .briefs:
+                    createChoice("New brief") {
+                        model.showVoiceBriefSettings("new")
+                        openConfiguration()
+                    }
+                    ForEach(model.projection.voiceBriefDefinitions, id: \.id) { brief in
+                        choiceButton(
+                            brief.title,
+                            selected: model.selectedVoiceBriefID == brief.id
+                        ) {
+                            model.selectVoiceBrief(brief.id)
+                        }
+                    }
+                case .library:
+                    EmptyView()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .defaultScrollAnchor(.leading)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func choiceButton(
+        _ label: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .lineLimit(1)
+                .padding(.horizontal, 15)
+                .frame(height: 38)
+                .background(selected ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
+                .foregroundStyle(selected ? Color(uiColor: .systemBackground) : Color.primary)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func createChoice(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: "plus")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .overlay { Capsule().stroke(Color.primary.opacity(0.22)) }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var trailingAction: MobileXHeaderAction? {
+        switch tab {
+        case .channels:
+            guard let channel = model.selectedChannel else { return nil }
+            return MobileXHeaderAction(icon: "ellipsis", label: "Channel settings") {
+                model.showChannelSettings(channel.source)
+                openConfiguration()
+            }
+        case .briefs:
+            guard let brief = model.selectedVoiceBrief else { return nil }
+            return MobileXHeaderAction(icon: "ellipsis", label: "Brief settings") {
+                model.showVoiceBriefSettings(brief.id)
+                openConfiguration()
+            }
+        default:
+            return nil
+        }
+    }
+
+    private func refresh() async {
+        switch tab {
+        case .home: await model.refreshLibrary()
+        case .channels:
+            if model.selectedChannel != nil { await model.checkSelectedChannel() }
+            else { await model.runDueChannelChecks() }
+        case .briefs:
+            if model.selectedVoiceBrief != nil { await model.runSelectedVoiceBrief() }
+            else { await model.runDueVoiceBriefs() }
+        case .library: break
+        }
+    }
+
+    private var title: String {
+        switch tab {
+        case .home: "Home"
+        case .channels: "Channels"
+        case .briefs: "Briefs"
+        case .library: "Library"
+        }
+    }
+
+    private var searchPrompt: String {
+        switch tab {
+        case .home: "Search Home"
+        case .channels: "Search Channels"
+        case .briefs: "Search Briefs"
+        case .library: "Search Library"
+        }
+    }
+
+    private var allSelected: Bool {
+        switch tab {
+        case .home: model.selectedTopic == "All" || model.selectedTopic.isEmpty
+        case .channels: model.selectedChannelSource.isEmpty
+        case .briefs: model.selectedVoiceBriefID.isEmpty
+        case .library: false
+        }
+    }
+
+    private var emptyIcon: String {
+        if !model.query.isEmpty { return "magnifyingglass" }
+        return switch tab {
+        case .home: "tray"
+        case .channels: "dot.radiowaves.left.and.right"
+        case .briefs: "headphones"
+        case .library: "bookmark"
+        }
+    }
+
+    private var emptyTitle: String {
+        if !model.query.isEmpty { return "No matches" }
+        return switch tab {
+        case .home: "Nothing here yet"
+        case .channels: "No channel updates"
+        case .briefs: "No generated briefs"
+        case .library: "Library is empty"
+        }
+    }
+
+    private var emptyMessage: String {
+        if !model.query.isEmpty { return "Try another search." }
+        return switch tab {
+        case .home: "Capture a link or note to start your feed."
+        case .channels: "Add a channel, then pull to fetch its latest updates."
+        case .briefs: "Create a brief from your channels, then generate an episode."
+        case .library: "Highlights and recently deleted notes appear here."
+        }
+    }
+}
+
+private struct MobileXHeaderAction {
+    let icon: String
+    let label: String
+    let action: () -> Void
+}
+
+private struct MobileXHeader: View {
+    let title: String
+    @Binding var showsSettings: Bool
+    var trailing: MobileXHeaderAction? = nil
+
+    var body: some View {
+        ZStack {
+            Text(title)
+                .font(.headline.weight(.bold))
+
+            HStack {
+                Button { showsSettings = true } label: {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 21, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .background(Color(uiColor: .systemBackground), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Settings")
+
+                Spacer()
+
+                if let trailing {
+                    Button(action: trailing.action) {
+                        Image(systemName: trailing.icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(Color(uiColor: .systemBackground), in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(trailing.label)
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+private struct MobileXSearchField: View {
+    @Binding var text: String
+    let prompt: String
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .frame(maxWidth: 688)
+        .frame(height: 44)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+        .padding(.horizontal, 16)
+    }
+}
+
+private struct MobileXLibraryScreen: View {
+    private enum Section: String, CaseIterable, Hashable {
+        case highlights = "Highlights"
+        case trash = "Trash"
+    }
+
+    @Bindable var model: LibraryModel
+    @Binding var showsSettings: Bool
+    let openEntry: (LibraryEntry) -> Void
+    @State private var section = Section.highlights
+
+    var body: some View {
+        VStack(spacing: 0) {
+            MobileXHeader(title: "Library", showsSettings: $showsSettings)
+
+            HStack(spacing: 8) {
+                ForEach(Section.allCases, id: \.self) { item in
+                    Button {
+                        section = item
+                        if item == .highlights { model.showHighlights() }
+                        else { model.showTrash() }
+                    } label: {
+                        Text(item.rawValue)
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(section == item ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
+                            .foregroundStyle(section == item ? Color(uiColor: .systemBackground) : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) { Divider() }
+
+            if section == .highlights {
+                if model.highlightsText.isEmpty {
+                    XEmptyState(
+                        icon: "highlighter",
+                        title: "No highlights yet",
+                        message: "Select a passage in any saved document, then choose Highlight."
+                    )
+                    .frame(maxWidth: 720, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        MarkdownArticle(model.highlightsText)
+                            .frame(maxWidth: 680, alignment: .leading)
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 28)
+                            .padding(.bottom, 80)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            } else if model.trashEntries.isEmpty {
+                XEmptyState(
+                    icon: "trash",
+                    title: "Trash is empty",
+                    message: "Deleted notes remain available here."
+                )
+                .frame(maxWidth: 720, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(model.trashEntries) { entry in
+                            FeedEntryRow(entry: entry) { openEntry(entry) }
+                        }
+                    }
+                    .frame(maxWidth: 720)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 96)
+                }
+            }
+        }
+        .background(readerBackground.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+        .task { model.showHighlights() }
+    }
+}
+
+private struct MobileXDetail: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var model: LibraryModel
+    @Binding var showsChannelBrowser: Bool
+    @Bindable var audioPlayer: NativeAudioPlayer
+    @Binding var audioEntry: LibraryEntry?
+
+    var body: some View {
+        LibraryDetail(
+            model: model,
+            showsChannelBrowser: $showsChannelBrowser,
+            audioPlayer: audioPlayer,
+            audioEntry: $audioEntry
+        )
+        .background(readerBackground.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    model.navigateBack()
+                    dismiss()
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Back")
+            }
+            if model.selectedEntry != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        if model.canEdit && !model.showingTrash {
+                            Button("Regenerate summaries", systemImage: "arrow.clockwise") {
+                                Task { await model.processSelected() }
+                            }
+                            .disabled(model.isProcessing)
+                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                                Task {
+                                    await model.trashSelected()
+                                    dismiss()
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                            .background(Color(uiColor: .systemBackground), in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .accessibilityLabel("More actions")
+                }
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+    }
+}
+
+private struct MobileCaptureComposer: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var model: LibraryModel
+    let openPDFImporter: () -> Void
+    let openBrowser: () -> Void
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    private var canCapture: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !model.isProcessing
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                TextEditor(text: $draft)
+                    .font(.system(size: 19))
+                    .scrollContentBackground(.hidden)
+                    .focused($focused)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .overlay(alignment: .topLeading) {
+                        if draft.isEmpty {
+                            Text("Paste a link or write something…")
+                                .font(.system(size: 19))
+                                .foregroundStyle(.tertiary)
+                                .padding(.horizontal, 19)
+                                .padding(.top, 22)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                Divider()
+
+                HStack(spacing: 8) {
+                    composerTool("doc.richtext", label: "Import PDF", action: openPDFImporter)
+                    composerTool("globe", label: "Signed-in browser", action: openBrowser)
+                    Spacer()
+                    if model.isProcessing { ProgressView().controlSize(.small) }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 58)
+            }
+            .background(readerBackground.ignoresSafeArea())
+            .navigationTitle("Capture")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let value = draft
+                        dismiss()
+                        Task { await model.capture(value) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .disabled(!canCapture)
+                }
+            }
+        }
+        .task { focused = true }
+    }
+
+    private func composerTool(
+        _ icon: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 private struct MobileHome: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
@@ -6326,6 +6982,8 @@ private struct LibraryCardBrowser: View {
     }
 }
 
+#endif
+
 private struct FeedEntryRow: View {
     let entry: LibraryEntry
     let action: () -> Void
@@ -6424,6 +7082,7 @@ private struct FeedEntryRow: View {
     }
 }
 
+#if os(macOS)
 private struct FeedRailCard<Content: View>: View {
     let title: String
     let content: Content
