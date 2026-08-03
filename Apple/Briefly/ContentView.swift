@@ -67,6 +67,7 @@ final class LibraryModel {
     private var hasLoadedTrash = false
     private var pendingProcessingIDs = [String]()
     private var pendingSync: Task<Void, Never>?
+    private var localSpeechPreparation: Task<Void, Never>?
 
     var isReady = false
     var projection = LibraryProjection.empty
@@ -95,6 +96,9 @@ final class LibraryModel {
     var isCheckingChannel = false
     var isRunningVoiceBrief = false
     var isGeneratingSpeech = false
+    var isPreparingSpeech = false
+    var isLocalSpeechReady = false
+    var speechPreparationStatus = "Preparing local voice…"
     var isCheckingAccount = false
     var isTestingAI = false
     var status = "Loading library…"
@@ -139,12 +143,13 @@ final class LibraryModel {
 
     var isWorking: Bool {
         isIngesting || isCheckingChannel || isProcessing || isRunningVoiceBrief ||
-            isGeneratingSpeech || isSyncing || isTestingAI
+            isGeneratingSpeech || isPreparingSpeech || isSyncing || isTestingAI
     }
 
     var menuBarActivity: String? {
         if isRunningVoiceBrief { return "Creating brief" }
         if isGeneratingSpeech { return "Creating audio" }
+        if isPreparingSpeech { return "Preparing voice" }
         if isProcessing { return "Processing" }
         if isIngesting || isCheckingChannel { return "Ingesting" }
         if isSyncing {
@@ -155,11 +160,17 @@ final class LibraryModel {
     }
 
     var menuBarIcon: String {
-        if isRunningVoiceBrief || isGeneratingSpeech { return "waveform" }
+        if isRunningVoiceBrief || isGeneratingSpeech || isPreparingSpeech {
+            return "waveform"
+        }
         if isProcessing || isTestingAI { return "sparkles" }
         if isIngesting || isCheckingChannel { return "square.and.arrow.down" }
         if isSyncing { return "arrow.triangle.2.circlepath" }
         return "doc.text"
+    }
+
+    var activityStatus: String {
+        isPreparingSpeech ? speechPreparationStatus : status
     }
 
     var selectedEntry: LibraryEntry? {
@@ -226,6 +237,7 @@ final class LibraryModel {
     func start() async {
         guard !started else { return }
         started = true
+        localSpeechPreparation = Task { await prepareLocalSpeech() }
         let usesDemo = ProcessInfo.processInfo.arguments.contains("--demo")
         if usesDemo {
             projection = .demo
@@ -255,6 +267,38 @@ final class LibraryModel {
             await runDueVoiceBriefs()
         } else {
             _ = await (selectedText, accountRefresh)
+        }
+    }
+
+    private func prepareLocalSpeech() async {
+        guard !isPreparingSpeech, !isLocalSpeechReady else { return }
+        isPreparingSpeech = true
+        speechPreparationStatus = "Preparing local voice…"
+        defer {
+            isPreparingSpeech = false
+            localSpeechPreparation = nil
+        }
+        do {
+            try await LocalVoiceBriefSynthesizer.shared.prepare { [weak self] stage in
+                Task { @MainActor in
+                    guard let self else { return }
+                    switch stage {
+                    case .downloading(let fraction):
+                        let percent = Int((min(max(fraction, 0), 1) * 100).rounded())
+                        self.speechPreparationStatus =
+                            "Downloading local voice… \(percent)%"
+                    case .loading:
+                        self.speechPreparationStatus = "Loading local voice…"
+                    case .ready:
+                        self.speechPreparationStatus = "Local voice ready"
+                    }
+                }
+            }
+            isLocalSpeechReady = true
+            speechPreparationStatus = "Local voice ready"
+        } catch {
+            isLocalSpeechReady = false
+            speechPreparationStatus = "System voice will be used"
         }
     }
 
@@ -789,14 +833,19 @@ final class LibraryModel {
             }
             let speechText = spokenVoiceBriefText(episode.script)
             var usedLocalVoice = false
-            status = "Preparing on-device voice…"
-            do {
-                try await LocalVoiceBriefSynthesizer.shared.synthesize(
-                    speechText,
-                    to: audioURL
-                )
-                usedLocalVoice = true
-            } catch {
+            if isLocalSpeechReady {
+                status = "Preparing on-device voice…"
+                do {
+                    try await LocalVoiceBriefSynthesizer.shared.synthesize(
+                        speechText,
+                        to: audioURL
+                    )
+                    usedLocalVoice = true
+                } catch {
+                    status = "Local voice unavailable; using system voice…"
+                    try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
+                }
+            } else {
                 status = "Local voice unavailable; using system voice…"
                 try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
             }
@@ -1135,52 +1184,89 @@ final class LibraryModel {
         }
     }
 
-    func playableAudioURL(
+    func audioPlaybackID(
         for entry: LibraryEntry,
         variant: LibraryVariant,
-        text rawText: String
-    ) async -> URL? {
+        text: String
+    ) -> String {
+        let key = "\(entry.id)\n\(variant.rawValue)\n\(text)"
+        let digest = SHA256.hash(data: Data(key.utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "\(entry.id):\(variant.rawValue):\(digest)"
+    }
+
+    func streamPlayableAudio(
+        for entry: LibraryEntry,
+        variant: LibraryVariant,
+        text rawText: String,
+        segmentReady: (URL) throws -> Void
+    ) async -> Bool {
         if entry.voiceBriefID != nil {
-            return await audioURL(for: entry.id)
+            guard let url = await audioURL(for: entry.id) else {
+                errorMessage = "This voice brief audio is not available locally."
+                return false
+            }
+            do {
+                try segmentReady(url)
+                return true
+            } catch {
+                errorMessage = error.localizedDescription
+                return false
+            }
         }
         if variant == .source, let original = await audioURL(for: entry.id) {
-            return original
+            do {
+                try segmentReady(original)
+                return true
+            } catch {
+                errorMessage = error.localizedDescription
+                return false
+            }
         }
 
-        let text = spokenVoiceBriefText(rawText)
-        guard !text.isEmpty else {
+        let segments = narrationSegments(from: rawText)
+        guard !segments.isEmpty else {
             errorMessage = NativeLibraryError.emptySpeech.localizedDescription
-            return nil
+            return false
         }
-        guard !isGeneratingSpeech, !isRunningVoiceBrief else { return nil }
+        guard !isGeneratingSpeech, !isRunningVoiceBrief else { return false }
 
         isGeneratingSpeech = true
         defer { isGeneratingSpeech = false }
         let description = variant == .source
             ? "document"
             : "\(variant.title.lowercased()) summary"
+        var useSystemVoice = !isLocalSpeechReady
 
         do {
-            let localURL = try speechCacheURL(
-                entryID: entry.id,
-                variant: variant,
-                text: text,
-                engine: "kokoro-ane-v1"
-            )
-            if usableCachedAudio(at: localURL) {
-                status = "Audio ready (on-device voice)"
-                return localURL
-            }
-
-            status = "Preparing \(description) audio…"
-            do {
-                try await LocalVoiceBriefSynthesizer.shared.synthesize(
-                    text,
-                    to: localURL
+            for (index, text) in segments.enumerated() {
+                status = "Preparing \(description) audio \(index + 1)/\(segments.count)…"
+                let localURL = try speechCacheURL(
+                    entryID: entry.id,
+                    variant: variant,
+                    text: text,
+                    engine: "kokoro-ane-v1"
                 )
-                status = "Audio ready (on-device voice)"
-                return localURL
-            } catch {
+                if usableCachedAudio(at: localURL) {
+                    try segmentReady(localURL)
+                    continue
+                }
+
+                if !useSystemVoice {
+                    do {
+                        try await LocalVoiceBriefSynthesizer.shared.synthesize(
+                            text,
+                            to: localURL
+                        )
+                        try segmentReady(localURL)
+                        continue
+                    } catch {
+                        useSystemVoice = true
+                    }
+                }
+
                 let systemURL = try speechCacheURL(
                     entryID: entry.id,
                     variant: variant,
@@ -1192,12 +1278,40 @@ final class LibraryModel {
                     status = "Local voice unavailable; using system voice…"
                     try await synthesizeSystemVoiceBriefAudio(text, to: systemURL)
                 }
-                status = "Audio ready (system voice)"
-                return systemURL
+                try segmentReady(systemURL)
             }
+            status = useSystemVoice
+                ? "Audio ready (system voice)"
+                : "Audio ready (on-device voice)"
+            return true
         } catch {
             errorMessage = error.localizedDescription
-            return nil
+            return false
+        }
+    }
+
+    private func narrationSegments(from markdown: String) -> [String] {
+        var paragraphs = [String]()
+        var lines = [String]()
+
+        func finishParagraph() {
+            guard !lines.isEmpty else { return }
+            let paragraph = spokenVoiceBriefText(lines.joined(separator: "\n"))
+            if !paragraph.isEmpty { paragraphs.append(paragraph) }
+            lines.removeAll(keepingCapacity: true)
+        }
+
+        for line in markdown.components(separatedBy: .newlines) {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                finishParagraph()
+            } else {
+                lines.append(line)
+            }
+        }
+        finishParagraph()
+
+        return paragraphs.flatMap {
+            LocalVoiceBriefSynthesizer.segments(for: $0)
         }
     }
 
@@ -1799,10 +1913,22 @@ private func synthesizeSystemVoiceBriefAudio(_ text: String, to url: URL) async 
 
 @Observable
 private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
+    private struct Segment {
+        let url: URL
+        let duration: Double
+    }
+
     private var player: AVAudioPlayer?
     private var currentURL: URL?
     private var currentTitle: String?
+    private var currentPlaybackID: String?
     private var positionKey: String?
+    private var segments = [Segment]()
+    private var segmentIndex = 0
+    private var segmentStartTime = 0.0
+    private var resumeTarget: Double?
+    private var streamIsFinished = true
+    private var shouldPlay = false
     private var timer: Timer?
     private var sleepTimer: Timer?
     #if os(iOS)
@@ -1833,17 +1959,17 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         #endif
     }
 
-    func play(
-        _ url: URL,
+    @discardableResult
+    func startStream(
         entryID: String,
         title: String,
-        positionID: String? = nil
-    ) throws {
-        if currentURL == url, let player {
-            if !player.isPlaying {
-                resume()
-            }
-            return
+        playbackID: String,
+        positionID: String
+    ) throws -> Bool {
+        if currentPlaybackID == playbackID {
+            shouldPlay = true
+            resume()
+            return false
         }
         stop()
         #if os(iOS)
@@ -1851,39 +1977,63 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         try session.setCategory(.playback, mode: .spokenAudio)
         try session.setActive(true)
         #endif
-        let player = try AVAudioPlayer(contentsOf: url)
-        player.delegate = self
-        player.enableRate = true
-        player.rate = Float(rate)
-        player.volume = Float(volume)
-        player.prepareToPlay()
-        let key = "BrieflyAudioPosition.\(positionID ?? entryID)"
-        let saved = UserDefaults.standard.double(forKey: key)
-        if saved > 0, saved < player.duration - 3 {
-            player.currentTime = saved
-        }
-        guard player.play() else {
-            throw NativeLibraryError.audioPlaybackFailed
-        }
-        self.player = player
-        currentURL = url
         currentEntryID = entryID
         currentTitle = title
+        currentPlaybackID = playbackID
+        let key = "BrieflyAudioPosition.\(positionID)"
         positionKey = key
-        isPlaying = true
-        currentTime = player.currentTime
-        duration = player.duration
+        let saved = UserDefaults.standard.double(forKey: key)
+        resumeTarget = saved > 0 ? saved : nil
+        streamIsFinished = false
+        shouldPlay = true
         #if os(iOS)
         setRemoteCommandsEnabled(true)
+        #endif
+        return true
+    }
+
+    func appendSegment(_ url: URL, playbackID: String) throws {
+        guard currentPlaybackID == playbackID else { return }
+        let probe = try AVAudioPlayer(contentsOf: url)
+        guard probe.duration > 0 else {
+            throw NativeLibraryError.audioGenerationFailed
+        }
+        segments.append(Segment(url: url, duration: probe.duration))
+        duration = segments.reduce(0) { $0 + $1.duration }
+        if player == nil {
+            try startNextSegmentIfAvailable()
+        }
+        #if os(iOS)
         updateNowPlayingInfo()
         #endif
-        startTimer()
+    }
+
+    func finishStream(playbackID: String) {
+        guard currentPlaybackID == playbackID else { return }
+        streamIsFinished = true
+        if player == nil {
+            do {
+                try startNextSegmentIfAvailable()
+            } catch {
+                completePlayback(removeSavedPosition: false)
+            }
+        }
     }
 
     func seek(_ time: Double) {
-        guard let player else { return }
-        player.currentTime = min(max(0, time), player.duration)
-        currentTime = player.currentTime
+        guard !segments.isEmpty else { return }
+        let target = min(max(0, time), duration)
+        player?.stop()
+        player = nil
+        currentURL = nil
+        segmentIndex = 0
+        segmentStartTime = 0
+        resumeTarget = target
+        do {
+            try startNextSegmentIfAvailable()
+        } catch {
+            completePlayback(removeSavedPosition: false)
+        }
         savePosition()
         #if os(iOS)
         updateNowPlayingInfo()
@@ -1895,7 +2045,11 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func pause() {
-        guard let player else { return }
+        shouldPlay = false
+        guard let player else {
+            isPlaying = false
+            return
+        }
         player.pause()
         isPlaying = false
         savePosition()
@@ -1905,7 +2059,11 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func resume() {
-        guard let player else { return }
+        shouldPlay = true
+        guard let player else {
+            try? startNextSegmentIfAvailable()
+            return
+        }
         #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
@@ -1960,7 +2118,14 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         currentURL = nil
         currentEntryID = nil
         currentTitle = nil
+        currentPlaybackID = nil
         positionKey = nil
+        segments.removeAll()
+        segmentIndex = 0
+        segmentStartTime = 0
+        resumeTarget = nil
+        streamIsFinished = true
+        shouldPlay = false
         isPlaying = false
         currentTime = 0
         duration = 0
@@ -1975,12 +2140,94 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard self.player === player else { return }
+        segmentStartTime += segments[segmentIndex].duration
+        segmentIndex += 1
+        self.player = nil
+        currentURL = nil
+        do {
+            try startNextSegmentIfAvailable()
+        } catch {
+            completePlayback(removeSavedPosition: false)
+        }
+    }
+
+    private func startTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) {
+            [weak self] _ in
+            guard let self, let player = self.player else { return }
+            self.currentTime = self.segmentStartTime + player.currentTime
+            self.isPlaying = player.isPlaying
+        }
+    }
+
+    private func savePosition() {
+        guard let positionKey else { return }
+        let position = player.map { segmentStartTime + $0.currentTime } ?? currentTime
+        UserDefaults.standard.set(position, forKey: positionKey)
+    }
+
+    private func startNextSegmentIfAvailable() throws {
+        while segmentIndex < segments.count {
+            let segment = segments[segmentIndex]
+            if let resumeTarget,
+               resumeTarget >= segmentStartTime + segment.duration
+            {
+                segmentStartTime += segment.duration
+                segmentIndex += 1
+                continue
+            }
+
+            let next = try AVAudioPlayer(contentsOf: segment.url)
+            next.delegate = self
+            next.enableRate = true
+            next.rate = Float(rate)
+            next.volume = Float(volume)
+            next.prepareToPlay()
+            if let resumeTarget {
+                next.currentTime = min(
+                    max(0, resumeTarget - segmentStartTime),
+                    next.duration
+                )
+                self.resumeTarget = nil
+            }
+            if shouldPlay, !next.play() {
+                throw NativeLibraryError.audioPlaybackFailed
+            }
+            player = next
+            currentURL = segment.url
+            currentTime = segmentStartTime + next.currentTime
+            isPlaying = next.isPlaying
+            startTimer()
+            #if os(iOS)
+            updateNowPlayingInfo()
+            #endif
+            return
+        }
+
+        player = nil
+        currentURL = nil
+        currentTime = min(segmentStartTime, duration)
+        isPlaying = false
+        if streamIsFinished {
+            completePlayback(removeSavedPosition: true)
+        }
+    }
+
+    private func completePlayback(removeSavedPosition: Bool) {
         timer?.invalidate()
         timer = nil
         setSleepTimer(minutes: nil)
+        player?.stop()
+        player = nil
+        currentURL = nil
+        currentPlaybackID = nil
+        shouldPlay = false
+        streamIsFinished = true
         isPlaying = false
         currentTime = 0
-        if let positionKey {
+        if removeSavedPosition, let positionKey {
             UserDefaults.standard.removeObject(forKey: positionKey)
         }
         #if os(iOS)
@@ -1991,22 +2238,6 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
             options: .notifyOthersOnDeactivation
         )
         #endif
-    }
-
-    private func startTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) {
-            [weak self] _ in
-            guard let self, let player = self.player else { return }
-            self.currentTime = player.currentTime
-            self.duration = player.duration
-            self.isPlaying = player.isPlaying
-        }
-    }
-
-    private func savePosition() {
-        guard let player, let positionKey else { return }
-        UserDefaults.standard.set(player.currentTime, forKey: positionKey)
     }
 
     #if os(iOS)
@@ -2088,8 +2319,9 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
             MPMediaItemPropertyTitle: currentTitle ?? "Briefly Audio",
             MPMediaItemPropertyArtist: "Briefly",
             MPMediaItemPropertyAlbumTitle: "Briefly",
-            MPMediaItemPropertyPlaybackDuration: player.duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime:
+                segmentStartTime + player.currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: player.isPlaying ? Double(player.rate) : 0,
             MPNowPlayingInfoPropertyDefaultPlaybackRate: rate,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
@@ -2282,11 +2514,13 @@ struct ContentView: View {
                     .padding(18)
                     #endif
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if model.isProcessing || model.isGeneratingSpeech {
+            } else if model.isProcessing || model.isGeneratingSpeech ||
+                model.isPreparingSpeech
+            {
                 HStack(spacing: 9) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(model.status)
+                    Text(model.activityStatus)
                         .font(.callout)
                 }
                 .padding(.horizontal, 14)
@@ -2717,21 +2951,41 @@ private struct MobileLibraryNavigation: View {
     private func primaryAction() {
         if isPlayableDetail, let entry = model.selectedEntry {
             Task {
-                guard let url = await model.playableAudioURL(
+                let variant = model.selectedVariant
+                let text = model.selectedText
+                let playbackID = model.audioPlaybackID(
                     for: entry,
-                    variant: model.selectedVariant,
-                    text: model.selectedText
-                ) else { return }
+                    variant: variant,
+                    text: text
+                )
                 do {
-                    try audioPlayer.play(
-                        url,
+                    let shouldGenerate = try audioPlayer.startStream(
                         entryID: entry.id,
                         title: entry.title,
-                        positionID: "\(entry.id):\(model.selectedVariant.rawValue)"
+                        playbackID: playbackID,
+                        positionID: "\(entry.id):\(variant.rawValue)"
                     )
-                    audioEntry = entry
+                    if shouldGenerate {
+                        var startedPlayback = false
+                        _ = await model.streamPlayableAudio(
+                            for: entry,
+                            variant: variant,
+                            text: text
+                        ) { url in
+                            try audioPlayer.appendSegment(url, playbackID: playbackID)
+                            if !startedPlayback {
+                                startedPlayback = true
+                                audioEntry = entry
+                            }
+                        }
+                        audioPlayer.finishStream(playbackID: playbackID)
+                        if !startedPlayback { audioPlayer.stop() }
+                    } else {
+                        audioEntry = entry
+                    }
                 } catch {
                     model.errorMessage = error.localizedDescription
+                    audioPlayer.stop()
                 }
             }
             return
@@ -5715,22 +5969,44 @@ private struct LibraryDocument: View {
                     if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
                             Task {
-                                guard let url = await model.playableAudioURL(
+                                let variant = model.selectedVariant
+                                let text = model.selectedText
+                                let playbackID = model.audioPlaybackID(
                                     for: entry,
-                                    variant: model.selectedVariant,
-                                    text: model.selectedText
-                                ) else { return }
+                                    variant: variant,
+                                    text: text
+                                )
                                 do {
-                                    try audioPlayer.play(
-                                        url,
+                                    let shouldGenerate = try audioPlayer.startStream(
                                         entryID: entry.id,
                                         title: entry.title,
-                                        positionID:
-                                            "\(entry.id):\(model.selectedVariant.rawValue)"
+                                        playbackID: playbackID,
+                                        positionID: "\(entry.id):\(variant.rawValue)"
                                     )
-                                    audioEntry = entry
+                                    if shouldGenerate {
+                                        var startedPlayback = false
+                                        _ = await model.streamPlayableAudio(
+                                            for: entry,
+                                            variant: variant,
+                                            text: text
+                                        ) { url in
+                                            try audioPlayer.appendSegment(
+                                                url,
+                                                playbackID: playbackID
+                                            )
+                                            if !startedPlayback {
+                                                startedPlayback = true
+                                                audioEntry = entry
+                                            }
+                                        }
+                                        audioPlayer.finishStream(playbackID: playbackID)
+                                        if !startedPlayback { audioPlayer.stop() }
+                                    } else {
+                                        audioEntry = entry
+                                    }
                                 } catch {
                                     model.errorMessage = error.localizedDescription
+                                    audioPlayer.stop()
                                 }
                             }
                         } label: {

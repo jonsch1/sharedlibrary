@@ -20,8 +20,8 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
 - Native Sign in with Apple, StoreKit membership, managed AI, personal context,
   editable processing and voice-brief prompts, custom macOS AI/agent commands,
   and share links.
-- Native audio generation and playback with resume position, seeking, speed,
-  and volume.
+- Startup-warmed on-device audio generation with paragraph-level progressive
+  playback, local caching, resume position, seeking, speed, and volume.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
   the SQLite database file is never synchronized.
 - Configurable system-wide macOS clipboard capture, native File-menu actions,

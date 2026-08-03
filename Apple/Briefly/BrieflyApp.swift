@@ -73,7 +73,7 @@ private struct BrieflyMenuBar: View {
     @Bindable var model: LibraryModel
 
     var body: some View {
-        Text(model.isWorking ? model.status : "Briefly is idle")
+        Text(model.isWorking ? model.activityStatus : "Briefly is idle")
 
         Divider()
 

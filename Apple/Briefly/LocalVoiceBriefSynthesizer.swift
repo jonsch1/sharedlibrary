@@ -1,6 +1,12 @@
 import FluidAudio
 import Foundation
 
+enum LocalVoicePreparation: Sendable {
+    case downloading(Double)
+    case loading
+    case ready
+}
+
 actor LocalVoiceBriefSynthesizer {
     static let shared = LocalVoiceBriefSynthesizer()
 
@@ -10,17 +16,67 @@ actor LocalVoiceBriefSynthesizer {
 
     private let manager = KokoroAneManager()
     private var isInitialized = false
+    private var preparationTask: Task<Void, Error>?
+
+    func prepare(
+        progress: (@Sendable (LocalVoicePreparation) -> Void)? = nil
+    ) async throws {
+        #if arch(arm64) && !targetEnvironment(simulator)
+        guard !Self.hasKnownBNNSCrashRisk else {
+            throw LocalVoiceError.unsafeOperatingSystem
+        }
+        if isInitialized {
+            progress?(.ready)
+            return
+        }
+        if let preparationTask {
+            try await preparationTask.value
+            return
+        }
+
+        let manager = manager
+        let task = Task {
+            try await KokoroAneResourceDownloader.ensureModels { snapshot in
+                progress?(.downloading(snapshot.fractionCompleted * 0.75))
+            }
+            try await KokoroAneResourceDownloader.ensureG2PAssets { snapshot in
+                progress?(.downloading(0.75 + snapshot.fractionCompleted * 0.2))
+            }
+            progress?(.loading)
+            try await manager.initialize()
+            guard await manager.isAvailable() else {
+                throw LocalVoiceError.modelUnavailable
+            }
+            progress?(.ready)
+        }
+        preparationTask = task
+        do {
+            try await task.value
+            isInitialized = true
+            preparationTask = nil
+        } catch {
+            preparationTask = nil
+            throw error
+        }
+        #else
+        throw LocalVoiceError.unsupportedEnvironment
+        #endif
+    }
+
+    func isReady() -> Bool {
+        isInitialized
+    }
+
+    nonisolated static func segments(for text: String) -> [String] {
+        textChunks(text, maximumLength: preferredChunkLength)
+    }
 
     func synthesize(_ rawText: String, to outputURL: URL) async throws {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw LocalVoiceError.emptyText }
 
-        #if arch(arm64)
-        guard !Self.hasKnownBNNSCrashRisk else {
-            throw LocalVoiceError.unsafeOperatingSystem
-        }
-
-        try await initializeIfNeeded()
+        #if arch(arm64) && !targetEnvironment(simulator)
+        try await prepare()
         let phonemeChunks = try await resolvePhonemeChunks(for: text)
         var pcm = Data()
         var sampleRate: Int?
@@ -48,13 +104,6 @@ actor LocalVoiceBriefSynthesizer {
         #else
         throw LocalVoiceError.unsupportedProcessor
         #endif
-    }
-
-    private func initializeIfNeeded() async throws {
-        guard !isInitialized else { return }
-        try await manager.initialize()
-        isInitialized = await manager.isAvailable()
-        guard isInitialized else { throw LocalVoiceError.modelUnavailable }
     }
 
     private func resolvePhonemeChunks(for text: String) async throws -> [String] {
@@ -201,6 +250,7 @@ private enum LocalVoiceError: LocalizedError {
     case noAudio
     case textCannotBeChunked
     case unsafeOperatingSystem
+    case unsupportedEnvironment
     case unsupportedProcessor
 
     var errorDescription: String? {
@@ -219,6 +269,8 @@ private enum LocalVoiceError: LocalizedError {
             "Part of the voice brief is too long for the local voice model."
         case .unsafeOperatingSystem:
             "This OS version has a known Neural Engine speech crash."
+        case .unsupportedEnvironment:
+            "The local voice requires a physical Apple device."
         case .unsupportedProcessor:
             "The local voice requires Apple silicon."
         }
