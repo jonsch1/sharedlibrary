@@ -3115,9 +3115,7 @@ private struct MobileXAppShell: View {
         }
         .tint(.primary)
         .overlay(alignment: .bottomTrailing) {
-            Button {
-                showsCaptureComposer = true
-            } label: {
+            Button(action: primaryCreate) {
                 Image(systemName: "plus")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(.white)
@@ -3129,7 +3127,7 @@ private struct MobileXAppShell: View {
             .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
             .padding(.trailing, 18)
             .padding(.bottom, 58)
-            .accessibilityLabel("Capture")
+            .accessibilityLabel(primaryCreateLabel)
         }
         .onChange(of: selectedTab) {
             showsDetail = false
@@ -3182,6 +3180,27 @@ private struct MobileXAppShell: View {
         case .library: break
         }
     }
+
+    private var primaryCreateLabel: String {
+        switch selectedTab {
+        case .home, .library: "Capture"
+        case .channels: "New channel"
+        case .briefs: "New brief"
+        }
+    }
+
+    private func primaryCreate() {
+        switch selectedTab {
+        case .home, .library:
+            showsCaptureComposer = true
+        case .channels:
+            model.showChannelSettings("new")
+            showsDetail = true
+        case .briefs:
+            model.showVoiceBriefSettings("new")
+            showsDetail = true
+        }
+    }
 }
 
 private struct MobileXFeedScreen: View {
@@ -3227,8 +3246,9 @@ private struct MobileXFeedScreen: View {
         VStack(spacing: 0) {
             MobileXHeader(
                 title: title,
+                showsLogo: tab == .home,
                 showsSettings: $showsSettings,
-                trailing: trailingAction
+                trailing: configurationAction
             )
 
             MobileXSearchField(text: $model.query, prompt: searchPrompt)
@@ -3286,10 +3306,6 @@ private struct MobileXFeedScreen: View {
                         }
                     }
                 case .channels:
-                    createChoice("New channel") {
-                        model.showChannelSettings("new")
-                        openConfiguration()
-                    }
                     ForEach(model.channels) { channel in
                         choiceButton(
                             channel.title,
@@ -3299,10 +3315,6 @@ private struct MobileXFeedScreen: View {
                         }
                     }
                 case .briefs:
-                    createChoice("New brief") {
-                        model.showVoiceBriefSettings("new")
-                        openConfiguration()
-                    }
                     ForEach(model.projection.voiceBriefDefinitions, id: \.id) { brief in
                         choiceButton(
                             brief.title,
@@ -3340,19 +3352,7 @@ private struct MobileXFeedScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func createChoice(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(label, systemImage: "plus")
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 14)
-                .frame(height: 38)
-                .overlay { Capsule().stroke(Color.primary.opacity(0.22)) }
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var trailingAction: MobileXHeaderAction? {
+    private var configurationAction: MobileXHeaderAction? {
         switch tab {
         case .channels:
             guard let channel = model.selectedChannel else { return nil }
@@ -3450,18 +3450,23 @@ private struct MobileXHeaderAction {
 
 private struct MobileXHeader: View {
     let title: String
+    var showsLogo = false
     @Binding var showsSettings: Bool
     var trailing: MobileXHeaderAction? = nil
 
     var body: some View {
         ZStack {
-            Text(title)
-                .font(.headline.weight(.bold))
+            if showsLogo {
+                BrieflyLogo()
+            } else {
+                Text(title)
+                    .font(.headline.weight(.bold))
+            }
 
             HStack {
                 Button { showsSettings = true } label: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 21, weight: .medium))
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 19, weight: .semibold))
                         .frame(width: 44, height: 44)
                         .background(Color(uiColor: .systemBackground), in: Circle())
                         .contentShape(Circle())
@@ -3472,15 +3477,7 @@ private struct MobileXHeader: View {
                 Spacer()
 
                 if let trailing {
-                    Button(action: trailing.action) {
-                        Image(systemName: trailing.icon)
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .background(Color(uiColor: .systemBackground), in: Circle())
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(trailing.label)
+                    headerButton(trailing)
                 } else {
                     Color.clear.frame(width: 44, height: 44)
                 }
@@ -3490,6 +3487,18 @@ private struct MobileXHeader: View {
         .frame(height: 52)
         .background(.regularMaterial)
         .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func headerButton(_ action: MobileXHeaderAction) -> some View {
+        Button(action: action.action) {
+            Image(systemName: action.icon)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .background(Color(uiColor: .systemBackground), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(action.label)
     }
 }
 
