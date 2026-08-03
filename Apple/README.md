@@ -10,7 +10,7 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
 - SQLite-canonical local library with typed document, topic, channel,
   voice-brief, and attachment records; FTS5 search; revision-checked writes;
   and attachments stored in SQLite.
-- Native item inputs for text, PDF, web pages, arXiv, YouTube, podcasts,
+- Native item inputs for text, PDF, web pages, arXiv, bioRxiv, YouTube, podcasts,
   Reddit, X, Bluesky, Threads, and TikTok; channel inputs for RSS/Atom,
   YouTube, podcasts, Reddit, X, arXiv, Hacker News, and watched pages. Visible
   and hidden `WKWebView` instances share one
@@ -80,8 +80,8 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
 
 ## Platform-specific limits
 
-- Local command-line processing and custom terminal agents are macOS-only; iOS
-  uses Briefly AI.
+- Briefly AI via OpenRouter is the default on macOS and iOS. Local command-line
+  processing and custom terminal agents remain available on macOS.
 - Scheduled briefs run at launch, while active, and while the app remains
   running. Reliable background iOS execution still needs an App Refresh task.
 - The native clients retain generated voice-brief audio and can optionally

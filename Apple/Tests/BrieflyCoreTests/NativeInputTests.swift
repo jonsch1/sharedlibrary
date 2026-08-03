@@ -6,6 +6,7 @@ private let realItemTestURLs: [(ItemInputID, URL)] = [
     (.text, URL(string: "https://www.rfc-editor.org/rfc/rfc9110.txt")!),
     (.pdf, URL(string: "https://www.rfc-editor.org/rfc/rfc9110.pdf")!),
     (.arxiv, URL(string: "https://arxiv.org/abs/1706.03762")!),
+    (.biorxiv, URL(string: "https://www.biorxiv.org/content/10.64898/2026.07.09.737605v1")!),
     (.youtube, URL(string: "https://www.youtube.com/watch?v=jNQXAC9IVRw")!),
     (.podcast, URL(string: "https://inandaroundpodcasting.com/episode/behind-the-scenes")!),
     (.reddit, URL(string: "https://www.reddit.com/r/IAmA/comments/z1c9z/i_am_barack_obama_president_of_the_united_states/")!),
@@ -76,6 +77,47 @@ final class NativeItemInputTests: XCTestCase {
         )
         XCTAssertEqual(value.inputID, .arxiv)
         XCTAssertEqual(value.title, "Attention Is All You Need")
+    }
+
+    func testBiorxivInputUsesTheFullPaperPDF() async throws {
+        let url = itemTestURL(.biorxiv)
+        let pdf = fixturePDF(text: "Complete manuscript body", title: "PDF title")
+        let attempts = AttemptCounter()
+        let value = try await router.ingest(
+            .init(source: .url(url)),
+            context: .init(http: InputHTTPClient { request, maximumBytes in
+                if request.url!.path.hasSuffix(".full.pdf") {
+                    if await attempts.increment() == 1 {
+                        throw NativeInputError.requestFailed(500)
+                    }
+                    guard pdf.count <= maximumBytes else {
+                        throw NativeInputError.responseTooLarge
+                    }
+                    return InputHTTPResponse(
+                        data: pdf,
+                        finalURL: request.url!,
+                        contentType: "application/pdf"
+                    )
+                }
+                let html = """
+                    <meta property="og:title" content="MSstatsBioNet">
+                    <meta property="og:description" content="Abstract only">
+                    """
+                return InputHTTPResponse(
+                    data: Data(html.utf8),
+                    finalURL: request.url!,
+                    contentType: "text/html"
+                )
+            })
+        )
+        let attemptCount = await attempts.value
+        XCTAssertEqual(value.inputID, .biorxiv)
+        XCTAssertEqual(value.title, "MSstatsBioNet")
+        XCTAssertEqual(value.sourceURL, url)
+        XCTAssertEqual(value.canonicalURL, url)
+        XCTAssertEqual(attemptCount, 2)
+        XCTAssertTrue(value.content.contains("Complete manuscript body"))
+        XCTAssertFalse(value.content.contains("Abstract only"))
     }
 
     func testYouTubeInput() async throws {
@@ -419,6 +461,14 @@ final class LiveInputURLTests: XCTestCase {
         XCTAssertGreaterThan(draft.content.count, 40_000)
     }
 
+    func testBiorxivItemIngestsLiveContent() async throws {
+        let draft = try await assertLiveItem(
+            .biorxiv,
+            contains: ["MSstatsBioNet", "quantitative proteomics"]
+        )
+        XCTAssertGreaterThan(draft.content.count, 20_000)
+    }
+
     func testYouTubeItemIngestsLiveContent() async throws {
         let draft = try await assertLiveItem(
             .youtube,
@@ -622,6 +672,15 @@ private struct Fixture: Sendable {
 }
 
 private enum FixtureError: Error { case missing(String) }
+
+private actor AttemptCounter {
+    private(set) var value = 0
+
+    func increment() -> Int {
+        value += 1
+        return value
+    }
+}
 
 private func fixtureHTTP(_ fixtures: [String: Fixture]) -> InputHTTPClient {
     InputHTTPClient { request, maximumBytes in

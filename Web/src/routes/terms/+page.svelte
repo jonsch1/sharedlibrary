@@ -6,7 +6,7 @@
 	active="terms"
 	title="Terms of service"
 	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
-	updated="1 August 2026"
+	updated="3 August 2026"
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -39,7 +39,7 @@
 		<ul>
 			<li><strong>Briefly membership</strong> is a recurring subscription for hosted processing, cross-device synchronization, and public share links in the native apps.</li>
 			<li>An account and active membership are required to access hosted features.</li>
-			<li>Briefly AI provides hosted summary and voice-brief-script generation. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
+			<li>Briefly AI provides summary and voice-brief-script generation via OpenRouter under a zero-data-retention agreement. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
 			<li>Features may require a supported Apple operating system, internet connection, Apple account, or third-party service.</li>
 			<li>App builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>

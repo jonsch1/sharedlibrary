@@ -53,13 +53,7 @@ final class LibraryModel {
     private static let subscriptionProductID = "fyi.readbriefly.plus.monthly"
     private static let managedAICommand =
         "briefly://openrouter/deepseek/deepseek-v4-flash"
-    private static let processingDefaultCommand: String = {
-        #if os(iOS)
-        managedAICommand
-        #else
-        defaultProcessingCommand
-        #endif
-    }()
+    private static let processingDefaultCommand = managedAICommand
     private static let processingCommandKey = "BrieflyProcessingCommand"
     private static let processingPromptKey = "BrieflyProcessingPrompt"
     private static let voiceBriefPromptKey = "BrieflyVoiceBriefPrompt"
@@ -100,6 +94,7 @@ final class LibraryModel {
     var isProcessing = false
     var isCheckingChannel = false
     var isRunningVoiceBrief = false
+    var isGeneratingSpeech = false
     var isCheckingAccount = false
     var isTestingAI = false
     var status = "Loading library…"
@@ -144,11 +139,12 @@ final class LibraryModel {
 
     var isWorking: Bool {
         isIngesting || isCheckingChannel || isProcessing || isRunningVoiceBrief ||
-            isSyncing || isTestingAI
+            isGeneratingSpeech || isSyncing || isTestingAI
     }
 
     var menuBarActivity: String? {
         if isRunningVoiceBrief { return "Creating brief" }
+        if isGeneratingSpeech { return "Creating audio" }
         if isProcessing { return "Processing" }
         if isIngesting || isCheckingChannel { return "Ingesting" }
         if isSyncing {
@@ -159,7 +155,7 @@ final class LibraryModel {
     }
 
     var menuBarIcon: String {
-        if isRunningVoiceBrief { return "waveform" }
+        if isRunningVoiceBrief || isGeneratingSpeech { return "waveform" }
         if isProcessing || isTestingAI { return "sparkles" }
         if isIngesting || isCheckingChannel { return "square.and.arrow.down" }
         if isSyncing { return "arrow.triangle.2.circlepath" }
@@ -490,8 +486,12 @@ final class LibraryModel {
     }
 
     func trashSelected() async {
+        await trash(entryID: selectedID)
+    }
+
+    func trash(entryID: String) async {
         guard let library else { return }
-        let ids = selectedEntryIDs(fallback: selectedID)
+        let ids = selectedEntryIDs(fallback: entryID)
         guard !ids.isEmpty else { return }
         do {
             for id in ids {
@@ -692,7 +692,7 @@ final class LibraryModel {
     }
 
     func runDueVoiceBriefs() async {
-        guard let library, !isRunningVoiceBrief else { return }
+        guard let library, !isRunningVoiceBrief, !isGeneratingSpeech else { return }
         do {
             let due = try await library.dueVoiceBriefIDs()
             for id in due {
@@ -787,11 +787,19 @@ final class LibraryModel {
                     personalContext: aboutYou
                 )
             }
-            status = "Creating spoken audio…"
-            try await synthesizeVoiceBriefAudio(
-                spokenVoiceBriefText(episode.script),
-                to: audioURL
-            )
+            let speechText = spokenVoiceBriefText(episode.script)
+            var usedLocalVoice = false
+            status = "Preparing on-device voice…"
+            do {
+                try await LocalVoiceBriefSynthesizer.shared.synthesize(
+                    speechText,
+                    to: audioURL
+                )
+                usedLocalVoice = true
+            } catch {
+                status = "Local voice unavailable; using system voice…"
+                try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
+            }
             try await library.attachAudio(entryID: episode.entryID, file: audioURL)
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
@@ -799,7 +807,9 @@ final class LibraryModel {
                 selectedVoiceBriefID = brief.id
                 await select(episode.entryID)
             }
-            status = "Voice brief ready"
+            status = usedLocalVoice
+                ? "Voice brief ready (on-device voice)"
+                : "Voice brief ready (system voice)"
             requestSync()
         } catch {
             if reportErrors {
@@ -1123,6 +1133,103 @@ final class LibraryModel {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    func playableAudioURL(
+        for entry: LibraryEntry,
+        variant: LibraryVariant,
+        text rawText: String
+    ) async -> URL? {
+        if entry.voiceBriefID != nil {
+            return await audioURL(for: entry.id)
+        }
+        if variant == .source, let original = await audioURL(for: entry.id) {
+            return original
+        }
+
+        let text = spokenVoiceBriefText(rawText)
+        guard !text.isEmpty else {
+            errorMessage = NativeLibraryError.emptySpeech.localizedDescription
+            return nil
+        }
+        guard !isGeneratingSpeech, !isRunningVoiceBrief else { return nil }
+
+        isGeneratingSpeech = true
+        defer { isGeneratingSpeech = false }
+        let description = variant == .source
+            ? "document"
+            : "\(variant.title.lowercased()) summary"
+
+        do {
+            let localURL = try speechCacheURL(
+                entryID: entry.id,
+                variant: variant,
+                text: text,
+                engine: "kokoro-ane-v1"
+            )
+            if usableCachedAudio(at: localURL) {
+                status = "Audio ready (on-device voice)"
+                return localURL
+            }
+
+            status = "Preparing \(description) audio…"
+            do {
+                try await LocalVoiceBriefSynthesizer.shared.synthesize(
+                    text,
+                    to: localURL
+                )
+                status = "Audio ready (on-device voice)"
+                return localURL
+            } catch {
+                let systemURL = try speechCacheURL(
+                    entryID: entry.id,
+                    variant: variant,
+                    text: text,
+                    engine: "system-v1"
+                )
+                if !usableCachedAudio(at: systemURL) {
+                    try? FileManager.default.removeItem(at: systemURL)
+                    status = "Local voice unavailable; using system voice…"
+                    try await synthesizeSystemVoiceBriefAudio(text, to: systemURL)
+                }
+                status = "Audio ready (system voice)"
+                return systemURL
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    private func speechCacheURL(
+        entryID: String,
+        variant: LibraryVariant,
+        text: String,
+        engine: String
+    ) throws -> URL {
+        guard let caches = FileManager.default.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first else {
+            throw NativeLibraryError.audioGenerationFailed
+        }
+        let directory = caches
+            .appending(path: "Briefly", directoryHint: .isDirectory)
+            .appending(path: "Speech", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let key = "\(engine)\n\(entryID)\n\(variant.rawValue)\n\(text)"
+        let digest = SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return directory.appending(path: "\(digest).wav")
+    }
+
+    private func usableCachedAudio(at url: URL) -> Bool {
+        let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        return (size ?? 0) > 44
     }
 
     func faviconURL(for entryID: String) async -> URL? {
@@ -1647,7 +1754,7 @@ final class LibraryModel {
 }
 
 @MainActor
-private func synthesizeVoiceBriefAudio(_ text: String, to url: URL) async throws {
+private func synthesizeSystemVoiceBriefAudio(_ text: String, to url: URL) async throws {
     guard !text.isEmpty else { throw NativeLibraryError.emptySpeech }
     let synthesizer = AVSpeechSynthesizer()
     let utterance = AVSpeechUtterance(string: text)
@@ -1726,11 +1833,14 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         #endif
     }
 
-    func toggle(_ url: URL, entryID: String, title: String) throws {
+    func play(
+        _ url: URL,
+        entryID: String,
+        title: String,
+        positionID: String? = nil
+    ) throws {
         if currentURL == url, let player {
-            if player.isPlaying {
-                pause()
-            } else {
+            if !player.isPlaying {
                 resume()
             }
             return
@@ -1747,7 +1857,7 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         player.rate = Float(rate)
         player.volume = Float(volume)
         player.prepareToPlay()
-        let key = "BrieflyAudioPosition.\(entryID)"
+        let key = "BrieflyAudioPosition.\(positionID ?? entryID)"
         let saved = UserDefaults.standard.double(forKey: key)
         if saved > 0, saved < player.duration - 3 {
             player.currentTime = saved
@@ -2172,7 +2282,7 @@ struct ContentView: View {
                     .padding(18)
                     #endif
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if model.isProcessing {
+            } else if model.isProcessing || model.isGeneratingSpeech {
                 HStack(spacing: 9) {
                     ProgressView()
                         .controlSize(.small)
@@ -2477,20 +2587,25 @@ private struct MobileLibraryNavigation: View {
                 .frame(maxWidth: .infinity)
 
                 VStack(spacing: 12) {
-                    if !isItemDetail || selectedEntryHasAudio {
-                        Button(action: primaryAction) {
+                    Button(action: primaryAction) {
+                        if model.isGeneratingSpeech && isPlayableDetail {
+                            ProgressView()
+                                .tint(.white)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .contentShape(Circle())
+                        } else {
                             Image(systemName: primaryActionIcon)
                                 .font(.system(size: 23, weight: .medium))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .contentShape(Circle())
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .frame(width: 58, height: 58)
-                        .mobileGlass(in: Circle(), tint: .accentColor)
-                        .accessibilityLabel(primaryActionLabel)
-                        .disabled(primaryActionDisabled)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .frame(width: 58, height: 58)
+                    .mobileGlass(in: Circle(), tint: .accentColor)
+                    .accessibilityLabel(primaryActionLabel)
+                    .disabled(primaryActionDisabled)
 
                     Button {
                         if showsSearch {
@@ -2562,13 +2677,8 @@ private struct MobileLibraryNavigation: View {
             model.selectedEntry != nil
     }
 
-    private var selectedEntryHasAudio: Bool {
-        guard let entry = model.selectedEntry else { return false }
-        return entry.hasAudio == true || entry.audio != nil || entry.mediaURL != nil
-    }
-
     private var isPlayableDetail: Bool {
-        isVoiceBriefDetail || (isItemDetail && selectedEntryHasAudio)
+        isVoiceBriefDetail || isItemDetail
     }
 
     private var isChannelPage: Bool {
@@ -2590,13 +2700,16 @@ private struct MobileLibraryNavigation: View {
 
     private var primaryActionLabel: String {
         if isPlayableDetail { return "Play audio" }
-        if isChannelPage { return "Check channel now" }
+        if isChannelPage { return "Fetch fresh channel items" }
         if isVoiceBriefPage { return "Generate fresh voice brief" }
         return createLabel
     }
 
     private var primaryActionDisabled: Bool {
-        (isChannelPage && model.isCheckingChannel) ||
+        (isPlayableDetail &&
+            (model.isGeneratingSpeech || model.isRunningVoiceBrief ||
+                model.selectedText.isEmpty)) ||
+            (isChannelPage && model.isCheckingChannel) ||
             (isVoiceBriefPage &&
                 (model.isRunningVoiceBrief || model.selectedVoiceBrief?.sources.isEmpty != false))
     }
@@ -2604,18 +2717,18 @@ private struct MobileLibraryNavigation: View {
     private func primaryAction() {
         if isPlayableDetail, let entry = model.selectedEntry {
             Task {
-                guard let url = await model.audioURL(for: entry.id) else {
-                    model.errorMessage = "This audio file is not available locally."
-                    return
-                }
+                guard let url = await model.playableAudioURL(
+                    for: entry,
+                    variant: model.selectedVariant,
+                    text: model.selectedText
+                ) else { return }
                 do {
-                    if audioPlayer.currentEntryID != entry.id || !audioPlayer.isPlaying {
-                        try audioPlayer.toggle(
-                            url,
-                            entryID: entry.id,
-                            title: entry.title
-                        )
-                    }
+                    try audioPlayer.play(
+                        url,
+                        entryID: entry.id,
+                        title: entry.title,
+                        positionID: "\(entry.id):\(model.selectedVariant.rawValue)"
+                    )
                     audioEntry = entry
                 } catch {
                     model.errorMessage = error.localizedDescription
@@ -4181,12 +4294,7 @@ private struct EntryContextMenu: ViewModifier {
                 .disabled(model.isProcessing)
                 Divider()
                 Button(role: .destructive) {
-                    Task {
-                        if !model.selectedIDs.contains(entry.id) {
-                            await model.select(entry.id)
-                        }
-                        confirmsTrash = true
-                    }
+                    confirmsTrash = true
                 } label: {
                     Label(
                         model.selectionCount(for: entry.id) > 1
@@ -4198,13 +4306,13 @@ private struct EntryContextMenu: ViewModifier {
             }
         }
         .confirmationDialog(
-            model.selectedIDs.count > 1
-                ? "Move \(model.selectedIDs.count) items to Trash?"
+            model.selectionCount(for: entry.id) > 1
+                ? "Move \(model.selectionCount(for: entry.id)) items to Trash?"
                 : "Move this item to Trash?",
             isPresented: $confirmsTrash
         ) {
             Button("Move to Trash", role: .destructive) {
-                Task { await model.trashSelected() }
+                Task { await model.trash(entryID: entry.id) }
             }
         }
     }
@@ -4585,7 +4693,7 @@ private struct LibraryCardBrowser: View {
                     if model.isCheckingChannel {
                         ProgressView().controlSize(.small)
                     } else {
-                        Label("Check now", systemImage: "arrow.clockwise")
+                        Label("Fetch fresh", systemImage: "arrow.clockwise")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -5604,40 +5712,49 @@ private struct LibraryDocument: View {
 
                     }
 
-                    if hasAudio && !usesMobileVoiceBriefControls {
+                    if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
                             Task {
-                                guard let url = await model.audioURL(for: entry.id) else {
-                                    model.errorMessage =
-                                        "This audio file is not available locally."
-                                    return
-                                }
+                                guard let url = await model.playableAudioURL(
+                                    for: entry,
+                                    variant: model.selectedVariant,
+                                    text: model.selectedText
+                                ) else { return }
                                 do {
-                                    if audioPlayer.currentEntryID != entry.id ||
-                                        !audioPlayer.isPlaying
-                                    {
-                                        try audioPlayer.toggle(
-                                            url,
-                                            entryID: entry.id,
-                                            title: entry.title
-                                        )
-                                    }
+                                    try audioPlayer.play(
+                                        url,
+                                        entryID: entry.id,
+                                        title: entry.title,
+                                        positionID:
+                                            "\(entry.id):\(model.selectedVariant.rawValue)"
+                                    )
                                     audioEntry = entry
                                 } catch {
                                     model.errorMessage = error.localizedDescription
                                 }
                             }
                         } label: {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(Color.accentColor, in: Circle())
-                                .contentShape(Circle())
+                            if model.isGeneratingSpeech {
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.accentColor, in: Circle())
+                            } else {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color.accentColor, in: Circle())
+                                    .contentShape(Circle())
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Play audio")
                         .help("Play audio")
+                        .disabled(
+                            model.isGeneratingSpeech || model.isRunningVoiceBrief ||
+                                model.selectedText.isEmpty
+                        )
                     }
 
                     if let source = entry.sourceURL, let url = URL(string: source) {
@@ -5730,10 +5847,6 @@ private struct LibraryDocument: View {
             }
         }
         #endif
-    }
-
-    private var hasAudio: Bool {
-        entry.hasAudio == true || entry.audio != nil || entry.mediaURL != nil
     }
 
     private var usesMobileVoiceBriefControls: Bool {
@@ -6181,7 +6294,7 @@ private struct VoiceBriefConfiguration: View {
                             if model.isRunningVoiceBrief {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Label("Generate", systemImage: "sparkles")
+                                Label("Generate fresh", systemImage: "sparkles")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -6473,7 +6586,7 @@ private struct ChannelConfiguration: View {
                             if model.isCheckingChannel {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Label("Check now", systemImage: "arrow.clockwise")
+                                Label("Fetch fresh", systemImage: "arrow.clockwise")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -6621,7 +6734,7 @@ private struct ChannelConfiguration: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Label("Check now", systemImage: "arrow.clockwise")
+                                Label("Fetch fresh", systemImage: "arrow.clockwise")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -7210,9 +7323,20 @@ private struct SettingsView: View {
                             axis: .vertical
                         )
                         .lineLimit(2...5)
+                    } else {
+                        Text(
+                            "Briefly AI via OpenRouter, covered by a zero-data-retention agreement."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                     #else
                     Label("Briefly AI", systemImage: "sparkles")
+                    Text(
+                        "Briefly AI via OpenRouter, covered by a zero-data-retention agreement."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     #endif
                     TextEditor(text: $model.processingPrompt)
                         .font(.system(.caption, design: .monospaced))

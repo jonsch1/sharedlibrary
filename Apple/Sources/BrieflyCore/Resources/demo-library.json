@@ -165,7 +165,7 @@
       "id": "arxiv",
       "filename": "arxiv.md",
       "title": "ArXiv",
-      "schedule": "weekdays at 07:00",
+      "schedule": "manual",
       "length": "5 minutes",
       "sources": ["https://arxiv.org"]
     },
@@ -173,7 +173,7 @@
       "id": "hacker-news",
       "filename": "hacker-news.md",
       "title": "Hacker News",
-      "schedule": "daily at 07:00",
+      "schedule": "manual",
       "length": "8 minutes",
       "sources": ["https://news.ycombinator.com"]
     },
@@ -181,7 +181,7 @@
       "id": "reddit",
       "filename": "reddit.md",
       "title": "Reddit",
-      "schedule": "daily at 17:00",
+      "schedule": "manual",
       "length": "6 minutes",
       "sources": ["https://www.reddit.com"]
     },
@@ -189,7 +189,7 @@
       "id": "x",
       "filename": "x.md",
       "title": "X",
-      "schedule": "daily at 18:00",
+      "schedule": "manual",
       "length": "5 minutes",
       "sources": ["https://x.com"]
     }

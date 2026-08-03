@@ -4,6 +4,7 @@ public enum ItemInputID: String, CaseIterable, Codable, Sendable {
     case text
     case pdf
     case arxiv
+    case biorxiv
     case youtube
     case podcast
     case reddit
@@ -349,6 +350,7 @@ public struct NativeItemInputRouter: Sendable {
         case .file: return .pdf
         case .url(let url):
             if isArxivURL(url) { return .arxiv }
+            if isBiorxivURL(url) { return .biorxiv }
             if youtubeVideoID(url) != nil { return .youtube }
             if blueskyPost(url) != nil { return .bluesky }
             if threadsPost(url) != nil { return .threads }
@@ -374,6 +376,8 @@ public struct NativeItemInputRouter: Sendable {
                 draft = try ingestPDF(request)
             case .arxiv:
                 draft = try await ingestArxiv(request, http: context.http)
+            case .biorxiv:
+                draft = try await ingestBiorxiv(request, http: context.http)
             case .youtube:
                 draft = try await ingestYouTube(request, context: context)
             case .podcast:
@@ -655,6 +659,25 @@ func nativeFirstUsefulLine(_ text: String) -> String {
 func isArxivURL(_ url: URL) -> Bool {
     let host = url.host?.lowercased() ?? ""
     return host == "arxiv.org" || host.hasSuffix(".arxiv.org") || host == "markxiv.org"
+}
+
+func isBiorxivURL(_ url: URL) -> Bool {
+    biorxivArticlePath(url) != nil
+}
+
+func biorxivArticlePath(_ url: URL) -> String? {
+    let host = url.host?.lowercased() ?? ""
+    guard host == "biorxiv.org" || host.hasSuffix(".biorxiv.org") else { return nil }
+    var path = url.path
+    while path.hasSuffix("/") { path.removeLast() }
+    for suffix in [".full.pdf", ".abstract", ".full"] where path.hasSuffix(suffix) {
+        path.removeLast(suffix.count)
+        break
+    }
+    let parts = path.split(separator: "/", omittingEmptySubsequences: true)
+    guard parts.count == 3, parts[0] == "content", parts[1].hasPrefix("10."),
+          !parts[2].isEmpty else { return nil }
+    return "/" + parts.joined(separator: "/")
 }
 
 func youtubeVideoID(_ url: URL) -> String? {

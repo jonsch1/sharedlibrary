@@ -6,7 +6,7 @@
 	active="privacy"
 	title="Privacy notice"
 	description="How Briefly processes personal data, the choices you control, and your rights under the GDPR."
-	updated="1 August 2026"
+	updated="3 August 2026"
 >
 	<section>
 		<h2>1. Who is responsible</h2>
@@ -63,7 +63,7 @@
 				</tr>
 				<tr>
 					<td>Summaries and voice-brief scripts</td>
-					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI sends these to OpenRouter and its selected model provider.</td>
+					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI processes these via OpenRouter under a zero-data-retention agreement.</td>
 					<td>Create the summaries or voice-brief script you request. Briefly does not use this content to train its own models.</td>
 					<td>Performance of your processing request.</td>
 				</tr>
@@ -151,7 +151,7 @@
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
-					<td>Provides Briefly AI summaries and voice-brief scripts using the selected hosted model. Source content is sent only when you request processing.</td>
+					<td>Provides Briefly AI summaries and voice-brief scripts under a zero-data-retention agreement. Source content is sent only when you request processing.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">OpenAI</a></td>
@@ -232,7 +232,7 @@
 				</tr>
 				<tr>
 					<td>AI processing inputs</td>
-					<td>Briefly keeps prompts and generated output only for the active API request; the output is then written to your selected library. OpenRouter, the selected model provider, or a custom CLI provider applies its own service retention terms.</td>
+					<td>Briefly keeps prompts and generated output only for the active API request; the output is then written to your selected library. Briefly AI processes the request via OpenRouter under a zero-data-retention agreement. A custom CLI provider applies its own service retention terms if you choose one instead.</td>
 				</tr>
 				<tr>
 					<td>Fair-use counters and leases</td>

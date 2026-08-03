@@ -230,20 +230,6 @@ async function sha256Hex(value) {
 	return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function openRouterError(response, fallback) {
-	const body = await response.text();
-	try {
-		const value = JSON.parse(body);
-		if (typeof value.error === 'string') return value.error;
-		if (typeof value.error?.message === 'string') return value.error.message;
-		if (typeof value.message === 'string') return value.message;
-	} catch {
-		// The upstream response was not JSON.
-	}
-	if (body.trim()) return body.trim().slice(0, 500);
-	return fallback;
-}
-
 function appleAuthConfig(env) {
 	const clientID = String(env.APPLE_CLIENT_ID || '').trim();
 	const teamID = String(env.APPLE_TEAM_ID || '').trim();
@@ -1295,17 +1281,15 @@ async function processWithManagedAI(request, env) {
 		});
 	} catch {
 		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
-		return json({ error: 'Briefly AI could not reach OpenRouter.' }, { status: 502 });
+		return json(
+			{ error: 'Briefly AI via OpenRouter is temporarily unavailable.' },
+			{ status: 502 }
+		);
 	}
 	if (!response.ok) {
 		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
 		return json(
-			{
-				error: await openRouterError(
-					response,
-					`OpenRouter processing failed (${response.status}).`
-				)
-			},
+			{ error: 'Briefly AI via OpenRouter is temporarily unavailable.' },
 			{ status: response.status }
 		);
 	}
@@ -1321,7 +1305,10 @@ async function processWithManagedAI(request, env) {
 			reservation.reservedMicros,
 			allowanceMicros
 		);
-		return json({ error: 'OpenRouter returned an invalid response.' }, { status: 502 });
+		return json(
+			{ error: 'Briefly AI via OpenRouter returned an invalid response.' },
+			{ status: 502 }
+		);
 	}
 	const reportedCost = Number(result?.usage?.cost);
 	const costMicros =
@@ -1342,9 +1329,12 @@ async function processWithManagedAI(request, env) {
 	);
 	const output = result?.choices?.[0]?.message?.content;
 	if (typeof output !== 'string' || !output.trim()) {
-		return json({ error: 'OpenRouter returned no output.' }, { status: 502 });
+		return json(
+			{ error: 'Briefly AI via OpenRouter returned no output.' },
+			{ status: 502 }
+		);
 	}
-	return json({ output, model: managedAIModel, remainingMicros });
+	return json({ output, remainingMicros });
 }
 
 async function paidAccessResponse(request, env) {

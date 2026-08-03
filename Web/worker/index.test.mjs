@@ -71,6 +71,58 @@ test('native services fail closed without an App Store entitlement', async () =>
 	assert.equal((await unavailable.json()).code, 'subscription_required');
 });
 
+test('Briefly AI uses zero-data-retention routing without exposing model details', async () => {
+	const originalFetch = globalThis.fetch;
+	let openRouterRequest;
+	globalThis.fetch = async (url, init) => {
+		openRouterRequest = { url: String(url), init };
+		return new Response(
+			JSON.stringify({
+				choices: [{ message: { content: 'A concise summary.' } }],
+				usage: { cost: 0.001 }
+			}),
+			{ headers: { 'Content-Type': 'application/json' } }
+		);
+	};
+
+	try {
+		const response = await worker.fetch(
+			authenticatedRequest('/api/ai/process', {
+				method: 'POST',
+				headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+				body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
+			}),
+			managedAIEnvironment()
+		);
+		assert.equal(response.status, 200);
+		assert.deepEqual(JSON.parse(openRouterRequest.init.body).provider, { zdr: true });
+		const result = await response.json();
+		assert.equal(result.output, 'A concise summary.');
+		assert.equal('model' in result, false);
+
+		globalThis.fetch = async () =>
+			new Response(
+				JSON.stringify({ error: { message: 'Underlying model provider failed.' } }),
+				{ status: 503, headers: { 'Content-Type': 'application/json' } }
+			);
+		const failedResponse = await worker.fetch(
+			authenticatedRequest('/api/ai/process', {
+				method: 'POST',
+				headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+				body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
+			}),
+			managedAIEnvironment()
+		);
+		assert.equal(failedResponse.status, 503);
+		assert.equal(
+			(await failedResponse.json()).error,
+			'Briefly AI via OpenRouter is temporarily unavailable.'
+		);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test('share mutations reject cross-origin requests', async () => {
 	const response = await worker.fetch(
 		authenticatedRequest('/api/share-links', {
@@ -103,6 +155,40 @@ function environment(email = null) {
 	return {
 		DB: database(email),
 		ASSETS: { fetch: async () => new Response('asset') }
+	};
+}
+
+function managedAIEnvironment() {
+	const email = 'schauljonathan@gmail.com';
+	const accountID = '15b360f5-6a58-4a77-890d-ae7b322f0b1f';
+	return {
+		OPENROUTER_API_KEY: 'test-key',
+		ASSETS: { fetch: async () => new Response('asset') },
+		DB: {
+			prepare(sql) {
+				const statement = {
+					bind() {
+						return statement;
+					},
+					async first() {
+						if (sql.includes('FROM app_sessions')) {
+							return { user_email: email, expires_at: Date.now() + 60_000 };
+						}
+						if (sql.includes('FROM accounts')) {
+							return { account_id: accountID, user_email: email };
+						}
+						if (sql.includes('FROM managed_ai_usage')) {
+							return { spent_micros: 0, reserved_micros: 5_000_000 };
+						}
+						return null;
+					},
+					async run() {
+						return { success: true, meta: { changes: 1 } };
+					}
+				};
+				return statement;
+			}
+		}
 	};
 }
 

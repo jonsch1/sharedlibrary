@@ -13,6 +13,8 @@
 		100000000000000000000004 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrieflyCore */; };
 		100000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Assets.xcassets */; };
 		100000000000000000000006 /* GrainyGradient.metal in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* GrainyGradient.metal */; };
+		100000000000000000000007 /* LocalVoiceBriefSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */; };
+		100000000000000000000008 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +24,7 @@
 		200000000000000000000004 /* Briefly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Briefly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		200000000000000000000006 /* GrainyGradient.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GrainyGradient.metal; sourceTree = "<group>"; };
+		200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceBriefSynthesizer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -30,6 +33,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000004 /* BrieflyCore in Frameworks */,
+				100000000000000000000008 /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -50,6 +54,7 @@
 				200000000000000000000001 /* BrieflyApp.swift */,
 				200000000000000000000002 /* ContentView.swift */,
 				200000000000000000000003 /* ChannelBrowser.swift */,
+				200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */,
 				200000000000000000000006 /* GrainyGradient.metal */,
 				200000000000000000000005 /* Assets.xcassets */,
 			);
@@ -82,6 +87,7 @@
 			name = Briefly;
 			packageProductDependencies = (
 				A00000000000000000000002 /* BrieflyCore */,
+				A00000000000000000000004 /* FluidAudio */,
 			);
 			productName = Briefly;
 			productReference = 200000000000000000000004 /* Briefly.app */;
@@ -127,6 +133,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
+				A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 400000000000000000000003 /* Products */;
@@ -157,6 +164,7 @@
 				100000000000000000000001 /* BrieflyApp.swift in Sources */,
 				100000000000000000000002 /* ContentView.swift in Sources */,
 				100000000000000000000003 /* ChannelBrowser.swift in Sources */,
+				100000000000000000000007 /* LocalVoiceBriefSynthesizer.swift in Sources */,
 				100000000000000000000006 /* GrainyGradient.metal in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -264,6 +272,7 @@
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
 				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
@@ -299,6 +308,7 @@
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
 				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
@@ -351,11 +361,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = revision;
+				revision = 5390df9752c8fc583596018360c5fd70d6fa6c75;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A00000000000000000000002 /* BrieflyCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = BrieflyCore;
+		};
+		A00000000000000000000004 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
