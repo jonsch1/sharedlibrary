@@ -74,6 +74,7 @@ export const managedAIUsage = sqliteTable(
 		usageMonth: text('usage_month').notNull(),
 		spentMicros: integer('spent_micros').notNull().default(0),
 		reservedMicros: integer('reserved_micros').notNull().default(0),
+		reservationID: text('reservation_id'),
 		updatedAt: integer('updated_at').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.accountID, table.usageMonth] })]

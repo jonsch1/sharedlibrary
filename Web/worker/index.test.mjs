@@ -86,13 +86,14 @@ test('Briefly AI prefers Fireworks with zero-data-retention routing and provider
 	};
 
 	try {
+		const environment = managedAIEnvironment();
 		const response = await worker.fetch(
 			authenticatedRequest('/api/ai/process', {
 				method: 'POST',
 				headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
 				body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
 			}),
-			managedAIEnvironment()
+			environment
 		);
 		assert.equal(response.status, 200);
 		assert.deepEqual(JSON.parse(openRouterRequest.init.body).provider, {
@@ -103,6 +104,7 @@ test('Briefly AI prefers Fireworks with zero-data-retention routing and provider
 		const result = await response.json();
 		assert.equal(result.output, 'A concise summary.');
 		assert.equal('model' in result, false);
+		assert.equal(environment.managedAIState.reservedMicros, 0);
 
 		globalThis.fetch = async () =>
 			new Response(
@@ -115,13 +117,38 @@ test('Briefly AI prefers Fireworks with zero-data-retention routing and provider
 				headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
 				body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
 			}),
-			managedAIEnvironment()
+			environment
 		);
 		assert.equal(failedResponse.status, 503);
 		assert.equal(
 			(await failedResponse.json()).error,
 			'Briefly AI via OpenRouter is temporarily unavailable.'
 		);
+		assert.equal(environment.managedAIState.reservedMicros, 0);
+
+		globalThis.fetch = async () =>
+			new Response(
+				JSON.stringify({
+					choices: [{ message: { content: 'Recovered after a stale request.' } }],
+					usage: { cost: 0.001 }
+				}),
+				{ headers: { 'Content-Type': 'application/json' } }
+			);
+		const staleEnvironment = managedAIEnvironment({
+			reservedMicros: 4_000_000,
+			reservationID: 'abandoned-request',
+			updatedAt: Date.now() - 21 * 60 * 1_000
+		});
+		const recoveredResponse = await worker.fetch(
+			authenticatedRequest('/api/ai/process', {
+				method: 'POST',
+				headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+				body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
+			}),
+			staleEnvironment
+		);
+		assert.equal(recoveredResponse.status, 200);
+		assert.equal(staleEnvironment.managedAIState.reservedMicros, 0);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
@@ -162,16 +189,25 @@ function environment(email = null) {
 	};
 }
 
-function managedAIEnvironment() {
+function managedAIEnvironment(initialState = {}) {
 	const email = 'schauljonathan@gmail.com';
 	const accountID = '15b360f5-6a58-4a77-890d-ae7b322f0b1f';
+	const managedAIState = {
+		spentMicros: initialState.spentMicros ?? 0,
+		reservedMicros: initialState.reservedMicros ?? 0,
+		reservationID: initialState.reservationID ?? null,
+		updatedAt: initialState.updatedAt ?? Date.now()
+	};
 	return {
 		OPENROUTER_API_KEY: 'test-key',
 		ASSETS: { fetch: async () => new Response('asset') },
+		managedAIState,
 		DB: {
 			prepare(sql) {
+				let bindings = [];
 				const statement = {
-					bind() {
+					bind(...values) {
+						bindings = values;
 						return statement;
 					},
 					async first() {
@@ -182,11 +218,51 @@ function managedAIEnvironment() {
 							return { account_id: accountID, user_email: email };
 						}
 						if (sql.includes('FROM managed_ai_usage')) {
-							return { spent_micros: 0, reserved_micros: 5_000_000 };
+							return {
+								spent_micros: managedAIState.spentMicros,
+								reserved_micros: managedAIState.reservedMicros
+							};
 						}
 						return null;
 					},
 					async run() {
+						if (sql.includes('SET reserved_micros = ? - spent_micros')) {
+							const [allowance, reservationID, now, , , staleBefore] = bindings;
+							if (
+								managedAIState.reservedMicros !== 0 &&
+								managedAIState.updatedAt >= staleBefore
+							) {
+								return { success: true, meta: { changes: 0 } };
+							}
+							managedAIState.reservedMicros = allowance - managedAIState.spentMicros;
+							managedAIState.reservationID = reservationID;
+							managedAIState.updatedAt = now;
+							return { success: true, meta: { changes: 1 } };
+						}
+						if (sql.includes('SET reserved_micros = 0, reservation_id = NULL')) {
+							const [now, , , reservationID] = bindings;
+							if (managedAIState.reservationID === reservationID) {
+								managedAIState.reservedMicros = 0;
+								managedAIState.reservationID = null;
+								managedAIState.updatedAt = now;
+								return { success: true, meta: { changes: 1 } };
+							}
+							return { success: true, meta: { changes: 0 } };
+						}
+						if (sql.includes('SET spent_micros = MIN')) {
+							const [allowance, cost, now, , , reservationID] = bindings;
+							if (managedAIState.reservationID === reservationID) {
+								managedAIState.spentMicros = Math.min(
+									allowance,
+									managedAIState.spentMicros + cost
+								);
+								managedAIState.reservedMicros = 0;
+								managedAIState.reservationID = null;
+								managedAIState.updatedAt = now;
+								return { success: true, meta: { changes: 1 } };
+							}
+							return { success: true, meta: { changes: 0 } };
+						}
 						return { success: true, meta: { changes: 1 } };
 					}
 				};

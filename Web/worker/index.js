@@ -1,6 +1,8 @@
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const managedAIModel = 'deepseek/deepseek-v4-flash';
 const managedAIMonthlyAllowanceMicros = 5_000_000;
+const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;
+const managedAIReservationStaleMilliseconds = 20 * 60 * 1000;
 const maximumManagedAIPromptLength = 600_000;
 const uuidPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1138,6 +1140,7 @@ async function hasComplimentaryPlusAccess(env, email) {
 
 async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros) {
 	const now = Date.now();
+	const reservationID = crypto.randomUUID();
 	await env.DB.prepare(
 		`INSERT OR IGNORE INTO managed_ai_usage (
 			account_id, usage_month, spent_micros, reserved_micros, updated_at
@@ -1147,11 +1150,22 @@ async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros
 		.run();
 	const result = await env.DB.prepare(
 		`UPDATE managed_ai_usage
-		 SET reserved_micros = ? - spent_micros, updated_at = ?
+		 SET reserved_micros = ? - spent_micros,
+		     reservation_id = ?,
+		     updated_at = ?
 		 WHERE account_id = ? AND usage_month = ?
-		   AND reserved_micros = 0 AND spent_micros < ?`
+		   AND (reserved_micros = 0 OR updated_at < ?)
+		   AND spent_micros < ?`
 	)
-		.bind(allowanceMicros, now, accountID, usageMonth, allowanceMicros)
+		.bind(
+			allowanceMicros,
+			reservationID,
+			now,
+			accountID,
+			usageMonth,
+			now - managedAIReservationStaleMilliseconds,
+			allowanceMicros
+		)
 		.run();
 	const usage = await env.DB.prepare(
 		`SELECT spent_micros, reserved_micros
@@ -1162,17 +1176,19 @@ async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros
 		.first();
 	return {
 		reserved: databaseChanges(result) > 0,
+		reservationID,
 		spentMicros: Number(usage?.spent_micros ?? 0),
 		reservedMicros: Number(usage?.reserved_micros ?? 0)
 	};
 }
 
-async function releaseManagedAIUsage(env, accountID, usageMonth) {
+async function releaseManagedAIUsage(env, accountID, usageMonth, reservationID) {
 	await env.DB.prepare(
-		`UPDATE managed_ai_usage SET reserved_micros = 0, updated_at = ?
-		 WHERE account_id = ? AND usage_month = ?`
+		`UPDATE managed_ai_usage
+		 SET reserved_micros = 0, reservation_id = NULL, updated_at = ?
+		 WHERE account_id = ? AND usage_month = ? AND reservation_id = ?`
 	)
-		.bind(Date.now(), accountID, usageMonth)
+		.bind(Date.now(), accountID, usageMonth, reservationID)
 		.run();
 }
 
@@ -1180,6 +1196,7 @@ async function settleManagedAIUsage(
 	env,
 	accountID,
 	usageMonth,
+	reservationID,
 	costMicros,
 	allowanceMicros
 ) {
@@ -1187,10 +1204,18 @@ async function settleManagedAIUsage(
 		`UPDATE managed_ai_usage
 		 SET spent_micros = MIN(?, spent_micros + ?),
 		     reserved_micros = 0,
+		     reservation_id = NULL,
 		     updated_at = ?
-		 WHERE account_id = ? AND usage_month = ?`
+		 WHERE account_id = ? AND usage_month = ? AND reservation_id = ?`
 	)
-		.bind(allowanceMicros, costMicros, Date.now(), accountID, usageMonth)
+		.bind(
+			allowanceMicros,
+			costMicros,
+			Date.now(),
+			accountID,
+			usageMonth,
+			reservationID
+		)
 		.run();
 }
 
@@ -1254,10 +1279,16 @@ async function processWithManagedAI(request, env) {
 		);
 	}
 
-	let response;
+	const upstreamController = new AbortController();
+	const upstreamTimeout = setTimeout(
+		() => upstreamController.abort(),
+		managedAIUpstreamTimeoutMilliseconds
+	);
+	let reservationSettled = false;
 	try {
-		response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+		const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
 			method: 'POST',
+			signal: upstreamController.signal,
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
 				'Content-Type': 'application/json',
@@ -1283,62 +1314,69 @@ async function processWithManagedAI(request, env) {
 					: {})
 			})
 		});
-	} catch {
-		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
-		return json(
-			{ error: 'Briefly AI via OpenRouter is temporarily unavailable.' },
-			{ status: 502 }
-		);
-	}
-	if (!response.ok) {
-		await releaseManagedAIUsage(env, customer.account_id, usageMonth);
-		return json(
-			{ error: 'Briefly AI via OpenRouter is temporarily unavailable.' },
-			{ status: response.status }
-		);
-	}
+		if (!response.ok) {
+			return json(
+				{ error: 'Briefly AI via OpenRouter is temporarily unavailable.' },
+				{ status: response.status }
+			);
+		}
 
-	let result;
-	try {
-		result = await response.json();
-	} catch {
+		let result;
+		try {
+			result = await response.json();
+		} catch {
+			return json(
+				{ error: 'Briefly AI via OpenRouter returned an invalid response.' },
+				{ status: 502 }
+			);
+		}
+		const reportedCost = Number(result?.usage?.cost);
+		const costMicros =
+			Number.isFinite(reportedCost) && reportedCost >= 0
+				? Math.ceil(reportedCost * 1_000_000)
+				: reservation.reservedMicros;
 		await settleManagedAIUsage(
 			env,
 			customer.account_id,
 			usageMonth,
-			reservation.reservedMicros,
+			reservation.reservationID,
+			costMicros,
 			allowanceMicros
 		);
-		return json(
-			{ error: 'Briefly AI via OpenRouter returned an invalid response.' },
-			{ status: 502 }
+		reservationSettled = true;
+		const remainingMicros = Math.max(
+			0,
+			allowanceMicros -
+				Math.min(allowanceMicros, reservation.spentMicros + costMicros)
 		);
-	}
-	const reportedCost = Number(result?.usage?.cost);
-	const costMicros =
-		Number.isFinite(reportedCost) && reportedCost >= 0
-			? Math.ceil(reportedCost * 1_000_000)
-			: reservation.reservedMicros;
-	await settleManagedAIUsage(
-		env,
-		customer.account_id,
-		usageMonth,
-		costMicros,
-		allowanceMicros
-	);
-	const remainingMicros = Math.max(
-		0,
-		allowanceMicros -
-			Math.min(allowanceMicros, reservation.spentMicros + costMicros)
-	);
-	const output = result?.choices?.[0]?.message?.content;
-	if (typeof output !== 'string' || !output.trim()) {
+		const output = result?.choices?.[0]?.message?.content;
+		if (typeof output !== 'string' || !output.trim()) {
+			return json(
+				{ error: 'Briefly AI via OpenRouter returned no output.' },
+				{ status: 502 }
+			);
+		}
+		return json({ output, remainingMicros });
+	} catch {
 		return json(
-			{ error: 'Briefly AI via OpenRouter returned no output.' },
-			{ status: 502 }
+			{
+				error: upstreamController.signal.aborted
+					? 'Briefly AI timed out while waiting for OpenRouter.'
+					: 'Briefly AI via OpenRouter is temporarily unavailable.'
+			},
+			{ status: upstreamController.signal.aborted ? 504 : 502 }
 		);
+	} finally {
+		clearTimeout(upstreamTimeout);
+		if (!reservationSettled) {
+			await releaseManagedAIUsage(
+				env,
+				customer.account_id,
+				usageMonth,
+				reservation.reservationID
+			);
+		}
 	}
-	return json({ output, remainingMicros });
 }
 
 async function paidAccessResponse(request, env) {

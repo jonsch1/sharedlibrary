@@ -109,7 +109,8 @@ final class BrieflyBackend {
         let (data, response) = try await request(
             "api/ai/process",
             method: "POST",
-            body: body
+            body: body,
+            timeoutInterval: 20 * 60
         )
         try requireSuccess(
             response,
@@ -247,12 +248,13 @@ final class BrieflyBackend {
     private func request(
         _ path: String,
         method: String = "GET",
-        body: Data? = nil
+        body: Data? = nil,
+        timeoutInterval: TimeInterval = 60
     ) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: path, relativeTo: Self.origin)?.absoluteURL else {
             throw BrieflyBackendError.message("The Briefly service URL is invalid.")
         }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, timeoutInterval: timeoutInterval)
         request.httpMethod = method
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Accept")
