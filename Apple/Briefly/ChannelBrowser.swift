@@ -884,20 +884,40 @@ struct ChannelLoginView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close browser")
+
+                Text(navigationTitle)
+                    .font(.headline)
+
+                Divider()
+                    .frame(height: 22)
+
                 Button(action: navigation.goBack) {
                     Image(systemName: "chevron.left")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(!navigation.canGoBack)
                 .accessibilityLabel("Back")
 
                 Button(action: navigation.goForward) {
                     Image(systemName: "chevron.right")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .disabled(!navigation.canGoForward)
                 .accessibilityLabel("Forward")
 
                 Button(action: navigation.reload) {
                     Image(systemName: "arrow.clockwise")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Reload")
 
@@ -917,17 +937,13 @@ struct ChannelLoginView: View {
                 }
                 .padding(.horizontal, 11)
                 .frame(height: 32)
-                .background(.quaternary.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
+                .background(.quaternary.opacity(0.55), in: Capsule())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
             .controlSize(.regular)
             .padding(.horizontal, 12)
             .frame(height: 54)
-            .background(.bar)
+            .background(.regularMaterial)
             .overlay(alignment: .bottom) { Divider() }
 
             ChannelWebView(url: $loadedURL, navigation: navigation) { url in
@@ -977,11 +993,12 @@ struct ChannelLoginView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .disabled(isExtracting)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 58)
-                .background(.bar)
+                .background(.regularMaterial)
                 .overlay(alignment: .top) { Divider() }
             }
         }

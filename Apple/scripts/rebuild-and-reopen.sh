@@ -7,6 +7,7 @@ apple_directory="$(cd "${script_directory}/.." && pwd)"
 platform="${1:-all}"
 
 macos_app="${apple_directory}/.build/xcode/macos/Build/Products/Debug/Briefly.app"
+macos_executable="${macos_app}/Contents/MacOS/Briefly"
 ios_app="${apple_directory}/.build/xcode/ios-simulator/Build/Products/Debug-iphonesimulator/Briefly.app"
 bundle_identifier="fyi.readbriefly.BrieflyNative"
 
@@ -25,8 +26,16 @@ build_and_open_macos() {
         exit 1
     fi
 
-    osascript -e 'tell application "Briefly" to quit' 2>/dev/null || true
-    open "${macos_app}"
+    # Stop only prior instances launched from this repo-local derived-data path.
+    # Other Briefly installations with the same bundle identifier are untouched.
+    while read -r pid command; do
+        if [[ "${command}" == "${macos_executable}" ]]; then
+            kill "${pid}" 2>/dev/null || true
+        fi
+    done < <(ps -axo pid=,command=)
+
+    # Launch this exact repo-local build even if another installation is open.
+    open -n "${macos_app}"
 }
 
 build_and_open_ios() {

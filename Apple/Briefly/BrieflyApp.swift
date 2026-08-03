@@ -16,7 +16,7 @@ struct BrieflyApp: App {
         Window("Briefly", id: "main") {
             ContentView(model: model)
         }
-        .defaultSize(width: 1180, height: 760)
+        .defaultSize(width: 1500, height: 900)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {

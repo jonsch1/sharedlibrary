@@ -24,7 +24,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .items: "Notes"
+        case .items: "Home"
         case .channels: "Channels"
         case .briefs: "Briefs"
         }
@@ -32,7 +32,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .items: "doc"
+        case .items: "house"
         case .channels: "dot.radiowaves.left.and.right"
         case .briefs: "headphones"
         }
@@ -1346,13 +1346,6 @@ final class LibraryModel {
         return (size ?? 0) > 44
     }
 
-    func faviconURL(for entryID: String) async -> URL? {
-        if let library {
-            return try? await library.faviconURL(entryID: entryID)
-        }
-        return nil
-    }
-
     func show(_ section: LibrarySection) async {
         activeSection = section
         showingHighlights = false
@@ -2341,13 +2334,11 @@ struct ContentView: View {
     @Bindable var model: LibraryModel
     @State private var showsChannelBrowser = false
     @State private var showsSettings = false
+    @State private var showsCaptureComposer = false
     @State private var showsPDFImporter = false
     @State private var windowControlsVisible = true
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
-    #if os(macOS)
-    @State private var sidebarVisibility = NavigationSplitViewVisibility.all
-    #endif
     #if os(iOS)
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var homeSelected = true
@@ -2357,28 +2348,42 @@ struct ContentView: View {
         Group {
             if model.isReady {
                 #if os(macOS)
-                NavigationSplitView(columnVisibility: $sidebarVisibility) {
-                    LibrarySidebar(
+                HStack(alignment: .top, spacing: 24) {
+                    MacXNavigation(
                         model: model,
                         showsSettings: $showsSettings,
-                        audioPlayer: audioPlayer,
-                        audioEntry: $audioEntry
+                        showsCaptureComposer: $showsCaptureComposer
                     )
-                    .ignoresSafeArea(.container, edges: .top)
-                    .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
-                } detail: {
-                    LibraryDetail(
-                        model: model,
-                        showsChannelBrowser: $showsChannelBrowser,
-                        audioPlayer: audioPlayer,
-                        audioEntry: $audioEntry
-                    )
-                    .layoutPriority(1)
-                    .frame(maxHeight: .infinity)
-                    .ignoresSafeArea(.container, edges: .top)
+                    .frame(width: 220)
+
+                    if showsSettings {
+                        MacXSettingsWorkspace(model: model)
+                            .frame(width: 1_014)
+                    } else {
+                        LibraryDetail(
+                            model: model,
+                            showsChannelBrowser: $showsChannelBrowser,
+                            audioPlayer: audioPlayer,
+                            audioEntry: $audioEntry
+                        )
+                        .layoutPriority(1)
+                        .frame(width: 680)
+                        .frame(maxHeight: .infinity)
+                        .background(.ultraThinMaterial.opacity(0.56))
+                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+
+                        MacXRightRail(model: model)
+                            .frame(width: 310)
+                    }
                 }
+                .padding(.horizontal, 20)
+                .frame(maxWidth: 1298, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(readerBackground)
+                .background {
+                    BrieflyAtmosphere()
+                        .ignoresSafeArea()
+                }
                 .ignoresSafeArea(.container, edges: .top)
                 .modifier(FullScreenToolbarBehavior())
                 .background(
@@ -2418,8 +2423,12 @@ struct ContentView: View {
                 }
                 #endif
             } else {
+                #if os(macOS)
+                MacXLoadingWorkspace(status: model.status)
+                #else
                 ProgressView(model.status)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
             }
         }
         .task { await model.start() }
@@ -2460,11 +2469,26 @@ struct ContentView: View {
                 ChannelLoginView(initialAddress: model.selectedChannelSource)
             }
         }
-        .sheet(isPresented: $showsSettings) {
-            SettingsView(
-                model: model
+        #if os(macOS)
+        .sheet(isPresented: $showsCaptureComposer) {
+            MacCaptureComposer(
+                model: model,
+                openPDFImporter: {
+                    showsCaptureComposer = false
+                    showsPDFImporter = true
+                },
+                openBrowser: {
+                    showsCaptureComposer = false
+                    showsChannelBrowser = true
+                }
             )
         }
+        #endif
+        #if os(iOS)
+        .sheet(isPresented: $showsSettings) {
+            SettingsView(model: model)
+        }
+        #endif
         .fileImporter(
             isPresented: $showsPDFImporter,
             allowedContentTypes: [.pdf]
@@ -2492,6 +2516,7 @@ struct ContentView: View {
             model.errorMessage = "Drop a PDF or web link."
             return false
         }
+        #if os(iOS)
         .alert(
             "Briefly",
             isPresented: Binding(
@@ -2503,6 +2528,15 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+        #else
+        .overlay(alignment: .top) {
+            if let message = model.errorMessage {
+                XErrorBanner(message: message, dismiss: model.clearError)
+                    .padding(.top, 18)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        #endif
         .overlay(alignment: .bottomTrailing) {
             if model.isSyncing {
                 SyncActivityView(model: model)
@@ -2525,7 +2559,11 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
+                #if os(macOS)
+                .macLiquidGlass(in: Capsule())
+                #else
                 .background(.regularMaterial, in: Capsule())
+                #endif
                 .padding(18)
                 .accessibilityElement(children: .combine)
             }
@@ -2574,8 +2612,478 @@ struct ContentView: View {
                 appearance == "dark" ? .dark : nil
         )
         .fontDesign(.rounded)
+        #if os(macOS)
+        .controlSize(.large)
+        #endif
+}
+}
+
+#if os(macOS)
+private struct MacXLoadingWorkspace: View {
+    let status: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 24) {
+            VStack(alignment: .leading, spacing: 5) {
+                BrieflyLogo()
+                    .padding(.leading, 12)
+                    .padding(.bottom, 12)
+                ForEach([
+                    ("house", "Home"),
+                    ("dot.radiowaves.left.and.right", "Channels"),
+                    ("headphones", "Briefs"),
+                    ("highlighter", "Highlights"),
+                    ("trash", "Trash")
+                ], id: \.1) { icon, title in
+                    Label(title, systemImage: icon)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 12)
+            .frame(width: 220)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Home").font(.title2.weight(.bold))
+                    Spacer()
+                }
+                .padding(18)
+                Divider()
+                XLoadingState(
+                    title: "Opening your library",
+                    message: status
+                )
+            }
+            .frame(width: 680)
+            .frame(maxHeight: .infinity)
+            .background(.ultraThinMaterial.opacity(0.64))
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+
+            VStack(alignment: .leading, spacing: 14) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.07))
+                    .frame(height: 44)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
+                    .frame(height: 230)
+            }
+            .frame(width: 310)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: 1_298, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
+        .ignoresSafeArea(.container, edges: .top)
     }
 }
+
+private struct XErrorBanner: View {
+    let message: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(.red)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Something went wrong")
+                    .font(.callout.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            Spacer(minLength: 12)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 520)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.12))
+        }
+        .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
+    }
+}
+
+private struct MacCaptureComposer: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var model: LibraryModel
+    let openPDFImporter: () -> Void
+    let openBrowser: () -> Void
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    private var canCapture: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !model.isProcessing
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text("Capture")
+                    .font(.headline)
+                Spacer()
+                Button("Save") {
+                    let value = draft
+                    dismiss()
+                    Task { await model.capture(value) }
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .disabled(!canCapture)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+
+            Divider()
+
+            HStack(alignment: .top, spacing: 12) {
+                Circle()
+                    .fill(Color.primary.opacity(0.07))
+                    .overlay {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 42, height: 42)
+
+                TextEditor(text: $draft)
+                    .font(.system(size: 18))
+                    .scrollContentBackground(.hidden)
+                    .focused($focused)
+                    .overlay(alignment: .topLeading) {
+                        if draft.isEmpty {
+                            Text("Paste a link or write something…")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.tertiary)
+                                .allowsHitTesting(false)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 8)
+                        }
+                    }
+            }
+            .padding(16)
+            .frame(minHeight: 190, alignment: .top)
+
+            Divider()
+
+            HStack(spacing: 4) {
+                composerTool("doc.richtext", label: "Import PDF", action: openPDFImporter)
+                composerTool("globe", label: "Signed-in browser", action: openBrowser)
+                composerTool("clipboard", label: "Paste clipboard") {
+                    draft = NSPasteboard.general.string(forType: .string) ?? ""
+                }
+                Spacer()
+                if model.isProcessing {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 56)
+        }
+        .frame(width: 600, height: 302)
+        .background(.regularMaterial)
+        .task {
+            if draft.isEmpty {
+                draft = NSPasteboard.general.string(forType: .string) ?? ""
+            }
+            focused = true
+        }
+    }
+
+    private func composerTool(
+        _ icon: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+private struct MacXNavigation: View {
+    @Bindable var model: LibraryModel
+    @Binding var showsSettings: Bool
+    @Binding var showsCaptureComposer: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            BrieflyLogo()
+                .padding(.leading, 12)
+                .padding(.bottom, 12)
+
+            ForEach(LibrarySection.allCases) { section in
+                Button {
+                    showsSettings = false
+                    Task { await model.show(section) }
+                } label: {
+                    navigationRow(
+                        section.title,
+                        icon: section.icon,
+                        selected: model.activeSection == section &&
+                            !model.showingHighlights && !model.showingTrash
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button {
+                showsSettings = false
+                model.showHighlights()
+            } label: {
+                navigationRow(
+                    "Highlights",
+                    icon: "highlighter",
+                    selected: model.showingHighlights
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showsSettings = false
+                model.showTrash()
+            } label: {
+                navigationRow("Trash", icon: "trash", selected: model.showingTrash)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                switch model.activeSection {
+                case .items:
+                    showsCaptureComposer = true
+                case .channels:
+                    model.query = ""
+                    model.showChannelSettings("new")
+                case .briefs:
+                    model.query = ""
+                    model.showVoiceBriefSettings("new")
+                }
+            } label: {
+                Label(primaryActionTitle, systemImage: "plus")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .padding(.top, 12)
+            .padding(.horizontal, 4)
+
+            Spacer(minLength: 18)
+
+            Button {
+                showsSettings = true
+            } label: {
+                navigationRow("Settings", icon: "gearshape", selected: showsSettings)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+        }
+        .padding(.vertical, 12)
+        .frame(maxHeight: .infinity)
+    }
+
+    private var primaryActionTitle: String {
+        switch model.activeSection {
+        case .items: "Capture"
+        case .channels: "New channel"
+        case .briefs: "New brief"
+        }
+    }
+
+    private func navigationRow(
+        _ title: String,
+        icon: String,
+        selected: Bool
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 19, weight: selected ? .semibold : .regular))
+                .frame(width: 24)
+            Text(title)
+                .font(.system(size: 17, weight: selected ? .bold : .medium))
+            Spacer()
+        }
+        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.82))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct MacXRightRail: View {
+    @Bindable var model: LibraryModel
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search your library", text: $model.query)
+                    .textFieldStyle(.plain)
+                if !model.query.isEmpty {
+                    Button {
+                        model.query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(.regularMaterial, in: Capsule())
+            .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
+
+            if let entry = model.selectedEntry {
+                FeedRailCard(title: "About this post") {
+                    if let source = entry.sourceURL,
+                        let url = URL(string: source)
+                    {
+                        Link(destination: url) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "link")
+                                    .foregroundStyle(.secondary)
+                                Text(url.host ?? source)
+                                    .lineLimit(1)
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                    ForEach(Array(entry.topicNames.prefix(5)), id: \.self) { topic in
+                        Button {
+                            Task {
+                                await model.select("")
+                                await model.showTopic(topic)
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "number")
+                                    .foregroundStyle(.secondary)
+                                Text(topic).lineLimit(1)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } else {
+                contextualCard
+            }
+
+            FeedRailCard(title: "Your library") {
+                FeedMetric(
+                    label: "Saved notes",
+                    value: model.projection.entries.filter(\.isMainLibraryEntry).count
+                )
+                FeedMetric(label: "Channels", value: model.channels.count)
+                FeedMetric(
+                    label: "Voice briefs",
+                    value: model.projection.voiceBriefDefinitions.count
+                )
+            }
+
+            Spacer()
+        }
+        .padding(.top, 16)
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var contextualCard: some View {
+        switch model.activeSection {
+        case .items:
+            FeedRailCard(title: "Collections") {
+                ForEach(Array(model.projection.documentTopics.prefix(6)), id: \.self) { topic in
+                    railButton(topic, icon: "folder") {
+                        Task { await model.showTopic(topic) }
+                    }
+                }
+            }
+        case .channels:
+            FeedRailCard(title: "Main channels") {
+                ForEach(Array(model.channels.prefix(6))) { channel in
+                    railButton(compactLabel(channel.title), icon: channel.kind == .podcast ? "waveform" : "dot.radiowaves.left.and.right") {
+                        model.selectChannel(channel.source)
+                    }
+                }
+            }
+        case .briefs:
+            FeedRailCard(title: "Main briefs") {
+                ForEach(Array(model.projection.voiceBriefDefinitions.prefix(6)), id: \.id) { brief in
+                    railButton(brief.title, icon: "headphones") {
+                        model.selectVoiceBrief(brief.id)
+                    }
+                }
+            }
+        }
+    }
+
+    private func railButton(
+        _ title: String,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
 
 #if os(iOS)
 private struct MobileHome: View {
@@ -2629,7 +3137,7 @@ private struct MobileHome: View {
                 .frame(maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 0) {
                         ForEach(entries) { entry in
                             MobileHomeEntryCard(
                                 entry: entry
@@ -2662,7 +3170,11 @@ private struct MobileHomeEntryCard: View {
     let action: () -> Void
 
     var body: some View {
-        GrainyEntryCard(entry: entry, action: action)
+        MobileEntryRow(entry: entry, kind: inferredKind, action: action)
+    }
+
+    private var inferredKind: MobileEntryKind {
+        entry.voiceBriefID == nil ? .item : .brief
     }
 }
 
@@ -2684,16 +3196,121 @@ private struct MobileEntryCard: View {
     let entry: LibraryEntry
     let kind: MobileEntryKind
     var selected = false
-    var minimumHeight: CGFloat? = nil
     let action: () -> Void
 
     var body: some View {
-        GrainyEntryCard(
+        MobileEntryRow(
             entry: entry,
-            palette: kind.palette,
+            kind: kind,
             selected: selected,
-            minimumHeight: minimumHeight,
             action: action
+        )
+    }
+}
+
+private struct MobileEntryRow: View {
+    let entry: LibraryEntry
+    let kind: MobileEntryKind
+    var selected = false
+    let action: () -> Void
+
+    private var accent: Color {
+        switch kind {
+        case .item: Color(red: 0.60, green: 0.34, blue: 0.96)
+        case .channel: Color(red: 0.93, green: 0.39, blue: 0.25)
+        case .brief: Color(red: 0.08, green: 0.70, blue: 0.62)
+        }
+    }
+
+    private var icon: String {
+        switch kind {
+        case .brief:
+            return entry.hasAudio == true ? "waveform" : "headphones"
+        case .channel:
+            return "dot.radiowaves.left.and.right"
+        case .item:
+            return switch entry.entryType {
+            case "pdf": "doc.richtext"
+            case "link": "link"
+            default: "doc.text"
+            }
+        }
+    }
+
+    private var date: Date? {
+        guard let value = entry.createdAt ?? entry.updatedAt else { return nil }
+        return try? Date(value, strategy: .iso8601)
+    }
+
+    private var dateText: String? {
+        guard let date else { return nil }
+        let elapsed = max(0, Date().timeIntervalSince(date))
+        switch elapsed {
+        case ..<3_600: return "\(max(1, Int(elapsed / 60)))m"
+        case ..<86_400: return "\(Int(elapsed / 3_600))h"
+        case ..<604_800: return "\(Int(elapsed / 86_400))d"
+        case ..<2_592_000: return "\(Int(elapsed / 604_800))w"
+        case ..<31_536_000: return "\(Int(elapsed / 2_592_000))mo"
+        default: return "\(Int(elapsed / 31_536_000))y"
+        }
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(accent)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 30, height: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(entry.title)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if let dateText {
+                            Text(dateText)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                                .fixedSize()
+                        }
+                    }
+
+                    if !entry.excerpt.isEmpty {
+                        Text(entry.excerpt)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(accent.opacity(0.9))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 76, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(selected ? accent.opacity(0.10) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.075))
+                .frame(height: 0.5)
+                .padding(.leading, 54)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityValue(
+            date.map {
+                $0.formatted(.relative(presentation: .named, unitsStyle: .wide))
+            } ?? ""
         )
     }
 }
@@ -2835,7 +3452,7 @@ private struct MobileLibraryNavigation: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .frame(width: 58, height: 58)
                     .mobileGlass(in: Circle(), tint: .accentColor)
                     .accessibilityLabel(primaryActionLabel)
@@ -3030,6 +3647,30 @@ private struct AudioPlayerScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            #if os(macOS)
+            HStack(spacing: 12) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text("Listen")
+                    .font(.headline)
+                Spacer()
+                if audioPlayer.isPlaying {
+                    Text("Now playing")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            Divider()
+            #endif
+
             ScrollView {
                 MarkdownArticle(text)
                     .padding(.horizontal, 24)
@@ -3050,19 +3691,7 @@ private struct AudioPlayerScreen: View {
         .presentationDragIndicator(.visible)
         .presentationDetents([.large])
         #else
-        .frame(minWidth: 560, idealWidth: 720, minHeight: 620, idealHeight: 780)
-        .overlay(alignment: .topTrailing) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(18)
-            .accessibilityLabel("Close audio player")
-        }
+        .frame(minWidth: 560, idealWidth: 680, minHeight: 620, idealHeight: 760)
         #endif
     }
 
@@ -3197,12 +3826,8 @@ private struct AudioPlayerScreen: View {
         }
     }
 
-    private var playerBackground: LinearGradient {
-        LinearGradient(
-            colors: [Color.accentColor.opacity(0.3), readerBackground],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+    private var playerBackground: Color {
+        readerBackground
     }
 }
 
@@ -3351,16 +3976,80 @@ private struct WindowControlPositioner: NSViewRepresentable {
 }
 
 private extension View {
+    func macLiquidGlass<S: Shape>(
+        in shape: S,
+        tint: Color? = nil,
+        interactive: Bool = false
+    ) -> some View {
+        modifier(
+            MacLiquidGlass(
+                shape: shape,
+                tint: tint,
+                interactive: interactive
+            )
+        )
+    }
+
     @ViewBuilder
     func actionBarGlass() -> some View {
+        macLiquidGlass(in: Capsule(), interactive: true)
+    }
+}
+
+private struct MacLiquidGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            glassEffect(.regular.interactive(), in: Capsule())
+            let glass = tint.map { Glass.regular.tint($0) } ?? .regular
+            if interactive {
+                content.glassEffect(glass.interactive(), in: shape)
+            } else {
+                content.glassEffect(glass, in: shape)
+            }
+        } else if let tint {
+            content.background(tint.opacity(0.22), in: shape)
+                .background(.regularMaterial, in: shape)
         } else {
-            background(.regularMaterial, in: Capsule())
+            content.background(.regularMaterial, in: shape)
         }
     }
 }
 #endif
+
+private struct BrieflyAtmosphere: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: reduceMotion)) {
+            context in
+            GeometryReader { geometry in
+                let time = reduceMotion
+                    ? 0
+                    : context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 240)
+                Color.white.colorEffect(
+                    ShaderLibrary.organicAtmosphere(
+                        .float2(geometry.size),
+                        .float(time),
+                        .float(colorScheme == .dark ? 1 : 0)
+                    )
+                )
+            }
+        }
+        .overlay {
+            Rectangle().fill(
+                colorScheme == .dark
+                    ? Color.black.opacity(0.12)
+                    : Color.white.opacity(0.08)
+            )
+        }
+    }
+}
 
 private struct BrieflyLogo: View {
     var body: some View {
@@ -3432,11 +4121,13 @@ private struct SyncActivityView: View {
             .frame(width: 210, alignment: .leading)
         }
         .padding(14)
+        #if os(macOS)
+        .macLiquidGlass(
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        #else
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.primary.opacity(0.08))
-        }
+        #endif
         .shadow(color: .black.opacity(0.13), radius: 16, y: 7)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Syncing with iCloud")
@@ -3465,109 +4156,57 @@ private struct LibrarySidebar: View {
             #endif
 
             #if os(macOS)
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField(model.activeSection.searchPrompt, text: $model.query)
-                    .textFieldStyle(.plain)
-                if !model.query.isEmpty {
-                    Button {
-                        model.query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear search")
-                }
+            HStack {
+                BrieflyLogo()
+                Spacer()
             }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
+            .padding(.horizontal, 20)
+            .frame(height: 54)
             #endif
 
             #if os(iOS)
             MobileLibraryRows(model: model, onOpenDetail: onOpenDetail)
             #else
             ScrollView {
-                MacSidebarFilters(model: model)
+                xSidebarNavigation
             }
+            .scrollIndicators(.hidden)
             #endif
 
             #if os(macOS)
-            sidebarNavigation
-                .actionBarGlass()
-                .padding(8)
-            .overlay(alignment: .topTrailing) {
-                HStack(spacing: 8) {
-                    if let playingEntry {
-                        Button {
-                            audioEntry = playingEntry
-                        } label: {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 14, weight: .semibold))
-                                .symbolEffect(
-                                    .variableColor.iterative,
-                                    options: .repeating
-                                )
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Color.accentColor, in: Circle())
-                        .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
-                        .accessibilityLabel("Return to audio player")
-                        .help("Return to audio player")
-                    }
-
-                    if model.activeSection != .items {
-                        Button {
-                            model.query = ""
-                            if model.activeSection == .channels {
-                                model.showChannelSettings("new")
-                            } else {
-                                model.showVoiceBriefSettings("new")
-                            }
-                            onOpenDetail()
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .semibold))
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .background(Color.accentColor, in: Circle())
-                        .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
-                        .accessibilityLabel(
-                            model.activeSection == .channels
-                                ? "New channel"
-                                : "New voice brief"
-                        )
-                    }
-                }
-                .padding(.trailing, 14)
-                .offset(y: -36)
-            }
+            sidebarFooter
+                .padding(14)
             #endif
         }
         #if os(macOS)
-        .background(sidebarBackground.ignoresSafeArea())
+        .background {
+            ZStack {
+                sidebarBackground.opacity(0.22)
+                Rectangle()
+                    .fill(.thinMaterial)
+                    .opacity(0.72)
+            }
+            .ignoresSafeArea()
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(.white.opacity(0.07))
+                .frame(width: 1)
+                .ignoresSafeArea()
+        }
         #else
         .background(sidebarBackground.ignoresSafeArea())
         #endif
     }
 
     #if os(macOS)
-    private var sidebarNavigation: some View {
-        HStack(spacing: 0) {
+    private var xSidebarNavigation: some View {
+        LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(LibrarySection.allCases) { section in
                 Button {
                     Task { await model.show(section) }
                 } label: {
-                    sidebarTab(
+                    xSidebarRow(
                         icon: section.icon,
                         title: section.title,
                         selected: model.activeSection == section
@@ -3579,16 +4218,96 @@ private struct LibrarySidebar: View {
                 .help(section.title)
             }
 
+            if model.activeSection == .items {
+                Divider()
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 8)
+
+                Button(action: model.showInbox) {
+                    xSidebarRow(
+                        icon: "tray",
+                        title: "Inbox",
+                        selected: model.selectedTopic == "All" &&
+                            !model.showingHighlights && !model.showingTrash
+                    )
+                }
+                Button(action: model.showHighlights) {
+                    xSidebarRow(
+                        icon: "highlighter",
+                        title: "Highlights",
+                        selected: model.showingHighlights
+                    )
+                }
+                Button(action: model.showTrash) {
+                    xSidebarRow(
+                        icon: "trash",
+                        title: "Trash",
+                        selected: model.showingTrash
+                    )
+                }
+            }
+
+            if model.activeSection != .items {
+                Button {
+                    model.query = ""
+                    if model.activeSection == .channels {
+                        model.showChannelSettings("new")
+                    } else {
+                        model.showVoiceBriefSettings("new")
+                    }
+                } label: {
+                    Label(
+                        model.activeSection == .channels ? "New channel" : "New brief",
+                        systemImage: "plus"
+                    )
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .padding(.top, 14)
+                .padding(.horizontal, 4)
+            } else {
+                Button {
+                    let text = NSPasteboard.general.string(forType: .string) ?? ""
+                    Task { await model.capture(text) }
+                } label: {
+                    Label("Capture", systemImage: "plus")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 42)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .padding(.top, 14)
+                .padding(.horizontal, 4)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+    }
+
+    private var sidebarFooter: some View {
+        VStack(spacing: 4) {
+            if let playingEntry {
+                Button {
+                    audioEntry = playingEntry
+                } label: {
+                    xSidebarRow(icon: "waveform", title: "Now playing", selected: false)
+                }
+                .symbolEffect(.variableColor.iterative, options: .repeating)
+            }
+
             Button {
                 showsSettings = true
             } label: {
-                sidebarTab(icon: "gearshape", title: "Settings", selected: false)
+                xSidebarRow(icon: "gearshape", title: "Settings", selected: false)
             }
             .help("Settings")
         }
         .buttonStyle(.plain)
-        .padding(4)
-        .frame(height: 58)
     }
 
     private var playingEntry: LibraryEntry? {
@@ -3599,27 +4318,24 @@ private struct LibrarySidebar: View {
         return model.projection.entries.first { $0.id == id }
     }
 
-    private func sidebarTab(
+    private func xSidebarRow(
         icon: String,
         title: String,
         selected: Bool
     ) -> some View {
-        VStack(spacing: 2) {
+        HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: 19, weight: selected ? .semibold : .regular))
+                .frame(width: 24)
             Text(title)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 17, weight: selected ? .bold : .medium))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            Spacer(minLength: 0)
         }
-        .foregroundStyle(selected ? Color.accentColor : Color.primary)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.82))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .contentShape(Rectangle())
-        .background {
-            if selected {
-                Capsule().fill(Color.primary.opacity(0.1))
-            }
-        }
     }
     #endif
 }
@@ -3744,6 +4460,7 @@ private struct MacSidebarFilters: View {
             }
         }
         .padding(.horizontal, 8)
+        .padding(.top, 4)
         .padding(.bottom, 10)
     }
 }
@@ -4094,18 +4811,12 @@ private struct MobileLibraryRows: View {
             } else {
                 GeometryReader { geometry in
                     ScrollView {
-                        Group {
-                            if entries.count == 1 {
-                                entryCard(entries[0], minimumHeight: geometry.size.height)
-                            } else {
-                                LazyVStack(spacing: 8) {
-                                    ForEach(entries) { entry in
-                                        entryCard(entry)
-                                    }
-                                }
+                        LazyVStack(spacing: 0) {
+                            ForEach(entries) { entry in
+                                entryCard(entry)
                             }
                         }
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .padding(.bottom, 150)
                         .frame(
@@ -4122,15 +4833,11 @@ private struct MobileLibraryRows: View {
     }
 
     @ViewBuilder
-    private func entryCard(
-        _ entry: LibraryEntry,
-        minimumHeight: CGFloat? = nil
-    ) -> some View {
+    private func entryCard(_ entry: LibraryEntry) -> some View {
         MobileEntryCard(
             entry: entry,
             kind: kind,
-            selected: model.selectedIDs.contains(entry.id),
-            minimumHeight: minimumHeight
+            selected: model.selectedIDs.contains(entry.id)
         ) {
             Task {
                 await model.select(entry.id)
@@ -4151,7 +4858,7 @@ private struct MobileCollectionHeader: View {
             Button(action: back) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 15, weight: .bold))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
@@ -4215,12 +4922,12 @@ private struct MobileCollectionCard: View {
                     Button(action: settingsAction) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
                             .frame(width: 34, height: 34)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .background(.black.opacity(0.2), in: Circle())
+                    .background(.primary.opacity(0.06), in: Circle())
                     .padding(12)
                     .accessibilityLabel(settingsLabel)
                 }
@@ -4235,52 +4942,9 @@ private enum GrainyGradientPalette {
     case item
     case channel
     case brief
-
-    var baseHue: Float {
-        switch self {
-        case .item: 0.18
-        case .channel: 0.06
-        case .brief: 0.34
-        }
-    }
-}
-
-private struct GrainyGradientBackground: View {
-    private let seed: Float
-    private let baseHue: Float
-    private let hueVariation: Float
-
-    init(palette: GrainyGradientPalette, variationKey: String) {
-        let seed = Self.seed(for: variationKey)
-        self.seed = seed
-        self.baseHue = palette.baseHue
-        self.hueVariation = seed
-    }
-
-    private static func seed(for key: String) -> Float {
-        let digest = SHA256.hash(data: Data(key.utf8))
-        return digest.withUnsafeBytes {
-            Float(UInt32(bigEndian: $0.loadUnaligned(as: UInt32.self))) /
-                Float(UInt32.max)
-        }
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            Color.white.colorEffect(
-                ShaderLibrary.grainyGradient(
-                    .float2(geometry.size),
-                    .float(seed),
-                    .float(baseHue),
-                    .float(hueVariation)
-                )
-            )
-        }
-    }
 }
 
 private struct GrainyCard<Content: View>: View {
-    let background: GrainyGradientBackground
     let content: Content
 
     init(
@@ -4288,31 +4952,47 @@ private struct GrainyCard<Content: View>: View {
         variationKey: String,
         @ViewBuilder content: () -> Content
     ) {
-        self.background = GrainyGradientBackground(
-            palette: palette,
-            variationKey: variationKey
-        )
         self.content = content()
     }
 
     var body: some View {
         content
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
             .background {
                 ZStack {
-                    background
-                    LinearGradient(
-                        colors: [.black.opacity(0.06), .black.opacity(0.46)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.78)
+                    Color.primary.opacity(0.018)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: cardCornerRadius,
+                    style: .continuous
+                )
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(.white.opacity(0.16))
+                RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    .stroke(.primary.opacity(0.11))
             }
+            #if os(macOS)
+            .shadow(color: .black.opacity(0.12), radius: 7, y: 3)
+            #else
             .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+            #endif
+    }
+
+    private var cardCornerRadius: CGFloat {
+        #if os(macOS)
+        11
+        #else
+        20
+        #endif
     }
 }
 
@@ -4321,6 +5001,7 @@ private struct GrainyEntryCard: View {
     let paletteOverride: GrainyGradientPalette?
     let selected: Bool
     let minimumHeight: CGFloat?
+    let featured: Bool
     let action: () -> Void
 
     private var palette: GrainyGradientPalette {
@@ -4332,12 +5013,14 @@ private struct GrainyEntryCard: View {
         palette: GrainyGradientPalette? = nil,
         selected: Bool = false,
         minimumHeight: CGFloat? = nil,
+        featured: Bool = false,
         action: @escaping () -> Void
     ) {
         self.entry = entry
         self.paletteOverride = palette
         self.selected = selected
         self.minimumHeight = minimumHeight
+        self.featured = featured
         self.action = action
     }
 
@@ -4366,14 +5049,14 @@ private struct GrainyEntryCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .top, spacing: 8) {
                         Text(entry.title)
-                            .font(.title2.weight(.bold))
+                            .font(cardTitleFont)
                             .lineLimit(3)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         if let dateText {
                             Text(dateText)
-                                .font(.caption.weight(.semibold))
+                                .font(.system(size: 10, weight: .medium))
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .opacity(0.85)
@@ -4382,30 +5065,46 @@ private struct GrainyEntryCard: View {
 
                     if !entry.excerpt.isEmpty {
                         Text(entry.excerpt)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(5)
+                            .font(.system(size: featured ? 13 : 12, weight: .regular))
+                            .lineLimit(featured ? 5 : 4)
                             .multilineTextAlignment(.leading)
                             .opacity(0.85)
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(
                     maxWidth: .infinity,
                     minHeight: cardMinimumHeight,
                     alignment: .topLeading
                 )
-                .padding(14)
+                .padding(featured ? 22 : 18)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: selectionCornerRadius, style: .continuous)
                 .stroke(
                     selected ? .white.opacity(0.7) : .clear,
                     lineWidth: selected ? 2 : 0
                 )
         }
+    }
+
+    private var cardTitleFont: Font {
+        #if os(macOS)
+        .system(size: featured ? 21 : 16, weight: .semibold)
+        #else
+        .title2.weight(.bold)
+        #endif
+    }
+
+    private var selectionCornerRadius: CGFloat {
+        #if os(macOS)
+        11
+        #else
+        20
+        #endif
     }
 }
 
@@ -4470,7 +5169,15 @@ private struct SidebarRow: View {
             row
         }
         #else
-        row
+        if selected {
+            row.macLiquidGlass(
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous),
+                tint: Color(red: 0.43, green: 0.34, blue: 0.21).opacity(0.44),
+                interactive: true
+            )
+        } else {
+            row
+        }
         #endif
     }
 
@@ -4510,8 +5217,8 @@ private struct SidebarRow: View {
         .frame(maxWidth: .infinity)
         .background {
             if !glass {
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(selected ? Color.primary.opacity(0.08) : Color.clear)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(rowBackgroundColor)
             }
         }
         .clipShape(
@@ -4521,6 +5228,16 @@ private struct SidebarRow: View {
             )
         )
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var rowBackgroundColor: Color {
+        #if os(iOS)
+        selected
+            ? Color(red: 0.38, green: 0.10, blue: 0.72).opacity(0.34)
+            : .clear
+        #else
+        .clear
+        #endif
     }
 }
 
@@ -4711,26 +5428,13 @@ private struct LibraryDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
-        .background(readerBackground)
-        .toolbar {
-            if model.selectedEntry != nil ||
-                !model.selectedChannelSource.isEmpty ||
-                !model.selectedVoiceBriefID.isEmpty
-            {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        model.navigateBack()
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                    }
-                    .help("Back to cards")
-                }
+        .background {
+            ZStack {
+                readerBackground.opacity(0.08)
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.08)
             }
-        }
-        .overlay(alignment: .bottomTrailing) {
-            BrieflyLogo()
-                .padding(.bottom, 14)
-                .padding(.trailing, 14)
         }
         #else
         .background(readerBackground.ignoresSafeArea())
@@ -4845,6 +5549,153 @@ private struct MasonryLayout: Layout {
     }
 }
 
+private struct BalancedTilingLayout: Layout {
+    let minimumTileWidth: CGFloat
+    let maximumColumns: Int
+    let spacing: CGFloat
+    let featuredCount: Int
+
+    struct Cache {
+        var frames = [CGRect]()
+        var size = CGSize.zero
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) -> CGSize {
+        guard !subviews.isEmpty else {
+            cache = Cache()
+            return .zero
+        }
+
+        let availableWidth = max(1, proposal.width ?? minimumTileWidth)
+        let rows = rowCounts(itemCount: subviews.count, width: availableWidth)
+        var frames = Array(repeating: CGRect.zero, count: subviews.count)
+        var itemIndex = 0
+        var y = CGFloat.zero
+
+        for (rowIndex, itemCount) in rows.enumerated() {
+            let availableForTiles = availableWidth - CGFloat(itemCount - 1) * spacing
+            let weights = rowWeights(count: itemCount, rowIndex: rowIndex)
+            let totalWeight = weights.reduce(0, +)
+            let widths = weights.map { availableForTiles * $0 / totalWeight }
+            var measuredHeights = [CGFloat]()
+
+            for offset in 0..<itemCount {
+                let size = subviews[itemIndex + offset].sizeThatFits(
+                    ProposedViewSize(width: widths[offset], height: nil)
+                )
+                measuredHeights.append(size.height)
+            }
+
+            let isFeaturedRow = rowIndex == 0 && featuredCount > 0 &&
+                subviews.count >= 6
+            let rowHeight = max(
+                isFeaturedRow ? 262 : 164,
+                measuredHeights.max() ?? 0
+            )
+            var x = CGFloat.zero
+
+            for offset in 0..<itemCount {
+                frames[itemIndex + offset] = CGRect(
+                    x: x,
+                    y: y,
+                    width: widths[offset],
+                    height: rowHeight
+                )
+                x += widths[offset] + spacing
+            }
+
+            itemIndex += itemCount
+            y += rowHeight + spacing
+        }
+
+        cache.frames = frames
+        cache.size = CGSize(width: availableWidth, height: max(0, y - spacing))
+        return cache.size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout Cache
+    ) {
+        if cache.frames.count != subviews.count ||
+            abs(cache.size.width - bounds.width) > 0.5
+        {
+            _ = sizeThatFits(
+                proposal: ProposedViewSize(width: bounds.width, height: nil),
+                subviews: subviews,
+                cache: &cache
+            )
+        }
+
+        for index in subviews.indices {
+            let frame = cache.frames[index]
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: frame.width, height: frame.height)
+            )
+        }
+    }
+
+    private func rowCounts(itemCount: Int, width: CGFloat) -> [Int] {
+        let preferred = max(
+            2,
+            min(
+                maximumColumns,
+                Int((width + spacing) / (minimumTileWidth + spacing))
+            )
+        )
+        var remaining = itemCount
+        var rows = [Int]()
+
+        if featuredCount > 0 && itemCount >= 6 {
+            let count = min(featuredCount, remaining)
+            rows.append(count)
+            remaining -= count
+        }
+
+        while remaining > 0 {
+            if remaining <= preferred {
+                rows.append(remaining)
+                break
+            }
+            if remaining < preferred * 2 {
+                let leading = Int(ceil(Double(remaining) / 2.0))
+                rows.append(leading)
+                rows.append(remaining - leading)
+                break
+            }
+            rows.append(preferred)
+            remaining -= preferred
+        }
+        return rows
+    }
+
+    private func rowWeights(count: Int, rowIndex: Int) -> [CGFloat] {
+        let weights: [CGFloat] = switch count {
+        case 2: [1.08, 0.92]
+        case 3: rowIndex == 0 && featuredCount > 0
+            ? [1.24, 1.0, 0.86]
+            : [1.08, 0.92, 1.0]
+        case 4: [1.08, 0.92, 1.04, 0.96]
+        case 5: [1.06, 0.94, 1.02, 0.90, 1.08]
+        case 6: [1.05, 0.95, 1.0, 1.04, 0.92, 1.04]
+        default: Array(repeating: 1, count: count)
+        }
+        return rowIndex.isMultiple(of: 2) ? weights : Array(weights.reversed())
+    }
+}
+
 private struct LibraryCardBrowser: View {
     @Bindable var model: LibraryModel
 
@@ -4860,6 +5711,17 @@ private struct LibraryCardBrowser: View {
         return model.channelEntries(for: model.selectedChannelSource).filter {
             $0.matches(model.query)
         }
+    }
+
+    private var allChannelEntries: [LibraryEntry] {
+        var seen = Set<String>()
+        return channels
+            .flatMap { model.channelEntries(for: $0.source) }
+            .filter { seen.insert($0.id).inserted && $0.matches(model.query) }
+            .sorted {
+                ($0.createdAt ?? $0.updatedAt ?? "") >
+                    ($1.createdAt ?? $1.updatedAt ?? "")
+            }
     }
 
     private var voiceBriefEntries: [LibraryEntry] {
@@ -4879,58 +5741,439 @@ private struct LibraryCardBrowser: View {
         switch model.activeSection {
         case .items: model.filteredEntries.count
         case .channels:
-            model.selectedChannelSource.isEmpty ? channels.count : channelEntries.count
+            model.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
         case .briefs:
             voiceBriefEntries.count
         }
     }
 
+    private var feedEntries: [LibraryEntry]? {
+        switch model.activeSection {
+        case .items:
+            model.filteredEntries
+        case .channels:
+            model.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
+        case .briefs:
+            voiceBriefEntries
+        }
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                desktopActions
-
+            VStack(alignment: .leading, spacing: 16) {
                 if count == 0 {
-                    ContentUnavailableView(
-                        emptyTitle,
-                        systemImage: emptyIcon,
-                        description: Text(emptyDescription)
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 360)
+                    VStack(spacing: 0) {
+                        feedHeader
+                        XEmptyState(
+                            icon: emptyIcon,
+                            title: emptyTitle,
+                            message: emptyDescription
+                        )
+                        .frame(minHeight: 360)
+                    }
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 } else {
-                    MasonryLayout(
-                        minimumColumnWidth: 250,
-                        maximumColumnWidth: 360,
-                        spacing: 16
+                    browserContent
+                }
+            }
+            .padding(.horizontal, 0)
+            .padding(.top, 0)
+            .padding(.bottom, 80)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.ultraThinMaterial.opacity(0.24))
+    }
+
+    @ViewBuilder
+    private var browserContent: some View {
+        if let feedEntries {
+            feedColumn(feedEntries)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity, alignment: .top)
+        }
+    }
+
+    private var channelIndex: some View {
+        LazyVStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Channels")
+                        .font(.title2.weight(.bold))
+                    Text("Sources you follow")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(channels.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(18)
+            .background(.regularMaterial)
+
+            Divider()
+
+            ForEach(channels) { channel in
+                HStack(spacing: 13) {
+                    Image(
+                        systemName: channel.kind == .podcast
+                            ? "waveform"
+                            : "dot.radiowaves.left.and.right"
+                    )
+                    .font(.system(size: 18, weight: .medium))
+                    .frame(width: 42, height: 42)
+                    .background(Color.primary.opacity(0.06), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(channel.title)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                        Text(channelDomain(channel.source))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text("\(model.channelEntries(for: channel.source).count) saved notes")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Button {
+                        model.showChannelSettings(channel.source)
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Settings for \(channel.title)")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectChannel(channel.source) }
+                .overlay(alignment: .bottom) { Divider().padding(.leading, 70) }
+            }
+        }
+        .background(.ultraThinMaterial.opacity(0.64))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+    }
+
+    private func feedColumn(_ entries: [LibraryEntry]) -> some View {
+        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            Section {
+                ForEach(entries) { entry in
+                    let row = FeedEntryRow(
+                        entry: entry,
+                        action: { Task { await model.select(entry.id) } }
+                    )
+                    if model.showingTrash {
+                        row
+                    } else {
+                        row.modifier(EntryContextMenu(model: model, entry: entry))
+                    }
+                }
+            } header: {
+                feedHeader
+            }
+        }
+    }
+
+    private var feedHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            feedTabs
+
+            if model.activeSection == .briefs, let brief = model.selectedVoiceBrief {
+                briefRefreshPrompt(brief)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+            }
+
+            Divider()
+                .padding(.top, 12)
+        }
+        .background(.regularMaterial)
+        .overlay(alignment: .topTrailing) {
+            if model.activeSection != .items {
+                feedHeaderAction
+                    .padding(.top, 12)
+                    .padding(.trailing, 10)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var feedTabs: some View {
+        switch model.activeSection {
+        case .items:
+            ScrollView(.horizontal) {
+                HStack(spacing: 20) {
+                    topicTab("All")
+                    ForEach(Array(model.projection.documentTopics.prefix(7)), id: \.self) {
+                        topicTab($0)
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 24)
+            }
+            .scrollIndicators(.hidden)
+        case .channels:
+            channelTabs
+        case .briefs:
+            briefTabs
+        }
+    }
+
+    @ViewBuilder
+    private var feedHeaderAction: some View {
+        switch model.activeSection {
+        case .items:
+            EmptyView()
+        case .channels:
+            if let channel = model.selectedChannel {
+                Button {
+                    model.showChannelSettings(channel.source)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .background(opaqueHeaderActionBackground, in: Circle())
+                .help("Settings for \(channel.title)")
+                .accessibilityLabel("Settings for \(channel.title)")
+            } else {
+                Button {
+                    model.query = ""
+                    model.showChannelSettings("new")
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .background(opaqueHeaderActionBackground, in: Circle())
+                .help("New channel")
+                .accessibilityLabel("New channel")
+            }
+        case .briefs:
+            if let brief = model.selectedVoiceBrief {
+                Button {
+                    model.showVoiceBriefSettings(brief.id)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .background(opaqueHeaderActionBackground, in: Circle())
+                .help("Settings for \(brief.title)")
+                .accessibilityLabel("Settings for \(brief.title)")
+            } else {
+                Button {
+                    model.query = ""
+                    model.showVoiceBriefSettings("new")
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .background(opaqueHeaderActionBackground, in: Circle())
+                .help("New brief")
+                .accessibilityLabel("New brief")
+            }
+        }
+    }
+
+    private var opaqueHeaderActionBackground: Color {
+        Color(nsColor: .windowBackgroundColor)
+    }
+
+    private var channelTabs: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 20) {
+                selectionTab("All", selected: model.selectedChannelSource.isEmpty) {
+                    model.selectChannel("")
+                }
+                ForEach(Array(channels.prefix(7))) { channel in
+                    selectionTab(
+                        compactLabel(channel.title),
+                        selected: model.selectedChannelSource == channel.source
                     ) {
-                        switch model.activeSection {
-                        case .items:
-                            ForEach(model.filteredEntries) { entry in
-                                noteCard(entry)
-                            }
-                        case .channels:
-                            if model.selectedChannelSource.isEmpty {
-                                ForEach(channels) { channel in
-                                    channelCard(channel)
-                                }
-                            } else {
-                                ForEach(channelEntries) { entry in
-                                    noteCard(entry)
-                                }
-                            }
-                        case .briefs:
-                            ForEach(voiceBriefEntries) { entry in
-                                noteCard(entry)
-                            }
-                        }
+                        model.selectChannel(channel.source)
                     }
                 }
             }
-            .padding(.horizontal, 30)
-            .padding(.top, 54)
-            .padding(.bottom, 80)
-            .frame(maxWidth: 1120, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18)
+            .padding(.trailing, 62)
+            .padding(.top, 24)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private var briefTabs: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 20) {
+                selectionTab("All", selected: model.selectedVoiceBriefID.isEmpty) {
+                    model.selectVoiceBrief("")
+                }
+                ForEach(Array(model.projection.voiceBriefDefinitions.prefix(7)), id: \.id) { brief in
+                    selectionTab(
+                        brief.title,
+                        selected: model.selectedVoiceBriefID == brief.id
+                    ) {
+                        model.selectVoiceBrief(brief.id)
+                    }
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.trailing, 62)
+            .padding(.top, 24)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func selectionTab(
+        _ title: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 16, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? .primary : .secondary)
+                    .lineLimit(1)
+                Capsule()
+                    .fill(selected ? Color.accentColor : .clear)
+                    .frame(height: 4)
+            }
+            .frame(minHeight: 44)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func topicTab(_ topic: String) -> some View {
+        let selected = model.selectedTopic == topic
+        return Button {
+            Task { await model.showTopic(topic) }
+        } label: {
+            VStack(spacing: 8) {
+                Text(topic)
+                    .font(.system(size: 16, weight: selected ? .semibold : .medium))
+                    .foregroundStyle(selected ? .primary : .secondary)
+                    .lineLimit(1)
+                Capsule()
+                    .fill(selected ? Color.accentColor : .clear)
+                    .frame(height: 4)
+            }
+            .frame(minHeight: 44)
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func briefRefreshPrompt(_ brief: LibraryVoiceBrief) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 17, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(Color.primary.opacity(0.07), in: Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ready for a fresh brief?")
+                    .font(.callout.weight(.semibold))
+                Text("Generate the latest episode from \(brief.sources.count) channels.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                Task { await model.runSelectedVoiceBrief() }
+            } label: {
+                if model.isRunningVoiceBrief {
+                    ProgressView().controlSize(.small)
+                        .frame(minWidth: 82)
+                } else {
+                    Text("Generate")
+                        .font(.callout.weight(.semibold))
+                        .frame(minWidth: 82)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(0.08))
+        }
+    }
+
+    private var feedRail: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search your library", text: $model.query)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(.regularMaterial)
+            .clipShape(Capsule())
+            .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
+
+            FeedRailCard(title: "Collections") {
+                ForEach(Array(model.projection.documentTopics.prefix(6)), id: \.self) { topic in
+                    Button {
+                        Task { await model.showTopic(topic) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "folder")
+                                .foregroundStyle(.secondary)
+                            Text(topic)
+                                .lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 5)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            FeedRailCard(title: "Your library") {
+                FeedMetric(label: "Saved notes", value: model.projection.entries.filter(\.isMainLibraryEntry).count)
+                FeedMetric(label: "Channels", value: model.channels.count)
+                FeedMetric(label: "Voice briefs", value: model.projection.voiceBriefDefinitions.count)
+            }
+        }
+    }
+
+    private var feedTitle: String {
+        switch model.activeSection {
+        case .items:
+            model.showingTrash ? "Trash" : model.selectedTopic == "All" ? "For you" : model.selectedTopic
+        case .channels:
+            model.selectedChannel?.title ?? "Channel"
+        case .briefs:
+            model.selectedVoiceBrief?.title ?? "Briefs"
         }
     }
 
@@ -4957,7 +6200,8 @@ private struct LibraryCardBrowser: View {
                     model.showChannelSettings(channel.source)
                 } label: {
                     Image(systemName: "gearshape")
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Settings for \(channel.title)")
@@ -4984,7 +6228,8 @@ private struct LibraryCardBrowser: View {
                     model.showVoiceBriefSettings(brief.id)
                 } label: {
                     Image(systemName: "gearshape")
-                        .frame(width: 30, height: 30)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Settings for \(brief.title)")
@@ -4994,9 +6239,15 @@ private struct LibraryCardBrowser: View {
     }
 
     @ViewBuilder
-    private func noteCard(_ entry: LibraryEntry) -> some View {
+    private func noteCard(
+        _ entry: LibraryEntry,
+        minimumHeight: CGFloat? = nil,
+        featured: Bool = false
+    ) -> some View {
         let card = GrainyEntryCard(
             entry: entry,
+            minimumHeight: minimumHeight,
+            featured: featured,
             action: { Task { await model.select(entry.id) } }
         )
         if model.showingTrash {
@@ -5025,7 +6276,7 @@ private struct LibraryCardBrowser: View {
                 .lineLimit(2)
             Text(channel.source)
                 .font(.callout)
-                .foregroundStyle(.white.opacity(0.82))
+                .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
             Label(
@@ -5033,7 +6284,7 @@ private struct LibraryCardBrowser: View {
                 systemImage: "doc.text"
             )
             .font(.caption)
-            .foregroundStyle(.white.opacity(0.82))
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -5075,6 +6326,147 @@ private struct LibraryCardBrowser: View {
     }
 }
 
+private struct FeedEntryRow: View {
+    let entry: LibraryEntry
+    let action: () -> Void
+
+    private var sourceURL: URL? {
+        entry.sourceURL.flatMap(URL.init(string:))
+    }
+
+    private var sourceName: String {
+        if let sharedBy = entry.sharedByDisplayName, !sharedBy.isEmpty {
+            return sharedBy
+        }
+        if let host = sourceURL?.host {
+            return host.replacingOccurrences(of: "www.", with: "")
+        }
+        return entry.entryType == "voice_brief_episode" ? "Voice Brief" : "Briefly"
+    }
+
+    private var relativeDate: String? {
+        guard
+            let rawDate = entry.createdAt ?? entry.updatedAt,
+            let date = try? Date(rawDate, strategy: .iso8601)
+        else { return nil }
+        return date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+    }
+
+    private var displayExcerpt: String {
+        let excerpt = entry.excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty,
+            excerpt.lowercased().hasPrefix(title.lowercased())
+        else { return excerpt }
+        return String(excerpt.dropFirst(title.count))
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Text(sourceName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+                if let username = entry.sharedByUsername, !username.isEmpty {
+                    Text("@\(username)")
+                        .lineLimit(1)
+                }
+                if let relativeDate {
+                    Text("·")
+                    Text(relativeDate)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+            }
+            .padding(.trailing, sourceURL == nil ? 0 : 40)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            Text(entry.title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !displayExcerpt.isEmpty {
+                Text(displayExcerpt)
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .overlay(alignment: .topTrailing) {
+            if let sourceURL {
+                Link(destination: sourceURL) {
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Open original")
+                .padding(.trailing, 6)
+                .padding(.top, 2)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+}
+
+private struct FeedRailCard<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+            content
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial.opacity(0.72))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.10))
+        }
+    }
+}
+
+private struct FeedMetric: View {
+    let label: String
+    let value: Int
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value, format: .number)
+                .fontWeight(.semibold)
+        }
+        .font(.callout)
+        .padding(.vertical, 3)
+    }
+}
+
 private struct BrowserCard<Content: View>: View {
     let palette: GrainyGradientPalette
     let variationKey: String
@@ -5106,9 +6498,9 @@ private struct BrowserCard<Content: View>: View {
                     VStack(alignment: .leading, spacing: 10) {
                         content
                     }
-                    .padding(.leading, 14)
-                    .padding(.vertical, 14)
-                    .padding(.trailing, settingsAction == nil ? 15 : 46)
+                    .padding(.leading, 18)
+                    .padding(.vertical, 18)
+                    .padding(.trailing, settingsAction == nil ? 18 : 50)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
@@ -5117,13 +6509,13 @@ private struct BrowserCard<Content: View>: View {
                 if let settingsAction {
                     Button(action: settingsAction) {
                         Image(systemName: "gearshape")
-                            .frame(width: 30, height: 30)
+                            .frame(width: 44, height: 44)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .background(.black.opacity(0.2), in: Circle())
+                    .macLiquidGlass(in: Circle(), interactive: true)
                     .padding(10)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .accessibilityLabel(settingsLabel)
                     .help(settingsLabel)
                 }
@@ -5149,43 +6541,111 @@ private struct CardEyebrow: View {
                         .relative(presentation: .named, unitsStyle: .abbreviated)
                     )
                 )
-                .foregroundStyle(.white.opacity(0.72))
+                .foregroundStyle(.tertiary)
             }
         }
         .font(.system(size: 10, weight: .bold))
         .tracking(0.4)
-        .foregroundStyle(.white.opacity(0.78))
+        .foregroundStyle(.secondary)
     }
 }
 #endif
+
+private struct XEmptyState: View {
+    let icon: String
+    let title: String
+    let message: String
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.title2.weight(.bold))
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: 360, alignment: .leading)
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
+
+private struct XLoadingState: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: 360, alignment: .leading)
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
 
 private struct HighlightsDocument: View {
     @Bindable var model: LibraryModel
 
     var body: some View {
-        GeometryReader { geometry in
-            if model.highlightsText.isEmpty {
-                ZStack {
-                    ContentUnavailableView(
-                        "No highlights yet",
-                        systemImage: "highlighter",
-                        description: Text(
-                            "Select a passage in any document, then choose Highlight."
-                        )
-                    )
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Highlights")
+                        .font(.title2.weight(.bold))
+                    Text("Passages saved from your library")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                ScrollView {
-                    MarkdownArticle(model.highlightsText)
-                        .frame(maxWidth: 844, alignment: .leading)
-                        .padding(.horizontal, 32)
-                        .padding(.top, 56)
-                        .padding(.bottom, 80)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: geometry.size.height, alignment: .top)
+                Spacer()
+            }
+            .padding(18)
+            .background(.regularMaterial)
+
+            Divider()
+
+            GeometryReader { geometry in
+                if model.highlightsText.isEmpty {
+                    XEmptyState(
+                        icon: "highlighter",
+                        title: "No highlights yet",
+                        message: "Select a passage in any document, then choose Highlight."
+                    )
+                } else {
+                    ScrollView {
+                        MarkdownArticle(model.highlightsText)
+                            .frame(maxWidth: 620, alignment: .leading)
+                            .padding(.horizontal, 28)
+                            .padding(.top, 34)
+                            .padding(.bottom, 80)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: geometry.size.height, alignment: .top)
+                    }
                 }
             }
         }
+        .frame(maxWidth: 680)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(.ultraThinMaterial.opacity(0.64))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
     }
 }
 
@@ -5869,16 +7329,54 @@ private struct LibraryDocument: View {
     @State private var showsSharing = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        VStack(spacing: 0) {
+            #if os(macOS)
+            HStack(spacing: 12) {
+                Button {
+                    Task { await model.select("") }
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .contentShape(Circle())
+
+                Spacer()
+                Menu {
+                    Button("Regenerate summaries", systemImage: "arrow.clockwise") {
+                        Task { await model.processSelected() }
+                    }
+                    .disabled(model.isProcessing)
+                    Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                        Task { await model.trashSelected() }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 56)
+            .background(.regularMaterial)
+            Divider()
+            #endif
+
+            ZStack(alignment: .bottom) {
             if model.isLoadingText {
-                ProgressView("Loading document…")
+                XLoadingState(
+                    title: "Loading post",
+                    message: "Fetching the saved document and its reading variants."
+                )
             } else if model.selectedText.isEmpty && !model.canEdit {
-                ContentUnavailableView(
-                    "Document unavailable",
-                    systemImage: "icloud.slash",
-                    description: Text(
-                        "Sync the library to download this document."
-                    )
+                XEmptyState(
+                    icon: "icloud.slash",
+                    title: "Document unavailable",
+                    message: "Sync the library to download this document."
                 )
             } else {
                 DocumentEditor(
@@ -5943,6 +7441,8 @@ private struct LibraryDocument: View {
 
                 #if os(iOS)
                 Spacer()
+                #else
+                Spacer(minLength: 12)
                 #endif
 
                 HStack(spacing: 0) {
@@ -6075,16 +7575,24 @@ private struct LibraryDocument: View {
                 #endif
             }
             #if os(macOS)
-            .padding(4)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
             .frame(height: 58)
-            .fixedSize(horizontal: true, vertical: false)
-            .actionBarGlass()
-            .padding(8)
-            .padding(.bottom, 4)
-            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            .background(.regularMaterial)
+            .overlay(alignment: .top) { Divider() }
+            .frame(maxWidth: .infinity, alignment: .bottom)
             #endif
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        #if os(macOS)
+        .frame(maxWidth: 680)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(.ultraThinMaterial.opacity(0.64))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+        #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
         .onChange(of: entry.id) {
             isEditing = false
         }
@@ -6151,75 +7659,80 @@ private struct ShareDocumentView: View {
     @State private var errorMessage = ""
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    Text(
-                        "Publish the available summaries for “\(entry.title)”. " +
-                            "The private captured source text is never included."
-                    )
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                Text("Share link")
+                    .font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 54)
+            Divider()
+
+            VStack(alignment: .leading, spacing: 20) {
+                Text(entry.title)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(2)
+                Text(
+                    "Publish the available summaries. The private captured source text is never included."
+                )
+                .foregroundStyle(.secondary)
+
                 if !model.account.authenticated {
-                    Section {
-                        Label(
-                            "Sign in to your Briefly account in Settings before publishing.",
-                            systemImage: "person.crop.circle.badge.exclamationmark"
-                        )
-                    }
+                    Label(
+                        "Sign in to your Briefly account in Settings before publishing.",
+                        systemImage: "person.crop.circle.badge.exclamationmark"
+                    )
                 } else if let urlString = link?.url, let url = URL(string: urlString) {
-                    Section("Shareable reader") {
-                        Text(url.absoluteString)
-                            .font(.system(.callout, design: .monospaced))
-                            .textSelection(.enabled)
-                        HStack {
-                            Button {
-                                copyShareURL(url)
-                            } label: {
-                                Label("Copy link", systemImage: "doc.on.doc")
-                            }
-                            ShareLink(item: url) {
-                                Label("Share…", systemImage: "square.and.arrow.up")
-                            }
-                            Spacer()
-                            Button("Stop sharing", role: .destructive) {
-                                Task { await revoke() }
-                            }
+                    Text(url.absoluteString)
+                        .font(.system(.callout, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+                    HStack {
+                        Button("Copy link", systemImage: "doc.on.doc") {
+                            copyShareURL(url)
+                        }
+                        ShareLink(item: url) {
+                            Label("Share…", systemImage: "square.and.arrow.up")
+                        }
+                        Spacer()
+                        Button("Stop sharing", role: .destructive) {
+                            Task { await revoke() }
                         }
                     }
                 } else if link?.shared == true {
-                    Section {
-                        Label(
-                            "The shareable reader is being prepared.",
-                            systemImage: "clock"
-                        )
-                    }
+                    Label("The shareable reader is being prepared.", systemImage: "clock")
                 } else {
-                    Section {
-                        Button {
-                            Task { await publish() }
-                        } label: {
-                            Label("Create share link", systemImage: "link.badge.plus")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isBusy)
+                    Button("Create share link", systemImage: "link.badge.plus") {
+                        Task { await publish() }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .disabled(isBusy)
                 }
+
                 if !errorMessage.isEmpty {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    }
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
                 }
             }
-            .formStyle(.grouped)
-            .navigationTitle("Share link")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .background(.regularMaterial)
         .task { await load() }
         #if os(macOS)
         .frame(minWidth: 520, minHeight: 310)
@@ -6390,7 +7903,7 @@ private struct VoiceBriefConfiguration: View {
                 VStack(alignment: .leading, spacing: 28) {
                     TextField("Voice brief title", text: $title)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 42, weight: .bold, design: .serif))
+                        .font(.system(size: 30, weight: .bold))
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Editorial direction")
@@ -6523,10 +8036,11 @@ private struct VoiceBriefConfiguration: View {
                         Spacer()
                     }
                 }
-                .padding(.horizontal, 34)
-                .padding(.vertical, 58)
-                .frame(maxWidth: 900, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(24)
+                .frame(maxWidth: 680, alignment: .leading)
+                .background(.ultraThinMaterial.opacity(0.64))
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .frame(maxWidth: .infinity, alignment: .top)
             } else if let brief = model.selectedVoiceBrief {
                 ConfigurationCard(
                     eyebrow: "VOICE BRIEF",
@@ -6538,11 +8052,15 @@ private struct VoiceBriefConfiguration: View {
                     LabeledContent("Sources", value: brief.sources.joined(separator: "\n"))
                 }
             } else {
-                ContentUnavailableView(
-                    "No voice briefs",
-                    systemImage: "headphones",
-                    description: Text("Create a voice brief to gather and synthesize channels.")
+                XEmptyState(
+                    icon: "headphones",
+                    title: "No voice briefs",
+                    message: "Create a voice brief to gather and synthesize channels."
                 )
+                .frame(maxWidth: 680)
+                .background(.ultraThinMaterial.opacity(0.64))
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -6551,6 +8069,16 @@ private struct VoiceBriefConfiguration: View {
                 (model.selectedVoiceBrief != nil || model.selectedVoiceBriefID == "new")
             {
                 HStack(spacing: 10) {
+                    Button {
+                        model.navigateBack()
+                    } label: {
+                        Image(systemName: "arrow.left")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Text("Voice brief")
+                        .font(.headline)
                     Spacer(minLength: 0)
                     Text(model.status)
                         .font(.caption)
@@ -6589,8 +8117,10 @@ private struct VoiceBriefConfiguration: View {
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 56)
-                .background(readerBackground)
-                .overlay(alignment: .bottom) { Divider() }
+                .frame(maxWidth: 680)
+                .background(.regularMaterial)
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .task(id: model.selectedVoiceBriefID) {
@@ -6845,7 +8375,7 @@ private struct ChannelConfiguration: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(channel.title)
-                                .font(.system(.largeTitle, design: .serif, weight: .bold))
+                                .font(.system(size: 28, weight: .bold))
                             Text(channel.source)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -6958,10 +8488,11 @@ private struct ChannelConfiguration: View {
                         )
                     }
                 }
-                .frame(maxWidth: 1000, alignment: .leading)
-                .padding(.horizontal, 40)
-                .padding(.vertical, 44)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: 680, alignment: .leading)
+                .padding(24)
+                .background(.ultraThinMaterial.opacity(0.64))
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .frame(maxWidth: .infinity, alignment: .top)
                 #else
                 ConfigurationCard(
                     eyebrow: "CHANNEL",
@@ -7043,13 +8574,40 @@ private struct ChannelConfiguration: View {
                 }
                 #endif
             } else {
-                ContentUnavailableView(
-                    "No channels",
-                    systemImage: "dot.radiowaves.left.and.right",
-                    description: Text("Add a channel to gather new material.")
+                XEmptyState(
+                    icon: "dot.radiowaves.left.and.right",
+                    title: "No channels",
+                    message: "Add a channel to gather new material."
                 )
+                .frame(maxWidth: 680)
+                .background(.ultraThinMaterial.opacity(0.64))
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
+        #if os(macOS)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack(spacing: 12) {
+                Button {
+                    model.navigateBack()
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text(model.selectedChannelSource == "new" ? "Add channel" : "Channel")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 56)
+            .frame(maxWidth: 680)
+            .background(.regularMaterial)
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        #endif
         .task(id: model.selectedChannelSource) {
             source = model.selectedChannelSource == "new"
                 ? ""
@@ -7089,17 +8647,20 @@ private struct ConfigurationCard<Content: View>: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(title)
-                .font(.system(.largeTitle, design: .serif, weight: .bold))
+                .font(.system(size: 28, weight: .bold))
             Text(description)
-                .font(.title3)
+                .font(.callout)
                 .foregroundStyle(.secondary)
             Divider()
             content
         }
-        .frame(maxWidth: 720, alignment: .leading)
-        .padding(.horizontal, 34)
-        .padding(.vertical, 58)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: 680, alignment: .leading)
+        .padding(24)
+        #if os(macOS)
+        .background(.ultraThinMaterial.opacity(0.64))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+        #endif
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 
@@ -7209,6 +8770,520 @@ private enum BrieflySettingsSection: String, CaseIterable, Identifiable {
     }
 }
 
+#if os(macOS)
+private struct MacXSettingsWorkspace: View {
+    @AppStorage("BrieflyAppearance") private var appearance = "system"
+    @AppStorage("BrieflySaveCapturedAudio") private var saveCapturedAudio = false
+    @Bindable var model: LibraryModel
+    @State private var selectedSection = BrieflySettingsSection.general
+    @State private var query = ""
+    @State private var captureShortcut = CaptureShortcut.load()
+    @State private var shortcutRegistered = UserDefaults.standard.bool(
+        forKey: "BrieflyCaptureShortcutRegistered"
+    )
+    @State private var showsChannelBrowser = false
+    @State private var showsPDFImporter = false
+    @State private var appleSignInNonce = ""
+
+    private var filteredSections: [BrieflySettingsSection] {
+        guard !query.isEmpty else { return BrieflySettingsSection.allCases }
+        return BrieflySettingsSection.allCases.filter {
+            $0.title.localizedCaseInsensitiveContains(query) ||
+                subtitle(for: $0).localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            settingsIndex
+                .frame(width: 390)
+
+            settingsDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .background(.ultraThinMaterial.opacity(0.48))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+        .fileImporter(isPresented: $showsPDFImporter, allowedContentTypes: [.pdf]) { result in
+            switch result {
+            case .success(let url):
+                Task { await model.capturePDF(url) }
+            case .failure(let error):
+                model.errorMessage = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $showsChannelBrowser) {
+            ChannelLoginView()
+        }
+        .onChange(of: captureShortcut) {
+            captureShortcut.save()
+            NotificationCenter.default.post(
+                name: .brieflyCaptureShortcutChanged,
+                object: nil
+            )
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .brieflyCaptureShortcutRegistrationChanged
+            )
+        ) { notification in
+            shortcutRegistered = notification.object as? Bool ?? false
+        }
+        .task {
+            await model.refreshAccount()
+            await model.loadSubscription()
+        }
+    }
+
+    private var settingsIndex: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Settings")
+                .font(.title2.weight(.bold))
+                .padding(.horizontal, 18)
+                .padding(.top, 17)
+                .padding(.bottom, 14)
+
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search Settings", text: $query)
+                    .textFieldStyle(.plain)
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 40)
+            .background(Color.primary.opacity(0.055), in: Capsule())
+            .overlay { Capsule().stroke(Color.primary.opacity(0.09)) }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredSections) { section in
+                        Button { selectedSection = section } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: section.icon)
+                                    .frame(width: 22)
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(section.title)
+                                        .font(.callout.weight(.medium))
+                                    Text(subtitle(for: section))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 55)
+                            .background(
+                                selectedSection == section
+                                    ? Color.primary.opacity(0.055)
+                                    : .clear
+                            )
+                            .overlay(alignment: .trailing) {
+                                Rectangle()
+                                    .fill(selectedSection == section ? Color.accentColor : .clear)
+                                    .frame(width: 3)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Divider().padding(.vertical, 8)
+                    indexLink("Feedback", icon: "bubble.left.and.bubble.right", url: "https://www.readbriefly.fyi/feedback")
+                    indexLink("Privacy Policy", icon: "hand.raised", url: "https://www.readbriefly.fyi/privacy")
+                    indexLink("Terms of Use", icon: "doc.text", url: "https://www.readbriefly.fyi/terms")
+                }
+            }
+        }
+        .background(.ultraThinMaterial.opacity(0.42))
+        .overlay(alignment: .trailing) { Divider() }
+    }
+
+    private var settingsDetail: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(selectedSection.title)
+                        .font(.title2.weight(.bold))
+                    Text(detailSubtitle(for: selectedSection))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 14)
+
+                Divider()
+                detailContent
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        switch selectedSection {
+        case .general:
+            detailGroup("Display") {
+                detailRow(icon: "circle.lefthalf.filled", title: "Appearance", subtitle: "Choose how Briefly looks on this Mac") {
+                    Picker("", selection: $appearance) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                }
+            }
+
+        case .library:
+            detailGroup("Library") {
+                valueRow(icon: "internaldrive", title: "Storage", value: "Local SQLite database")
+                valueRow(icon: "checkmark.circle", title: "Status", value: model.status)
+                actionRow(icon: "arrow.clockwise", title: "Refresh library", subtitle: "Reload all saved notes from local storage") {
+                    Task { await model.refreshLibrary() }
+                }
+                actionRow(icon: "arrow.triangle.2.circlepath", title: model.isSyncing ? "Syncing…" : "Sync with iCloud", subtitle: "Push and pull the latest library changes") {
+                    Task { await model.sync() }
+                }
+                .disabled(model.isSyncing)
+            }
+
+        case .capture:
+            detailGroup("Capture") {
+                detailRow(icon: "keyboard", title: "Global shortcut", subtitle: shortcutRegistered ? "Active system-wide" : "Choose another shortcut") {
+                    ShortcutRecorder(shortcut: $captureShortcut)
+                        .frame(width: 150, height: 30)
+                }
+                actionRow(icon: "clipboard", title: "Capture clipboard", subtitle: "Save the current clipboard as a note") {
+                    let text = NSPasteboard.general.string(forType: .string) ?? ""
+                    Task { await model.capture(text) }
+                }
+                .disabled(!model.canEdit)
+                actionRow(icon: "doc.richtext", title: "Import PDF", subtitle: "Add and process a local PDF document") {
+                    showsPDFImporter = true
+                }
+                .disabled(!model.canEdit)
+                actionRow(icon: "globe", title: "Signed-in browser", subtitle: "Capture pages that require a login") {
+                    showsChannelBrowser = true
+                }
+                detailRow(icon: "waveform", title: "Save captured YouTube audio", subtitle: "Applies to manual link captures") {
+                    Toggle("", isOn: $saveCapturedAudio)
+                        .labelsHidden()
+                }
+            }
+
+        case .account:
+            detailGroup("Your account") {
+                valueRow(icon: "person.crop.circle", title: "Account", value: model.account.authenticated ? model.account.email ?? "Signed in" : "Signed out")
+                if model.account.authenticated {
+                    valueRow(icon: "checkmark.seal", title: "Membership", value: model.account.entitled == true ? "Active" : "Needs activation")
+                    actionRow(icon: "arrow.clockwise", title: "Refresh account", subtitle: "Check membership and subscription status") {
+                        Task { await model.refreshAccount(reportErrors: true) }
+                    }
+                    if model.account.entitled == true {
+                        externalDetailRow(icon: "creditcard", title: "Manage App Store subscription", url: "https://apps.apple.com/account/subscriptions")
+                    } else if let product = model.subscriptionProduct {
+                        actionRow(icon: "sparkles", title: "Subscribe — \(product.displayPrice)/month", subtitle: "Unlock Briefly membership") {
+                            Task { await model.purchaseSubscription() }
+                        }
+                    }
+                    actionRow(icon: "arrow.counterclockwise", title: "Restore purchases", subtitle: "Restore an existing App Store subscription") {
+                        Task { await model.restoreSubscription() }
+                    }
+                    actionRow(icon: "rectangle.portrait.and.arrow.right", title: "Sign out", subtitle: "Remove this account from the Mac", destructive: true) {
+                        Task { await model.signOut() }
+                    }
+                } else {
+                    SignInWithAppleButton(.signIn) { request in
+                        let nonce = randomAppleNonce()
+                        appleSignInNonce = nonce
+                        request.requestedScopes = [.email]
+                        request.nonce = SHA256.hash(data: Data(nonce.utf8))
+                            .map { String(format: "%02x", $0) }
+                            .joined()
+                    } onCompletion: { result in
+                        let nonce = appleSignInNonce
+                        appleSignInNonce = ""
+                        Task { await model.signInWithApple(result, nonce: nonce) }
+                    }
+                    .signInWithAppleButtonStyle(.black)
+                    .frame(width: 260, height: 42)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
+                }
+            }
+
+        case .personalization:
+            editorGroup(
+                title: "Personalization",
+                description: "Context used when Prioritize for me is enabled.",
+                firstTitle: "About you",
+                firstText: $model.aboutYou,
+                secondTitle: "Voice brief prompt",
+                secondText: $model.voiceBriefPrompt,
+                restore: { model.voiceBriefPrompt = defaultVoiceBriefPrompt },
+                save: model.savePersonalizationSettings
+            )
+
+        case .topics:
+            detailGroup("Topics") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("One reusable topic per line, written as “id: Title”.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $model.topicsText)
+                        .font(.system(.body, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 220)
+                        .padding(10)
+                        .background(Color.primary.opacity(0.04))
+                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                    HStack {
+                        Spacer()
+                        Button("Save topics") { Task { await model.saveTopics() } }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.capsule)
+                    }
+                }
+                .padding(20)
+            }
+
+        case .ai:
+            detailGroup("AI processing") {
+                detailRow(icon: "sparkles", title: "Use Briefly AI", subtitle: "Managed processing with zero-data retention") {
+                    Toggle("", isOn: Binding(get: { model.usesManagedAI }, set: model.useManagedAI))
+                        .labelsHidden()
+                }
+                if !model.usesManagedAI {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Processing command")
+                            .font(.callout.weight(.semibold))
+                        TextField("Command", text: $model.processingCommand, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .padding(11)
+                            .background(Color.primary.opacity(0.04))
+                            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                    }
+                    .padding(20)
+                    Divider().padding(.leading, 58)
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Processing prompt")
+                        .font(.callout.weight(.semibold))
+                    TextEditor(text: $model.processingPrompt)
+                        .font(.system(.caption, design: .monospaced))
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 230)
+                        .padding(10)
+                        .background(Color.primary.opacity(0.04))
+                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                    HStack {
+                        Button("Restore default") { model.processingPrompt = defaultProcessingPrompt }
+                        Button("Test") { Task { await model.testProcessingCommand() } }
+                            .disabled(model.isTestingAI)
+                        Spacer()
+                        Button("Save") { model.saveProcessingSettings() }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.capsule)
+                    }
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private func detailGroup<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
+            content()
+        }
+    }
+
+    private func detailRow<Trailing: View>(
+        icon: String,
+        title: String,
+        subtitle: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.callout.weight(.medium))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            trailing()
+        }
+        .padding(.horizontal, 20)
+        .frame(minHeight: 62)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
+    }
+
+    private func valueRow(icon: String, title: String, value: String) -> some View {
+        detailRow(icon: icon, title: title, subtitle: value) {
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func actionRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 13) {
+                Image(systemName: icon)
+                    .foregroundStyle(destructive ? Color.red : Color.secondary)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(destructive ? Color.red : Color.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 20)
+            .frame(minHeight: 62)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
+    }
+
+    private func externalDetailRow(icon: String, title: String, url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            HStack(spacing: 13) {
+                Image(systemName: icon).foregroundStyle(.secondary).frame(width: 24)
+                Text(title).font(.callout.weight(.medium))
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 20)
+            .frame(minHeight: 62)
+        }
+        .foregroundStyle(.primary)
+        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
+    }
+
+    private func editorGroup(
+        title: String,
+        description: String,
+        firstTitle: String,
+        firstText: Binding<String>,
+        secondTitle: String,
+        secondText: Binding<String>,
+        restore: @escaping () -> Void,
+        save: @escaping () -> Void
+    ) -> some View {
+        detailGroup(title) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(description).font(.caption).foregroundStyle(.secondary)
+                Text(firstTitle).font(.callout.weight(.semibold))
+                TextField(firstTitle, text: firstText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(3...7)
+                    .padding(11)
+                    .background(Color.primary.opacity(0.04))
+                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                Text(secondTitle).font(.callout.weight(.semibold))
+                TextEditor(text: secondText)
+                    .font(.system(.caption, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 240)
+                    .padding(10)
+                    .background(Color.primary.opacity(0.04))
+                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                HStack {
+                    Button("Restore default", action: restore)
+                    Spacer()
+                    Button("Save", action: save)
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private func indexLink(_ title: String, icon: String, url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 22).foregroundStyle(.secondary)
+                Text(title).font(.callout.weight(.medium))
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 46)
+        }
+        .foregroundStyle(.primary)
+    }
+
+    private func subtitle(for section: BrieflySettingsSection) -> String {
+        switch section {
+        case .general: "Color scheme and display"
+        case .library: "Storage, refresh, and iCloud"
+        case .capture: "Shortcut, imports, and media"
+        case .account: "Sign-in and subscription"
+        case .personalization: "Your context and brief prompt"
+        case .topics: "Reusable library topics"
+        case .ai: "Provider, command, and prompt"
+        }
+    }
+
+    private func detailSubtitle(for section: BrieflySettingsSection) -> String {
+        switch section {
+        case .general: "Manage how Briefly content is displayed to you."
+        case .library: "Manage local storage, refresh, and synchronization."
+        case .capture: "Choose how links and documents enter your library."
+        case .account: "See account information and manage your membership."
+        case .personalization: "Tell Briefly what matters to you."
+        case .topics: "Manage the reusable topics applied to saved notes."
+        case .ai: "Choose how Briefly processes and summarizes content."
+        }
+    }
+}
+#endif
+
 private struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("BrieflyAppearance") private var appearance = "system"
@@ -7223,6 +9298,7 @@ private struct SettingsView: View {
     @State private var showsChannelBrowser = false
     @State private var appleSignInNonce = ""
     @State private var showsPDFImporter = false
+    @State private var settingsQuery = ""
     #if os(iOS)
     @State private var selectedSection: BrieflySettingsSection?
     #else
@@ -7342,12 +9418,72 @@ private struct SettingsView: View {
                 }
             }
             #else
-            List(availableSections, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Settings")
+                    .font(.title2.weight(.bold))
+                    .padding(.horizontal, 18)
+                    .padding(.top, 18)
+                    .padding(.bottom, 14)
+
+                HStack(spacing: 9) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search Settings", text: $settingsQuery)
+                        .textFieldStyle(.plain)
+                    if !settingsQuery.isEmpty {
+                        Button {
+                            settingsQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 13)
+                .frame(height: 38)
+                .background(Color.primary.opacity(0.055), in: Capsule())
+                .overlay { Capsule().stroke(Color.primary.opacity(0.09)) }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(filteredSettingsSections) { section in
+                            Button {
+                                selectedSection = section
+                            } label: {
+                                settingsNavigationRow(section)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Divider().padding(.vertical, 8)
+
+                        externalSettingsRow(
+                            "Feedback",
+                            icon: "bubble.left.and.bubble.right",
+                            destination: "https://www.readbriefly.fyi/feedback"
+                        )
+                        .padding(.horizontal, 16)
+                        externalSettingsRow(
+                            "Privacy Policy",
+                            icon: "hand.raised",
+                            destination: "https://www.readbriefly.fyi/privacy"
+                        )
+                        .padding(.horizontal, 16)
+                        externalSettingsRow(
+                            "Terms of Use",
+                            icon: "doc.text",
+                            destination: "https://www.readbriefly.fyi/terms"
+                        )
+                        .padding(.horizontal, 16)
+                    }
+                }
             }
-            .navigationTitle("Briefly Settings")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+            .background(.ultraThinMaterial.opacity(0.56))
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+            .navigationSplitViewColumnWidth(min: 370, ideal: 390, max: 410)
             #endif
         } detail: {
             NavigationStack {
@@ -7645,16 +9781,25 @@ private struct SettingsView: View {
                     }
                 }
                 .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+                .background(.ultraThinMaterial.opacity(0.72))
                 .navigationTitle((selectedSection ?? .general).title)
+                #if os(iOS)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
                     }
                 }
+                #endif
             }
         }
         #if os(macOS)
-        .frame(minWidth: 900, minHeight: 650)
+        .toolbar(removing: .sidebarToggle)
+        .toolbar(.hidden, for: .windowToolbar)
+        #endif
+        #if os(macOS)
+        .background(.ultraThinMaterial.opacity(0.48))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
         .onChange(of: captureShortcut) {
             captureShortcut.save()
             NotificationCenter.default.post(
@@ -7692,6 +9837,55 @@ private struct SettingsView: View {
             await model.loadSubscription()
         }
     }
+
+    private var filteredSettingsSections: [BrieflySettingsSection] {
+        guard !settingsQuery.isEmpty else { return availableSections }
+        return availableSections.filter {
+            $0.title.localizedCaseInsensitiveContains(settingsQuery)
+        }
+    }
+
+    private func settingsNavigationRow(_ section: BrieflySettingsSection) -> some View {
+        let selected = selectedSection == section
+        return HStack(spacing: 12) {
+            Image(systemName: section.icon)
+                .frame(width: 22)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(section.title)
+                    .font(.callout.weight(.medium))
+                Text(settingsSubtitle(section))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 54)
+        .background(selected ? Color.primary.opacity(0.055) : .clear)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(selected ? Color.accentColor : .clear)
+                .frame(width: 3)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func settingsSubtitle(_ section: BrieflySettingsSection) -> String {
+        switch section {
+        case .general: "Color scheme and display"
+        case .library: "Storage, refresh, and iCloud"
+        case .capture: "Shortcut, imports, and media"
+        case .account: "Sign-in and subscription"
+        case .personalization: "Your context and brief prompt"
+        case .topics: "Reusable library topics"
+        case .ai: "Provider, command, and prompt"
+        }
+    }
 }
 
 private func randomAppleNonce() -> String {
@@ -7720,6 +9914,11 @@ private func channelTitle(_ source: String) -> String {
         .split(separator: ".")
         .first
         .map { String($0).capitalized } ?? source
+}
+
+private func compactLabel(_ value: String, maxLength: Int = 28) -> String {
+    guard value.count > maxLength else { return value }
+    return String(value.prefix(maxLength - 1)).trimmingCharacters(in: .whitespaces) + "…"
 }
 
 private func localFaviconURL(
@@ -7772,17 +9971,17 @@ private func adaptiveColor(
 
 private let appBackground = adaptiveColor(
     light: (0.957, 0.953, 0.941),
-    dark: (0.055, 0.055, 0.060)
+    dark: (0.018, 0.020, 0.030)
 )
 
 private let sidebarBackground = adaptiveColor(
     light: (0.975, 0.973, 0.965),
-    dark: (0.095, 0.095, 0.105)
+    dark: (0.026, 0.028, 0.043)
 )
 
 private let readerBackground = adaptiveColor(
     light: (0.986, 0.984, 0.976),
-    dark: (0.075, 0.075, 0.083)
+    dark: (0.022, 0.024, 0.038)
 )
 
 private enum NativeLibraryError: LocalizedError {
