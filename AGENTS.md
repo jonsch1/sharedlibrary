@@ -9,34 +9,24 @@
   manager, checkout, or private web library reader.
 
 - After Apple feature work is complete, run `swift test` once from `Apple/`, then
-  rebuild and reopen the affected app from the repo-local derived-data path
-  using the platform-specific flow:
-  For macOS, from `Apple/` run:
+  use the repo script to rebuild, reinstall where needed, and reopen the affected
+  app from the repo-local derived-data path. For macOS, from `Apple/` run:
 
   ```bash
-  xcodebuild -project Briefly.xcodeproj -scheme Briefly \
-    -destination 'platform=macOS' \
-    -derivedDataPath .build/xcode/macos \
-    CODE_SIGNING_ALLOWED=NO build
-  osascript -e 'tell application "Briefly" to quit' 2>/dev/null || true
-  open .build/xcode/macos/Build/Products/Debug/Briefly.app
+  ./scripts/rebuild-and-reopen.sh macos
   ```
 
   For iOS changes, with a simulator booted, use:
 
   ```bash
-  xcodebuild -project Briefly.xcodeproj -scheme Briefly \
-    -destination 'generic/platform=iOS Simulator' \
-    -derivedDataPath .build/xcode/ios-simulator \
-    CODE_SIGNING_ALLOWED=NO build
-  xcrun simctl terminate booted fyi.readbriefly.BrieflyNative 2>/dev/null || true
-  xcrun simctl install booted \
-    .build/xcode/ios-simulator/Build/Products/Debug-iphonesimulator/Briefly.app
-  xcrun simctl launch booted fyi.readbriefly.BrieflyNative
+  ./scripts/rebuild-and-reopen.sh ios
   ```
 
-  For shared Apple changes, do both. The iOS build requires the matching Xcode
-  platform component to be installed.
+  For shared Apple changes, run `./scripts/rebuild-and-reopen.sh all`. The iOS
+  build requires the matching Xcode platform component and a booted simulator.
+  The script deliberately keeps development signing enabled and checks the
+  macOS Sign in with Apple entitlement. Do not add `CODE_SIGNING_ALLOWED=NO` to
+  launched builds; it strips capabilities such as Sign in with Apple.
 
 ## Test strategy
 

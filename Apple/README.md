@@ -73,6 +73,18 @@ xcodebuild -project Briefly.xcodeproj -scheme Briefly \
   -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
+To rebuild and immediately reopen a development-signed app, use:
+
+```bash
+./scripts/rebuild-and-reopen.sh macos
+./scripts/rebuild-and-reopen.sh ios
+# Or rebuild and reopen both:
+./scripts/rebuild-and-reopen.sh all
+```
+
+Launched builds keep development signing enabled so capabilities such as Sign
+in with Apple remain available. The iOS command requires a booted simulator.
+
 The live input tests run as part of `swift test`. They ingest the registered
 public URL for every item input, then enumerate every channel and ingest one
 of its discovered items. The filtered command runs only those live journeys.

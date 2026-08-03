@@ -1268,7 +1268,11 @@ async function processWithManagedAI(request, env) {
 				model: managedAIModel,
 				messages: [{ role: 'user', content: prompt }],
 				max_tokens: format === 'json' ? 32_000 : 16_000,
-				provider: { zdr: true },
+				provider: {
+					zdr: true,
+					order: ['fireworks'],
+					allow_fallbacks: true
+				},
 				...(format === 'json'
 					? {
 							response_format: {
