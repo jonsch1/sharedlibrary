@@ -246,6 +246,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     )
                 }
             }
+            try removeLegacyReadmeVoiceBrief()
         } catch {
             sqlite3_close(database)
             throw error
@@ -253,6 +254,24 @@ public final class SQLiteLibrary: @unchecked Sendable {
     }
 
     deinit { sqlite3_close(connection) }
+
+    private func removeLegacyReadmeVoiceBrief() throws {
+        let ids = try query(
+            "SELECT id FROM voice_briefs WHERE deleted_at IS NULL AND lower(id) = 'file:readme.md'"
+        ) { columnText($0, 0) }
+        for id in ids {
+            try transaction {
+                try run(
+                    "UPDATE voice_briefs SET deleted_at = ?, revision = revision + 1 WHERE id = ?",
+                    bindings: [.double(Date().timeIntervalSince1970), .text(id)]
+                )
+                let revision = try scalarInt(
+                    "SELECT revision FROM voice_briefs WHERE id = \(sqlLiteral(id))"
+                )
+                try enqueue(recordType: "voice_brief", id: id, revision: revision, operation: "delete")
+            }
+        }
+    }
 
     public func isEmpty() throws -> Bool {
         try locked { try scalarInt("SELECT count(*) FROM documents") == 0 }
@@ -538,6 +557,78 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
             }
         }
+    }
+
+    public func documentChannelSources() throws -> [String: [String]] {
+        try locked {
+            let rows = try query(
+                """
+                SELECT ci.entry_id, c.source_url
+                FROM channel_items ci JOIN channels c ON c.id = ci.channel_id
+                WHERE ci.entry_id IS NOT NULL AND ci.entry_id != ''
+                ORDER BY ci.entry_id, c.source_url
+                """
+            ) { (columnText($0, 0), columnText($0, 1)) }
+            var sources = Dictionary(grouping: rows) { $0.0 }.mapValues { values in
+                Array(Set(values.map { $0.1 })).sorted()
+            }
+            let unlinked = try query(
+                """
+                SELECT d.id, d.type, d.source_url, d.created_at
+                FROM documents d
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM channel_items ci WHERE ci.entry_id = d.id
+                )
+                """
+            ) {
+                (
+                    columnText($0, 0), columnText($0, 1),
+                    columnOptionalText($0, 2), sqlite3_column_double($0, 3)
+                )
+            }
+            let legacyMarkers = unlinked.compactMap { row -> (String, Double)? in
+                guard row.1 == "voice_brief_source", let host = legacyChannelHost(row.2) else {
+                    return nil
+                }
+                return (host, row.3)
+            }
+            for row in unlinked where sources[row.0] == nil {
+                guard let host = legacyChannelHost(row.2), row.1 != "voice_brief_source" else {
+                    continue
+                }
+                if legacyMarkers.contains(where: { $0.0 == host && abs($0.1 - row.3) <= 1 }) {
+                    sources[row.0] = ["legacy-channel:\(host)"]
+                }
+            }
+            return sources
+        }
+    }
+
+    @discardableResult
+    public func trashDocumentsFromDeletedChannels() throws -> Int {
+        let ids = try locked {
+            try query(
+                """
+                SELECT DISTINCT ci.entry_id
+                FROM channel_items ci
+                JOIN channels c ON c.id = ci.channel_id
+                JOIN documents d ON d.id = ci.entry_id
+                WHERE c.deleted_at IS NOT NULL AND d.deleted = 0
+                UNION
+                SELECT d.id
+                FROM documents d
+                WHERE d.deleted = 0 AND d.type = 'voice_brief_source'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM channel_items ci WHERE ci.entry_id = d.id
+                  )
+                """
+            ) { columnText($0, 0) }
+        }
+        let documents = try ids.map { try getDocument($0) }
+        try batch(documents.map {
+            SQLiteDocumentCommit(id: $0.id, baseRevision: $0.revision, deleted: true)
+        })
+        return documents.count
     }
 
     public func saveChannelRecords(_ records: [SQLiteChannelRecord]) throws {
@@ -2000,4 +2091,12 @@ private func columnOptionalBlob(_ statement: OpaquePointer, _ index: Int32) -> D
 
 private func decodeStrings(_ value: String) -> [String] {
     (try? JSONDecoder().decode([String].self, from: Data(value.utf8))) ?? []
+}
+
+private func legacyChannelHost(_ value: String?) -> String? {
+    guard var host = value.flatMap({ URL(string: $0)?.host })?.lowercased() else {
+        return nil
+    }
+    if host.hasPrefix("www.") { host.removeFirst(4) }
+    return host
 }

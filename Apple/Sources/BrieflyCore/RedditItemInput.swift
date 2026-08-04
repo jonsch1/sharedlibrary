@@ -2,7 +2,7 @@ import Foundation
 
 func ingestReddit(
     _ request: ItemInputRequest,
-    http: InputHTTPClient
+    context: ItemInputContext
 ) async throws -> ItemDraft {
     let url = try requestURL(request)
     guard let postID = redditPostID(url) else { throw NativeInputError.unsupportedInput }
@@ -10,7 +10,7 @@ func ingestReddit(
         "https://www.reddit.com/comments/\(postID).json?raw_json=1&limit=20&depth=2&sort=top"
     )!
     do {
-        let response = try await http.get(jsonURL, headers: [
+        let response = try await context.http.get(jsonURL, headers: [
             "Accept": "application/json", "User-Agent": "Briefly/1.0"
         ])
         guard
@@ -23,10 +23,17 @@ func ingestReddit(
         let body = cleanInputText(post["selftext"] as? String)
         let linked = httpInputURL(post["url_overridden_by_dest"] as? String)
         let comments = redditComments(listings.dropFirst().first).prefix(20)
+        let mainContent: String? = if let body {
+            body
+        } else if let linked {
+            await redditLinkedContent(linked, context: context)
+        } else {
+            nil
+        }
         let content = [
             [author.map { "Posted by u/\($0)" }, subreddit.map { "in \($0)" }]
                 .compactMap { $0 }.joined(separator: " ").nativeNilIfEmpty,
-            body ?? linked.map { "[Open linked content](\($0.absoluteString))" },
+            mainContent,
             comments.isEmpty ? nil : "## Top comments\n\n" + comments.map {
                 "**u/\($0.author)**\n\n\($0.body)"
             }.joined(separator: "\n\n")
@@ -41,14 +48,14 @@ func ingestReddit(
             faviconURL: URL(string: "https://www.reddit.com/favicon.ico")
         )
     } catch {
-        if let feed = try? await ingestRedditCommentsFeed(url, http: http) {
+        if let feed = try? await ingestRedditCommentsFeed(url, http: context.http) {
             return feed
         }
-        if let embedded = try? await ingestRedditEmbed(url, postID: postID, http: http) {
+        if let embedded = try? await ingestRedditEmbed(url, postID: postID, http: context.http) {
             return embedded
         }
         let endpoint = URL(string: "https://www.reddit.com/oembed?url=\(url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!
-        let response = try await http.get(endpoint, headers: ["Accept": "application/json"])
+        let response = try await context.http.get(endpoint, headers: ["Accept": "application/json"])
         guard
             let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
             let title = cleanInputText(object["title"] as? String)
@@ -64,6 +71,26 @@ func ingestReddit(
             faviconURL: URL(string: "https://www.reddit.com/favicon.ico")
         )
     }
+}
+
+private func redditLinkedContent(
+    _ url: URL,
+    context: ItemInputContext
+) async -> String {
+    let link = "[Open linked content](\(url.absoluteString))"
+    guard let linked = try? await ingestWebPage(
+        ItemInputRequest(source: .url(url)),
+        context: context
+    ) else { return link }
+    return """
+    \(link)
+
+    ## Linked content
+
+    # \(linked.title)
+
+    \(linked.content)
+    """
 }
 
 private func ingestRedditCommentsFeed(

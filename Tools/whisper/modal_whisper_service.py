@@ -6,7 +6,9 @@ Deploy:
 """
 
 from math import ceil, isfinite
+from ipaddress import ip_address
 from pathlib import Path
+import socket
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -259,7 +261,44 @@ async def _download_media(raw_url: str, job: str) -> list[Path]:
         if any(path.stat().st_size > MAXIMUM_MEDIA_BYTES for path in paths):
             raise ValueError("Media is too large to transcribe.")
         return paths
-    raise ValueError("Upload podcast media directly for transcription.")
+    return [await _download_podcast_media(url, job)]
+
+
+async def _download_podcast_media(url: str, job: str) -> Path:
+    import httpx
+
+    path = MEDIA / f"{job}.media"
+    current = url
+    async with httpx.AsyncClient(timeout=httpx.Timeout(180, connect=20)) as client:
+        for _ in range(6):
+            _validated_public_media_url(current)
+            async with client.stream(
+                "GET",
+                current,
+                headers={"Accept": "audio/*,application/octet-stream;q=0.5,*/*;q=0.1"},
+                follow_redirects=False,
+            ) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("Podcast media returned an invalid redirect.")
+                    current = str(response.url.join(location))
+                    continue
+                response.raise_for_status()
+                length = response.headers.get("content-length")
+                if length and int(length) > MAXIMUM_MEDIA_BYTES:
+                    raise ValueError("Media is too large to transcribe.")
+                written = 0
+                with path.open("wb") as output:
+                    async for chunk in response.aiter_bytes():
+                        written += len(chunk)
+                        if written > MAXIMUM_MEDIA_BYTES:
+                            raise ValueError("Media is too large to transcribe.")
+                        output.write(chunk)
+                if written == 0:
+                    raise ValueError("Podcast media was empty.")
+                return path
+    raise ValueError("Podcast media redirected too many times.")
 
 
 async def _media_duration(path: Path) -> float:
@@ -297,8 +336,30 @@ def _validated_url(raw_url: str) -> str:
     if parsed.username or parsed.password:
         raise ValueError("Media URLs cannot contain credentials.")
     if parsed.hostname.lower() not in YOUTUBE_HOSTS:
-        raise ValueError("Only YouTube URLs may be downloaded by the transcription service.")
+        _validated_public_media_url(raw_url)
     return raw_url
+
+
+def _validated_public_media_url(raw_url: str) -> None:
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Only HTTP(S) media URLs are supported.")
+    if parsed.username or parsed.password:
+        raise ValueError("Media URLs cannot contain credentials.")
+    if parsed.port not in {None, 80, 443}:
+        raise ValueError("Podcast media must use the standard HTTP(S) port.")
+    try:
+        addresses = {
+            result[4][0]
+            for result in socket.getaddrinfo(
+                parsed.hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+            )
+        }
+    except socket.gaierror as error:
+        raise ValueError("Podcast media host could not be resolved.") from error
+    if not addresses or any(not ip_address(value).is_global for value in addresses):
+        raise ValueError("Podcast media must use a public internet host.")
 
 
 def _format_transcript(segments: list[dict], include_timestamps: bool) -> str:

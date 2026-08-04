@@ -66,6 +66,7 @@ final class LibraryModel {
     private var hasLoadedHighlights = false
     private var hasLoadedTrash = false
     private var pendingProcessingIDs = [String]()
+    private var processingShouldSelect = [String: Bool]()
     private var pendingSync: Task<Void, Never>?
     private var localSpeechPreparation: Task<Void, Never>?
 
@@ -198,10 +199,13 @@ final class LibraryModel {
         channels.first { $0.source == selectedChannelSource }
     }
 
+    var homeEntries: [LibraryEntry] {
+        projection.entries.filter(\.isMainLibraryEntry)
+    }
+
     var filteredEntries: [LibraryEntry] {
-        (showingTrash ? trashEntries : projection.entries).filter {
-            $0.isMainLibraryEntry &&
-                (selectedTopic.isEmpty || selectedTopic == "All" ||
+        (showingTrash ? trashEntries : homeEntries).filter {
+            (selectedTopic.isEmpty || selectedTopic == "All" ||
                     $0.topicNames.contains(selectedTopic)) &&
                 $0.matches(query)
         }
@@ -668,7 +672,7 @@ final class LibraryModel {
                         (result.newEntryIDs.count == 1 ? "item" : "items")
             }
             for entryID in result.newEntryIDs {
-                await enqueueProcessing(entryID)
+                await enqueueProcessing(entryID, selectWhenFinished: false)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -678,14 +682,16 @@ final class LibraryModel {
     func removeSelectedChannel() async {
         guard let library, let channel = selectedChannel else { return }
         do {
-            try await library.removeChannel(channel.source)
+            let deletedItemCount = try await library.removeChannel(channel.source)
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             selectedChannelSource = ""
             showingChannelSettings = false
             selectedID = ""
             selectedIDs = []
-            status = "Channel removed"
+            status = deletedItemCount == 1
+                ? "Channel removed and 1 downloaded item deleted"
+                : "Channel removed and \(deletedItemCount) downloaded items deleted"
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -718,7 +724,7 @@ final class LibraryModel {
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             for entryID in newEntryIDs {
-                await enqueueProcessing(entryID)
+                await enqueueProcessing(entryID, selectWhenFinished: false)
             }
             status = newEntryIDs.isEmpty
                 ? "Channels checked. No new items."
@@ -775,7 +781,9 @@ final class LibraryModel {
         }
         projection = (try? await library.loadLibraryIndex()) ?? projection
         try? await refreshChannels(from: library)
-        for entryID in newEntryIDs { await enqueueProcessing(entryID) }
+        for entryID in newEntryIDs {
+            await enqueueProcessing(entryID, selectWhenFinished: false)
+        }
         if !newEntryIDs.isEmpty { requestSync() }
     }
 
@@ -807,7 +815,7 @@ final class LibraryModel {
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             for entryID in newEntryIDs {
-                await enqueueProcessing(entryID)
+                await enqueueProcessing(entryID, selectWhenFinished: false)
             }
             status = "Writing \(brief.title)…"
             let episode: LibraryVoiceBriefEpisodeResult
@@ -987,6 +995,46 @@ final class LibraryModel {
                 .joined(separator: "\n")
             projection = try await library.loadLibraryIndex()
             status = "Topics saved"
+            requestSync()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func renameTopic(_ currentTitle: String, to newTitle: String) async {
+        guard let library else { return }
+        do {
+            let definitions = try await library.topicDefinitions()
+            guard let topic = definitions.first(where: { $0.title == currentTitle }) else {
+                throw BrieflyBackendError.message("That collection no longer exists.")
+            }
+            let renamed = definitions.map {
+                $0.id == topic.id
+                    ? LibraryTopicDefinition(id: $0.id, title: newTitle)
+                    : $0
+            }
+            let saved = try await library.replaceTopicDefinitions(renamed)
+            let savedTitle = saved.first(where: { $0.id == topic.id })?.title ?? newTitle
+            await refreshLibrary()
+            if selectedTopic == currentTitle { selectedTopic = savedTitle }
+            status = "Collection renamed"
+            requestSync()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func deleteTopic(_ title: String) async {
+        guard let library else { return }
+        do {
+            let definitions = try await library.topicDefinitions()
+            guard let topic = definitions.first(where: { $0.title == title }) else {
+                throw BrieflyBackendError.message("That collection no longer exists.")
+            }
+            try await library.deleteTopicDefinition(id: topic.id)
+            if selectedTopic == title { showInbox() }
+            await refreshLibrary()
+            status = "Collection deleted. Its notes are still in your library."
             requestSync()
         } catch {
             errorMessage = error.localizedDescription
@@ -1528,7 +1576,12 @@ final class LibraryModel {
         errorMessage = nil
     }
 
-    private func enqueueProcessing(_ entryID: String) async {
+    private func enqueueProcessing(
+        _ entryID: String,
+        selectWhenFinished: Bool = true
+    ) async {
+        processingShouldSelect[entryID] =
+            (processingShouldSelect[entryID] ?? false) || selectWhenFinished
         if !pendingProcessingIDs.contains(entryID) {
             pendingProcessingIDs.append(entryID)
         }
@@ -1698,10 +1751,12 @@ final class LibraryModel {
                 entryID: entryID,
                 suggestion: suggestion
             )
-            await refreshLibrary(selecting: processedID)
+            let selectWhenFinished = processingShouldSelect.removeValue(forKey: entryID) ?? true
+            await refreshLibrary(selecting: selectWhenFinished ? processedID : nil)
             status = "Summaries ready"
             requestSync()
         } catch {
+            processingShouldSelect.removeValue(forKey: entryID)
             errorMessage = error.localizedDescription
             status = "The capture is saved without summaries"
         }
@@ -2929,6 +2984,9 @@ private struct MacXNavigation: View {
 
 private struct MacXRightRail: View {
     @Bindable var model: LibraryModel
+    @State private var topicBeingRenamed: String?
+    @State private var renamedTopic = ""
+    @State private var topicBeingDeleted: String?
 
     var body: some View {
         VStack(spacing: 14) {
@@ -3017,6 +3075,38 @@ private struct MacXRightRail: View {
         }
         .padding(.top, 16)
         .frame(maxHeight: .infinity)
+        .alert("Rename collection", isPresented: renamingCollection) {
+            TextField("Collection name", text: $renamedTopic)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                guard let topicBeingRenamed else { return }
+                Task { await model.renameTopic(topicBeingRenamed, to: renamedTopic) }
+            }
+            .disabled(renamedTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .alert("Delete collection?", isPresented: deletingCollection) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                guard let topicBeingDeleted else { return }
+                Task { await model.deleteTopic(topicBeingDeleted) }
+            }
+        } message: {
+            Text("The collection will be removed, but its notes will stay in your library.")
+        }
+    }
+
+    private var renamingCollection: Binding<Bool> {
+        Binding(
+            get: { topicBeingRenamed != nil },
+            set: { if !$0 { topicBeingRenamed = nil } }
+        )
+    }
+
+    private var deletingCollection: Binding<Bool> {
+        Binding(
+            get: { topicBeingDeleted != nil },
+            set: { if !$0 { topicBeingDeleted = nil } }
+        )
     }
 
     @ViewBuilder
@@ -3025,9 +3115,7 @@ private struct MacXRightRail: View {
         case .items:
             FeedRailCard(title: "Collections") {
                 ForEach(Array(model.projection.documentTopics.prefix(6)), id: \.self) { topic in
-                    railButton(topic, icon: "folder") {
-                        Task { await model.showTopic(topic) }
-                    }
+                    collectionRow(topic)
                 }
             }
         case .channels:
@@ -3046,6 +3134,41 @@ private struct MacXRightRail: View {
                     }
                 }
             }
+        }
+    }
+
+    private func collectionRow(_ topic: String) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                Task { await model.showTopic(topic) }
+            } label: {
+                Text(topic)
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu {
+                Button("Rename", systemImage: "pencil") {
+                    renamedTopic = topic
+                    topicBeingRenamed = topic
+                }
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    topicBeingDeleted = topic
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .accessibilityLabel("Settings for \(topic)")
+            .help("Settings for \(topic)")
         }
     }
 
@@ -3768,8 +3891,8 @@ private struct MobileHome: View {
     let onOpenDetail: () -> Void
 
     private var entries: [LibraryEntry] {
-        model.projection.entries
-            .filter { $0.entryType != "voice_brief_source" && $0.matches(model.query) }
+        model.homeEntries
+            .filter { $0.matches(model.query) }
             .sorted {
                 ($0.createdAt ?? $0.updatedAt ?? "") <
                     ($1.createdAt ?? $1.updatedAt ?? "")
@@ -9294,13 +9417,19 @@ private struct ChannelConfiguration: View {
             retrievalCount = model.selectedChannel?.retrievalCount ?? 5
             schedule = model.selectedChannel?.schedule ?? "manual"
         }
-        .confirmationDialog(
-            "Remove this channel? Existing voice briefs keep their source reference.",
-            isPresented: $confirmsRemoval
-        ) {
-            Button("Remove Channel", role: .destructive) {
+        .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
+            Button("Delete Channel and Items", role: .destructive) {
                 Task { await model.removeSelectedChannel() }
             }
+        } message: {
+            let count = model.selectedChannel.map {
+                model.channelEntries(for: $0.source).count
+            } ?? 0
+            Text(
+                count == 1
+                    ? "The channel and its 1 downloaded item will be moved to Trash."
+                    : "The channel and its \(count) downloaded items will be moved to Trash."
+            )
         }
     }
 

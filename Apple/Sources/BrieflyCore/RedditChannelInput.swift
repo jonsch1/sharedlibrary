@@ -16,11 +16,17 @@ func enumerateRedditChannel(
     var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
     components.path = "/" + url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/.rss"
     components.queryItems = [URLQueryItem(name: "limit", value: String(maximumItems))]
-    return try await loadChannelFeed(
+    var batch = try await loadChannelFeed(
         components.url!,
         fallbackTitle: inputChannelTitle(source),
         channelInput: .reddit,
         maximumItems: maximumItems,
         context: context
     )
+    batch.items = batch.items.map { item in
+        var item = item
+        item.id = "reddit-linked-content-v2:\(item.id)"
+        return item
+    }
+    return batch
 }

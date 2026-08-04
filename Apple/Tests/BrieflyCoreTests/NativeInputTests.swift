@@ -172,10 +172,11 @@ final class NativeItemInputTests: XCTestCase {
     }
 
     func testRedditInput() async throws {
+        let linkedURL = "https://news.example.org/native-reddit-story"
         let payload: [Any] = [
             ["data": ["children": [["kind": "t3", "data": [
                 "title": "Native Reddit post", "author": "reader", "subreddit_name_prefixed": "r/native",
-                "selftext": "Post body",
+                "selftext": "", "url_overridden_by_dest": linkedURL,
                 "permalink": "/r/IAmA/comments/z1c9z/i_am_barack_obama_president_of_the_united_states/"
             ]]]]],
             ["data": ["children": [["kind": "t1", "data": [
@@ -184,9 +185,17 @@ final class NativeItemInputTests: XCTestCase {
         ]
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.reddit))),
-            context: .init(http: fixtureHTTP(["comments/z1c9z.json": .json(payload)]))
+            context: .init(http: fixtureHTTP([
+                "comments/z1c9z.json": .json(payload),
+                linkedURL: .text("""
+                    <html><head><title>Linked report</title></head>
+                    <body><main>Full linked article content with enough detail to be readable.</main></body></html>
+                    """)
+            ]))
         )
         XCTAssertEqual(value.inputID, .reddit)
+        XCTAssertTrue(value.content.contains("Full linked article content"))
+        XCTAssertTrue(value.content.contains("[Open linked content](\(linkedURL))"))
         XCTAssertTrue(value.content.contains("Useful reply"))
     }
 
@@ -357,6 +366,25 @@ final class NativeChannelInputTests: XCTestCase {
         XCTAssertEqual(batch.items.first?.hints.mediaURL?.absoluteString, "https://traffic.libsyn.com/atpfm/atp300.mp3")
     }
 
+    func testPodcastChannelUsesAudioWhenEpisodeHasNoWebLink() async throws {
+        let podcast = """
+        <rss xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>Audio-only feed</title><item>
+        <guid>episode-without-page</guid><title>Audio-only episode</title>
+        <enclosure url="https://cdn.example.org/episode.mp3" type="audio/mpeg"/>
+        <podcast:transcript url="https://cdn.example.org/episode.txt" type="text/plain"/>
+        <podcast:transcript url="https://cdn.example.org/episode.vtt" type="text/vtt"/>
+        </item></channel></rss>
+        """
+        let batch = try await enumerate(
+            "https://feeds.example.org/podcast.xml",
+            fixtures: ["feeds.example.org/podcast.xml": .text(podcast, "application/rss+xml")]
+        )
+        XCTAssertEqual(batch.inputID, .podcast)
+        XCTAssertEqual(batch.items.first?.url.absoluteString, "https://cdn.example.org/episode.mp3")
+        XCTAssertEqual(batch.items.first?.hints.mediaURL?.absoluteString, "https://cdn.example.org/episode.mp3")
+        XCTAssertEqual(batch.items.first?.hints.transcriptURL?.absoluteString, "https://cdn.example.org/episode.vtt")
+    }
+
     func testRedditCommunityChannelInput() async throws {
         let batch = try await enumerate(
             channelTestURL(.reddit).absoluteString,
@@ -367,6 +395,7 @@ final class NativeChannelInputTests: XCTestCase {
         )
         XCTAssertEqual(batch.inputID, .reddit)
         XCTAssertEqual(batch.items.first?.hints.preferredInput, .reddit)
+        XCTAssertEqual(batch.items.first?.id, "reddit-linked-content-v2:native-1")
     }
 
     func testXProfileChannelInput() async throws {

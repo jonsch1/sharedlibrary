@@ -383,7 +383,7 @@ public struct NativeItemInputRouter: Sendable {
             case .podcast:
                 draft = try await ingestPodcast(request, context: context)
             case .reddit:
-                draft = try await ingestReddit(request, http: context.http)
+                draft = try await ingestReddit(request, context: context)
             case .x:
                 draft = try await ingestX(request, http: context.http)
             case .bluesky:

@@ -439,6 +439,7 @@ public actor SQLiteLibraryStore {
     private func database() throws -> SQLiteLibrary {
         if let sqliteLibrary { return sqliteLibrary }
         let database = try SQLiteLibrary(databaseURL: databaseURL)
+        try database.trashDocumentsFromDeletedChannels()
         sqliteLibrary = database
         return database
     }
@@ -447,11 +448,13 @@ public actor SQLiteLibraryStore {
 
     public func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
         let database = try database()
-        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
+            try projectionResources(database)
         let entries = projectEntries(
             try database.allDocuments(includeDeleted: includeDeleted),
             topicNames: topicNames,
-            attachmentsByDocument: attachmentsByDocument
+            attachmentsByDocument: attachmentsByDocument,
+            channelSourcesByDocument: channelSourcesByDocument
         )
         return LibraryProjection(
             schemaVersion: librarySchemaVersion,
@@ -464,11 +467,13 @@ public actor SQLiteLibraryStore {
 
     public func loadLibraryIndex(includeDeleted: Bool = false) throws -> LibraryProjection {
         let database = try database()
-        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
+            try projectionResources(database)
         let entries = projectIndexEntries(
             try database.documentIndex(includeDeleted: includeDeleted),
             topicNames: topicNames,
-            attachmentsByDocument: attachmentsByDocument
+            attachmentsByDocument: attachmentsByDocument,
+            channelSourcesByDocument: channelSourcesByDocument
         )
         return LibraryProjection(
             schemaVersion: librarySchemaVersion,
@@ -481,27 +486,35 @@ public actor SQLiteLibraryStore {
 
     public func loadTrash() throws -> [LibraryEntry] {
         let database = try database()
-        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
+            try projectionResources(database)
         return projectEntries(
             try database.deletedDocuments(),
             topicNames: topicNames,
-            attachmentsByDocument: attachmentsByDocument
+            attachmentsByDocument: attachmentsByDocument,
+            channelSourcesByDocument: channelSourcesByDocument
         )
     }
 
     public func loadTrashIndex() throws -> [LibraryEntry] {
         let database = try database()
-        let (topicNames, attachmentsByDocument) = try projectionResources(database)
+        let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
+            try projectionResources(database)
         return projectIndexEntries(
             try database.deletedDocumentIndex(),
             topicNames: topicNames,
-            attachmentsByDocument: attachmentsByDocument
+            attachmentsByDocument: attachmentsByDocument,
+            channelSourcesByDocument: channelSourcesByDocument
         )
     }
 
     private func projectionResources(
         _ database: SQLiteLibrary
-    ) throws -> ([String: String], [String: [SQLiteAttachmentMetadata]]) {
+    ) throws -> (
+        [String: String],
+        [String: [SQLiteAttachmentMetadata]],
+        [String: [String]]
+    ) {
         let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
             ($0.id, $0.title)
         })
@@ -509,13 +522,14 @@ public actor SQLiteLibraryStore {
             grouping: try database.attachmentMetadata(),
             by: \.documentID
         )
-        return (topicNames, attachments)
+        return (topicNames, attachments, try database.documentChannelSources())
     }
 
     private func projectEntries(
         _ documents: [SQLiteDocument],
         topicNames: [String: String],
-        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]]
+        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]],
+        channelSourcesByDocument: [String: [String]]
     ) -> [LibraryEntry] {
         documents.map { document in
             let references: [LibraryText] = LibraryVariant.allCases.compactMap { variant in
@@ -530,7 +544,8 @@ public actor SQLiteLibraryStore {
                 references: references,
                 excerptText: libraryExcerpt(excerptBody),
                 topicNames: topicNames,
-                attachments: attachmentsByDocument[document.id] ?? []
+                attachments: attachmentsByDocument[document.id] ?? [],
+                channelSources: channelSourcesByDocument[document.id] ?? []
             )
         }
     }
@@ -538,7 +553,8 @@ public actor SQLiteLibraryStore {
     private func projectIndexEntries(
         _ entries: [SQLiteDocumentIndex],
         topicNames: [String: String],
-        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]]
+        attachmentsByDocument: [String: [SQLiteAttachmentMetadata]],
+        channelSourcesByDocument: [String: [String]]
     ) -> [LibraryEntry] {
         entries.map { entry in
             let variants = Set(entry.variants)
@@ -550,7 +566,8 @@ public actor SQLiteLibraryStore {
                 references: references,
                 excerptText: entry.excerpt,
                 topicNames: topicNames,
-                attachments: attachmentsByDocument[entry.document.id] ?? []
+                attachments: attachmentsByDocument[entry.document.id] ?? [],
+                channelSources: channelSourcesByDocument[entry.document.id] ?? []
             )
         }
     }
@@ -560,7 +577,8 @@ public actor SQLiteLibraryStore {
         references: [LibraryText],
         excerptText: String,
         topicNames: [String: String],
-        attachments: [SQLiteAttachmentMetadata]
+        attachments: [SQLiteAttachmentMetadata],
+        channelSources: [String]
     ) -> LibraryEntry {
         let audio = attachments.contains { $0.kind == "audio" }
         let favicon = attachments.first { $0.kind == "favicon" }
@@ -585,6 +603,7 @@ public actor SQLiteLibraryStore {
             favicon: nil,
             sourceIDs: document.sourceIDs,
             sourceURLs: document.sourceURLs,
+            channelSources: channelSources,
             hasAudio: audio,
             createdAt: document.createdAt.iso8601,
             updatedAt: document.updatedAt.iso8601,
@@ -759,7 +778,8 @@ public actor SQLiteLibraryStore {
         try writeChannelState(state)
     }
 
-    public func removeChannel(_ value: String) throws {
+    @discardableResult
+    public func removeChannel(_ value: String) throws -> Int {
         let source = try normalizedChannelSource(value)
         var state = readChannelState()
         let owners = try readVoiceBriefs().filter { $0.sources.contains(source) }
@@ -779,9 +799,20 @@ public actor SQLiteLibraryStore {
                 )
             )
         }
+        let entryIDs = Set(state.sources[source]?.items.map(\.entryID) ?? [])
+            .filter { !$0.isEmpty }
+        let documents = entryIDs.compactMap { try? database().getDocument($0) }
+        try database().batch(documents.map {
+            SQLiteDocumentCommit(
+                id: $0.id,
+                baseRevision: $0.revision,
+                deleted: true
+            )
+        })
         state.sources.removeValue(forKey: source)
         try database().deleteChannel(source)
         try writeChannelState(state)
+        return documents.count
     }
 
     public func checkChannel(
@@ -1318,7 +1349,10 @@ public actor SQLiteLibraryStore {
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         ) {
-            for url in urls where url.pathExtension.lowercased() == "md" {
+            for url in urls where
+                url.pathExtension.lowercased() == "md" &&
+                url.deletingPathExtension().lastPathComponent.lowercased() != "readme"
+            {
                 let parsed = parseMarkdown(try String(contentsOf: url, encoding: .utf8))
                 _ = try database.saveVoiceBrief(LibraryVoiceBriefDraft(
                     id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
@@ -1583,6 +1617,26 @@ public actor SQLiteLibraryStore {
         }
         try database().replaceTopicDefinitions(normalized)
         return normalized
+    }
+
+    public func deleteTopicDefinition(id: String) throws {
+        let database = try database()
+        let topicID = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !topicID.isEmpty else { throw LibraryError.invalidTopic }
+
+        let documents = try database.allDocuments(includeDeleted: true)
+        let commits = documents.compactMap { document -> SQLiteDocumentCommit? in
+            guard document.topicIDs.contains(topicID) else { return nil }
+            return SQLiteDocumentCommit(
+                id: document.id,
+                baseRevision: document.revision,
+                topicIDs: document.topicIDs.filter { $0 != topicID }
+            )
+        }
+        try database.batch(commits)
+        try database.replaceTopicDefinitions(
+            try database.topicDefinitions().filter { $0.id != topicID }
+        )
     }
 
     private func readTopics(from root: URL) throws -> [String: String] {
@@ -2551,18 +2605,21 @@ private final class FeedParser: NSObject, XMLParserDelegate {
             if attributeDict["rel"] == "enclosure" {
                 item.linkedURL = href
                 item.mediaURL = href
-                isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true
+                isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
             } else if item.url.isEmpty || attributeDict["rel"] == "alternate" {
                 item.url = href
             }
         } else if inItem, name == "enclosure", let url = attributeDict["url"] {
             item.linkedURL = url
             item.mediaURL = url
-            isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true
+            isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
         } else if inItem, name == "transcript", let url = attributeDict["url"] {
-            item.transcriptURL = url
-            item.transcriptType = attributeDict["type"]
-            item.transcriptLanguage = attributeDict["language"]
+            let type = nativeTranscriptType(attributeDict["type"], url: url)
+            if nativeTranscriptRank(type) > nativeTranscriptRank(item.transcriptType) {
+                item.transcriptURL = url
+                item.transcriptType = type
+                item.transcriptLanguage = attributeDict["language"]
+            }
             isPodcast = true
         }
     }
@@ -2607,6 +2664,9 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         if name == "item" || name == "entry" {
             if item.url.isEmpty, httpURL(item.id) != nil {
                 item.url = item.id
+            }
+            if item.url.isEmpty, let mediaURL = item.mediaURL {
+                item.url = mediaURL
             }
             if
                 let baseURL,

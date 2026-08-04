@@ -371,6 +371,7 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     public let favicon: LibraryMedia?
     public let sourceIDs: [String]?
     public let sourceURLs: [String]?
+    public let channelSources: [String]?
     public let hasAudio: Bool?
     public let createdAt: String?
     public let updatedAt: String?
@@ -388,7 +389,8 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     public var isMainLibraryEntry: Bool {
         entryType != "voice_brief_episode" &&
             entryType != "voice_brief_source" &&
-            entryType != "highlights"
+            entryType != "highlights" &&
+            (channelSources?.isEmpty ?? true)
     }
 
     public var preferredVariant: LibraryVariant {
@@ -480,10 +482,7 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
 
     public func entries(forChannel source: String) -> [LibraryEntry] {
         entries
-            .filter {
-                $0.entryType == "voice_brief_source" &&
-                    $0.sourceURL == source
-            }
+            .filter { $0.channelSources?.contains(source) == true }
             .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
     }
 

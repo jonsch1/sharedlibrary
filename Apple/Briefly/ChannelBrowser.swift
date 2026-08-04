@@ -159,7 +159,6 @@ final class BrieflyBackend {
     }
 
     func transcribe(_ url: URL) async throws -> InputTranscript {
-        let (audio, _) = try await downloadAudio(url)
         let endpoint = URL(string: "https://jonsch1--briefly-whisper-transcribe.modal.run")!
         let token = await cookies(for: Self.origin)
             .first(where: { $0.name == "shared_library_session" })?.value
@@ -168,11 +167,23 @@ final class BrieflyBackend {
         }
         var request = URLRequest(url: endpoint, timeoutInterval: 1_800)
         request.httpMethod = "POST"
-        request.httpBody = audio
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "url": url.absoluteString,
+            "include_timestamps": false
+        ])
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.setValue("0", forHTTPHeaderField: "X-Briefly-Include-Timestamps")
-        let (data, rawResponse) = try await URLSession.shared.data(for: request)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var (data, rawResponse) = try await URLSession.shared.data(for: request)
+        if let response = rawResponse as? HTTPURLResponse,
+           response.statusCode == 422,
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           object["detail"] as? String == "Upload podcast media directly for transcription." {
+            let (audio, _) = try await downloadAudio(url)
+            request.httpBody = audio
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.setValue("0", forHTTPHeaderField: "X-Briefly-Include-Timestamps")
+            (data, rawResponse) = try await URLSession.shared.data(for: request)
+        }
         guard let response = rawResponse as? HTTPURLResponse else {
             throw BrieflyBackendError.message("The transcription service returned an invalid response.")
         }

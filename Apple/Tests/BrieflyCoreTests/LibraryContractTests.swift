@@ -2,6 +2,80 @@ import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
+    func testLegacyChannelBatchRetainsProvenanceAfterRelationshipWasLost() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appending(path: "library.sqlite3")
+        let batchDate = Date(timeIntervalSince1970: 1_785_442_091)
+        let legacyLinkID: String
+        do {
+            let database = try SQLiteLibrary(databaseURL: databaseURL)
+            _ = try database.createDocument(
+                title: "Known channel item",
+                body: "Channel body",
+                type: "voice_brief_source",
+                sourceURL: "https://www.example.com/known",
+                createdAt: batchDate
+            )
+            legacyLinkID = try database.createDocument(
+                title: "Legacy channel item",
+                body: "Legacy body",
+                type: "link",
+                sourceURL: "https://example.com/legacy",
+                createdAt: batchDate.addingTimeInterval(0.2)
+            ).id
+        }
+
+        let store = SQLiteLibraryStore(databaseURL: databaseURL)
+        let projection = try await store.loadProjection()
+        let legacyLink = try XCTUnwrap(projection.entries.first { $0.id == legacyLinkID })
+        XCTAssertEqual(legacyLink.channelSources, ["legacy-channel:example.com"])
+        XCTAssertFalse(legacyLink.isMainLibraryEntry)
+    }
+
+    func testLegacyVoiceBriefImportIgnoresReadme() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: root.appending(path: "library", directoryHint: .isDirectory),
+            withIntermediateDirectories: true
+        )
+        let voiceBriefs = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: voiceBriefs, withIntermediateDirectories: true)
+        try "# Voice briefs\n\nDocumentation only.".write(
+            to: voiceBriefs.appending(path: "README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "---\nname: Daily update\n---\nSummarize the latest items.".write(
+            to: voiceBriefs.appending(path: "daily.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        do {
+            let legacyDatabase = try SQLiteLibrary(
+                databaseURL: root.appending(path: "library.sqlite3")
+            )
+            _ = try legacyDatabase.saveVoiceBrief(LibraryVoiceBriefDraft(
+                id: "file:README.md",
+                title: "README",
+                schedule: "manual",
+                length: "",
+                sources: [],
+                prompt: "Documentation only.",
+                prioritizeForMe: false
+            ))
+        }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+
+        _ = try await store.ingestMarkdownLibrary(from: root)
+
+        let briefs = try await store.loadProjection().voiceBriefDefinitions
+        XCTAssertEqual(briefs.map(\.title), ["Daily update"])
+    }
+
     func testFailedFirstSyncDoesNotRequeueFetchedLibrary() throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)
@@ -209,6 +283,7 @@ final class LibraryContractTests: XCTestCase {
                 $0.id == second.newEntryIDs.first
             }
         )
+        XCTAssertEqual(fetchedEntry.channelSources, [source])
         XCTAssertFalse(fetchedEntry.isMainLibraryEntry)
         let attemptedIDs = await attempts.values()
         XCTAssertEqual(attemptedIDs, ["two", "one", "two"])
@@ -229,6 +304,17 @@ final class LibraryContractTests: XCTestCase {
         )
         XCTAssertEqual(third.newEntryIDs.count, 1)
         XCTAssertNotEqual(third.newEntryIDs.first, trashed)
+
+        let replacementID = try XCTUnwrap(third.newEntryIDs.first)
+        let deletedItemCount = try await store.removeChannel(source)
+        XCTAssertEqual(deletedItemCount, 2)
+        let activeAfterChannelDeletion = try await store.loadProjection()
+        XCTAssertTrue(activeAfterChannelDeletion.entries.isEmpty)
+        let deletedProjection = try await store.loadProjection(includeDeleted: true)
+        XCTAssertEqual(
+            deletedProjection.entries.first { $0.id == replacementID }?.channelSources,
+            [source]
+        )
     }
 
     func testSQLiteCanonicalLibraryJourney() async throws {
@@ -366,6 +452,14 @@ final class LibraryContractTests: XCTestCase {
             workspaceProjection.entries.first { $0.id == capturedID }?.topicNames,
             ["Native Apps"]
         )
+        try await workspace.deleteTopicDefinition(id: topicID)
+        workspaceProjection = try await workspace.loadProjection()
+        let noteAfterDeletingCollection = try XCTUnwrap(
+            workspaceProjection.entries.first { $0.id == capturedID }
+        )
+        XCTAssertTrue(noteAfterDeletingCollection.topicNames.isEmpty)
+        let topicsAfterDeletingCollection = try await workspace.topicDefinitions()
+        XCTAssertTrue(topicsAfterDeletingCollection.isEmpty)
         let pdfID = try await workspace.captureDocument(
             title: "Native PDF",
             content: "Text extracted by PDFKit."
