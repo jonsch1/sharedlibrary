@@ -321,11 +321,20 @@ final class LibraryContractTests: XCTestCase {
         var channels = try await store.loadChannels()
         var grouped = try XCTUnwrap(channels.first { $0.source == groupID })
         XCTAssertEqual(grouped.sources, groupedSources)
-        try await store.updateChannelGroup(groupID, retrievalCount: 12, schedule: "daily 08:30")
+        let editedSources = groupedSources + ["https://three.test/news"]
+        try await store.updateChannelGroup(
+            groupID,
+            title: "Technology",
+            sources: editedSources,
+            retrievalCount: 12,
+            schedule: "daily 08:30"
+        )
         channels = try await store.loadChannels()
         grouped = try XCTUnwrap(channels.first { $0.source == groupID })
         XCTAssertEqual(grouped.retrievalCount, 12)
         XCTAssertEqual(grouped.schedule, "daily 08:30")
+        XCTAssertEqual(grouped.title, "Technology")
+        XCTAssertEqual(grouped.sources, editedSources.sorted())
     }
 
     func testSQLiteCanonicalLibraryJourney() async throws {

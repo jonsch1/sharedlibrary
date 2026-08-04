@@ -799,13 +799,48 @@ public actor SQLiteLibraryStore {
 
     public func updateChannelGroup(
         _ groupID: String,
+        title valueTitle: String,
+        sources values: [String],
         retrievalCount: Int,
         schedule: String
     ) throws {
-        let sources = readChannelState().sources.compactMap { source, value in
+        let title = valueTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, title.count <= 120 else { throw LibraryError.invalidChannelTitle }
+        let normalized = try values.map(normalizedChannelSource)
+        let sources = Array(Set(normalized)).sorted()
+        guard !sources.isEmpty else { throw LibraryError.invalidChannel }
+        var state = readChannelState()
+        let previousSources = state.sources.compactMap { source, value in
             (value.groupID ?? source) == groupID ? source : nil
         }
-        guard !sources.isEmpty else { throw LibraryError.missingChannel }
+        guard !previousSources.isEmpty else { throw LibraryError.missingChannel }
+        let conflicts = sources.filter { source in
+            guard let value = state.sources[source] else { return false }
+            return (value.groupID ?? source) != groupID
+        }
+        guard conflicts.isEmpty else { throw LibraryError.channelAlreadyExists }
+
+        for source in Set(previousSources).subtracting(sources) {
+            _ = try removeChannel(source)
+        }
+
+        state = readChannelState()
+        let template = previousSources.compactMap { state.sources[$0] }.first
+        for source in sources {
+            if state.sources[source] == nil {
+                state.sources[source] = .init(
+                    groupID: groupID,
+                    groupTitle: title,
+                    schedule: template?.schedule ?? "manual",
+                    retrievalCount: template?.retrievalCount ?? 5,
+                    seen: [],
+                    items: []
+                )
+            }
+            state.sources[source]?.groupID = groupID
+            state.sources[source]?.groupTitle = title
+        }
+        try writeChannelState(state)
         for source in sources {
             try updateChannel(source, retrievalCount: retrievalCount, schedule: schedule)
         }
@@ -1970,6 +2005,7 @@ public enum LibraryError: LocalizedError {
     case missingVariant
     case missingVoiceBrief
     case invalidChannel
+    case invalidChannelTitle
     case invalidChannelRetrievalCount
     case invalidChannelSchedule
     case channelFailed(String)
@@ -2004,6 +2040,7 @@ public enum LibraryError: LocalizedError {
         case .missingVariant: "That document version is not available."
         case .missingVoiceBrief: "The selected voice brief no longer exists."
         case .invalidChannel: "Channels must be HTTP(S) URLs or arXiv queries."
+        case .invalidChannelTitle: "Channel names must contain 1–120 characters."
         case .invalidChannelRetrievalCount:
             "Items per check must be between 1 and 100."
         case .invalidChannelSchedule:
