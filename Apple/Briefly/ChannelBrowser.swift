@@ -42,10 +42,32 @@ struct BrieflyShareSource: Encodable {
     let texts: [Text]
 }
 
+private actor ManagedAIRequestGate {
+    private var available = true
+    private var waiters = [CheckedContinuation<Void, Never>]()
+
+    func acquire() async {
+        if available {
+            available = false
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            available = true
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 @MainActor
 final class BrieflyBackend {
     static let shared = BrieflyBackend()
     static let origin = URL(string: "https://www.readbriefly.fyi")!
+    private static let managedAIGate = ManagedAIRequestGate()
 
     func accountStatus() async throws -> BrieflyAccountStatus {
         let (data, response) = try await request("api/auth/status")
@@ -98,6 +120,18 @@ final class BrieflyBackend {
     }
 
     func runManagedAI(prompt: String, format: String) async throws -> String {
+        await Self.managedAIGate.acquire()
+        do {
+            let output = try await performManagedAI(prompt: prompt, format: format)
+            await Self.managedAIGate.release()
+            return output
+        } catch {
+            await Self.managedAIGate.release()
+            throw error
+        }
+    }
+
+    private func performManagedAI(prompt: String, format: String) async throws -> String {
         struct Payload: Encodable {
             let prompt: String
             let format: String
@@ -105,26 +139,37 @@ final class BrieflyBackend {
         struct Result: Decodable {
             let output: String?
         }
+        struct Failure: Decodable { let code: String? }
         let body = try JSONEncoder().encode(Payload(prompt: prompt, format: format))
-        let (data, response) = try await request(
-            "api/ai/process",
-            method: "POST",
-            body: body,
-            timeoutInterval: 20 * 60
-        )
-        try requireSuccess(
-            response,
-            data: data,
-            fallback: "Briefly AI could not process this request."
-        )
-        guard
-            let output = try JSONDecoder().decode(Result.self, from: data).output?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !output.isEmpty
-        else {
-            throw BrieflyBackendError.message("Briefly AI returned no output.")
+        for attempt in 0..<6 {
+            let (data, response) = try await request(
+                "api/ai/process",
+                method: "POST",
+                body: body,
+                timeoutInterval: 20 * 60
+            )
+            let failure = try? JSONDecoder().decode(Failure.self, from: data)
+            if response.statusCode == 429,
+               failure?.code == "request_in_progress",
+               attempt < 5 {
+                try await Task.sleep(for: .seconds(pow(2.0, Double(attempt + 1))))
+                continue
+            }
+            try requireSuccess(
+                response,
+                data: data,
+                fallback: "Briefly AI could not process this request."
+            )
+            guard
+                let output = try JSONDecoder().decode(Result.self, from: data).output?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                !output.isEmpty
+            else {
+                throw BrieflyBackendError.message("Briefly AI returned no output.")
+            }
+            return output
         }
-        return output
+        throw BrieflyBackendError.message("Briefly AI is still finishing the previous request.")
     }
 
     func firecrawl(_ url: URL) async throws -> ItemDraft {

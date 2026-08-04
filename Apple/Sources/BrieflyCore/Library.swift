@@ -230,6 +230,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
     public let lastCheckedAt: String?
     public let error: String?
     public let retrievalCount: Int
+    public let autoSummarize: Bool
     public let canLoadMore: Bool
     public let items: [LibraryChannelItem]
     public let briefIDs: [String]
@@ -244,6 +245,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         lastCheckedAt: String? = nil,
         error: String? = nil,
         retrievalCount: Int = 5,
+        autoSummarize: Bool = false,
         canLoadMore: Bool = true,
         items: [LibraryChannelItem] = [],
         briefIDs: [String] = [],
@@ -257,6 +259,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         self.lastCheckedAt = lastCheckedAt
         self.error = error
         self.retrievalCount = retrievalCount
+        self.autoSummarize = autoSummarize
         self.canLoadMore = canLoadMore
         self.items = items
         self.briefIDs = briefIDs

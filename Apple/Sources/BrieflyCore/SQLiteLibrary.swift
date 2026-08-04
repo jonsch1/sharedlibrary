@@ -154,6 +154,7 @@ public struct SQLiteChannelRecord: Sendable {
     public var lastCheckedAt: String?
     public var error: String?
     public var retrievalCount: Int
+    public var autoSummarize: Bool
     public var canLoadMore: Bool
     public var seen: [String]
     public var items: [LibraryChannelItem]
@@ -168,6 +169,7 @@ public struct SQLiteChannelRecord: Sendable {
         lastCheckedAt: String? = nil,
         error: String? = nil,
         retrievalCount: Int = 5,
+        autoSummarize: Bool = false,
         canLoadMore: Bool = true,
         seen: [String] = [],
         items: [LibraryChannelItem] = []
@@ -181,6 +183,7 @@ public struct SQLiteChannelRecord: Sendable {
         self.lastCheckedAt = lastCheckedAt
         self.error = error
         self.retrievalCount = retrievalCount
+        self.autoSummarize = autoSummarize
         self.canLoadMore = canLoadMore
         self.seen = seen
         self.items = items
@@ -194,6 +197,12 @@ public struct SQLiteVoiceBriefRunState: Sendable {
     public var status: String?
     public var message: String?
     public var consumed: [String]
+}
+
+public struct SQLiteProcessingJob: Sendable {
+    public let documentID: String
+    public let selectWhenFinished: Bool
+    public let attempts: Int
 }
 
 public enum SQLiteLibraryError: LocalizedError, Equatable {
@@ -258,6 +267,12 @@ public final class SQLiteLibrary: @unchecked Sendable {
             if !channelColumns.contains("group_title") {
                 try execute("ALTER TABLE channels ADD COLUMN group_title TEXT")
             }
+            if !channelColumns.contains("auto_summarize") {
+                try execute(
+                    "ALTER TABLE channels ADD COLUMN auto_summarize INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+            try execute("UPDATE processing_jobs SET state = 'queued' WHERE state = 'running'")
             let attachmentParents = try query("PRAGMA foreign_key_list(attachments)") {
                 columnText($0, 2)
             }
@@ -552,7 +567,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 """
                 SELECT c.source_url, COALESCE(c.group_id, c.source_url), c.group_title,
                        c.title, c.kind, c.schedule, s.last_checked_at,
-                       s.last_error, c.retrieval_count, s.can_load_more
+                       s.last_error, c.retrieval_count, c.auto_summarize, s.can_load_more
                 FROM channels c LEFT JOIN channel_state s ON s.channel_id = c.id
                 WHERE c.deleted_at IS NULL ORDER BY c.source_url
                 """
@@ -562,10 +577,11 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     columnOptionalText(statement, 2), columnOptionalText(statement, 3),
                     columnOptionalText(statement, 4), columnText(statement, 5),
                     columnOptionalDate(statement, 6), columnOptionalText(statement, 7),
-                    Int(sqlite3_column_int(statement, 8)), sqlite3_column_int(statement, 9) != 0
+                    Int(sqlite3_column_int(statement, 8)), sqlite3_column_int(statement, 9) != 0,
+                    sqlite3_column_int(statement, 10) != 0
                 )
             }
-            return try rows.map { source, groupID, groupTitle, title, kind, schedule, checked, error, count, more in
+            return try rows.map { source, groupID, groupTitle, title, kind, schedule, checked, error, count, autoSummarize, more in
                 let items = try query(
                     """
                     SELECT item_id, title, url, published_at, content, linked_url,
@@ -592,6 +608,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     kind: kind.flatMap(LibraryChannelKind.init(rawValue:)),
                     schedule: schedule,
                     lastCheckedAt: checked, error: error, retrievalCount: count,
+                    autoSummarize: autoSummarize,
                     canLoadMore: more, seen: seen, items: items
                 )
             }
@@ -675,27 +692,30 @@ public final class SQLiteLibrary: @unchecked Sendable {
             try transaction {
                 for record in records {
                     let existing = try query(
-                        "SELECT group_id, group_title, title, kind, schedule, retrieval_count, revision " +
+                        "SELECT group_id, group_title, title, kind, schedule, retrieval_count, " +
+                            "auto_summarize, revision " +
                             "FROM channels WHERE id = ?",
                         bindings: [.text(record.source)]
                     ) { (columnOptionalText($0, 0), columnOptionalText($0, 1),
                          columnOptionalText($0, 2), columnOptionalText($0, 3),
                          columnText($0, 4), Int(sqlite3_column_int($0, 5)),
-                         sqlite3_column_int64($0, 6)) }.first
+                         sqlite3_column_int($0, 6) != 0, sqlite3_column_int64($0, 7)) }.first
                     let changed = existing?.0 != record.groupID || existing?.1 != record.groupTitle ||
                         existing?.2 != record.title || existing?.3 != record.kind?.rawValue ||
-                        existing?.4 != record.schedule || existing?.5 != record.retrievalCount
-                    let revision = (existing?.6 ?? 0) + (changed ? 1 : 0)
+                        existing?.4 != record.schedule || existing?.5 != record.retrievalCount ||
+                        existing?.6 != record.autoSummarize
+                    let revision = (existing?.7 ?? 0) + (changed ? 1 : 0)
                     try run(
                         """
                         INSERT INTO channels(
                           id, source_url, group_id, group_title, title, kind,
-                          schedule, retrieval_count, revision
-                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                          schedule, retrieval_count, auto_summarize, revision
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
                           group_id = excluded.group_id, group_title = excluded.group_title,
                           title = excluded.title, kind = excluded.kind,
                           schedule = excluded.schedule,
                           retrieval_count = excluded.retrieval_count,
+                          auto_summarize = excluded.auto_summarize,
                           revision = excluded.revision, deleted_at = NULL
                         """,
                         bindings: [
@@ -703,6 +723,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                             .optionalText(record.groupTitle),
                             .optionalText(record.title), .optionalText(record.kind?.rawValue),
                             .text(record.schedule), .int(Int64(record.retrievalCount)),
+                            .int(record.autoSummarize ? 1 : 0),
                             .int(max(1, revision))
                         ]
                     )
@@ -770,6 +791,84 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
                 try enqueue(recordType: "channel", id: source, revision: revision, operation: "delete")
             }
+        }
+    }
+
+    public func enqueueProcessingJob(
+        documentID: String,
+        selectWhenFinished: Bool
+    ) throws {
+        try locked {
+            try run(
+                """
+                INSERT INTO processing_jobs(
+                  document_id, state, select_when_finished, attempts, created_at, updated_at
+                ) VALUES(?, 'queued', ?, 0, ?, ?) ON CONFLICT(document_id) DO UPDATE SET
+                  state = 'queued',
+                  select_when_finished = MAX(
+                    processing_jobs.select_when_finished,
+                    excluded.select_when_finished
+                  ),
+                  last_error = NULL,
+                  updated_at = excluded.updated_at
+                """,
+                bindings: [
+                    .text(documentID), .int(selectWhenFinished ? 1 : 0),
+                    .double(Date().timeIntervalSince1970),
+                    .double(Date().timeIntervalSince1970)
+                ]
+            )
+        }
+    }
+
+    public func claimNextProcessingJob() throws -> SQLiteProcessingJob? {
+        try locked {
+            var claimed: SQLiteProcessingJob?
+            try transaction {
+                guard let row = try query(
+                    """
+                    SELECT document_id, select_when_finished, attempts
+                    FROM processing_jobs WHERE state = 'queued'
+                    ORDER BY created_at, document_id LIMIT 1
+                    """,
+                    transform: { (columnText($0, 0), sqlite3_column_int($0, 1) != 0,
+                                  Int(sqlite3_column_int($0, 2))) }
+                ).first else { return }
+                try run(
+                    """
+                    UPDATE processing_jobs SET state = 'running', attempts = attempts + 1,
+                      updated_at = ? WHERE document_id = ?
+                    """,
+                    bindings: [.double(Date().timeIntervalSince1970), .text(row.0)]
+                )
+                claimed = SQLiteProcessingJob(
+                    documentID: row.0,
+                    selectWhenFinished: row.1,
+                    attempts: row.2 + 1
+                )
+            }
+            return claimed
+        }
+    }
+
+    public func completeProcessingJob(documentID: String) throws {
+        try locked {
+            try run("DELETE FROM processing_jobs WHERE document_id = ?", bindings: [.text(documentID)])
+        }
+    }
+
+    public func failProcessingJob(documentID: String, error: String) throws {
+        try locked {
+            try run(
+                """
+                UPDATE processing_jobs SET state = 'failed', last_error = ?, updated_at = ?
+                WHERE document_id = ?
+                """,
+                bindings: [
+                    .text(String(error.prefix(1_000))),
+                    .double(Date().timeIntervalSince1970), .text(documentID)
+                ]
+            )
         }
     }
 
@@ -1006,27 +1105,29 @@ public final class SQLiteLibrary: @unchecked Sendable {
             case "channel":
                 guard let row = try query(
                     "SELECT source_url, group_id, group_title, title, kind, schedule, " +
-                        "retrieval_count, revision, deleted_at, " +
+                        "retrieval_count, auto_summarize, revision, deleted_at, " +
                         "cloud_record FROM channels WHERE id = ?",
                     bindings: [.text(id)],
                     transform: { (columnText($0, 0), columnOptionalText($0, 1),
                         columnOptionalText($0, 2), columnOptionalText($0, 3),
                         columnOptionalText($0, 4), columnText($0, 5),
-                        Int(sqlite3_column_int($0, 6)), sqlite3_column_int64($0, 7),
-                        sqlite3_column_type($0, 8) != SQLITE_NULL, columnOptionalBlob($0, 9)) }
+                        Int(sqlite3_column_int($0, 6)), sqlite3_column_int($0, 7) != 0,
+                        sqlite3_column_int64($0, 8),
+                        sqlite3_column_type($0, 9) != SQLITE_NULL, columnOptionalBlob($0, 10)) }
                 ).first
                 else { throw SQLiteLibraryError.invalidDocument }
                 var payload: [String: Any] = [
                     "sourceURL": row.0, "groupID": row.1 ?? row.0,
-                    "schedule": row.5, "retrievalCount": row.6
+                    "schedule": row.5, "retrievalCount": row.6,
+                    "autoSummarize": row.7
                 ]
                 if let groupTitle = row.2 { payload["groupTitle"] = groupTitle }
                 if let title = row.3 { payload["title"] = title }
                 if let kind = row.4 { payload["kind"] = kind }
                 return SQLiteLogicalRecord(
-                    id: id, revision: row.7, deleted: row.8,
+                    id: id, revision: row.8, deleted: row.9,
                     payload: try JSONSerialization.data(withJSONObject: payload),
-                    cloudRecordData: row.9
+                    cloudRecordData: row.10
                 )
             case "voice_brief":
                 guard let row = try query(
@@ -1112,11 +1213,13 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     }
                     try run(
                         "INSERT INTO channels(id,source_url,group_id,group_title,title,kind,schedule," +
-                            "retrieval_count,revision,deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?,?,?,?) " +
+                            "retrieval_count,auto_summarize,revision,deleted_at,cloud_record) " +
+                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) " +
                             "ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url," +
                             "group_id=excluded.group_id,group_title=excluded.group_title," +
                             "title=excluded.title,kind=excluded.kind," +
                             "schedule=excluded.schedule,retrieval_count=excluded.retrieval_count," +
+                            "auto_summarize=excluded.auto_summarize," +
                             "revision=excluded.revision," +
                             "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
                         bindings: [
@@ -1126,7 +1229,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
                             .optionalText(object["title"] as? String),
                             .optionalText(object["kind"] as? String),
                             .text(object["schedule"] as? String ?? "manual"),
-                            .int(Int64(object["retrievalCount"] as? Int ?? 5)), .int(revision),
+                            .int(Int64(object["retrievalCount"] as? Int ?? 5)),
+                            .int(object["autoSummarize"] as? Bool == true ? 1 : 0), .int(revision),
                             deletedAt, .blob(cloudRecordData)
                         ]
                     )
@@ -1974,6 +2078,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
       kind TEXT,
       schedule TEXT NOT NULL DEFAULT 'manual',
       retrieval_count INTEGER NOT NULL DEFAULT 5,
+      auto_summarize INTEGER NOT NULL DEFAULT 0,
       revision INTEGER NOT NULL DEFAULT 1,
       deleted_at REAL,
       cloud_record BLOB
@@ -2003,6 +2108,15 @@ public final class SQLiteLibrary: @unchecked Sendable {
       item_id TEXT NOT NULL,
       seen_at REAL NOT NULL,
       PRIMARY KEY(channel_id, item_id)
+    );
+    CREATE TABLE IF NOT EXISTS processing_jobs(
+      document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      state TEXT NOT NULL CHECK(state IN ('queued', 'running', 'failed')),
+      select_when_finished INTEGER NOT NULL DEFAULT 0,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at REAL NOT NULL,
+      updated_at REAL NOT NULL
     );
     CREATE TABLE IF NOT EXISTS voice_briefs(
       id TEXT PRIMARY KEY,

@@ -65,8 +65,6 @@ final class LibraryModel {
     private var hasLoadedChannels = false
     private var hasLoadedHighlights = false
     private var hasLoadedTrash = false
-    private var pendingProcessingIDs = [String]()
-    private var processingShouldSelect = [String: Bool]()
     private var pendingSync: Task<Void, Never>?
     private var localSpeechPreparation: Task<Void, Never>?
 
@@ -270,6 +268,7 @@ final class LibraryModel {
         if library != nil {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
+            await drainProcessingQueue()
             await runDueChannelChecks()
             await runDueVoiceBriefs()
         } else {
@@ -656,6 +655,7 @@ final class LibraryModel {
         title: String,
         sources: [String],
         retrievalCount: Int,
+        autoSummarize: Bool,
         schedule: String
     ) async {
         guard let library, let channel = selectedChannel else { return }
@@ -665,6 +665,7 @@ final class LibraryModel {
                 title: title,
                 sources: sources,
                 retrievalCount: retrievalCount,
+                autoSummarize: autoSummarize,
                 schedule: schedule
             )
             try await refreshChannels(from: library)
@@ -715,8 +716,10 @@ final class LibraryModel {
                     : "Gathered \(newEntryIDs.count) new " +
                         (newEntryIDs.count == 1 ? "item" : "items")
             }
-            for entryID in newEntryIDs {
-                await enqueueProcessing(entryID, selectWhenFinished: false)
+            if channel.autoSummarize {
+                for entryID in newEntryIDs {
+                    await enqueueProcessing(entryID, selectWhenFinished: false)
+                }
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -767,9 +770,6 @@ final class LibraryModel {
             }
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            for entryID in newEntryIDs {
-                await enqueueProcessing(entryID, selectWhenFinished: false)
-            }
             status = newEntryIDs.isEmpty
                 ? "Channels checked. No new items."
                 : "Prepared \(newEntryIDs.count) new " +
@@ -825,7 +825,8 @@ final class LibraryModel {
         }
         projection = (try? await library.loadLibraryIndex()) ?? projection
         try? await refreshChannels(from: library)
-        for entryID in newEntryIDs {
+        let autoSummarizeIDs = Set(libraryChannels.filter(\.autoSummarize).flatMap(\.entryIDs))
+        for entryID in newEntryIDs where autoSummarizeIDs.contains(entryID) {
             await enqueueProcessing(entryID, selectWhenFinished: false)
         }
         if !newEntryIDs.isEmpty { requestSync() }
@@ -1624,17 +1625,24 @@ final class LibraryModel {
         _ entryID: String,
         selectWhenFinished: Bool = true
     ) async {
-        processingShouldSelect[entryID] =
-            (processingShouldSelect[entryID] ?? false) || selectWhenFinished
-        if !pendingProcessingIDs.contains(entryID) {
-            pendingProcessingIDs.append(entryID)
+        guard let library else { return }
+        do {
+            try await library.enqueueProcessingJob(
+                entryID: entryID,
+                selectWhenFinished: selectWhenFinished
+            )
+            await drainProcessingQueue()
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        guard !isProcessing else { return }
+    }
+
+    private func drainProcessingQueue() async {
+        guard let library, !isProcessing else { return }
         isProcessing = true
         defer { isProcessing = false }
-        while !pendingProcessingIDs.isEmpty {
-            let nextID = pendingProcessingIDs.removeFirst()
-            await process(nextID)
+        while let job = try? await library.claimNextProcessingJob() {
+            await process(job)
         }
     }
 
@@ -1766,8 +1774,9 @@ final class LibraryModel {
         })
     }
 
-    private func process(_ entryID: String) async {
+    private func process(_ job: SQLiteProcessingJob) async {
         guard let library else { return }
+        let entryID = job.documentID
         do {
             status = "Preparing summaries…"
             let prompt = try await library.processingPrompt(
@@ -1795,12 +1804,15 @@ final class LibraryModel {
                 entryID: entryID,
                 suggestion: suggestion
             )
-            let selectWhenFinished = processingShouldSelect.removeValue(forKey: entryID) ?? true
-            await refreshLibrary(selecting: selectWhenFinished ? processedID : nil)
+            try await library.completeProcessingJob(entryID: entryID)
+            await refreshLibrary(selecting: job.selectWhenFinished ? processedID : nil)
             status = "Summaries ready"
             requestSync()
         } catch {
-            processingShouldSelect.removeValue(forKey: entryID)
+            try? await library.failProcessingJob(
+                entryID: entryID,
+                error: error.localizedDescription
+            )
             errorMessage = error.localizedDescription
             status = "The capture is saved without summaries"
         }
@@ -9183,6 +9195,7 @@ private struct ChannelConfiguration: View {
     @State private var source = ""
     @State private var channelTitle = ""
     @State private var retrievalCount = 5
+    @State private var autoSummarize = false
     @State private var schedule = "manual"
     @State private var confirmsRemoval = false
 
@@ -9287,6 +9300,11 @@ private struct ChannelConfiguration: View {
 
                     ScheduleEditor(schedule: $schedule)
 
+                    Toggle("Summarize new items automatically", isOn: $autoSummarize)
+                    Text("Off by default. You can summarize any captured item on demand.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Refresh depth")
@@ -9368,6 +9386,7 @@ private struct ChannelConfiguration: View {
                     }
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
                     ScheduleEditor(schedule: $schedule)
+                    Toggle("Summarize new items automatically", isOn: $autoSummarize)
                     Stepper(
                         "Items per check: \(retrievalCount)",
                         value: $retrievalCount,
@@ -9453,6 +9472,7 @@ private struct ChannelConfiguration: View {
         .task(id: model.selectedChannelSource) {
             source = ""
             retrievalCount = model.selectedChannel?.retrievalCount ?? 5
+            autoSummarize = model.selectedChannel?.autoSummarize ?? false
             schedule = model.selectedChannel?.schedule ?? "manual"
             channelTitle = model.selectedChannel?.title ?? ""
             model.newChannelSources = model.selectedChannelSource == "new"
@@ -9614,6 +9634,7 @@ private struct ChannelConfiguration: View {
                 title: channelTitle,
                 sources: model.newChannelSources,
                 retrievalCount: retrievalCount,
+                autoSummarize: autoSummarize,
                 schedule: schedule
             )
         }

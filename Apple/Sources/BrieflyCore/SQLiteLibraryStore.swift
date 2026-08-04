@@ -389,6 +389,7 @@ private struct VoiceBriefWatcherState: Codable {
         var lastCheckedAt: String? = nil
         var error: String? = nil
         var retrievalCount: Int? = nil
+        var autoSummarize: Bool? = nil
         var canLoadMore: Bool? = nil
         var seen = [String]()
         var items = [LibraryChannelItem]()
@@ -802,6 +803,7 @@ public actor SQLiteLibraryStore {
         title valueTitle: String,
         sources values: [String],
         retrievalCount: Int,
+        autoSummarize: Bool,
         schedule: String
     ) throws {
         let title = valueTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -833,12 +835,14 @@ public actor SQLiteLibraryStore {
                     groupTitle: title,
                     schedule: template?.schedule ?? "manual",
                     retrievalCount: template?.retrievalCount ?? 5,
+                    autoSummarize: autoSummarize,
                     seen: [],
                     items: []
                 )
             }
             state.sources[source]?.groupID = groupID
             state.sources[source]?.groupTitle = title
+            state.sources[source]?.autoSummarize = autoSummarize
         }
         try writeChannelState(state)
         for source in sources {
@@ -1236,6 +1240,29 @@ public actor SQLiteLibraryStore {
             mimeType: fileExtension == "m4a" ? "audio/mp4" : "audio/wav",
             data: data
         )
+    }
+
+    public func enqueueProcessingJob(
+        entryID: String,
+        selectWhenFinished: Bool
+    ) throws {
+        _ = try database().getDocument(entryID)
+        try database().enqueueProcessingJob(
+            documentID: entryID,
+            selectWhenFinished: selectWhenFinished
+        )
+    }
+
+    public func claimNextProcessingJob() throws -> SQLiteProcessingJob? {
+        try database().claimNextProcessingJob()
+    }
+
+    public func completeProcessingJob(entryID: String) throws {
+        try database().completeProcessingJob(documentID: entryID)
+    }
+
+    public func failProcessingJob(entryID: String, error: String) throws {
+        try database().failProcessingJob(documentID: entryID, error: error)
     }
 
     public func processingPrompt(
@@ -1898,6 +1925,7 @@ public actor SQLiteLibraryStore {
                     lastCheckedAt: record.lastCheckedAt,
                     error: record.error,
                     retrievalCount: record.retrievalCount,
+                    autoSummarize: record.autoSummarize,
                     canLoadMore: record.canLoadMore,
                     seen: record.seen,
                     items: record.items
@@ -1928,6 +1956,7 @@ public actor SQLiteLibraryStore {
                 lastCheckedAt: value.lastCheckedAt,
                 error: value.error,
                 retrievalCount: value.retrievalCount ?? 5,
+                autoSummarize: value.autoSummarize ?? false,
                 canLoadMore: value.canLoadMore ?? true,
                 seen: value.seen,
                 items: value.items
@@ -1980,6 +2009,7 @@ public actor SQLiteLibraryStore {
                 lastCheckedAt: values.compactMap(\.lastCheckedAt).max(),
                 error: values.compactMap(\.error).first,
                 retrievalCount: primary?.retrievalCount ?? 5,
+                autoSummarize: primary?.autoSummarize ?? false,
                 canLoadMore: values.contains { $0.canLoadMore ?? true },
                 items: items,
                 briefIDs: owners.map(\.id),

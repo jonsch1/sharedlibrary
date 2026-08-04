@@ -321,12 +321,14 @@ final class LibraryContractTests: XCTestCase {
         var channels = try await store.loadChannels()
         var grouped = try XCTUnwrap(channels.first { $0.source == groupID })
         XCTAssertEqual(grouped.sources, groupedSources)
+        XCTAssertFalse(grouped.autoSummarize)
         let editedSources = groupedSources + ["https://three.test/news"]
         try await store.updateChannelGroup(
             groupID,
             title: "Technology",
             sources: editedSources,
             retrievalCount: 12,
+            autoSummarize: true,
             schedule: "daily 08:30"
         )
         channels = try await store.loadChannels()
@@ -334,7 +336,26 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(grouped.retrievalCount, 12)
         XCTAssertEqual(grouped.schedule, "daily 08:30")
         XCTAssertEqual(grouped.title, "Technology")
+        XCTAssertTrue(grouped.autoSummarize)
         XCTAssertEqual(grouped.sources, editedSources.sorted())
+
+        let queuedID = try await store.captureDocument(
+            title: "Durable processing",
+            content: "This job must survive an app restart."
+        )
+        try await store.enqueueProcessingJob(entryID: queuedID, selectWhenFinished: true)
+        let claimedJob = try await store.claimNextProcessingJob()
+        let claimed = try XCTUnwrap(claimedJob)
+        XCTAssertEqual(claimed.documentID, queuedID)
+        let reopened = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+        let recoveredJob = try await reopened.claimNextProcessingJob()
+        let recovered = try XCTUnwrap(recoveredJob)
+        XCTAssertEqual(recovered.documentID, queuedID)
+        XCTAssertTrue(recovered.selectWhenFinished)
+        XCTAssertEqual(recovered.attempts, 2)
+        try await reopened.completeProcessingJob(entryID: queuedID)
+        let remainingJob = try await reopened.claimNextProcessingJob()
+        XCTAssertNil(remainingJob)
     }
 
     func testSQLiteCanonicalLibraryJourney() async throws {
