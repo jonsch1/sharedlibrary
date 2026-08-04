@@ -169,7 +169,7 @@ public struct SQLiteChannelRecord: Sendable {
         lastCheckedAt: String? = nil,
         error: String? = nil,
         retrievalCount: Int = 5,
-        autoSummarize: Bool = false,
+        autoSummarize: Bool = true,
         canLoadMore: Bool = true,
         seen: [String] = [],
         items: [LibraryChannelItem] = []
@@ -197,6 +197,7 @@ public struct SQLiteVoiceBriefRunState: Sendable {
     public var status: String?
     public var message: String?
     public var consumed: [String]
+    public var pendingEpisodeID: String?
 }
 
 public struct SQLiteProcessingJob: Sendable {
@@ -269,8 +270,14 @@ public final class SQLiteLibrary: @unchecked Sendable {
             }
             if !channelColumns.contains("auto_summarize") {
                 try execute(
-                    "ALTER TABLE channels ADD COLUMN auto_summarize INTEGER NOT NULL DEFAULT 0"
+                    "ALTER TABLE channels ADD COLUMN auto_summarize INTEGER NOT NULL DEFAULT 1"
                 )
+            }
+            let voiceBriefStateColumns = try query(
+                "PRAGMA table_info(voice_brief_state)"
+            ) { columnText($0, 1) }
+            if !voiceBriefStateColumns.contains("pending_episode_id") {
+                try execute("ALTER TABLE voice_brief_state ADD COLUMN pending_episode_id TEXT")
             }
             try execute("UPDATE processing_jobs SET state = 'queued' WHERE state = 'running'")
             let attachmentParents = try query("PRAGMA foreign_key_list(attachments)") {
@@ -875,7 +882,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
     public func voiceBriefRunStates() throws -> [SQLiteVoiceBriefRunState] {
         try locked {
             try query(
-                "SELECT voice_brief_id, last_run_at, last_attempt_at, status, message, consumed " +
+                "SELECT voice_brief_id, last_run_at, last_attempt_at, status, message, consumed, " +
+                    "pending_episode_id " +
                     "FROM voice_brief_state"
             ) {
                 SQLiteVoiceBriefRunState(
@@ -884,7 +892,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     lastAttemptAt: columnOptionalDate($0, 2),
                     status: columnOptionalText($0, 3),
                     message: columnOptionalText($0, 4),
-                    consumed: decodeStrings(columnText($0, 5))
+                    consumed: decodeStrings(columnText($0, 5)),
+                    pendingEpisodeID: columnOptionalText($0, 6)
                 )
             }
         }
@@ -900,17 +909,20 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     try run(
                         """
                         INSERT INTO voice_brief_state(
-                          voice_brief_id, last_run_at, last_attempt_at, status, message, consumed
-                        ) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(voice_brief_id) DO UPDATE SET
+                          voice_brief_id, last_run_at, last_attempt_at, status, message,
+                          consumed, pending_episode_id
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(voice_brief_id) DO UPDATE SET
                           last_run_at = excluded.last_run_at,
                           last_attempt_at = excluded.last_attempt_at,
                           status = excluded.status, message = excluded.message,
-                          consumed = excluded.consumed
+                          consumed = excluded.consumed,
+                          pending_episode_id = excluded.pending_episode_id
                         """,
                         bindings: [
                             .text(state.voiceBriefID), .optionalDouble(timestamp(state.lastRunAt)),
                             .optionalDouble(timestamp(state.lastAttemptAt)), .optionalText(state.status),
-                            .optionalText(state.message), .text(jsonStrings(state.consumed))
+                            .optionalText(state.message), .text(jsonStrings(state.consumed)),
+                            .optionalText(state.pendingEpisodeID)
                         ]
                     )
                 }
@@ -1493,7 +1505,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     let id = "personal:\(captureID)"
                     let exists = try readDocument(id) != nil
                     var texts = [LibraryVariant.source: parsed.body]
-                    for variant in [LibraryVariant.brief, .concise, .detailed, .comprehensive] {
+                    for variant in [LibraryVariant.concise, .detailed] {
                         let summary = library
                             .appending(path: "summaries", directoryHint: .isDirectory)
                             .appending(path: variant.rawValue, directoryHint: .isDirectory)
@@ -1816,7 +1828,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
     }
 
     private func updateStoredExcerpt(_ document: SQLiteDocument) throws {
-        let body = document.texts[.brief] ?? document.texts[.concise] ??
+        let body = document.texts[.concise] ?? document.texts[.detailed] ??
             document.texts[.source] ?? ""
         try run(
             "UPDATE documents SET excerpt = ? WHERE id = ?",
@@ -1829,9 +1841,9 @@ public final class SQLiteLibrary: @unchecked Sendable {
             """
             SELECT t.document_id, substr(t.body, 1, 4096)
             FROM document_texts t
-            WHERE t.variant IN ('brief', 'concise', 'source')
+            WHERE t.variant IN ('concise', 'detailed', 'source')
             ORDER BY t.document_id,
-              CASE t.variant WHEN 'brief' THEN 0 WHEN 'concise' THEN 1 ELSE 2 END
+              CASE t.variant WHEN 'concise' THEN 0 WHEN 'detailed' THEN 1 ELSE 2 END
             """,
             transform: { (columnText($0, 0), columnText($0, 1)) }
         )
@@ -2078,7 +2090,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
       kind TEXT,
       schedule TEXT NOT NULL DEFAULT 'manual',
       retrieval_count INTEGER NOT NULL DEFAULT 5,
-      auto_summarize INTEGER NOT NULL DEFAULT 0,
+      auto_summarize INTEGER NOT NULL DEFAULT 1,
       revision INTEGER NOT NULL DEFAULT 1,
       deleted_at REAL,
       cloud_record BLOB
@@ -2149,7 +2161,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
       last_attempt_at REAL,
       status TEXT,
       message TEXT,
-      consumed TEXT NOT NULL DEFAULT '[]'
+      consumed TEXT NOT NULL DEFAULT '[]',
+      pending_episode_id TEXT
     );
     CREATE TABLE IF NOT EXISTS voice_brief_consumed_items(
       voice_brief_id TEXT NOT NULL REFERENCES voice_briefs(id) ON DELETE CASCADE,

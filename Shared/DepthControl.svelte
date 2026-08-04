@@ -13,20 +13,16 @@
     presentation?: 'compact' | 'showcase';
   } = $props();
 
-  const variantOrder: LibraryVariant[] = ['brief', 'concise', 'detailed', 'comprehensive'];
+  const variantOrder: LibraryVariant[] = ['concise', 'detailed'];
   const summaryVariants = $derived(variants.filter((variant) => variant !== 'source'));
   const hasSource = $derived(variants.includes('source'));
   const depthIconPaths = [
-    'M4 11h16v2H4z',
     'M4 9h16v2H4V9zm0 4h10v2H4v-2z',
-    'M3 18h12v-2H3v2zm0-12v2h18V6H3zm0 7h18v-2H3v2z',
-    'M14 17H4v2h10v-2zm6-8H4v2h16V9zM4 15h16v-2H4v2zM4 5v2h16V5H4z'
+    'M3 18h12v-2H3v2zm0-12v2h18V6H3zm0 7h18v-2H3v2z'
   ];
   const variantNames: Record<LibraryVariant, string> = {
-    brief: 'Brief',
     concise: 'Concise',
     detailed: 'Detailed',
-    comprehensive: 'Comprehensive',
     source: 'Original'
   };
 </script>

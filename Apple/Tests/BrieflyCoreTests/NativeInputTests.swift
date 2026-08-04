@@ -470,6 +470,13 @@ final class NativeChannelInputTests: XCTestCase {
 
 @MainActor
 final class LiveInputURLTests: XCTestCase {
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        guard ProcessInfo.processInfo.environment["BRIEFLY_RUN_LIVE_TESTS"] == "1" else {
+            throw XCTSkip("Set BRIEFLY_RUN_LIVE_TESTS=1 to run live network tests.")
+        }
+    }
+
     func testTextItemIngestsLiveContent() async throws {
         let draft = try await assertLiveItem(.text, contains: ["HTTP Semantics", "IANA Considerations"])
         XCTAssertTrue(draft.title.contains("Internet Engineering Task Force"))

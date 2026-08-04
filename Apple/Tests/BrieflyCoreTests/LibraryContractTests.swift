@@ -321,7 +321,7 @@ final class LibraryContractTests: XCTestCase {
         var channels = try await store.loadChannels()
         var grouped = try XCTUnwrap(channels.first { $0.source == groupID })
         XCTAssertEqual(grouped.sources, groupedSources)
-        XCTAssertFalse(grouped.autoSummarize)
+        XCTAssertTrue(grouped.autoSummarize)
         let editedSources = groupedSources + ["https://three.test/news"]
         try await store.updateChannelGroup(
             groupID,
@@ -459,10 +459,8 @@ final class LibraryContractTests: XCTestCase {
               "short_filename": "native-capture",
               "topic_name": "Native Development",
               "summaries": {
-                "brief": "Brief summary.",
                 "concise": "Concise summary.",
-                "detailed": "Detailed summary.",
-                "comprehensive": "Comprehensive summary."
+                "detailed": "Detailed summary."
               }
             }
             ```
@@ -477,11 +475,8 @@ final class LibraryContractTests: XCTestCase {
             workspaceProjection.entries.first { $0.id == capturedID }
         )
         XCTAssertEqual(processed.topicNames, ["Native Development"])
-        XCTAssertEqual(processed.text(for: .brief)?.text, "Brief summary.")
-        XCTAssertEqual(
-            processed.text(for: .comprehensive)?.text,
-            "Comprehensive summary."
-        )
+        XCTAssertEqual(processed.text(for: .concise)?.text, "Concise summary.")
+        XCTAssertEqual(processed.text(for: .detailed)?.text, "Detailed summary.")
         let topicID = try XCTUnwrap(processed.topicIDs.first)
         let topicDefinitions = try await workspace.topicDefinitions()
         XCTAssertEqual(topicDefinitions.first?.title, "Native Development")
@@ -533,7 +528,7 @@ final class LibraryContractTests: XCTestCase {
             LibraryVoiceBriefDraft(
                 title: "Native Daily",
                 schedule: "daily 07:30",
-                length: "5 minutes",
+                length: LibraryVariant.detailed.rawValue,
                 sources: ["https://example.com/feed"],
                 prompt: defaultVoiceBriefPrompt,
                 prioritizeForMe: true
@@ -586,6 +581,13 @@ final class LibraryContractTests: XCTestCase {
             ingest: ingestChannelItem
         )
         XCTAssertEqual(signedIn.newEntryIDs.count, 1)
+        let signedEntryID = try XCTUnwrap(signedIn.newEntryIDs.first)
+        let signedDocument = try await workspace.getDocument(signedEntryID)
+        _ = try await workspace.commitDocument(
+            signedEntryID,
+            baseRevision: signedDocument.revision,
+            texts: [.detailed: "Signed detailed summary."]
+        )
         let signedInAgain = try await workspace.captureSignedInChannelItems(
             source: "https://example.com/feed",
             title: "Signed-in feed",
@@ -710,15 +712,12 @@ final class LibraryContractTests: XCTestCase {
         )
 
         #if os(macOS)
-        let episode = try await workspace.runVoiceBrief(
-            id: voiceBriefID,
-            command: "/bin/cat",
-            runner: { prompt in
-                XCTAssertTrue(prompt.contains("Signed item"))
-                return "# Managed episode"
-            }
-        )
-        XCTAssertEqual(episode.script, "# Managed episode")
+        let episode = try await workspace.runVoiceBrief(id: voiceBriefID)
+        XCTAssertTrue(episode.script.contains("# Native Daily"))
+        XCTAssertTrue(episode.script.contains("## Signed item"))
+        XCTAssertTrue(episode.script.contains("Detailed summary."))
+        let pendingAfterAssembly = try await workspace.pendingVoiceBriefIDs()
+        XCTAssertTrue(pendingAfterAssembly.contains(voiceBriefID))
         workspaceProjection = try await workspace.loadProjection()
         let savedEpisode = try XCTUnwrap(
             workspaceProjection.entries.first { $0.id == episode.entryID }
@@ -735,6 +734,12 @@ final class LibraryContractTests: XCTestCase {
             entryID: episode.entryID,
             file: generatedAudio
         )
+        try await workspace.completeVoiceBriefRun(
+            id: voiceBriefID,
+            episodeID: episode.entryID
+        )
+        let pendingAfterAudio = try await workspace.pendingVoiceBriefIDs()
+        XCTAssertFalse(pendingAfterAudio.contains(voiceBriefID))
         workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(
             workspaceProjection.entries.first { $0.id == episode.entryID }?.hasAudio,

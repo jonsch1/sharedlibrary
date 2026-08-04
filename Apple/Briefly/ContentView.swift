@@ -269,6 +269,7 @@ final class LibraryModel {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
             await drainProcessingQueue()
+            await resumePendingVoiceBriefs()
             await runDueChannelChecks()
             await runDueVoiceBriefs()
         } else {
@@ -582,6 +583,22 @@ final class LibraryModel {
         }
     }
 
+    func selectVoiceBriefVariant(_ variant: LibraryVariant) async {
+        guard variant == .concise || variant == .detailed,
+              let brief = selectedVoiceBrief else { return }
+        _ = await saveVoiceBrief(LibraryVoiceBriefDraft(
+            id: brief.id,
+            title: brief.title,
+            schedule: brief.schedule,
+            length: variant.rawValue,
+            sources: brief.sources,
+            prompt: brief.prompt ?? voiceBriefPrompt,
+            prioritizeForMe: brief.prioritizeForMe == true
+        ))
+        showingVoiceBriefSettings = false
+        status = variant == .concise ? "Short brief selected" : "Detailed brief selected"
+    }
+
     func trashSelectedVoiceBrief() async {
         guard
             let library,
@@ -782,7 +799,24 @@ final class LibraryModel {
 
     func runSelectedVoiceBrief() async {
         guard let brief = selectedVoiceBrief else { return }
+        do {
+            try await library?.queueVoiceBriefRun(id: brief.id)
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         await generateVoiceBrief(brief, selectEpisode: true, reportErrors: true)
+    }
+
+    func resumePendingVoiceBriefs() async {
+        guard let library, !isRunningVoiceBrief, !isGeneratingSpeech else { return }
+        guard let pending = try? await library.pendingVoiceBriefIDs() else { return }
+        for id in pending {
+            guard let brief = projection.voiceBriefDefinitions.first(where: { $0.id == id }) else {
+                continue
+            }
+            await generateVoiceBrief(brief, selectEpisode: false, reportErrors: false)
+        }
     }
 
     func runDueVoiceBriefs() async {
@@ -796,6 +830,7 @@ final class LibraryModel {
                     continue
                 }
                 try await library.markVoiceBriefAttempt(id: id)
+                try await library.queueVoiceBriefRun(id: id)
                 await generateVoiceBrief(
                     brief,
                     selectEpisode: false,
@@ -845,44 +880,30 @@ final class LibraryModel {
         )
         defer { try? FileManager.default.removeItem(at: audioURL) }
         do {
-            status = "Checking channels for \(brief.title)…"
-            var newEntryIDs = [String]()
-            for source in brief.sources {
-                do {
-                    newEntryIDs += try await retrieveChannel(
-                        library,
-                        source: source
-                    ).newEntryIDs
-                } catch {
-                    continue
-                }
-            }
-            projection = try await library.loadLibraryIndex()
-            try await refreshChannels(from: library)
-            for entryID in newEntryIDs {
-                await enqueueProcessing(entryID, selectWhenFinished: false)
-            }
-            status = "Writing \(brief.title)…"
             let episode: LibraryVoiceBriefEpisodeResult
-            if usesManagedAI {
-                episode = try await library.runVoiceBrief(
-                    id: brief.id,
-                    command: processingCommand,
-                    promptTemplate: voiceBriefPrompt,
-                    personalContext: aboutYou
-                ) {
-                    try await BrieflyBackend.shared.runManagedAI(
-                        prompt: $0,
-                        format: "text"
-                    )
-                }
+            if let pending = try await library.pendingVoiceBriefEpisode(id: brief.id) {
+                episode = pending
+                status = "Resuming audio for \(brief.title)…"
             } else {
-                episode = try await library.runVoiceBrief(
-                    id: brief.id,
-                    command: processingCommand,
-                    promptTemplate: voiceBriefPrompt,
-                    personalContext: aboutYou
-                )
+                status = "Fetching channels for \(brief.title)…"
+                var newEntryIDs = [String]()
+                for source in brief.sources {
+                    do {
+                        newEntryIDs += try await retrieveChannel(
+                            library,
+                            source: source
+                        ).newEntryIDs
+                    } catch {
+                        continue
+                    }
+                }
+                projection = try await library.loadLibraryIndex()
+                try await refreshChannels(from: library)
+                for entryID in newEntryIDs {
+                    await enqueueProcessing(entryID, selectWhenFinished: false)
+                }
+                status = "Assembling \(brief.title)…"
+                episode = try await library.runVoiceBrief(id: brief.id)
             }
             let speechText = spokenVoiceBriefText(episode.script)
             var usedLocalVoice = false
@@ -903,6 +924,10 @@ final class LibraryModel {
                 try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
             }
             try await library.attachAudio(entryID: episode.entryID, file: audioURL)
+            try await library.completeVoiceBriefRun(
+                id: brief.id,
+                episodeID: episode.entryID
+            )
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             if selectEpisode {
@@ -2475,8 +2500,17 @@ struct ContentView: View {
                         .layoutPriority(1)
                         .frame(width: 680)
                         .frame(maxHeight: .infinity)
-                        .background(.ultraThinMaterial.opacity(0.56))
-                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                        .background(
+                            .ultraThinMaterial.opacity(0.56),
+                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .clipShape(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.primary.opacity(0.10))
+                        }
 
                         MacXRightRail(model: model)
                             .frame(width: 310)
@@ -2523,6 +2557,7 @@ struct ContentView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
+                await model.resumePendingVoiceBriefs()
                 await model.runDueChannelChecks()
                 await model.runDueVoiceBriefs()
             }
@@ -2533,6 +2568,7 @@ struct ContentView: View {
                     #if os(iOS)
                     if model.canEdit { await model.sync() }
                     #endif
+                    await model.resumePendingVoiceBriefs()
                     await model.runDueChannelChecks()
                     await model.runDueVoiceBriefs()
                 }
@@ -3518,6 +3554,13 @@ private struct MobileXFeedScreen: View {
 
             choices
 
+            if tab == .briefs, let brief = model.selectedVoiceBrief {
+                BriefPreparationPanel(model: model, brief: brief)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             if entries.isEmpty {
                 XEmptyState(
                     icon: emptyIcon,
@@ -3546,6 +3589,7 @@ private struct MobileXFeedScreen: View {
         }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .animation(.smooth(duration: 0.3), value: model.selectedVoiceBriefID)
     }
 
     private var choices: some View {
@@ -3761,8 +3805,10 @@ private struct MobileXHeader: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 52)
-        .background(.regularMaterial)
-        .overlay(alignment: .bottom) { Divider() }
+        .mobileGlass(
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous),
+            interactive: false
+        )
     }
 
     private func headerButton(_ action: MobileXHeaderAction) -> some View {
@@ -4473,9 +4519,8 @@ private struct MobileLibraryNavigation: View {
 
     private var isItemDetail: Bool {
         preferredCompactColumn == .detail &&
-            model.activeSection == .items &&
             !model.showingHighlights &&
-            model.selectedEntry != nil
+            model.selectedEntry?.voiceBriefID == nil
     }
 
     private var isPlayableDetail: Bool {
@@ -4785,12 +4830,17 @@ private struct AudioPlayerScreen: View {
 private struct MobileGlass<S: Shape>: ViewModifier {
     let shape: S
     let tint: Color?
+    let interactive: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             let glass = tint.map { Glass.regular.tint($0) } ?? .regular
-            content.glassEffect(glass.interactive(), in: shape)
+            if interactive {
+                content.glassEffect(glass.interactive(), in: shape)
+            } else {
+                content.glassEffect(glass, in: shape)
+            }
         } else if let tint {
             content.background(tint, in: shape)
         } else {
@@ -4802,9 +4852,10 @@ private struct MobileGlass<S: Shape>: ViewModifier {
 private extension View {
     func mobileGlass<S: Shape>(
         in shape: S,
-        tint: Color? = nil
+        tint: Color? = nil,
+        interactive: Bool = true
     ) -> some View {
-        modifier(MobileGlass(shape: shape, tint: tint))
+        modifier(MobileGlass(shape: shape, tint: tint, interactive: interactive))
     }
 }
 #endif
@@ -6843,10 +6894,17 @@ private struct LibraryCardBrowser: View {
                     .padding(.top, 12)
             }
 
-            Divider()
+            Color.clear
+                .frame(height: 1)
                 .padding(.top, 12)
         }
+        #if os(macOS)
+        .macLiquidGlass(
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        #else
         .background(.regularMaterial)
+        #endif
         .overlay(alignment: .topTrailing) {
             if model.activeSection != .items {
                 feedHeaderAction
@@ -7032,45 +7090,7 @@ private struct LibraryCardBrowser: View {
     }
 
     private func briefRefreshPrompt(_ brief: LibraryVoiceBrief) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 38, height: 38)
-                .background(Color.primary.opacity(0.07), in: Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ready for a fresh brief?")
-                    .font(.callout.weight(.semibold))
-                Text("Generate the latest episode from \(brief.sources.count) channels.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Button {
-                Task { await model.runSelectedVoiceBrief() }
-            } label: {
-                if model.isRunningVoiceBrief {
-                    ProgressView().controlSize(.small)
-                        .frame(minWidth: 82)
-                } else {
-                    Text("Generate")
-                        .font(.callout.weight(.semibold))
-                        .frame(minWidth: 82)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
-        }
-        .padding(12)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.08))
-        }
+        BriefPreparationPanel(model: model, brief: brief)
     }
 
     private var feedRail: some View {
@@ -7162,18 +7182,6 @@ private struct LibraryCardBrowser: View {
         {
             HStack {
                 Spacer()
-                Button {
-                    Task { await model.runSelectedVoiceBrief() }
-                } label: {
-                    if model.isRunningVoiceBrief {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Generate fresh", systemImage: "sparkles")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
-
                 Button {
                     model.showVoiceBriefSettings(brief.id)
                 } label: {
@@ -7602,15 +7610,114 @@ private struct HighlightsDocument: View {
     }
 }
 
+private struct BriefPreparationPanel: View {
+    @Bindable var model: LibraryModel
+    let brief: LibraryVoiceBrief
+
+    private var selectedVariant: LibraryVariant {
+        brief.length == LibraryVariant.detailed.rawValue ? .detailed : .concise
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.isRunningVoiceBrief ? "Preparing your brief" : "Prepare a new brief")
+                        .font(.callout.weight(.semibold))
+                    Text(
+                        model.isRunningVoiceBrief
+                            ? model.status
+                            : "Fetch the channels, assemble the summaries, and create audio."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .contentTransition(.opacity)
+                }
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 6) {
+                    modeButton(.concise, label: "Short")
+                    modeButton(.detailed, label: "Detailed")
+                }
+            }
+
+            Button {
+                Task { await model.runSelectedVoiceBrief() }
+            } label: {
+                HStack(spacing: 10) {
+                    if model.isRunningVoiceBrief {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "sparkles")
+                    }
+                    Text(model.isRunningVoiceBrief ? "Preparing…" : "Prepare new brief")
+                        .font(.callout.weight(.semibold))
+                        .contentTransition(.opacity)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
+        }
+        .padding(14)
+        .background(
+            model.isRunningVoiceBrief
+                ? Color.accentColor.opacity(0.10)
+                : Color.primary.opacity(0.045),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    model.isRunningVoiceBrief
+                        ? Color.accentColor.opacity(0.28)
+                        : Color.primary.opacity(0.08)
+                )
+        }
+        .animation(.smooth(duration: 0.35), value: model.isRunningVoiceBrief)
+        .animation(.smooth(duration: 0.25), value: model.status)
+    }
+
+    private func modeButton(_ variant: LibraryVariant, label: String) -> some View {
+        Button {
+            Task { await model.selectVoiceBriefVariant(variant) }
+        } label: {
+            HStack(spacing: 6) {
+                ReadingDepthIcon(variant: variant)
+                    .frame(width: 22, height: 22)
+                Text(label)
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selectedVariant == variant ? Color.white : Color.primary)
+        .background(
+            selectedVariant == variant
+                ? Color.accentColor
+                : Color.primary.opacity(0.055),
+            in: Capsule()
+        )
+        .disabled(model.isRunningVoiceBrief)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selectedVariant == variant ? .isSelected : [])
+    }
+}
+
 private struct ReadingDepthIcon: View {
     let variant: LibraryVariant
 
     private var lineWidths: [CGFloat] {
         switch variant {
-        case .brief: [18]
         case .concise: [18, 12]
         case .detailed: [18, 18, 12]
-        case .comprehensive: [16, 16, 16, 10]
         case .source: []
         }
     }
@@ -8488,7 +8595,8 @@ private struct LibraryDocument: View {
                         )
                     }
 
-                    if let source = entry.sourceURL, let url = URL(string: source) {
+                    if !usesMobileVoiceBriefControls && !usesMobileItemControls,
+                       let source = entry.sourceURL, let url = URL(string: source) {
                         Link(destination: url) {
                             Image(systemName: "arrow.up.right")
                                 .frame(width: 44, height: 44)
@@ -8568,20 +8676,40 @@ private struct LibraryDocument: View {
         }
         #if os(iOS)
         .toolbar {
-            if (usesMobileVoiceBriefControls || usesMobileItemControls) &&
-                entry.origin != .shared
-            {
+            if usesMobileVoiceBriefControls || usesMobileItemControls {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showsSharing = true
+                    Menu {
+                        if let source = entry.sourceURL, let url = URL(string: source) {
+                            Link(destination: url) {
+                                Label("Open original source", systemImage: "arrow.up.right")
+                            }
+                        }
+                        if entry.origin != .shared {
+                            Button {
+                                showsSharing = true
+                            } label: {
+                                Label(
+                                    usesMobileVoiceBriefControls
+                                        ? "Share voice brief"
+                                        : "Share document",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                            }
+                        }
+                        if model.canEdit && !model.showingTrash {
+                            Divider()
+                            Button("Regenerate summaries", systemImage: "arrow.clockwise") {
+                                Task { await model.processSelected() }
+                            }
+                            .disabled(model.isProcessing)
+                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                                Task { await model.trashSelected() }
+                            }
+                        }
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
+                        Image(systemName: "ellipsis")
                     }
-                    .accessibilityLabel(
-                        usesMobileVoiceBriefControls
-                            ? "Share voice brief"
-                            : "Share document"
-                    )
+                    .accessibilityLabel("Document settings")
                 }
             }
         }
@@ -8598,7 +8726,7 @@ private struct LibraryDocument: View {
 
     private var usesMobileItemControls: Bool {
         #if os(iOS)
-        model.activeSection == .items
+        entry.voiceBriefID == nil
         #else
         false
         #endif
@@ -8828,11 +8956,12 @@ private extension View {
 }
 
 private struct VoiceBriefConfiguration: View {
+    @Environment(\.dismiss) private var dismiss
     @Bindable var model: LibraryModel
     @State private var title = ""
     @State private var prompt = ""
     @State private var schedule = "manual"
-    @State private var length = ""
+    @State private var length = LibraryVariant.concise.rawValue
     @State private var sources = ""
     @State private var prioritizeForMe = false
     @State private var confirmsTrash = false
@@ -8846,8 +8975,7 @@ private struct VoiceBriefConfiguration: View {
     }
 
     private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -8859,35 +8987,6 @@ private struct VoiceBriefConfiguration: View {
                     TextField("Voice brief title", text: $title)
                         .textFieldStyle(.plain)
                         .font(.system(size: 30, weight: .bold))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Voice brief prompt")
-                            .font(.headline)
-                        Text("Edit the exact prompt. Keep {{voice_brief_title}} and {{source_packets}}.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        TextEditor(text: $prompt)
-                            .font(.body)
-                            .frame(minHeight: 130)
-                            .padding(8)
-                            .background(.background)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(.primary.opacity(0.14))
-                            }
-                    }
-
-                    Toggle(isOn: $prioritizeForMe) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Prioritize for me")
-                                .font(.headline)
-                            Text("Use personal context to decide which updates deserve attention.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .toggleStyle(.switch)
 
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .bottom) {
@@ -8976,12 +9075,6 @@ private struct VoiceBriefConfiguration: View {
                     }
 
                     ScheduleEditor(schedule: $schedule)
-                    LabeledField(
-                        label: "Length",
-                        placeholder: "about 5 minutes",
-                        value: $length
-                    )
-
                     HStack {
                         if model.selectedVoiceBrief != nil {
                             Button("Move voice brief to Trash", role: .destructive) {
@@ -9000,10 +9093,15 @@ private struct VoiceBriefConfiguration: View {
                 ConfigurationCard(
                     eyebrow: "VOICE BRIEF",
                     title: brief.title,
-                    description: "A scheduled private synthesis of the sources below."
+                    description: "A private brief assembled from the selected channel summaries."
                 ) {
                     LabeledContent("Schedule", value: brief.schedule)
-                    LabeledContent("Length", value: brief.length)
+                    LabeledContent(
+                        "Brief length",
+                        value: brief.length == LibraryVariant.detailed.rawValue
+                            ? "Detailed"
+                            : "Short"
+                    )
                     LabeledContent("Sources", value: brief.sources.joined(separator: "\n"))
                 }
             } else {
@@ -9040,29 +9138,6 @@ private struct VoiceBriefConfiguration: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    if model.selectedVoiceBrief != nil {
-                        Button {
-                            Task { await model.checkSelectedVoiceBriefChannels() }
-                        } label: {
-                            Label("Check", systemImage: "arrow.clockwise")
-                        }
-
-                        Button {
-                            Task { await model.runSelectedVoiceBrief() }
-                        } label: {
-                            if model.isRunningVoiceBrief {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Label("Generate fresh", systemImage: "sparkles")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(
-                            model.isRunningVoiceBrief ||
-                                model.selectedVoiceBrief?.sources.isEmpty != false
-                        )
-                    }
-
                     Button {
                         Task { await save() }
                     } label: {
@@ -9092,7 +9167,7 @@ private struct VoiceBriefConfiguration: View {
     }
 
     private func save() async {
-        await model.saveVoiceBrief(
+        let saved = await model.saveVoiceBrief(
             LibraryVoiceBriefDraft(
                 id: model.selectedVoiceBrief?.id,
                 title: title,
@@ -9103,6 +9178,11 @@ private struct VoiceBriefConfiguration: View {
                 prioritizeForMe: prioritizeForMe
             )
         )
+        guard saved != nil else { return }
+        model.showingVoiceBriefSettings = false
+        #if os(iOS)
+        dismiss()
+        #endif
     }
 
     private func isChannelSelected(_ channel: LibraryChannel) -> Bool {
@@ -9124,14 +9204,16 @@ private struct VoiceBriefConfiguration: View {
             title = brief.title
             prompt = brief.prompt ?? model.voiceBriefPrompt
             schedule = brief.schedule
-            length = brief.length
+            length = brief.length == LibraryVariant.detailed.rawValue
+                ? LibraryVariant.detailed.rawValue
+                : LibraryVariant.concise.rawValue
             sources = brief.sources.joined(separator: "\n")
             prioritizeForMe = brief.prioritizeForMe == true
         } else {
             title = "New voice brief"
             prompt = model.voiceBriefPrompt
             schedule = "manual"
-            length = ""
+            length = LibraryVariant.concise.rawValue
             sources = ""
             prioritizeForMe = false
         }
@@ -9280,7 +9362,7 @@ private struct ChannelConfiguration: View {
     @State private var source = ""
     @State private var channelTitle = ""
     @State private var retrievalCount = 5
-    @State private var autoSummarize = false
+    @State private var autoSummarize = true
     @State private var schedule = "manual"
     @State private var confirmsRemoval = false
 
@@ -9557,7 +9639,7 @@ private struct ChannelConfiguration: View {
         .task(id: model.selectedChannelSource) {
             source = ""
             retrievalCount = model.selectedChannel?.retrievalCount ?? 5
-            autoSummarize = model.selectedChannel?.autoSummarize ?? false
+            autoSummarize = model.selectedChannel?.autoSummarize ?? true
             schedule = model.selectedChannel?.schedule ?? "manual"
             channelTitle = model.selectedChannel?.title ?? ""
             model.newChannelSources = model.selectedChannelSource == "new"

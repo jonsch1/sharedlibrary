@@ -52,12 +52,10 @@ const managedAIJSONSchema = {
 				type: 'object',
 				additionalProperties: false,
 				properties: {
-					comprehensive: { type: 'string' },
 					detailed: { type: 'string' },
-					concise: { type: 'string' },
-					brief: { type: 'string' }
+					concise: { type: 'string' }
 				},
-				required: ['comprehensive', 'detailed', 'concise', 'brief']
+				required: ['detailed', 'concise']
 			},
 			topic_name: { type: 'string' }
 		},
@@ -1607,7 +1605,7 @@ async function cleanServiceUsage(env) {
 	]);
 }
 
-const shareVariants = ['brief', 'concise', 'detailed', 'comprehensive'];
+const shareVariants = ['concise', 'detailed'];
 const shareInputVariants = [...shareVariants, 'source'];
 const maximumShareDocumentBytes = 1_000_000;
 const maximumSharePayloadBytes = 3_000_000;

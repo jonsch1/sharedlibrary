@@ -1,20 +1,16 @@
 import Foundation
 
-public let librarySchemaVersion = 4
+public let librarySchemaVersion = 5
 
 public enum LibraryVariant: String, Codable, CaseIterable, Sendable {
-    case brief
     case concise
     case detailed
-    case comprehensive
     case source
 
     public var title: String {
         switch self {
-        case .brief: "Brief"
         case .concise: "Concise"
         case .detailed: "Detailed"
-        case .comprehensive: "Comprehensive"
         case .source: "Source"
         }
     }
@@ -245,7 +241,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         lastCheckedAt: String? = nil,
         error: String? = nil,
         retrievalCount: Int = 5,
-        autoSummarize: Bool = false,
+        autoSummarize: Bool = true,
         canLoadMore: Bool = true,
         items: [LibraryChannelItem] = [],
         briefIDs: [String] = [],
@@ -403,7 +399,7 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     }
 
     public var preferredVariant: LibraryVariant {
-        [.concise, .brief, .detailed, .comprehensive, .source]
+        [.concise, .detailed, .source]
             .first(where: { text(for: $0) != nil }) ?? .source
     }
 
@@ -497,7 +493,7 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
 
     private func validate() throws {
         guard
-            schemaVersion == 2 || schemaVersion == librarySchemaVersion,
+            schemaVersion == librarySchemaVersion,
             isISO8601(generatedAt),
             files.allSatisfy({ $0.isValid }),
             entries.allSatisfy({ $0.isValid })

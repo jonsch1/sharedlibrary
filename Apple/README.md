@@ -64,7 +64,7 @@ use their app-local SQLite database directly.
 ```bash
 swift test
 
-swift test --filter LiveInputURLTests
+BRIEFLY_RUN_LIVE_TESTS=1 swift test --filter LiveInputURLTests
 
 xcodebuild -project Briefly.xcodeproj -scheme Briefly \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build

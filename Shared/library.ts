@@ -1,10 +1,8 @@
-export const librarySchemaVersion = 4;
+export const librarySchemaVersion = 5;
 
 export const libraryVariants = [
-  'brief',
   'concise',
   'detailed',
-  'comprehensive',
   'source'
 ] as const;
 
@@ -177,7 +175,7 @@ function isLibraryVoiceBrief(value: unknown): value is LibraryVoiceBrief {
 export function parseLibraryProjection(value: unknown): LibraryProjection {
   if (
     !isObject(value) ||
-    (value.schemaVersion !== 2 && value.schemaVersion !== librarySchemaVersion) ||
+    value.schemaVersion !== librarySchemaVersion ||
     typeof value.generatedAt !== 'string' ||
     Number.isNaN(Date.parse(value.generatedAt)) ||
     !Array.isArray(value.files) ||
@@ -266,7 +264,7 @@ export function textFor(
 }
 
 export function preferredVariant(entry: LibraryEntry): LibraryVariant {
-  for (const variant of ['concise', 'brief', 'detailed', 'comprehensive', 'source'] as const) {
+  for (const variant of ['concise', 'detailed', 'source'] as const) {
     if (textFor(entry, variant)) return variant;
   }
   return 'source';

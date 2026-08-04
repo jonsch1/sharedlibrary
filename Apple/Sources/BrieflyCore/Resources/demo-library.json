@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "generatedAt": "2026-07-31T08:00:00Z",
   "files": [],
   "entries": [
@@ -15,10 +15,6 @@
       "createdAt": "2026-07-18T09:30:00Z",
       "origin": "personal",
       "texts": [
-        {
-          "variant": "brief",
-          "text": "Network inference works best when experimental perturbations, prior biological knowledge, and explicit validation are designed together."
-        },
         {
           "variant": "concise",
           "text": "## Core idea\n\nBiological network inference is not a single algorithmic step. It combines **well-designed perturbations**, a transparent prior network, and validation against held-out observations.\n\n- Use perturbations that distinguish competing causal explanations.\n- Keep prior knowledge inspectable and versioned.\n- Separate model selection from final validation.\n- Report uncertainty instead of presenting one graph as definitive."
@@ -62,10 +58,6 @@
       "origin": "shared",
       "sharedByUsername": "alex",
       "texts": [
-        {
-          "variant": "brief",
-          "text": "Ligand–receptor scores are hypotheses about communication, not direct measurements of signaling events."
-        },
         {
           "variant": "concise",
           "text": "## Interpreting communication scores\n\nMost workflows combine expression thresholds, a ligand–receptor resource, and an aggregation rule. Results change substantially with each choice.\n\nUse several complementary methods and validate important predictions with spatial context or perturbation data."
