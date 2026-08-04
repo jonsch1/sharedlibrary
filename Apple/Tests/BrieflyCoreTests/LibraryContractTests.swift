@@ -315,6 +315,17 @@ final class LibraryContractTests: XCTestCase {
             deletedProjection.entries.first { $0.id == replacementID }?.channelSources,
             [source]
         )
+
+        let groupedSources = ["https://one.test/feed", "https://two.test/videos"]
+        let groupID = try await store.addChannel(groupedSources)
+        var channels = try await store.loadChannels()
+        var grouped = try XCTUnwrap(channels.first { $0.source == groupID })
+        XCTAssertEqual(grouped.sources, groupedSources)
+        try await store.updateChannelGroup(groupID, retrievalCount: 12, schedule: "daily 08:30")
+        channels = try await store.loadChannels()
+        grouped = try XCTUnwrap(channels.first { $0.source == groupID })
+        XCTAssertEqual(grouped.retrievalCount, 12)
+        XCTAssertEqual(grouped.schedule, "daily 08:30")
     }
 
     func testSQLiteCanonicalLibraryJourney() async throws {

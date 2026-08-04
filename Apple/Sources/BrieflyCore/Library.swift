@@ -220,7 +220,10 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
 }
 
 public struct LibraryChannel: Hashable, Identifiable, Sendable {
+    /// Stable identity for the channel. For single-source channels this is the source URL;
+    /// multi-source channels use an independent identifier.
     public let source: String
+    public let sources: [String]
     public let title: String
     public let kind: LibraryChannelKind?
     public let schedule: String
@@ -234,6 +237,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
 
     public init(
         source: String,
+        sources: [String]? = nil,
         title: String,
         kind: LibraryChannelKind? = nil,
         schedule: String = "manual",
@@ -246,6 +250,7 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         briefTitles: [String] = []
     ) {
         self.source = source
+        self.sources = sources ?? [source]
         self.title = title
         self.kind = kind
         self.schedule = schedule
@@ -259,12 +264,13 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
     }
 
     public var id: String { source }
+    public var primarySource: String { sources.first ?? source }
     public var entryIDs: [String] { items.map(\.entryID) }
 
     public func matches(_ query: String) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return true }
-        return ([title, source] + items.map(\.title))
+        return ([title] + sources + items.map(\.title))
             .joined(separator: " ")
             .localizedCaseInsensitiveContains(needle)
     }

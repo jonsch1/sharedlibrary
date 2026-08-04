@@ -78,6 +78,7 @@ final class LibraryModel {
     var selectedIDs = Set<String>()
     var selectedVoiceBriefID = ""
     var selectedChannelSource = ""
+    var newChannelSources = [String]()
     var showingVoiceBriefSettings = false
     var showingChannelSettings = false
     var selectedVariant = LibraryVariant.concise
@@ -603,21 +604,47 @@ final class LibraryModel {
         }
     }
 
+    func stageChannelSource(_ value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let candidate = if trimmed.contains("://") { trimmed } else { "https://\(trimmed)" }
+        guard let url = URL(string: candidate), ["http", "https"].contains(url.scheme) else {
+            errorMessage = LibraryError.invalidChannel.localizedDescription
+            return
+        }
+        let normalized = url.absoluteString
+        guard !newChannelSources.contains(normalized) else { return }
+        newChannelSources.append(normalized)
+    }
+
+    func removeStagedChannelSource(_ source: String) {
+        newChannelSources.removeAll { $0 == source }
+    }
+
     func addChannel(_ source: String) async {
+        stageChannelSource(source)
+        await createChannel()
+    }
+
+    func createChannel() async {
         guard let library else {
             errorMessage = "Open a Briefly library before adding channels."
             return
         }
+        guard !newChannelSources.isEmpty else { return }
         do {
-            try await library.addChannel(source)
+            let groupID = try await library.addChannel(newChannelSources)
             try await refreshChannels(from: library)
-            guard let added = libraryChannels.first(where: {
-                $0.source == source.trimmingCharacters(in: .whitespacesAndNewlines)
-            }) else {
+            guard let added = libraryChannels.first(where: { $0.source == groupID }) else {
                 throw LibraryError.missingChannel
             }
             selectedChannelSource = added.source
-            status = "Channel added"
+            newChannelSources = []
+            showingChannelSettings = false
+            status = added.sources.count == 1
+                ? "Channel added"
+                : "Channel added with \(added.sources.count) sources"
+            requestSync()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -626,7 +653,7 @@ final class LibraryModel {
     func updateSelectedChannel(retrievalCount: Int, schedule: String) async {
         guard let library, let channel = selectedChannel else { return }
         do {
-            try await library.updateChannel(
+            try await library.updateChannelGroup(
                 channel.source,
                 retrievalCount: retrievalCount,
                 schedule: schedule
@@ -651,27 +678,35 @@ final class LibraryModel {
         status = loadMore ? "Loading more from \(channel.title)…" : "Checking \(channel.title)…"
         defer { isCheckingChannel = false }
         do {
-            let result: LibraryChannelRefresh
-            result = try await retrieveChannel(
-                library,
-                source: channel.source,
-                loadMore: loadMore
-            )
+            var newEntryIDs = [String]()
+            var lastError: Error?
+            for source in channel.sources {
+                do {
+                    let result = try await retrieveChannel(
+                        library,
+                        source: source,
+                        loadMore: loadMore
+                    )
+                    newEntryIDs.append(contentsOf: result.newEntryIDs)
+                } catch {
+                    lastError = error
+                }
+            }
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            selectedChannelSource = result.channel.source
-            if let error = result.channel.error {
-                errorMessage = error
-                status = result.newEntryIDs.isEmpty
+            selectedChannelSource = channel.source
+            if let lastError {
+                errorMessage = lastError.localizedDescription
+                status = newEntryIDs.isEmpty
                     ? "Channel check failed."
-                    : "Gathered \(result.newEntryIDs.count) items; some failed and will retry."
+                    : "Gathered \(newEntryIDs.count) items; some sources failed and will retry."
             } else {
-                status = result.newEntryIDs.isEmpty
+                status = newEntryIDs.isEmpty
                     ? "Channel checked. No new items."
-                    : "Gathered \(result.newEntryIDs.count) new " +
-                        (result.newEntryIDs.count == 1 ? "item" : "items")
+                    : "Gathered \(newEntryIDs.count) new " +
+                        (newEntryIDs.count == 1 ? "item" : "items")
             }
-            for entryID in result.newEntryIDs {
+            for entryID in newEntryIDs {
                 await enqueueProcessing(entryID, selectWhenFinished: false)
             }
         } catch {
@@ -682,7 +717,7 @@ final class LibraryModel {
     func removeSelectedChannel() async {
         guard let library, let channel = selectedChannel else { return }
         do {
-            let deletedItemCount = try await library.removeChannel(channel.source)
+            let deletedItemCount = try await library.removeChannelGroup(channel.source)
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             selectedChannelSource = ""
@@ -2491,9 +2526,13 @@ struct ContentView: View {
         .sheet(isPresented: $showsChannelBrowser) {
             if model.canEdit {
                 ChannelLoginView(
-                    initialAddress: model.selectedChannelSource,
+                    initialAddress: model.selectedChannel?.primarySource ?? "",
                     onCapture: { url, page in
-                        await model.captureWebPage(url: url, page: page)
+                        if model.selectedChannelSource == "new" {
+                            model.stageChannelSource(url.absoluteString)
+                        } else {
+                            await model.captureWebPage(url: url, page: page)
+                        }
                     },
                     onActivity: model.setBrowserIngesting
                 )
@@ -5552,7 +5591,7 @@ private struct MobileLibraryRows: View {
                         icon: channel.kind == .podcast
                             ? "waveform"
                             : "dot.radiowaves.left.and.right",
-                        eyebrow: channelDomain(channel.source).uppercased(),
+                        eyebrow: channelDomain(channel.primarySource).uppercased(),
                         title: channel.title,
                         subtitle: "\(model.channelEntries(for: channel.source).count) notes",
                         settingsLabel: "Settings for \(channel.title)",
@@ -5917,7 +5956,7 @@ private struct ChannelDomainGroup: Identifiable {
 private func channelDomainGroups(
     _ channels: [LibraryChannel]
 ) -> [ChannelDomainGroup] {
-    Dictionary(grouping: channels, by: { channelDomain($0.source) })
+    Dictionary(grouping: channels, by: { channelDomain($0.primarySource) })
         .map { domain, channels in
             ChannelDomainGroup(
                 domain: domain,
@@ -6501,7 +6540,7 @@ private struct LibraryCardBrowser: View {
     private var channels: [LibraryChannel] {
         model.filteredChannels.filter {
             model.selectedChannelDomain == "All" ||
-                channelDomain($0.source) == model.selectedChannelDomain
+                channelDomain($0.primarySource) == model.selectedChannelDomain
         }
     }
 
@@ -6630,7 +6669,7 @@ private struct LibraryCardBrowser: View {
                         Text(channel.title)
                             .font(.callout.weight(.semibold))
                             .lineLimit(1)
-                        Text(channelDomain(channel.source))
+                        Text(channelDomain(channel.primarySource))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -7068,12 +7107,12 @@ private struct LibraryCardBrowser: View {
                 icon: channel.kind == .podcast
                     ? "waveform"
                     : "dot.radiowaves.left.and.right",
-                title: channelDomain(channel.source)
+                title: channelDomain(channel.primarySource)
             )
             Text(channel.title)
                 .font(.title3.weight(.semibold))
                 .lineLimit(2)
-            Text(channel.source)
+            Text(channel.sources.joined(separator: " · "))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -8746,7 +8785,7 @@ private struct VoiceBriefConfiguration: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text("\(selectedSources.count) selected")
+                            Text("\(model.channels.count(where: isChannelSelected)) selected")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -8772,23 +8811,23 @@ private struct VoiceBriefConfiguration: View {
                             VStack(spacing: 0) {
                                 ForEach(model.channels) { channel in
                                     Button {
-                                        toggleSource(channel.source)
+                                        toggleChannel(channel)
                                     } label: {
                                         HStack(spacing: 11) {
                                             Image(
-                                                systemName: selectedSources.contains(channel.source)
+                                                systemName: isChannelSelected(channel)
                                                     ? "checkmark.circle.fill"
                                                     : "circle"
                                             )
                                             .foregroundStyle(
-                                                selectedSources.contains(channel.source)
+                                                isChannelSelected(channel)
                                                     ? Color.accentColor
                                                     : Color.secondary
                                             )
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(channel.title)
                                                     .font(.system(size: 13, weight: .semibold))
-                                                Text(channel.source)
+                                                Text(channel.sources.joined(separator: " · "))
                                                     .font(.caption)
                                                     .foregroundStyle(.secondary)
                                                     .lineLimit(1)
@@ -8804,7 +8843,7 @@ private struct VoiceBriefConfiguration: View {
                                     }
                                     .buttonStyle(.plain)
                                     .background(
-                                        selectedSources.contains(channel.source)
+                                        isChannelSelected(channel)
                                             ? Color.accentColor.opacity(0.1)
                                             : Color.clear
                                     )
@@ -8952,14 +8991,18 @@ private struct VoiceBriefConfiguration: View {
         )
     }
 
-    private func toggleSource(_ source: String) {
+    private func isChannelSelected(_ channel: LibraryChannel) -> Bool {
+        !channel.sources.isEmpty && channel.sources.allSatisfy(selectedSources.contains)
+    }
+
+    private func toggleChannel(_ channel: LibraryChannel) {
         var selected = selectedSources
-        if selected.remove(source) == nil {
-            selected.insert(source)
+        if isChannelSelected(channel) {
+            selected.subtract(channel.sources)
+        } else {
+            selected.formUnion(channel.sources)
         }
-        sources = model.channels.compactMap {
-            selected.contains($0.source) ? $0.source : nil
-        }.joined(separator: "\n")
+        sources = selected.sorted().joined(separator: "\n")
     }
 
     private func loadDraft() {
@@ -9128,35 +9171,7 @@ private struct ChannelConfiguration: View {
     var body: some View {
         ScrollView {
             if model.selectedChannelSource == "new" {
-                ConfigurationCard(
-                    eyebrow: "CHANNEL",
-                    title: "Add channel",
-                    description: "Add a publication, feed, podcast, profile, or web page."
-                ) {
-                    TextField("https://example.com/feed", text: $source)
-                        .textFieldStyle(.roundedBorder)
-                        .autocorrectionDisabled()
-                        .onSubmit {
-                            Task { await model.addChannel(source) }
-                        }
-                    HStack {
-                        Button {
-                            showsChannelBrowser = true
-                        } label: {
-                            Label("Open signed-in browser", systemImage: "globe")
-                        }
-                        Spacer()
-                        Button {
-                            Task { await model.addChannel(source) }
-                        } label: {
-                            Label("Add channel", systemImage: "plus")
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(
-                            source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        )
-                    }
-                }
+                channelCreation
             } else if let channel = model.selectedChannel {
                 #if os(macOS)
                 VStack(alignment: .leading, spacing: 30) {
@@ -9178,7 +9193,7 @@ private struct ChannelConfiguration: View {
                                 .foregroundStyle(.secondary)
                             Text(channel.title)
                                 .font(.system(size: 28, weight: .bold))
-                            Text(channel.source)
+                            Text(channel.sources.joined(separator: "  ·  "))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -9258,8 +9273,8 @@ private struct ChannelConfiguration: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Channel preview")
                             .font(.title2.weight(.semibold))
-                        ChannelPreview(source: channel.source)
-                            .id(channel.source)
+                        ChannelPreview(source: channel.primarySource)
+                            .id(channel.primarySource)
                             .frame(height: 500)
                     }
 
@@ -9299,7 +9314,7 @@ private struct ChannelConfiguration: View {
                 ConfigurationCard(
                     eyebrow: "CHANNEL",
                     title: channel.title,
-                    description: channel.source
+                    description: channel.sources.joined(separator: "\n")
                 ) {
                     LabeledContent(
                         "Captured items",
@@ -9358,7 +9373,7 @@ private struct ChannelConfiguration: View {
                         .disabled(model.isCheckingChannel || !channel.canLoadMore)
                     }
                     HStack {
-                        if let url = URL(string: channel.source) {
+                        if let url = URL(string: channel.primarySource) {
                             Link(destination: url) {
                                 Label("Open channel", systemImage: "arrow.up.right")
                             }
@@ -9433,12 +9448,173 @@ private struct ChannelConfiguration: View {
         }
     }
 
+    private var channelCreation: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("CHANNEL")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .tracking(1.2)
+                Text("Add channel")
+                    .font(.system(size: 32, weight: .bold))
+                Text("Add websites, blogs, podcasts, profiles, or pages to this channel.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider().padding(.vertical, 26)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Sources")
+                    .font(.headline)
+                HStack(spacing: 12) {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                    TextField("Paste a domain or URL", text: $source)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                        .onSubmit(addSource)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+                .background(.primary.opacity(0.025))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(.primary.opacity(0.16), lineWidth: 1)
+                }
+                Text("Add by domain or URL, or choose a page in the browser.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 12) {
+                    Spacer()
+                    Button {
+                        showsChannelBrowser = true
+                    } label: {
+                        Label("Open signed-in browser", systemImage: "globe")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+
+                    Button(action: addSource) {
+                        Label("Add source", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.top, 4)
+            }
+
+            if !model.newChannelSources.isEmpty {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Added sources")
+                        .font(.headline)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 250), spacing: 12)],
+                        alignment: .leading,
+                        spacing: 12
+                    ) {
+                        ForEach(model.newChannelSources, id: \.self) { source in
+                            ChannelSourceCard(source: source) {
+                                model.removeStagedChannelSource(source)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 38)
+            }
+
+            Spacer(minLength: 38)
+            Divider()
+            HStack {
+                Text("\(model.newChannelSources.count) " +
+                     (model.newChannelSources.count == 1 ? "source" : "sources") + " added")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") {
+                    model.newChannelSources = []
+                    model.navigateBack()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                Button("Create channel") {
+                    Task { await model.createChannel() }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(model.newChannelSources.isEmpty)
+            }
+            .padding(.top, 22)
+        }
+        .frame(maxWidth: 920, minHeight: 620, alignment: .topLeading)
+        .padding(28)
+        #if os(macOS)
+        .background(.ultraThinMaterial.opacity(0.58))
+        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+        #endif
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private func addSource() {
+        model.stageChannelSource(source)
+        source = ""
+    }
+
     private func saveSettings() {
         Task {
             await model.updateSelectedChannel(
                 retrievalCount: retrievalCount,
                 schedule: schedule
             )
+        }
+    }
+}
+
+private struct ChannelSourceCard: View {
+    let source: String
+    let remove: () -> Void
+
+    private var displaySource: String {
+        guard let url = URL(string: source) else { return source }
+        let host = url.host?.replacingOccurrences(of: "www.", with: "") ?? source
+        let path = url.path == "/" ? "" : url.path
+        return host + path
+    }
+
+    private var symbol: String {
+        guard let host = URL(string: source)?.host?.lowercased() else { return "globe" }
+        if host.contains("youtube") { return "play.fill" }
+        if host.contains("podcast") || host.contains("spotify") { return "waveform" }
+        return "globe"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 36, height: 36)
+                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+            Text(displaySource)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Remove \(displaySource)")
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 58)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(.primary.opacity(0.12), lineWidth: 1)
         }
     }
 }

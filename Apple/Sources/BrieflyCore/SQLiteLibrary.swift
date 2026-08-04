@@ -146,6 +146,8 @@ public struct SQLiteAttachmentMetadata: Sendable {
 
 public struct SQLiteChannelRecord: Sendable {
     public var source: String
+    public var groupID: String
+    public var groupTitle: String?
     public var title: String?
     public var kind: LibraryChannelKind?
     public var schedule: String
@@ -155,6 +157,34 @@ public struct SQLiteChannelRecord: Sendable {
     public var canLoadMore: Bool
     public var seen: [String]
     public var items: [LibraryChannelItem]
+
+    public init(
+        source: String,
+        groupID: String? = nil,
+        groupTitle: String? = nil,
+        title: String? = nil,
+        kind: LibraryChannelKind? = nil,
+        schedule: String = "manual",
+        lastCheckedAt: String? = nil,
+        error: String? = nil,
+        retrievalCount: Int = 5,
+        canLoadMore: Bool = true,
+        seen: [String] = [],
+        items: [LibraryChannelItem] = []
+    ) {
+        self.source = source
+        self.groupID = groupID ?? source
+        self.groupTitle = groupTitle
+        self.title = title
+        self.kind = kind
+        self.schedule = schedule
+        self.lastCheckedAt = lastCheckedAt
+        self.error = error
+        self.retrievalCount = retrievalCount
+        self.canLoadMore = canLoadMore
+        self.seen = seen
+        self.items = items
+    }
 }
 
 public struct SQLiteVoiceBriefRunState: Sendable {
@@ -220,6 +250,13 @@ public final class SQLiteLibrary: @unchecked Sendable {
             let channelColumns = try query("PRAGMA table_info(channels)") { columnText($0, 1) }
             if !channelColumns.contains("schedule") {
                 try execute("ALTER TABLE channels ADD COLUMN schedule TEXT NOT NULL DEFAULT 'manual'")
+            }
+            if !channelColumns.contains("group_id") {
+                try execute("ALTER TABLE channels ADD COLUMN group_id TEXT")
+                try execute("UPDATE channels SET group_id = source_url WHERE group_id IS NULL")
+            }
+            if !channelColumns.contains("group_title") {
+                try execute("ALTER TABLE channels ADD COLUMN group_title TEXT")
             }
             let attachmentParents = try query("PRAGMA foreign_key_list(attachments)") {
                 columnText($0, 2)
@@ -513,20 +550,22 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try locked {
             let rows = try query(
                 """
-                SELECT c.source_url, c.title, c.kind, c.schedule, s.last_checked_at,
+                SELECT c.source_url, COALESCE(c.group_id, c.source_url), c.group_title,
+                       c.title, c.kind, c.schedule, s.last_checked_at,
                        s.last_error, c.retrieval_count, s.can_load_more
                 FROM channels c LEFT JOIN channel_state s ON s.channel_id = c.id
                 WHERE c.deleted_at IS NULL ORDER BY c.source_url
                 """
             ) { statement in
                 (
-                    columnText(statement, 0), columnOptionalText(statement, 1),
-                    columnOptionalText(statement, 2), columnText(statement, 3),
-                    columnOptionalDate(statement, 4), columnOptionalText(statement, 5),
-                    Int(sqlite3_column_int(statement, 6)), sqlite3_column_int(statement, 7) != 0
+                    columnText(statement, 0), columnText(statement, 1),
+                    columnOptionalText(statement, 2), columnOptionalText(statement, 3),
+                    columnOptionalText(statement, 4), columnText(statement, 5),
+                    columnOptionalDate(statement, 6), columnOptionalText(statement, 7),
+                    Int(sqlite3_column_int(statement, 8)), sqlite3_column_int(statement, 9) != 0
                 )
             }
-            return try rows.map { source, title, kind, schedule, checked, error, count, more in
+            return try rows.map { source, groupID, groupTitle, title, kind, schedule, checked, error, count, more in
                 let items = try query(
                     """
                     SELECT item_id, title, url, published_at, content, linked_url,
@@ -549,7 +588,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     bindings: [.text(source)], transform: { columnText($0, 0) }
                 )
                 return SQLiteChannelRecord(
-                    source: source, title: title,
+                    source: source, groupID: groupID, groupTitle: groupTitle, title: title,
                     kind: kind.flatMap(LibraryChannelKind.init(rawValue:)),
                     schedule: schedule,
                     lastCheckedAt: checked, error: error, retrievalCount: count,
@@ -636,26 +675,32 @@ public final class SQLiteLibrary: @unchecked Sendable {
             try transaction {
                 for record in records {
                     let existing = try query(
-                        "SELECT title, kind, schedule, retrieval_count, revision FROM channels WHERE id = ?",
+                        "SELECT group_id, group_title, title, kind, schedule, retrieval_count, revision " +
+                            "FROM channels WHERE id = ?",
                         bindings: [.text(record.source)]
                     ) { (columnOptionalText($0, 0), columnOptionalText($0, 1),
-                         columnText($0, 2), Int(sqlite3_column_int($0, 3)),
-                         sqlite3_column_int64($0, 4)) }.first
-                    let changed = existing?.0 != record.title ||
-                        existing?.1 != record.kind?.rawValue || existing?.2 != record.schedule ||
-                        existing?.3 != record.retrievalCount
-                    let revision = (existing?.4 ?? 0) + (changed ? 1 : 0)
+                         columnOptionalText($0, 2), columnOptionalText($0, 3),
+                         columnText($0, 4), Int(sqlite3_column_int($0, 5)),
+                         sqlite3_column_int64($0, 6)) }.first
+                    let changed = existing?.0 != record.groupID || existing?.1 != record.groupTitle ||
+                        existing?.2 != record.title || existing?.3 != record.kind?.rawValue ||
+                        existing?.4 != record.schedule || existing?.5 != record.retrievalCount
+                    let revision = (existing?.6 ?? 0) + (changed ? 1 : 0)
                     try run(
                         """
-                        INSERT INTO channels(id, source_url, title, kind, schedule, retrieval_count, revision)
-                        VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                        INSERT INTO channels(
+                          id, source_url, group_id, group_title, title, kind,
+                          schedule, retrieval_count, revision
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                          group_id = excluded.group_id, group_title = excluded.group_title,
                           title = excluded.title, kind = excluded.kind,
                           schedule = excluded.schedule,
                           retrieval_count = excluded.retrieval_count,
                           revision = excluded.revision, deleted_at = NULL
                         """,
                         bindings: [
-                            .text(record.source), .text(record.source),
+                            .text(record.source), .text(record.source), .text(record.groupID),
+                            .optionalText(record.groupTitle),
                             .optionalText(record.title), .optionalText(record.kind?.rawValue),
                             .text(record.schedule), .int(Int64(record.retrievalCount)),
                             .int(max(1, revision))
@@ -960,24 +1005,28 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
             case "channel":
                 guard let row = try query(
-                    "SELECT source_url, title, kind, schedule, retrieval_count, revision, deleted_at, " +
+                    "SELECT source_url, group_id, group_title, title, kind, schedule, " +
+                        "retrieval_count, revision, deleted_at, " +
                         "cloud_record FROM channels WHERE id = ?",
                     bindings: [.text(id)],
                     transform: { (columnText($0, 0), columnOptionalText($0, 1),
-                        columnOptionalText($0, 2), columnText($0, 3),
-                        Int(sqlite3_column_int($0, 4)), sqlite3_column_int64($0, 5),
-                        sqlite3_column_type($0, 6) != SQLITE_NULL, columnOptionalBlob($0, 7)) }
+                        columnOptionalText($0, 2), columnOptionalText($0, 3),
+                        columnOptionalText($0, 4), columnText($0, 5),
+                        Int(sqlite3_column_int($0, 6)), sqlite3_column_int64($0, 7),
+                        sqlite3_column_type($0, 8) != SQLITE_NULL, columnOptionalBlob($0, 9)) }
                 ).first
                 else { throw SQLiteLibraryError.invalidDocument }
                 var payload: [String: Any] = [
-                    "sourceURL": row.0, "schedule": row.3, "retrievalCount": row.4
+                    "sourceURL": row.0, "groupID": row.1 ?? row.0,
+                    "schedule": row.5, "retrievalCount": row.6
                 ]
-                if let title = row.1 { payload["title"] = title }
-                if let kind = row.2 { payload["kind"] = kind }
+                if let groupTitle = row.2 { payload["groupTitle"] = groupTitle }
+                if let title = row.3 { payload["title"] = title }
+                if let kind = row.4 { payload["kind"] = kind }
                 return SQLiteLogicalRecord(
-                    id: id, revision: row.5, deleted: row.6,
+                    id: id, revision: row.7, deleted: row.8,
                     payload: try JSONSerialization.data(withJSONObject: payload),
-                    cloudRecordData: row.7
+                    cloudRecordData: row.9
                 )
             case "voice_brief":
                 guard let row = try query(
@@ -1062,14 +1111,19 @@ public final class SQLiteLibrary: @unchecked Sendable {
                         throw SQLiteLibraryError.invalidDocument
                     }
                     try run(
-                        "INSERT INTO channels(id,source_url,title,kind,schedule,retrieval_count,revision," +
-                            "deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET " +
-                            "source_url=excluded.source_url,title=excluded.title,kind=excluded.kind," +
+                        "INSERT INTO channels(id,source_url,group_id,group_title,title,kind,schedule," +
+                            "retrieval_count,revision,deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?,?,?,?) " +
+                            "ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url," +
+                            "group_id=excluded.group_id,group_title=excluded.group_title," +
+                            "title=excluded.title,kind=excluded.kind," +
                             "schedule=excluded.schedule,retrieval_count=excluded.retrieval_count," +
                             "revision=excluded.revision," +
                             "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
                         bindings: [
-                            .text(id), .text(source), .optionalText(object["title"] as? String),
+                            .text(id), .text(source),
+                            .text(object["groupID"] as? String ?? source),
+                            .optionalText(object["groupTitle"] as? String),
+                            .optionalText(object["title"] as? String),
                             .optionalText(object["kind"] as? String),
                             .text(object["schedule"] as? String ?? "manual"),
                             .int(Int64(object["retrievalCount"] as? Int ?? 5)), .int(revision),
@@ -1914,6 +1968,8 @@ public final class SQLiteLibrary: @unchecked Sendable {
     CREATE TABLE IF NOT EXISTS channels(
       id TEXT PRIMARY KEY,
       source_url TEXT NOT NULL UNIQUE,
+      group_id TEXT,
+      group_title TEXT,
       title TEXT,
       kind TEXT,
       schedule TEXT NOT NULL DEFAULT 'manual',

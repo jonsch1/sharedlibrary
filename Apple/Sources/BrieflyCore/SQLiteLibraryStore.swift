@@ -381,6 +381,8 @@ private func conciseProcessError(_ url: URL) throws -> String {
 
 private struct VoiceBriefWatcherState: Codable {
     struct Source: Codable {
+        var groupID: String? = nil
+        var groupTitle: String? = nil
         var title: String? = nil
         var kind: LibraryChannelKind? = nil
         var schedule: String? = nil
@@ -741,16 +743,33 @@ public actor SQLiteLibraryStore {
         return try buildChannels(from: state)
     }
 
-    public func addChannel(_ value: String) throws {
-        let source = try normalizedChannelSource(value)
+    @discardableResult
+    public func addChannel(_ value: String) throws -> String {
+        try addChannel([value])
+    }
+
+    @discardableResult
+    public func addChannel(_ values: [String]) throws -> String {
+        let normalized = try values.map(normalizedChannelSource)
+        let sources = Array(NSOrderedSet(array: normalized).array.compactMap { $0 as? String })
+        guard !sources.isEmpty else { throw LibraryError.invalidChannel }
+        let groupID = sources.count == 1 ? sources[0] : UUID().uuidString.uppercased()
         var state = readChannelState()
-        state.sources[source] = state.sources[source] ?? .init(
-            schedule: "manual",
-            retrievalCount: 5,
-            seen: [],
-            items: []
-        )
+        if sources.count == 1, let existing = state.sources[sources[0]] {
+            return existing.groupID ?? sources[0]
+        }
+        for source in sources {
+            guard state.sources[source] == nil else { throw LibraryError.channelAlreadyExists }
+            state.sources[source] = .init(
+                groupID: groupID,
+                schedule: "manual",
+                retrievalCount: 5,
+                seen: [],
+                items: []
+            )
+        }
         try writeChannelState(state)
+        return groupID
     }
 
     public func updateChannel(
@@ -776,6 +795,20 @@ public actor SQLiteLibraryStore {
         current.schedule = schedule.isEmpty ? "manual" : schedule
         state.sources[source] = current
         try writeChannelState(state)
+    }
+
+    public func updateChannelGroup(
+        _ groupID: String,
+        retrievalCount: Int,
+        schedule: String
+    ) throws {
+        let sources = readChannelState().sources.compactMap { source, value in
+            (value.groupID ?? source) == groupID ? source : nil
+        }
+        guard !sources.isEmpty else { throw LibraryError.missingChannel }
+        for source in sources {
+            try updateChannel(source, retrievalCount: retrievalCount, schedule: schedule)
+        }
     }
 
     @discardableResult
@@ -815,6 +848,19 @@ public actor SQLiteLibraryStore {
         return documents.count
     }
 
+    @discardableResult
+    public func removeChannelGroup(_ groupID: String) throws -> Int {
+        let sources = readChannelState().sources.compactMap { source, value in
+            (value.groupID ?? source) == groupID ? source : nil
+        }
+        guard !sources.isEmpty else { throw LibraryError.missingChannel }
+        var removed = 0
+        for source in sources {
+            removed += try removeChannel(source)
+        }
+        return removed
+    }
+
     public func checkChannel(
         _ value: String,
         maximumItems: Int? = nil,
@@ -847,7 +893,7 @@ public actor SQLiteLibraryStore {
         current.retrievalCount = current.retrievalCount ?? 5
         state.sources[source] = current
         try writeChannelState(state)
-        let channel = try buildChannels(from: state).first { $0.source == source }
+        let channel = try buildChannels(from: state).first { $0.sources.contains(source) }
         guard let channel else { throw LibraryError.missingChannel }
         if let failure { throw failure }
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
@@ -897,7 +943,7 @@ public actor SQLiteLibraryStore {
             current.retrievalCount = current.retrievalCount ?? 5
             state.sources[source] = current
             try writeChannelState(state)
-            guard let channel = try buildChannels(from: state).first(where: { $0.source == source }) else {
+            guard let channel = try buildChannels(from: state).first(where: { $0.sources.contains(source) }) else {
                 throw LibraryError.missingChannel
             }
             return .init(channel: channel, newEntryIDs: newEntryIDs)
@@ -983,7 +1029,7 @@ public actor SQLiteLibraryStore {
         current.retrievalCount = current.retrievalCount ?? 5
         state.sources[source] = current
         try writeChannelState(state)
-        let channel = try buildChannels(from: state).first { $0.source == source }
+        let channel = try buildChannels(from: state).first { $0.sources.contains(source) }
         guard let channel else { throw LibraryError.missingChannel }
         return LibraryChannelRefresh(channel: channel, newEntryIDs: newEntryIDs)
     }
@@ -1809,6 +1855,8 @@ public actor SQLiteLibraryStore {
             schemaVersion: 1,
             sources: Dictionary(uniqueKeysWithValues: sources.map { record in
                 (record.source, VoiceBriefWatcherState.Source(
+                    groupID: record.groupID,
+                    groupTitle: record.groupTitle,
                     title: record.title,
                     kind: record.kind,
                     schedule: record.schedule,
@@ -1837,6 +1885,8 @@ public actor SQLiteLibraryStore {
         try database.saveChannelRecords(state.sources.map { source, value in
             SQLiteChannelRecord(
                 source: source,
+                groupID: value.groupID ?? source,
+                groupTitle: value.groupTitle,
                 title: value.title,
                 kind: value.kind,
                 schedule: value.schedule ?? "manual",
@@ -1870,21 +1920,33 @@ public actor SQLiteLibraryStore {
         from state: VoiceBriefWatcherState
     ) throws -> [LibraryChannel] {
         let definitions = try readVoiceBriefs()
-        let sources = Set(state.sources.keys)
-            .union(definitions.flatMap(\.sources))
-        return sources.map { source in
-            let value = state.sources[source]
-            let owners = definitions.filter { $0.sources.contains(source) }
+        var allSources = state.sources
+        for source in Set(definitions.flatMap(\.sources)) where allSources[source] == nil {
+            allSources[source] = .init(groupID: source)
+        }
+        let groups = Dictionary(grouping: allSources.keys) { source in
+            allSources[source]?.groupID ?? source
+        }
+        return groups.map { groupID, unorderedSources in
+            let sources = unorderedSources.sorted()
+            let values = sources.compactMap { allSources[$0] }
+            let primary = values.first
+            let owners = definitions.filter { !Set($0.sources).isDisjoint(with: sources) }
+            let items = Dictionary(
+                values.flatMap(\.items).map { ($0.entryID.isEmpty ? $0.id : $0.entryID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            ).values.sorted { $0.ingestedAt > $1.ingestedAt }
             return LibraryChannel(
-                source: source,
-                title: value?.title ?? channelDisplayTitle(source),
-                kind: value?.kind,
-                schedule: value?.schedule ?? "manual",
-                lastCheckedAt: value?.lastCheckedAt,
-                error: value?.error,
-                retrievalCount: value?.retrievalCount ?? 5,
-                canLoadMore: value?.canLoadMore ?? true,
-                items: value?.items ?? [],
+                source: groupID,
+                sources: sources,
+                title: primary?.groupTitle ?? primary?.title ?? channelDisplayTitle(sources[0]),
+                kind: Set(values.compactMap(\.kind)).count == 1 ? primary?.kind : nil,
+                schedule: primary?.schedule ?? "manual",
+                lastCheckedAt: values.compactMap(\.lastCheckedAt).max(),
+                error: values.compactMap(\.error).first,
+                retrievalCount: primary?.retrievalCount ?? 5,
+                canLoadMore: values.contains { $0.canLoadMore ?? true },
+                items: items,
                 briefIDs: owners.map(\.id),
                 briefTitles: owners.map(\.title)
             )
@@ -1904,6 +1966,7 @@ public enum LibraryError: LocalizedError {
     case invalidAudio
     case missingEntry
     case missingChannel
+    case channelAlreadyExists
     case missingVariant
     case missingVoiceBrief
     case invalidChannel
@@ -1937,6 +2000,7 @@ public enum LibraryError: LocalizedError {
         case .invalidAudio: "Briefly could not save the generated audio."
         case .missingEntry: "The selected library item no longer exists."
         case .missingChannel: "The selected channel no longer exists."
+        case .channelAlreadyExists: "One of these sources is already in a channel."
         case .missingVariant: "That document version is not available."
         case .missingVoiceBrief: "The selected voice brief no longer exists."
         case .invalidChannel: "Channels must be HTTP(S) URLs or arXiv queries."
