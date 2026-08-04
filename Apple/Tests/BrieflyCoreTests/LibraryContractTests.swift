@@ -535,7 +535,7 @@ final class LibraryContractTests: XCTestCase {
                 schedule: "daily 07:30",
                 length: "5 minutes",
                 sources: ["https://example.com/feed"],
-                prompt: "Connect the most useful updates.",
+                prompt: defaultVoiceBriefPrompt,
                 prioritizeForMe: true
             )
         )
@@ -543,7 +543,7 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(workspaceProjection.voiceBriefDefinitions.first?.id, voiceBriefID)
         XCTAssertEqual(
             workspaceProjection.voiceBriefDefinitions.first?.prompt,
-            "Connect the most useful updates."
+            defaultVoiceBriefPrompt
         )
         try await workspace.addChannel("https://example.com/feed")
         var channels = try await workspace.loadChannels()
@@ -675,9 +675,18 @@ final class LibraryContractTests: XCTestCase {
             sourcePackets: "A native source packet."
         )
         XCTAssertTrue(renderedVoicePrompt.contains("Voice brief: Native Daily"))
+        XCTAssertTrue(renderedVoicePrompt.contains("Requested length: 5 minutes"))
+        let renderedVoicePromptWithoutLength = try renderVoiceBriefPrompt(
+            prompt: defaultVoiceBriefPrompt,
+            title: "Native Daily",
+            requestedLength: "",
+            sourcePackets: "A native source packet."
+        )
+        XCTAssertFalse(renderedVoicePromptWithoutLength.contains("Requested length:"))
+        XCTAssertFalse(renderedVoicePromptWithoutLength.contains("Use editorial judgment."))
         XCTAssertTrue(
             try renderVoiceBriefPrompt(
-                prompt: "Lead with practical consequences.",
+                prompt: "",
                 template: """
                 Custom {{voice_brief_title}} / {{requested_length}}
                 {{source_packets}}

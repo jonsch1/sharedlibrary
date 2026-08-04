@@ -1001,11 +1001,10 @@ final class LibraryModel {
             !prompt.isEmpty,
             prompt.count <= 50_000,
             prompt.contains("{{voice_brief_title}}"),
-            prompt.contains("{{requested_length}}"),
             prompt.contains("{{source_packets}}")
         else {
             errorMessage =
-                "The voice brief prompt must contain its title, length, and source placeholders."
+                "The voice brief prompt must contain its title and source placeholders."
             return
         }
         aboutYou = context
@@ -3301,7 +3300,8 @@ private struct MobileXAppShell: View {
                 MobileXLibraryScreen(
                     model: model,
                     showsSettings: $showsSettings,
-                    openEntry: openEntry
+                    openEntry: openEntry,
+                    create: primaryCreate
                 )
                 .navigationDestination(isPresented: $showsDetail) {
                     MobileXDetail(
@@ -3317,19 +3317,33 @@ private struct MobileXAppShell: View {
         }
         .tint(.primary)
         .overlay(alignment: .bottomTrailing) {
-            Button(action: primaryCreate) {
-                Image(systemName: "plus")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 56, height: 56)
-                    .background(Color.accentColor, in: Circle())
-                    .contentShape(Circle())
+            if isPlayableDetail {
+                Button(action: primaryAction) {
+                    if model.isGeneratingSpeech {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(width: 56, height: 56)
+                            .background(Color.accentColor, in: Circle())
+                            .contentShape(Circle())
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+                            .background(Color.accentColor, in: Circle())
+                            .contentShape(Circle())
+                    }
+                }
+                .buttonStyle(.plain)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+                .padding(.trailing, 18)
+                .padding(.bottom, 58)
+                .accessibilityLabel("Play audio")
+                .disabled(
+                    model.isGeneratingSpeech || model.isRunningVoiceBrief ||
+                        model.selectedText.isEmpty
+                )
             }
-            .buttonStyle(.plain)
-            .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
-            .padding(.trailing, 18)
-            .padding(.bottom, 58)
-            .accessibilityLabel(primaryCreateLabel)
         }
         .onChange(of: selectedTab) {
             showsDetail = false
@@ -3348,7 +3362,8 @@ private struct MobileXAppShell: View {
                 openEntry: openEntry,
                 openConfiguration: {
                     showsDetail = true
-                }
+                },
+                create: primaryCreate
             )
             .navigationDestination(isPresented: $showsDetail) {
                 MobileXDetail(
@@ -3383,11 +3398,50 @@ private struct MobileXAppShell: View {
         }
     }
 
-    private var primaryCreateLabel: String {
-        switch selectedTab {
-        case .home, .library: "Capture"
-        case .channels: "New channel"
-        case .briefs: "New brief"
+    private var isPlayableDetail: Bool {
+        showsDetail && model.selectedEntry != nil
+    }
+
+    private func primaryAction() {
+        guard isPlayableDetail, let entry = model.selectedEntry else { return }
+
+        Task {
+            let variant = model.selectedVariant
+            let text = model.selectedText
+            let playbackID = model.audioPlaybackID(
+                for: entry,
+                variant: variant,
+                text: text
+            )
+            do {
+                let shouldGenerate = try audioPlayer.startStream(
+                    entryID: entry.id,
+                    title: entry.title,
+                    playbackID: playbackID,
+                    positionID: "\(entry.id):\(variant.rawValue)"
+                )
+                if shouldGenerate {
+                    var startedPlayback = false
+                    _ = await model.streamPlayableAudio(
+                        for: entry,
+                        variant: variant,
+                        text: text
+                    ) { url in
+                        try audioPlayer.appendSegment(url, playbackID: playbackID)
+                        if !startedPlayback {
+                            startedPlayback = true
+                            audioEntry = entry
+                        }
+                    }
+                    audioPlayer.finishStream(playbackID: playbackID)
+                    if !startedPlayback { audioPlayer.stop() }
+                } else {
+                    audioEntry = entry
+                }
+            } catch {
+                model.errorMessage = error.localizedDescription
+                audioPlayer.stop()
+            }
         }
     }
 
@@ -3411,6 +3465,7 @@ private struct MobileXFeedScreen: View {
     @Binding var showsSettings: Bool
     let openEntry: (LibraryEntry) -> Void
     let openConfiguration: () -> Void
+    let create: () -> Void
 
     private var entries: [LibraryEntry] {
         let candidates: [LibraryEntry]
@@ -3450,6 +3505,11 @@ private struct MobileXFeedScreen: View {
                 title: title,
                 showsLogo: tab == .home,
                 showsSettings: $showsSettings,
+                primary: MobileXHeaderAction(
+                    icon: "plus",
+                    label: createLabel,
+                    action: create
+                ),
                 trailing: configurationAction
             )
 
@@ -3604,6 +3664,15 @@ private struct MobileXFeedScreen: View {
         }
     }
 
+    private var createLabel: String {
+        switch tab {
+        case .home: "Capture"
+        case .channels: "New channel"
+        case .briefs: "New brief"
+        case .library: "Capture"
+        }
+    }
+
     private var allSelected: Bool {
         switch tab {
         case .home: model.selectedTopic == "All" || model.selectedTopic.isEmpty
@@ -3654,6 +3723,7 @@ private struct MobileXHeader: View {
     let title: String
     var showsLogo = false
     @Binding var showsSettings: Bool
+    var primary: MobileXHeaderAction? = nil
     var trailing: MobileXHeaderAction? = nil
 
     var body: some View {
@@ -3680,7 +3750,11 @@ private struct MobileXHeader: View {
 
                 if let trailing {
                     headerButton(trailing)
-                } else {
+                }
+
+                if let primary {
+                    headerButton(primary)
+                } else if trailing == nil {
                     Color.clear.frame(width: 44, height: 44)
                 }
             }
@@ -3743,11 +3817,20 @@ private struct MobileXLibraryScreen: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
     let openEntry: (LibraryEntry) -> Void
+    let create: () -> Void
     @State private var section = Section.highlights
 
     var body: some View {
         VStack(spacing: 0) {
-            MobileXHeader(title: "Library", showsSettings: $showsSettings)
+            MobileXHeader(
+                title: "Library",
+                showsSettings: $showsSettings,
+                primary: MobileXHeaderAction(
+                    icon: "plus",
+                    label: "Capture",
+                    action: create
+                )
+            )
 
             HStack(spacing: 8) {
                 ForEach(Section.allCases, id: \.self) { item in
@@ -8316,6 +8399,7 @@ private struct LibraryDocument: View {
                 #endif
 
                 HStack(spacing: 0) {
+                    #if os(macOS)
                     if model.canEdit && !model.showingTrash {
                         Button {
                             isEditing.toggle()
@@ -8335,6 +8419,7 @@ private struct LibraryDocument: View {
                         .help(isEditing ? "Finish editing" : "Edit document")
 
                     }
+                    #endif
 
                     if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
@@ -8776,9 +8861,9 @@ private struct VoiceBriefConfiguration: View {
                         .font(.system(size: 30, weight: .bold))
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Editorial direction")
+                        Text("Voice brief prompt")
                             .font(.headline)
-                        Text("Tell Briefly what to prioritize, connect, or leave out.")
+                        Text("Edit the exact prompt. Keep {{voice_brief_title}} and {{source_packets}}.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         TextEditor(text: $prompt)
@@ -9037,14 +9122,14 @@ private struct VoiceBriefConfiguration: View {
     private func loadDraft() {
         if let brief = model.selectedVoiceBrief {
             title = brief.title
-            prompt = brief.prompt ?? "Connect the most important updates into one concise, conversational briefing."
+            prompt = brief.prompt ?? model.voiceBriefPrompt
             schedule = brief.schedule
             length = brief.length
             sources = brief.sources.joined(separator: "\n")
             prioritizeForMe = brief.prioritizeForMe == true
         } else {
             title = "New voice brief"
-            prompt = "Connect the most important updates into one concise, conversational briefing."
+            prompt = model.voiceBriefPrompt
             schedule = "manual"
             length = ""
             sources = ""
