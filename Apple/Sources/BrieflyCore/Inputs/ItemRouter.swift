@@ -76,6 +76,24 @@ public struct NativeItemInputRouter: Sendable {
                 throw error
             }
         }
-        return try await attachFaviconAndAudio(to: draft, request: request, context: context)
+        let validated = try validateNativeDraft(draft)
+        return try await attachFaviconAndAudio(to: validated, request: request, context: context)
     }
+}
+
+private func validateNativeDraft(_ value: ItemDraft) throws -> ItemDraft {
+    var draft = value
+    draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    draft.content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !draft.title.isEmpty, !draft.content.isEmpty else {
+        throw NativeInputError.unreadableContent
+    }
+    let urls = [
+        draft.sourceURL, draft.canonicalURL, draft.mediaURL, draft.faviconURL,
+        draft.audioSourceURL
+    ].compactMap { $0 }
+    guard urls.allSatisfy({ isNativeHTTPURL($0) && $0.user == nil && $0.password == nil }) else {
+        throw NativeInputError.invalidResponse
+    }
+    return draft
 }

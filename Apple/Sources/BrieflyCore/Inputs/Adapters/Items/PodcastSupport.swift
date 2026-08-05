@@ -72,16 +72,7 @@ func podcastFeedURLs(
     pageURL: URL,
     http: InputHTTPClient
 ) async throws -> [URL] {
-    var urls = inputRegexCaptures(html, #"(?is)<link\b[^>]*>"#).compactMap { tag -> URL? in
-        let type = inputHTMLAttribute("type", in: tag).lowercased()
-        let rel = inputHTMLAttribute("rel", in: tag).lowercased()
-        guard rel.split(whereSeparator: \.isWhitespace).contains("alternate"),
-              type.contains("rss") || type.contains("atom") else { return nil }
-        return httpInputURL(
-            inputDecodeHTML(inputHTMLAttribute("href", in: tag)),
-            relativeTo: pageURL
-        )
-    }
+    var urls = inputDiscoveredFeedURLs(in: html, relativeTo: pageURL)
     urls.append(contentsOf: inputRegexCaptures(
         html,
         #"(?is)<a\b[^>]*href=[\"']([^\"']+)[\"'][^>]*>[\s\S]*?\b(?:rss|atom)\b[\s\S]*?</a>"#
@@ -394,7 +385,6 @@ func nativeTranscriptRank(_ value: String?) -> Int {
     default: 0
     }
 }
-
 private func cleanPodcastTitle(_ value: String?) -> String? {
     guard let value = cleanInputText(value) else { return nil }
     return value

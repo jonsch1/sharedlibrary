@@ -50,6 +50,8 @@ public func canonicalItemIdentity(_ value: URL?) -> String? {
 struct InputHTMLMetadata {
     var title: String?
     var description: String?
+    var articleBody: String?
+    var siteName: String?
     var canonicalURL: URL?
     var faviconURL: URL?
 }
@@ -66,12 +68,13 @@ func inputBatch(_ channel: DiscoveredChannel, channelInput: ChannelInputID) thro
         guard let url = httpInputURL(item.url), !item.id.isEmpty else { return nil }
         return .init(
             id: item.id,
-            title: item.title,
+            title: cleanInputText(item.title) ?? "Untitled",
             url: url,
             publishedAt: item.publishedAt,
             hints: .init(
-                preferredInput: itemInput ?? (channel.kind == .podcast ? .podcast : nil),
-                title: item.title,
+                preferredInput: item.preferredInput ?? itemInput ??
+                    (channel.kind == .podcast ? .podcast : nil),
+                title: cleanInputText(item.title),
                 content: item.content,
                 mediaURL: httpInputURL(item.mediaURL ?? item.linkedURL),
                 transcriptURL: httpInputURL(item.transcriptURL),
@@ -86,21 +89,37 @@ func inputBatch(_ channel: DiscoveredChannel, channelInput: ChannelInputID) thro
 
 func inputLimitedBatch(_ batch: ChannelInputBatch, maximumItems: Int) -> ChannelInputBatch {
     var batch = batch
-    batch.items = batch.items.enumerated().map {
+    batch.items = batch.items.filter {
+        !$0.id.isEmpty && isNativeHTTPURL($0.url) && $0.url.user == nil && $0.url.password == nil
+    }.enumerated().map {
         (item: $0.element, index: $0.offset, date: inputChannelDate($0.element.publishedAt))
     }.sorted {
         if let left = $0.date, let right = $1.date { return left > right }
         return $0.index < $1.index
-    }.prefix(maximumItems).map(\.item)
+    }.prefix(max(0, maximumItems)).map { $0.item }
     return batch
 }
 
 func inputChannelDate(_ value: String?) -> Date? {
     guard let value else { return nil }
-    if let date = ISO8601DateFormatter().date(from: value) { return date }
+    let iso8601 = ISO8601DateFormatter()
+    if let date = iso8601.date(from: value) { return date }
+    iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = iso8601.date(from: value) { return date }
     let formatter = DateFormatter()
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    for format in ["EEE, dd MMM yyyy HH:mm:ss Z", "EEE, dd MMM yyyy HH:mm Z"] {
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    for format in [
+        "EEE, dd MMM yyyy HH:mm:ss Z",
+        "EEE, dd MMM yyyy HH:mm Z",
+        "EEE, dd MMM yyyy HH:mm:ss zzz",
+        "yyyy-MM-dd HH:mm:ss Z",
+        "yyyy-MM-dd HH:mm Z",
+        "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+        "yyyy-MM-dd"
+    ] {
         formatter.dateFormat = format
         if let date = formatter.date(from: value) { return date }
     }
@@ -110,26 +129,52 @@ func inputChannelDate(_ value: String?) -> Date? {
 func inputLooksLikeFeed(_ response: InputHTTPResponse) -> Bool {
     if response.contentType.contains("rss") || response.contentType.contains("atom") ||
         response.contentType.contains("xml") { return true }
-    let prefix = String(decoding: response.data.prefix(1_000), as: UTF8.self).lowercased()
+    let prefix = String(decoding: response.data.prefix(2_000), as: UTF8.self)
+        .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: "\u{FEFF}")))
+        .lowercased()
     return prefix.contains("<rss") || prefix.contains("<feed") || prefix.contains("<rdf:rdf")
 }
 
 func inputDiscoveredFeedURL(in html: String, relativeTo base: URL) -> URL? {
-    inputRegexCaptures(html, #"(?is)<link\b[^>]*>"#).compactMap { tag -> URL? in
+    inputDiscoveredFeedURLs(in: html, relativeTo: base).first
+}
+
+func inputDiscoveredFeedURLs(in html: String, relativeTo base: URL) -> [URL] {
+    var urls = [URL]()
+    for tag in inputRegexCaptures(html, #"(?is)<link\b[^>]*>"#) {
         let type = inputHTMLAttribute("type", in: tag).lowercased()
-        guard type.contains("rss") || type.contains("atom") else { return nil }
-        return httpInputURL(inputHTMLAttribute("href", in: tag), relativeTo: base)
-    }.first
+        let rel = inputHTMLAttribute("rel", in: tag).lowercased()
+        let relations = rel.split(whereSeparator: \.isWhitespace)
+        guard relations.contains("alternate"), type.contains("rss") || type.contains("atom"),
+              let url = httpInputURL(inputHTMLAttribute("href", in: tag), relativeTo: base) else {
+            continue
+        }
+        if !urls.contains(url) { urls.append(url) }
+    }
+    return Array(urls.prefix(5))
 }
 
 func inputHTMLAttribute(_ name: String, in tag: String) -> String {
-    inputRegexCapture(
-        tag,
-        #"(?is)\b"# + NSRegularExpression.escapedPattern(for: name) + #"\s*=\s*[\"']([^\"']*)[\"']"#
-    ) ?? ""
+    let escapedName = NSRegularExpression.escapedPattern(for: name)
+    let pattern = #"(?is)(?:^|\s)"# + escapedName + #"\s*=\s*(?:[\"']([^\"']*)[\"']|([^\s>]+))"#
+    guard let regex = try? NSRegularExpression(pattern: pattern),
+          let match = regex.firstMatch(in: tag, range: NSRange(location: 0, length: tag.utf16.count)) else {
+        return ""
+    }
+    for group in 1..<match.numberOfRanges {
+        guard match.range(at: group).location != NSNotFound,
+              let range = Range(match.range(at: group), in: tag) else { continue }
+        return String(tag[range])
+    }
+    return ""
 }
 
 func inputChannelTitle(_ source: String) -> String {
+    if source.lowercased().hasPrefix("arxiv:") {
+        return String(source.dropFirst("arxiv:".count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nativeNilIfEmpty ?? "arXiv"
+    }
     guard let url = URL(string: source) else { return source }
     let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         .replacingOccurrences(of: "/", with: " · ")
@@ -138,7 +183,7 @@ func inputChannelTitle(_ source: String) -> String {
 
 func requestURL(_ request: ItemInputRequest) throws -> URL {
     guard case .url(let url) = request.source,
-          ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+          isNativeHTTPURL(url) else {
         throw NativeInputError.unsupportedInput
     }
     guard url.user == nil, url.password == nil else { throw NativeInputError.unsupportedInput }
@@ -253,6 +298,11 @@ func cleanInputText(_ value: String?) -> String? {
     return result.nativeNilIfEmpty
 }
 
+func inputUsefulText(_ value: String?, minimumLength: Int) -> String? {
+    guard let text = cleanInputText(value), text.count >= minimumLength else { return nil }
+    return text
+}
+
 func httpInputURL(_ value: String?, relativeTo base: URL? = nil) -> URL? {
     guard let value = cleanInputText(value), let url = URL(string: value, relativeTo: base)?.absoluteURL,
           ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil,
@@ -273,49 +323,187 @@ func truncateInputText(_ value: String, maximumLength: Int) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines) + "…"
 }
 
+private func inputJSONLDEntries(_ html: String) -> [[String: Any]] {
+    guard let regex = try? NSRegularExpression(
+        pattern: #"(?is)<script\b([^>]*)>([\s\S]*?)</script\s*>"#
+    ) else { return [] }
+    var entries = [[String: Any]]()
+    for match in regex.matches(in: html, range: NSRange(location: 0, length: html.utf16.count)) {
+        guard let attributesRange = Range(match.range(at: 1), in: html),
+              let bodyRange = Range(match.range(at: 2), in: html),
+              inputHTMLAttribute("type", in: String(html[attributesRange]))
+                .lowercased().contains("ld+json") else { continue }
+        let body = String(html[bodyRange])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = body.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data) else { continue }
+        inputFlattenJSONLD(value, into: &entries)
+    }
+    return entries
+}
+
+private func inputFlattenJSONLD(_ value: Any, into entries: inout [[String: Any]]) {
+    if let values = value as? [Any] {
+        values.forEach { inputFlattenJSONLD($0, into: &entries) }
+    } else if let object = value as? [String: Any] {
+        entries.append(object)
+        if let graph = object["@graph"] { inputFlattenJSONLD(graph, into: &entries) }
+    }
+}
+
+private func inputJSONLDText(_ value: Any?) -> String? {
+    if let value = value as? String { return cleanInputText(value) }
+    if let object = value as? [String: Any] {
+        for key in ["@value", "value", "name"] {
+            if let result = inputJSONLDText(object[key]) { return result }
+        }
+    }
+    return nil
+}
+
+private func inputJSONLDPublisherName(_ value: Any?) -> String? {
+    if let values = value as? [Any] {
+        return values.compactMap(inputJSONLDPublisherName).first
+    }
+    guard let object = value as? [String: Any] else { return nil }
+    return inputJSONLDText(object["name"])
+}
+
 func inputHTMLMetadata(_ html: String, baseURL: URL) -> InputHTMLMetadata {
     let metaTags = inputRegexCaptures(html, #"(?is)<meta\b[^>]*>"#)
+    let jsonLD = inputJSONLDEntries(html)
     func meta(_ names: [String]) -> String? {
         metaTags.first { tag in
-            let key = inputHTMLAttribute("property", in: tag).nativeNilIfEmpty ?? inputHTMLAttribute("name", in: tag)
+            let key = inputHTMLAttribute("property", in: tag).nativeNilIfEmpty ??
+                inputHTMLAttribute("name", in: tag)
             return names.contains(key.lowercased())
         }.map { inputDecodeHTML(inputHTMLAttribute("content", in: $0)) }.flatMap(cleanInputText)
     }
+    let documentTitle = inputRegexCapture(
+        html,
+        #"(?is)<title[^>]*>(.*?)</title>"#
+    ).map { inputDecodeHTML(inputStripHTML($0)) }.flatMap(cleanInputText)
     let title = meta(["og:title", "twitter:title"]) ??
-        inputRegexCapture(html, #"(?is)<title[^>]*>(.*?)</title>"#).map { inputDecodeHTML(inputStripHTML($0)) }
-    let description = meta(["og:description", "description", "twitter:description"])
+        jsonLD.compactMap { inputJSONLDText($0["headline"]) }.first ??
+        jsonLD.compactMap { inputJSONLDText($0["name"]) }.first ??
+        documentTitle
+    let description = meta(["og:description", "description", "twitter:description"]) ??
+        jsonLD.compactMap { inputJSONLDText($0["description"]) }.first
+    let siteName = meta(["og:site_name", "application-name"]) ??
+        jsonLD.compactMap { inputJSONLDPublisherName($0["publisher"]) }.first
+    let articleBody = jsonLD.compactMap { inputJSONLDText($0["articleBody"]) }.first
     let links = inputRegexCaptures(html, #"(?is)<link\b[^>]*>"#)
     let canonical = links.first {
         inputHTMLAttribute("rel", in: $0).lowercased().split(whereSeparator: \.isWhitespace).contains("canonical")
     }.map { inputHTMLAttribute("href", in: $0) }
     let icon = links.first {
         let relations = inputHTMLAttribute("rel", in: $0).lowercased().split(whereSeparator: \.isWhitespace)
-        return relations.contains("icon") || relations.contains("shortcut")
+        return relations.contains("icon") || relations.contains("shortcut") ||
+            relations.contains(where: { $0.hasSuffix("-icon") })
     }.map { inputHTMLAttribute("href", in: $0) }
     return .init(
         title: cleanInputText(title),
         description: cleanInputText(description),
+        articleBody: cleanInputText(articleBody),
+        siteName: cleanInputText(siteName),
         canonicalURL: httpInputURL(canonical, relativeTo: baseURL),
         faviconURL: httpInputURL(icon, relativeTo: baseURL) ?? URL(string: "/favicon.ico", relativeTo: baseURL)?.absoluteURL
     )
 }
 
 func inputReadableHTML(_ html: String) -> String? {
-    var value = inputRegexCapture(html, #"(?is)<article\b[^>]*>([\s\S]*?)</article>"#) ??
-        inputRegexCapture(html, #"(?is)<main\b[^>]*>([\s\S]*?)</main>"#) ?? html
-    for pattern in [
-        #"(?is)<(script|style|svg|noscript|nav|footer|form)\b[^>]*>.*?</\1>"#,
-        #"(?i)<br\s*/?>"#,
-        #"(?i)</(?:p|div|article|section|h[1-6]|li)\s*>"#,
-        #"(?is)<[^>]+>"#
-    ] {
-        value = value.replacingOccurrences(of: pattern, with: pattern.contains("br") || pattern.contains("?:p") ? "\n" : " ", options: .regularExpression)
+    var candidates = [(html: String, weight: Int)]()
+    for tag in ["article", "main"] {
+        let pattern = #"(?is)<"# + tag + #"\b[^>]*>([\s\S]*?)</"# + tag + #"\s*>"#
+        candidates += inputRegexCaptures(html, pattern).map { (html: $0, weight: tag == "article" ? 5_000 : 4_500) }
     }
-    return cleanInputText(value)
+    let contentPattern = #"(?is)<(?:div|section)\b[^>]*(?:class|id)\s*=\s*[\"'][^\"']*(?:article|content|post|story|entry|prose|body|text)[^\"']*[\"'][^>]*>([\s\S]*?)</(?:div|section)\s*>"#
+    candidates += inputRegexCaptures(html, contentPattern).map { (html: $0, weight: 3_500) }
+    candidates.append((html: html, weight: 0))
+
+    let scored: [(text: String, score: Int)] = candidates.compactMap { candidate in
+        guard let text = inputHTMLToText(candidate.html), !text.isEmpty else { return nil }
+        let punctuation = text.reduce(into: 0) { count, character in
+            if ".!?;:".contains(character) { count += 1 }
+        }
+        let score = candidate.weight + min(text.count, 20_000) / 10 + punctuation * 2
+        return (text: text, score: score)
+    }
+    return scored.max { $0.score < $1.score }?.text
+}
+
+func inputStructuredText(_ html: String) -> String? {
+    let safeHTML = inputRemoveNonTextHTML(html)
+    var segments = [String]()
+    guard let regex = try? NSRegularExpression(
+        pattern: #"(?is)<(h[1-6]|p|li|blockquote|pre)\b[^>]*>([\s\S]*?)</\1\s*>"#
+    ) else { return inputHTMLToText(safeHTML) }
+    for match in regex.matches(in: safeHTML, range: NSRange(location: 0, length: safeHTML.utf16.count)) {
+        guard let tagRange = Range(match.range(at: 1), in: safeHTML),
+              let fragmentRange = Range(match.range(at: 2), in: safeHTML),
+              let text = inputHTMLToText(String(safeHTML[fragmentRange])), !text.isEmpty else {
+            continue
+        }
+        let tag = String(safeHTML[tagRange]).lowercased()
+        let value = tag == "li" ? "• \(text)" : text
+        if !segments.contains(value) { segments.append(value) }
+    }
+    return segments.isEmpty ? inputHTMLToText(safeHTML) : segments.joined(separator: "\n")
 }
 
 func inputStripHTML(_ value: String) -> String {
     value.replacingOccurrences(of: #"(?is)<[^>]+>"#, with: " ", options: .regularExpression)
+}
+
+private func inputRemoveNonTextHTML(_ html: String) -> String {
+    var value = html
+    for pattern in [
+        #"(?is)<!--.*?-->"#,
+        #"(?is)<(script|style|noscript|template|svg|canvas|iframe|object|embed|nav|header|footer|form|aside|head)\b[^>]*>.*?</\1\s*>"#
+    ] {
+        value = value.replacingOccurrences(of: pattern, with: " ", options: .regularExpression)
+    }
+    return value
+}
+
+private func inputHTMLToText(_ html: String) -> String? {
+    var value = inputRemoveNonTextHTML(html)
+    value = value.replacingOccurrences(of: #"(?i)<br\s*/?>"#, with: "\n", options: .regularExpression)
+    value = value.replacingOccurrences(
+        of: #"(?i)<li\b[^>]*>"#, with: "\n• ", options: .regularExpression
+    )
+    value = value.replacingOccurrences(
+        of: #"(?i)</(?:p|div|article|section|h[1-6]|li|blockquote|pre)\s*>"#,
+        with: "\n",
+        options: .regularExpression
+    )
+    value = value.replacingOccurrences(of: #"(?is)<[^>]+>"#, with: " ", options: .regularExpression)
+    return cleanInputText(value)
+}
+
+func inputIsBinaryContentType(_ contentType: String) -> Bool {
+    let value = contentType.lowercased()
+    return [
+        "application/pdf", "application/zip", "application/octet-stream",
+        "audio/", "image/", "video/"
+    ].contains(where: value.contains)
+}
+
+func inputLooksBinary(_ data: Data) -> Bool {
+    let sample = [UInt8](data.prefix(4_096))
+    guard !sample.isEmpty else { return false }
+    if sample.contains(0) { return true }
+    let suspicious = sample.reduce(into: 0) { count, byte in
+        if byte < 8 || (byte > 13 && byte < 32) { count += 1 }
+    }
+    return Double(suspicious) / Double(sample.count) > 0.1
+}
+
+func assertInputTextDocument(_ response: InputHTTPResponse) throws {
+    if inputIsBinaryContentType(response.contentType) ||
+        response.data.starts(with: [0x50, 0x4B, 0x03, 0x04]) || inputLooksBinary(response.data) {
+        throw NativeInputError.unsupportedInput
+    }
 }
 
 func inputDecodeHTML(_ value: String) -> String {
@@ -337,7 +525,18 @@ func inputDecodeHTML(_ value: String) -> String {
 
 func looksLikeInputInterstitial(_ value: String) -> Bool {
     let text = value.lowercased()
-    return ["enable javascript", "checking your browser", "just a moment", "access denied"].contains(where: text.contains)
+    return [
+        "enable javascript", "checking your browser", "just a moment", "access denied",
+        "recaptcha", "please wait for verification", "verify that you are human",
+        "verify you are human"
+    ].contains(where: text.contains)
+}
+
+func looksLikeInputShell(title: String?, content: String) -> Bool {
+    guard let title = cleanInputText(title)?.lowercased(), !title.isEmpty,
+          let content = cleanInputText(content)?.lowercased(),
+          content.split(whereSeparator: \.isWhitespace).count < 10 else { return false }
+    return title == content
 }
 
 func inputFileExtension(contentType: String, url: URL, data: Data) -> String {

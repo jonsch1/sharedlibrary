@@ -6,15 +6,15 @@ func enumeratePodcastChannel(
     context: ChannelInputContext
 ) async throws -> ChannelInputBatch {
     guard let pageURL = httpInputURL(source) else { throw NativeInputError.unsupportedInput }
-    let response = try await context.http.get(pageURL, maximumBytes: 12_000_000)
+    let response = try await context.http.get(pageURL, maximumBytes: 20_000_000)
     if inputLooksLikeFeed(response) {
-        return try await loadChannelFeed(
+        if let batch = try? await loadChannelFeed(
             response.finalURL,
             fallbackTitle: inputChannelTitle(source),
             channelInput: .podcast,
             maximumItems: maximumItems,
             context: context
-        )
+        ) { return batch }
     }
     for feedURL in try await podcastFeedURLs(
         html: response.text,
@@ -28,6 +28,10 @@ func enumeratePodcastChannel(
             maximumItems: maximumItems,
             context: context
         ) { return batch }
+    }
+    if let render = context.render,
+       let rendered = try? await render(response.finalURL, maximumItems), !rendered.items.isEmpty {
+        return inputLimitedBatch(rendered, maximumItems: maximumItems)
     }
     throw NativeInputError.unreadableContent
 }

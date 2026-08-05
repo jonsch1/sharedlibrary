@@ -516,6 +516,63 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertEqual(value.canonicalKey, "https://example.com/")
     }
 
+    func testGeneralPageUsesJSONLDMetadataAndArticleBody() async throws {
+        let articleBody = String(repeating: "JSON-LD article body with useful context. ", count: 5)
+        let html = """
+        <html><head>
+        <title>Application shell</title>
+        <link rel="apple-touch-icon" href="/touch-icon.png">
+        <script type="application/ld+json">
+        {"@graph":[{"@type":"Article","headline":"Structured native article",
+        "articleBody":"\(articleBody)","description":"A structured description",
+        "publisher":{"name":"Native Press"}}]}
+        </script></head><body><div id="app">Structured native article</div></body></html>
+        """
+        let value = try await router.ingest(
+            .init(source: .url(itemTestURL(.webPage))),
+            context: .init(http: fixtureHTTP(["example.com": .text(html)]))
+        )
+        XCTAssertEqual(value.title, "Structured native article")
+        XCTAssertTrue(value.content.contains("JSON-LD article body"))
+        XCTAssertEqual(value.faviconURL?.absoluteString, "https://example.com/touch-icon.png")
+    }
+
+    func testGenericPageRejectsBinaryContent() async {
+        do {
+            _ = try await router.ingest(
+                .init(source: .url(itemTestURL(.webPage))),
+                context: .init(http: fixtureHTTP([
+                    "example.com": .init(data: Data([0, 1, 2, 3]), contentType: "application/zip")
+                ]))
+            )
+            XCTFail("Expected binary content to be rejected")
+        } catch let error as NativeInputError {
+            XCTAssertEqual(error, .unsupportedInput)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testRedirectToCredentialURLIsRejected() async {
+        do {
+            _ = try await router.ingest(
+                .init(source: .url(itemTestURL(.webPage))),
+                context: .init(http: InputHTTPClient { request, _ in
+                    InputHTTPResponse(
+                        data: Data("<main>Readable content</main>".utf8),
+                        finalURL: URL(string: "https://user:secret@example.com/")!,
+                        contentType: "text/html"
+                    )
+                })
+            )
+            XCTFail("Expected credential-bearing redirect to be rejected")
+        } catch let error as NativeInputError {
+            XCTAssertEqual(error, .invalidResponse)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testURLCredentialsAreRejected() async {
         do {
             _ = try await router.ingest(
@@ -582,6 +639,53 @@ final class NativeChannelInputTests: XCTestCase {
         )
         XCTAssertEqual(batch.inputID, .feed)
         XCTAssertEqual(batch.items.first?.title, "Native story")
+    }
+
+    func testFeedDiscoveryTriesAllAlternateCandidates() async throws {
+        let html = """
+        <html><head>
+        <link rel="alternate" type="application/rss+xml" href="/broken.xml">
+        <link rel="alternate" type="application/atom+xml" href="/working.xml">
+        </head><body>Feed landing page</body></html>
+        """
+        let batch = try await enumerate(
+            "https://example.com/news",
+            fixtures: [
+                "example.com/news": .text(html),
+                "example.com/working.xml": .text(feedXML(), "application/atom+xml")
+            ]
+        )
+        XCTAssertEqual(batch.inputID, .feed)
+        XCTAssertEqual(batch.items.first?.title, "Native story")
+    }
+
+    func testAtomFeedUsesAlternateLinkAndNormalizesDate() async throws {
+        let atom = """
+        <feed><title>Native Atom</title><entry><id>entry-1</id><title>Atom story</title>
+        <link rel="self" href="https://example.com/feed.xml"/>
+        <link rel="alternate" href="/stories/atom-story"/>
+        <updated>2026-06-01T10:00:00.123Z</updated></entry></feed>
+        """
+        let batch = try await enumerate(
+            "https://example.com/feed.xml",
+            fixtures: ["example.com/feed.xml": .text(atom, "application/atom+xml")]
+        )
+        XCTAssertEqual(batch.items.first?.url.absoluteString, "https://example.com/stories/atom-story")
+        XCTAssertEqual(batch.items.first?.publishedAt, "2026-06-01T10:00:00.123Z")
+    }
+
+    func testArxivQueryChannelInput() async throws {
+        let atom = """
+        <feed><title>Search results</title><entry><id>https://arxiv.org/abs/1706.03762</id>
+        <title>Attention Is All You Need</title><link href="https://arxiv.org/abs/1706.03762"/>
+        <published>2026-06-01T10:00:00Z</published></entry></feed>
+        """
+        let batch = try await enumerate(
+            "arxiv:transformers",
+            fixtures: ["export.arxiv.org/api/query": .text(atom, "application/atom+xml")]
+        )
+        XCTAssertEqual(batch.inputID, .arxiv)
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .arxiv)
     }
 
     func testYouTubeChannelInput() async throws {
@@ -682,7 +786,7 @@ final class NativeChannelInputTests: XCTestCase {
     func testHackerNewsChannelInput() async throws {
         let html = """
         <html><table><tr class="athing" id="8863"><td><span class="titleline">
-        <a href="https://news.ycombinator.com/item?id=8863">My YC app: Dropbox</a></span></td></tr></table></html>
+        <a href="/item?id=8863">My YC app: Dropbox &amp; more</a></span></td></tr></table></html>
         """
         let batch = try await enumerate(
             channelTestURL(.hackerNews).absoluteString,
@@ -690,6 +794,8 @@ final class NativeChannelInputTests: XCTestCase {
         )
         XCTAssertEqual(batch.inputID, .hackerNews)
         XCTAssertEqual(batch.items.first?.id, "8863")
+        XCTAssertEqual(batch.items.first?.url.absoluteString, "https://news.ycombinator.com/item?id=8863")
+        XCTAssertEqual(batch.items.first?.title, "My YC app: Dropbox & more")
     }
 
     func testPageWatcherChannelInputUsesContentHash() async throws {

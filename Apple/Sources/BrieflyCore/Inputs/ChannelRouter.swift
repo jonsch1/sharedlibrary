@@ -5,10 +5,13 @@ public struct NativeChannelInputRouter: Sendable {
 
     public func inputID(for source: String) -> ChannelInputID {
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("arxiv:") { return .arxiv }
         guard let url = URL(string: trimmed) else { return .page }
         let host = url.host?.lowercased() ?? ""
         if host == "news.ycombinator.com" { return .hackerNews }
-        if host == "arxiv.org", url.path.hasPrefix("/list/") { return .arxiv }
+        if (host == "arxiv.org" || host == "www.arxiv.org"), url.path.hasPrefix("/list/") {
+            return .arxiv
+        }
         if host == "youtube.com" || host.hasSuffix(".youtube.com") { return .youtube }
         if host == "podcasts.apple.com" { return .podcast }
         if host == "reddit.com" || host.hasSuffix(".reddit.com") { return .reddit }
@@ -23,6 +26,7 @@ public struct NativeChannelInputRouter: Sendable {
         context: ChannelInputContext = .init()
     ) async throws -> ChannelInputBatch {
         let source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { throw NativeInputError.emptyInput }
         let limit = min(100, max(1, maximumItems))
         switch inputID(for: source) {
         case .feed:

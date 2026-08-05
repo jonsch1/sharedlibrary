@@ -24,7 +24,7 @@ func loadChannelFeed(
 ) async throws -> ChannelInputBatch {
     let response = try await context.http.get(url, headers: [
         "Accept": "application/atom+xml, application/rss+xml, application/xml"
-    ], maximumBytes: 12_000_000)
+    ], maximumBytes: 20_000_000)
     let feed = try parseFeed(response.data, fallbackTitle: fallbackTitle, baseURL: response.finalURL)
     let resolvedInput: ChannelInputID = feed.kind == .podcast ? .podcast : channelInput
     return inputLimitedBatch(

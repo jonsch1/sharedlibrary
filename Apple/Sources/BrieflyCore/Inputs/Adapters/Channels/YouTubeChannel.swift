@@ -15,7 +15,16 @@ func enumerateYouTubeChannel(
             context: context
         )
     }
-    let response = try await context.http.get(pageURL, maximumBytes: 12_000_000)
+    let response = try await context.http.get(pageURL, maximumBytes: 20_000_000)
+    if inputLooksLikeFeed(response) {
+        if let batch = try? await loadChannelFeed(
+            response.finalURL,
+            fallbackTitle: inputChannelTitle(source),
+            channelInput: .youtube,
+            maximumItems: maximumItems,
+            context: context
+        ) { return batch }
+    }
     if let feedURL = youtubeFeedURL(in: response.text, relativeTo: response.finalURL) {
         return try await loadChannelFeed(
             feedURL,

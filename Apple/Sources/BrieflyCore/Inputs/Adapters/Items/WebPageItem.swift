@@ -7,18 +7,19 @@ func ingestWebPage(
     let url = try requestURL(request)
     do {
         let response = try await context.http.get(url)
-        if response.contentType.contains("text/plain") {
-            var draft = try ingestText(.init(source: .text(response.text)))
-            draft.sourceURL = url
-            draft.canonicalURL = response.finalURL
-            return draft
-        }
         if response.contentType.contains("application/pdf") || response.data.starts(with: Data("%PDF-".utf8)) {
             let temporary = FileManager.default.temporaryDirectory
                 .appending(path: "\(UUID().uuidString).pdf")
             defer { try? FileManager.default.removeItem(at: temporary) }
             try response.data.write(to: temporary, options: .atomic)
             var draft = try ingestPDF(ItemInputRequest(source: .file(temporary)))
+            draft.sourceURL = url
+            draft.canonicalURL = response.finalURL
+            return draft
+        }
+        try assertInputTextDocument(response)
+        if response.contentType.contains("text/plain") {
+            var draft = try ingestText(.init(source: .text(response.text)))
             draft.sourceURL = url
             draft.canonicalURL = response.finalURL
             return draft
@@ -34,11 +35,12 @@ func ingestWebPage(
             return try await ingestPodcast(request, context: context)
         }
         let metadata = inputHTMLMetadata(response.text, baseURL: response.finalURL)
-        let content = inputReadableHTML(response.text)
-        let titleOnly = content.map {
-            $0.split(whereSeparator: \.isWhitespace).count < 10 &&
-                cleanInputText($0)?.lowercased() == cleanInputText(metadata.title)?.lowercased()
-        } ?? false
+        let readability = inputReadableHTML(response.text)
+        let content = inputUsefulText(readability, minimumLength: 180) ??
+            inputUsefulText(metadata.articleBody, minimumLength: 120) ??
+            inputUsefulText(inputStructuredText(response.text), minimumLength: 1) ??
+            inputUsefulText(metadata.description, minimumLength: 1)
+        let titleOnly = content.map { looksLikeInputShell(title: metadata.title, content: $0) } ?? false
         if let content, !titleOnly,
            !looksLikeInputInterstitial("\(metadata.title ?? "")\n\(content)") {
             return ItemDraft(
@@ -53,10 +55,12 @@ func ingestWebPage(
         throw NativeInputError.unreadableContent
     } catch {
         if let render = context.render, let rendered = try? await render(url),
-           !rendered.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           !rendered.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           isNativeHTTPURL(rendered.sourceURL), rendered.sourceURL.user == nil,
+           rendered.sourceURL.password == nil {
             return ItemDraft(
                 inputID: .webPage,
-                title: rendered.title,
+                title: cleanInputText(rendered.title) ?? url.host ?? "Web page",
                 content: rendered.content,
                 sourceURL: url,
                 canonicalURL: rendered.sourceURL,

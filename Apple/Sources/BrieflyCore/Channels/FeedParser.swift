@@ -23,8 +23,10 @@ func parseFeed(
 private final class FeedParser: NSObject, XMLParserDelegate {
     private let baseURL: URL?
     private var inItem = false
-    private var text = ""
+    private var elementStack = [String]()
+    private var textBuffers = [String]()
     private var item = DiscoveredChannel.Item(id: "", title: "", url: "")
+    private var itemDateRank = 0
     var channelTitle = ""
     var isPodcast = false
     var items = [DiscoveredChannel.Item]()
@@ -39,37 +41,49 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         let name = localName(elementName)
-        text = ""
+        elementStack.append(name)
+        textBuffers.append("")
+        let attributes = attributeDict.reduce(into: [String: String]()) { result, pair in
+            result[pair.key.lowercased()] = pair.value
+        }
         if name == "item" || name == "entry" {
             inItem = true
             item = .init(id: "", title: "", url: "")
-        } else if inItem, name == "link", let href = attributeDict["href"] {
-            if attributeDict["rel"] == "enclosure" {
-                item.linkedURL = href
-                item.mediaURL = href
-                isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
-            } else if item.url.isEmpty || attributeDict["rel"] == "alternate" {
-                item.url = href
+            itemDateRank = 0
+        } else if inItem, name == "link", let href = attributes["href"],
+                  let url = httpInputURL(href, relativeTo: baseURL) {
+            let relation = attributes["rel"]?.lowercased()
+            if relation == "enclosure" {
+                item.linkedURL = url.absoluteString
+                item.mediaURL = url.absoluteString
+                isPodcast = attributes["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
+            } else if relation == nil || relation == "" || relation == "alternate" {
+                if item.url.isEmpty { item.url = url.absoluteString }
             }
-        } else if inItem, name == "enclosure", let url = attributeDict["url"] {
-            item.linkedURL = url
-            item.mediaURL = url
-            isPodcast = attributeDict["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
-        } else if inItem, name == "transcript", let url = attributeDict["url"] {
-            let type = nativeTranscriptType(attributeDict["type"], url: url)
-            if nativeTranscriptRank(type) > nativeTranscriptRank(item.transcriptType) {
-                item.transcriptURL = url
+        } else if inItem, name == "enclosure", let rawURL = attributes["url"],
+                  let url = httpInputURL(rawURL, relativeTo: baseURL) {
+            item.linkedURL = url.absoluteString
+            item.mediaURL = url.absoluteString
+            isPodcast = attributes["type"]?.lowercased().hasPrefix("audio/") == true || isPodcast
+        } else if inItem, name == "transcript", let rawURL = attributes["url"] {
+            let type = nativeTranscriptType(attributes["type"], url: rawURL)
+            if nativeTranscriptRank(type) > nativeTranscriptRank(item.transcriptType),
+               let url = httpInputURL(rawURL, relativeTo: baseURL) {
+                item.transcriptURL = url.absoluteString
                 item.transcriptType = type
-                item.transcriptLanguage = attributeDict["language"]
+                item.transcriptLanguage = attributes["language"]
             }
             isPodcast = true
         }
     }
 
-    func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        for index in textBuffers.indices { textBuffers[index] += string }
+    }
 
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        text += String(decoding: CDATABlock, as: UTF8.self)
+        let value = String(decoding: CDATABlock, as: UTF8.self)
+        for index in textBuffers.indices { textBuffers[index] += value }
     }
 
     func parser(
@@ -79,42 +93,44 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         qualifiedName qName: String?
     ) {
         let name = localName(elementName)
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = textBuffers.popLast() ?? ""
+        _ = elementStack.popLast()
+        let normalized = cleanInputText(value)
         if inItem {
             switch name {
-            case "title": item.title = decodeHTML(stripHTML(value))
-            case "guid", "id": item.id = value
-            case "link" where item.url.isEmpty: item.url = value
-            case "pubdate", "published", "updated": item.publishedAt = value.nilIfEmpty
+            case "title": item.title = normalized.map(inputStripHTML).flatMap(cleanInputText) ?? ""
+            case "guid", "id": item.id = normalized ?? ""
+            case "link" where item.url.isEmpty:
+                item.url = httpInputURL(normalized, relativeTo: baseURL)?.absoluteString ?? ""
+            case "pubdate", "published", "updated", "date":
+                let rank = ["pubdate", "published"].contains(name) ? 2 : 1
+                if rank >= itemDateRank, let date = normalizedFeedDate(normalized) {
+                    item.publishedAt = date
+                    itemDateRank = rank
+                }
             case "description", "summary", "content", "encoded":
-                let content = stripHTML(value)
-                if content.count > (item.content?.count ?? 0) { item.content = content.nilIfEmpty }
+                let content = cleanInputText(inputStripHTML(value))
+                if (content?.count ?? 0) > (item.content?.count ?? 0) { item.content = content }
             default: break
             }
         } else if name == "title", channelTitle.isEmpty {
-            channelTitle = decodeHTML(stripHTML(value))
+            channelTitle = normalized.map(inputStripHTML).flatMap(cleanInputText) ?? ""
         }
         if name == "item" || name == "entry" {
-            if item.url.isEmpty, httpURL(item.id) != nil { item.url = item.id }
-            if item.url.isEmpty, let mediaURL = item.mediaURL { item.url = mediaURL }
-            if let baseURL, let url = URL(string: item.url, relativeTo: baseURL)?.absoluteURL {
+            if item.url.isEmpty, let url = httpInputURL(item.id) {
                 item.url = url.absoluteString
             }
-            if let linkedURL = item.linkedURL,
-               let url = URL(string: linkedURL, relativeTo: baseURL)?.absoluteURL {
-                item.linkedURL = url.absoluteString
-                item.mediaURL = url.absoluteString
-            }
-            if let transcriptURL = item.transcriptURL,
-               let url = URL(string: transcriptURL, relativeTo: baseURL)?.absoluteURL {
-                item.transcriptURL = url.absoluteString
+            if item.url.isEmpty, let mediaURL = item.mediaURL { item.url = mediaURL }
+            if let url = httpInputURL(item.url, relativeTo: baseURL) {
+                item.url = url.absoluteString
             }
             if item.id.isEmpty { item.id = item.url }
-            if item.title.isEmpty { item.title = item.content?.prefix(100).description ?? "Untitled" }
-            if httpURL(item.url) != nil, !item.id.isEmpty { items.append(item) }
+            if item.title.isEmpty {
+                item.title = item.url
+            }
+            if httpInputURL(item.url) != nil, !item.id.isEmpty { items.append(item) }
             inItem = false
         }
-        text = ""
     }
 
     private func localName(_ value: String) -> String {
@@ -122,17 +138,24 @@ private final class FeedParser: NSObject, XMLParserDelegate {
     }
 }
 
+private func normalizedFeedDate(_ value: String?) -> String? {
+    guard let value, let date = inputChannelDate(value) else { return nil }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
+}
+
 func stripHTML(_ value: String) -> String {
     var text = value
     for pattern in [
-        #"(?is)<(script|style)\b[^>]*>.*?</\1>"#,
+        #"(?is)<(script|style|noscript|template|svg|canvas|iframe|object|embed|nav|header|footer|form|aside)\b[^>]*>.*?</\1\s*>"#,
         #"(?i)<br\s*/?>"#,
-        #"(?i)</p\s*>"#,
+        #"(?i)</(?:p|div|article|section|h[1-6]|li|blockquote|pre)\s*>"#,
         #"(?is)<[^>]+>"#
     ] {
         text = text.replacingOccurrences(
             of: pattern,
-            with: pattern.contains("br") || pattern.contains("/p") ? "\n" : " ",
+            with: pattern.contains("br") || pattern.contains("?:p") ? "\n" : " ",
             options: .regularExpression
         )
     }
@@ -142,13 +165,4 @@ func stripHTML(_ value: String) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func decodeHTML(_ value: String) -> String {
-    var text = value
-    for (entity, replacement) in [
-        ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""),
-        ("&#39;", "'"), ("&apos;", "'"), ("&nbsp;", " ")
-    ] {
-        text = text.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
-    }
-    return text
-}
+func decodeHTML(_ value: String) -> String { inputDecodeHTML(value) }
