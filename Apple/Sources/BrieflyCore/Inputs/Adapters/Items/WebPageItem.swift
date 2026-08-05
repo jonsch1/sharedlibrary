@@ -68,7 +68,11 @@ func ingestWebPage(
                 faviconFileExtension: rendered.faviconFileExtension
             )
         }
-        if let firecrawl = context.firecrawl, let draft = try? await firecrawl(url) { return draft }
+        if let firecrawl = context.firecrawl,
+           let draft = try? await firecrawl(url),
+           let usable = usableNativeFallbackDraft(draft) {
+            return usable
+        }
         if let hint = request.hints.content?.nativeNilIfEmpty {
             return ItemDraft(
                 inputID: .webPage,

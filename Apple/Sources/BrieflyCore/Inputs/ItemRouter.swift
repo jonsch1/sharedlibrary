@@ -59,8 +59,10 @@ public struct NativeItemInputRouter: Sendable {
             if [.x, .threads, .tiktok].contains(selected), case .url = request.source {
                 draft = try await ingestWebPage(request, context: context)
             } else if case .url(let url) = request.source {
-                if let firecrawl = context.firecrawl, let fallback = try? await firecrawl(url) {
-                    draft = fallback
+                if let firecrawl = context.firecrawl,
+                   let fallback = try? await firecrawl(url),
+                   let usable = usableNativeFallbackDraft(fallback) {
+                    draft = usable
                 } else if let hint = request.hints.content?.nativeNilIfEmpty {
                     draft = ItemDraft(
                         inputID: .webPage,

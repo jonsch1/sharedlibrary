@@ -70,7 +70,7 @@
 				<tr>
 					<td>Web extraction fallback</td>
 					<td>The source URL and page content returned for it. Firecrawl caching is disabled by Briefly.</td>
-					<td>Extract readable Markdown when the local extractor cannot read a page.</td>
+					<td>Extract readable Markdown when the native capture path cannot read a page.</td>
 					<td>Performance of your capture request.</td>
 				</tr>
 				<tr>

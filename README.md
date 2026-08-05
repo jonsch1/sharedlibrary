@@ -15,7 +15,7 @@ does not expose a private library, account manager, or checkout.
 | macOS and iOS apps | `Apple/` |
 | Public sharing and hosted backend | `Web/` |
 | Shared web rendering primitives | `Shared/` |
-| Capture extractor | `Tools/extractor/` |
+| Native capture and channel inputs | `Apple/Sources/BrieflyCore/Inputs/` |
 
 ## Build and test
 
@@ -34,16 +34,14 @@ Web and shared rendering:
 
 ```bash
 cd Shared && npm install && npm test
-cd ../Web && npm install && npm run check && npm run test:worker && npm run build
+cd ../Web && npm install && npm test
 ```
 
-Capture extractor:
-
-```bash
-cd Tools/extractor
-npm install
-npm test
-```
+Native item capture and channel enumeration are owned by the Swift routers in
+`Apple/Sources/BrieflyCore/Inputs/`. Browser rendering, Firecrawl fallback, and
+media transcription are injected Swift services; the web application remains
+limited to public share, feedback, legal, marketing, administration, and native
+backend support.
 
 The iOS build requires the matching Xcode Simulator platform component.
 

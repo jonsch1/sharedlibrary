@@ -5,7 +5,6 @@ on:
     paths:
       - "Apple/**"
       - "Shared/**"
-      - "Tools/extractor/**"
       - "Web/**"
       - ".github/workflows/**"
 
@@ -13,13 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  javascript:
-    name: Verify web and JavaScript packages
+  web:
+    name: Verify web and shared packages
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      PUBLIC_POSTHOG_PROJECT_TOKEN: phc_w66BqjKTdB2kHnyvyurtEGH2uKaVNqJ7ywf5ZtaKGqJW
-      PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
+      PUBLIC_POSTHOG_PROJECT_TOKEN: phc_test_placeholder
+      PUBLIC_POSTHOG_HOST: https://example.invalid
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -31,7 +30,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             Shared/package-lock.json
-            Tools/extractor/package-lock.json
             Web/package-lock.json
 
       - name: Install Shared dependencies
@@ -42,10 +40,6 @@ jobs:
         run: npm ci
         working-directory: Web
 
-      - name: Install extractor dependencies
-        run: npm ci
-        working-directory: Tools/extractor
-
       - name: Test Shared
         run: npm test
         working-directory: Shared
@@ -53,10 +47,6 @@ jobs:
       - name: Test Web
         run: npm test
         working-directory: Web
-
-      - name: Test extractor
-        run: npm test
-        working-directory: Tools/extractor
 
   swiftpm:
     name: Verify SwiftPM

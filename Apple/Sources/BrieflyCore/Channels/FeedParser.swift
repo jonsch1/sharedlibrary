@@ -1,5 +1,11 @@
 import Foundation
 
+private let feedPodcastNamespaceURLs: Set<String> = [
+    "http://www.itunes.com/dtds/podcast-1.0.dtd",
+    "https://podcastindex.org/namespace/1.0",
+    "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
+]
+
 func parseFeed(
     _ data: Data,
     fallbackTitle: String,
@@ -45,6 +51,13 @@ private final class FeedParser: NSObject, XMLParserDelegate {
         textBuffers.append("")
         let attributes = attributeDict.reduce(into: [String: String]()) { result, pair in
             result[pair.key.lowercased()] = pair.value
+        }
+        let qualifiedName = (qName ?? elementName).lowercased()
+        if attributes.keys.contains(where: {
+            $0 == "xmlns:itunes" || $0 == "xmlns:podcast"
+        }) || qualifiedName.hasPrefix("itunes:") || qualifiedName.hasPrefix("podcast:") ||
+            feedPodcastNamespaceURLs.contains(namespaceURI?.lowercased() ?? "") {
+            isPodcast = true
         }
         if name == "item" || name == "entry" {
             inItem = true

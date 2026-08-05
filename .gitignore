@@ -1,6 +1,3 @@
-# Node dependencies for the capture extractor helper
-Tools/extractor/node_modules/
-
 # Shared reader package
 Shared/node_modules/
 

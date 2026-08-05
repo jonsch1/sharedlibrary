@@ -619,6 +619,37 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertEqual(value.inputID, .webPage)
         XCTAssertEqual(value.content, "Fallback content")
     }
+
+    func testFirecrawlFallbackRejectsErrorShells() async {
+        do {
+            _ = try await router.ingest(
+                .init(source: .url(itemTestURL(.webPage))),
+                context: .init(
+                    http: InputHTTPClient { request, _ in
+                        InputHTTPResponse(
+                            data: Data("blocked".utf8),
+                            finalURL: request.url!,
+                            statusCode: 403
+                        )
+                    },
+                    firecrawl: { url in
+                        ItemDraft(
+                            inputID: .webPage,
+                            title: "Checking your browser",
+                            content: "Checking your browser",
+                            sourceURL: url,
+                            canonicalURL: url
+                        )
+                    }
+                )
+            )
+            XCTFail("Expected Firecrawl error-shell content to be rejected")
+        } catch let error as NativeInputError {
+            XCTAssertEqual(error, .requestFailed(403))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
 }
 
 @MainActor
@@ -736,6 +767,21 @@ final class NativeChannelInputTests: XCTestCase {
         XCTAssertEqual(batch.items.first?.url.absoluteString, "https://cdn.example.org/episode.mp3")
         XCTAssertEqual(batch.items.first?.hints.mediaURL?.absoluteString, "https://cdn.example.org/episode.mp3")
         XCTAssertEqual(batch.items.first?.hints.transcriptURL?.absoluteString, "https://cdn.example.org/episode.vtt")
+    }
+
+    func testPodcastNamespaceMarksFeedAsPodcastWithoutAudioEnclosure() async throws {
+        let podcast = """
+        <rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Native show</title><item>
+        <guid>episode-1</guid><title>Native episode</title><link>https://example.com/episode</link>
+        <itunes:summary>Episode summary.</itunes:summary>
+        </item></channel></rss>
+        """
+        let batch = try await enumerate(
+            "https://example.com/podcast.xml",
+            fixtures: ["example.com/podcast.xml": .text(podcast, "application/rss+xml")]
+        )
+        XCTAssertEqual(batch.inputID, .podcast)
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .podcast)
     }
 
     func testRedditCommunityChannelInput() async throws {

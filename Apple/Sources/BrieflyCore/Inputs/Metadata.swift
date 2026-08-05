@@ -528,7 +528,7 @@ func looksLikeInputInterstitial(_ value: String) -> Bool {
     return [
         "enable javascript", "checking your browser", "just a moment", "access denied",
         "recaptcha", "please wait for verification", "verify that you are human",
-        "verify you are human"
+        "verify you are human", "page not found", "gateway timeout", "gateway time-out"
     ].contains(where: text.contains)
 }
 
@@ -537,6 +537,18 @@ func looksLikeInputShell(title: String?, content: String) -> Bool {
           let content = cleanInputText(content)?.lowercased(),
           content.split(whereSeparator: \.isWhitespace).count < 10 else { return false }
     return title == content
+}
+
+func usableNativeFallbackDraft(_ value: ItemDraft) -> ItemDraft? {
+    var draft = value
+    draft.title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    draft.content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !draft.title.isEmpty, !draft.content.isEmpty,
+          !looksLikeInputInterstitial("\(draft.title)\n\(draft.content)"),
+          !looksLikeInputShell(title: draft.title, content: draft.content) else {
+        return nil
+    }
+    return draft
 }
 
 func inputFileExtension(contentType: String, url: URL, data: Data) -> String {

@@ -33,9 +33,9 @@
 - Keep the suite intentionally small. Prefer a few end-to-end or request-boundary
   journeys that exercise production entry points over unit tests for helpers,
   branches, parsers, presentation details, or configuration values.
-- Extend one of the existing test files before creating another:
-  `Tools/extractor/e2e.test.mjs` or `Web/worker/index.test.mjs`. Add a new file
-  only for a genuinely new executable boundary.
+- Extend `Apple/Tests/BrieflyCoreTests/NativeInputTests.swift` for native item or
+  channel capture boundaries. Extend `Web/worker/index.test.mjs` for Worker
+  boundaries. Add a new test file only for a genuinely new executable boundary.
 - Add a regression check only when failure would risk data loss, security,
   payments, or a core user journey.
 - Assert observable output or persisted state. Do not test source text, exact CSS
@@ -44,8 +44,9 @@
 - Do not rebuild broad unit matrices or handwritten service/database emulators.
   Use the real CLI, Worker entry point, and the smallest binding stub needed to
   reach the boundary.
-- Run `npm test` in `Shared/` and `Tools/extractor/`, and
-  `npm run test:worker` in `Web/`.
+- Run `npm test` in `Shared/`. In `Web/`, run `npm run check`,
+  `npm run test:worker`, and `npm run build` (or `npm test`, which runs all
+  three with the required public environment values).
 
 ## Web UI
 
