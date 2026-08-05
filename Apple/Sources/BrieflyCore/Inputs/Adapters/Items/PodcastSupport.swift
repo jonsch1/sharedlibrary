@@ -2,7 +2,7 @@ import Foundation
 
 private let podcastNamespaceURLs: Set<String> = [
     "https://podcastindex.org/namespace/1.0",
-    "https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
+    "https://github.com/podcastindex-org/podcast-namespace/blob/main/docs/1.0.md"
 ]
 
 struct PodcastEpisode {
