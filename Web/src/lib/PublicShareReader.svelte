@@ -3,11 +3,9 @@
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import FlagIcon from '@lucide/svelte/icons/flag';
-	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
 	import PauseIcon from '@lucide/svelte/icons/pause';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import SquareIcon from '@lucide/svelte/icons/square';
 	import DepthControl from '../../../Shared/DepthControl.svelte';
 	import MarkdownText from '../../../Shared/MarkdownView.svelte';
 	import {
@@ -50,10 +48,6 @@
 	let selectedText = $derived(
 		document?.texts.find((text) => text.variant === selectedVariant)?.markdown ?? ''
 	);
-	let selectedWordCount = $derived(
-		document?.texts.find((text) => text.variant === selectedVariant)?.wordCount ?? 0
-	);
-	let displayedText = $derived(withoutDuplicateTitle(selectedText, document?.title ?? ''));
 	onMount(() => {
 		let active = true;
 		void refreshUntilReady(() => active);
@@ -101,18 +95,6 @@
 	function selectVariant(variant: LibraryVariant): void {
 		stopAudio();
 		selectedVariant = variant;
-	}
-
-	function withoutDuplicateTitle(markdown: string, title: string): string {
-		const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-		const firstContent = lines.findIndex((line) => line.trim().length > 0);
-		if (firstContent < 0) return markdown;
-		const heading = lines[firstContent].match(/^#\s+(.+)$/);
-		if (!heading || heading[1].trim().toLocaleLowerCase() !== title.trim().toLocaleLowerCase()) {
-			return markdown;
-		}
-		lines.splice(firstContent, 1);
-		return lines.join('\n').trimStart();
 	}
 
 	function narrationText(markdown: string): string {
@@ -251,61 +233,22 @@
 			<p>{errorMessage}</p>
 		</main>
 	{:else if document}
-		<header class="public-share-mobile-header">
-			<a href="/landing" aria-label="Briefly home">
-				<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
-			</a>
-			<a class="public-share-cta" href="/landing">Try Briefly</a>
-		</header>
+		<a class="public-share-cta" href="/landing">Try Briefly</a>
 
-		<main class="public-share-workspace">
-			<aside class="public-share-sidebar public-share-panel">
-				<a class="public-share-brand" href="/landing" aria-label="Briefly home">
-					<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
-				</a>
-				<div class="public-share-nav-label">Shared with you</div>
-				<div class="public-share-nav-row active">
-					<BookOpenIcon />
-					<span>Document</span>
-				</div>
-				<div class="public-share-nav-row">
-					<HeadphonesIcon />
-					<span>Audio included</span>
-				</div>
-				<div class="public-share-sidebar-spacer"></div>
-				<a class="public-share-cta" href="/landing">Try Briefly</a>
-			</aside>
-
-			<section class="public-share-document public-share-panel">
-				<header class="public-share-document-header">
-					<div class="public-share-eyebrow">Shared document</div>
-					<h1>{document.title}</h1>
-					{#if document.excerpt}<p>{document.excerpt}</p>{/if}
-				</header>
-				<article class="public-share-body text-foreground! font-serif!">
-					<MarkdownText text={displayedText} />
-				</article>
-			</section>
-
-			<aside class="public-share-details">
-				<section class="public-share-detail-card public-share-panel">
-					<div class="public-share-eyebrow">About this post</div>
-					<h2>{document.title}</h2>
-					<dl>
-						<div><dt>Version</dt><dd>{selectedVariant === 'concise' ? 'Concise' : 'Detailed'}</dd></div>
-						<div><dt>Length</dt><dd>{selectedWordCount.toLocaleString()} words</dd></div>
-						{#if document.createdAt}<div><dt>Published</dt><dd>{new Date(document.createdAt).toLocaleDateString()}</dd></div>{/if}
-					</dl>
-					{#if document.sourceURL}
-						<a class="public-share-source" href={document.sourceURL} target="_blank" rel="noreferrer">
-							<span>Open original</span><ArrowUpRightIcon />
-						</a>
-					{/if}
-				</section>
-				<button class="public-share-report" type="button" onclick={() => reportDialog?.showModal()}>
+		<main class="public-share-reader">
+			<article class="public-share-body text-foreground! font-serif!">
+				<MarkdownText text={selectedText} />
+			</article>
+			<footer class="public-share-meta">
+				{#if document.sourceURL}
+					<a href={document.sourceURL} target="_blank" rel="noreferrer">
+						Open original <ArrowUpRightIcon />
+					</a>
+				{/if}
+				<button type="button" onclick={() => reportDialog?.showModal()}>
 					<FlagIcon /> Report this share
 				</button>
-			</aside>
+			</footer>
 		</main>
 
 		{#if availableVariants.some((variant) => variant !== 'source')}
@@ -318,22 +261,13 @@
 				>
 					{#if isSpeaking && !isSpeechPaused}<PauseIcon />{:else}<PlayIcon />{/if}
 				</button>
-				<div class="public-share-audio-copy">
-					<strong>{isSpeaking ? (isSpeechPaused ? 'Audio paused' : 'Playing summary') : 'Listen to this summary'}</strong>
-					<span>{audioMessage || `${selectedWordCount.toLocaleString()} words · ${selectedVariant}`}</span>
-				</div>
-				<div class="public-share-wave" class:is-active={isSpeaking && !isSpeechPaused} aria-hidden="true">
-					{#each [1, 2, 3, 4, 5, 6] as bar}<i style={`--bar:${bar}`}></i>{/each}
-				</div>
-				{#if isSpeaking}
-					<button class="public-share-stop" type="button" onclick={stopAudio} aria-label="Stop audio"><SquareIcon /></button>
-				{/if}
 				<div class="public-share-depth-divider"></div>
 				<DepthControl
 					variants={availableVariants}
 					selected={selectedVariant}
 					onselect={selectVariant}
 				/>
+				<span class="public-share-audio-status" aria-live="polite">{audioMessage}</span>
 			</footer>
 		{/if}
 	{/if}

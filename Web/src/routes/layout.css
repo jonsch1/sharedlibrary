@@ -582,3 +582,143 @@
   .public-share-wave.is-active i { animation: none; }
   .public-share-cta { transition: none; }
 }
+
+/* Public shares intentionally stay quieter than the private app workspace. */
+.public-share-shell {
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--background);
+}
+
+.public-share-shell > .public-share-cta {
+  position: fixed;
+  z-index: 16;
+  top: 16px;
+  right: 16px;
+  min-height: 38px;
+  padding-inline: 16px;
+  box-shadow: 0 5px 20px color-mix(in srgb, black 10%, transparent);
+}
+
+.public-share-reader {
+  width: min(calc(100% - 48px), 760px);
+  margin: 0 auto;
+}
+
+.public-share-body {
+  max-width: none;
+  min-height: calc(100dvh - 110px);
+  padding: clamp(76px, 10vw, 112px) 0 130px;
+}
+
+.public-share-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 0 0 120px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.public-share-meta a,
+.public-share-meta button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+}
+
+.public-share-meta svg {
+  width: 13px;
+  height: 13px;
+}
+
+.public-share-action-bar {
+  width: auto;
+  min-height: 60px;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 17px;
+}
+
+.public-share-play {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+}
+
+.public-share-depth-divider {
+  display: block;
+  height: 32px;
+}
+
+.public-share-action-bar .segmented-depth--compact {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.public-share-audio-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .public-share-shell > .public-share-cta {
+    top: 12px;
+    right: 12px;
+    min-height: 36px;
+    padding-inline: 14px;
+    font-size: 12px;
+  }
+
+  .public-share-reader {
+    width: min(calc(100% - 36px), 760px);
+  }
+
+  .public-share-body {
+    padding: 72px 0 108px;
+  }
+
+  .public-share-body .library-prose {
+    font-size: 17px;
+    line-height: 1.68;
+  }
+
+  .public-share-body .library-prose h1 {
+    font-size: clamp(34px, 11vw, 48px);
+  }
+
+  .public-share-meta {
+    padding-bottom: 104px;
+  }
+
+  .public-share-action-bar {
+    bottom: max(10px, env(safe-area-inset-bottom));
+    width: auto;
+    min-height: 56px;
+    gap: 5px;
+    padding: 6px 8px;
+    border-radius: 16px;
+  }
+
+  .public-share-play {
+    width: 44px;
+    height: 44px;
+  }
+
+  .public-share-action-bar .segmented-depth--compact {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0;
+  }
+}
