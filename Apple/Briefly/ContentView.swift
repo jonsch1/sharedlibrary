@@ -1392,7 +1392,7 @@ final class LibraryModel {
             throw BrieflyBackendError.message("Open the local library before publishing.")
         }
         let document = try await library.getDocument(entry.id)
-        let filename = captureID
+        let filename = "\(captureID).md"
         var texts = [BrieflyShareSource.Text]()
         for variant in LibraryVariant.allCases where variant != .source {
             let markdown = (document.texts[variant] ?? "")
@@ -2340,6 +2340,10 @@ private final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         #endif
     }
 
+    func isCurrentPlayback(_ playbackID: String) -> Bool {
+        currentPlaybackID == playbackID
+    }
+
     func finishStream(playbackID: String) {
         guard currentPlaybackID == playbackID else { return }
         streamIsFinished = true
@@ -2891,13 +2895,6 @@ struct ContentView: View {
         #endif
         #if os(macOS)
         .overlay(alignment: .bottomTrailing) {
-            BrieflyLogo()
-                .padding(.trailing, 24)
-                .padding(.bottom, 18)
-        }
-        #endif
-        #if os(macOS)
-        .overlay(alignment: .bottomTrailing) {
             if model.isSyncing {
                 SyncActivityView(model: model)
                     .padding(.horizontal, 18)
@@ -3176,9 +3173,13 @@ private struct MacXNavigation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Color.clear
-                .frame(height: 42)
-                .accessibilityHidden(true)
+            HStack {
+                BrieflyLogo()
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .padding(.bottom, 10)
 
             ForEach(LibrarySection.allCases) { section in
                 Button {
@@ -3264,17 +3265,17 @@ private struct MacXNavigation: View {
         icon: String,
         selected: Bool
     ) -> some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 19, weight: selected ? .semibold : .regular))
-                .frame(width: 24)
+                .font(.system(size: 23, weight: selected ? .semibold : .regular))
+                .frame(width: 28)
             Text(title)
-                .font(.system(size: 17, weight: selected ? .bold : .medium))
+                .font(.system(size: 19, weight: selected ? .bold : .medium))
             Spacer()
         }
         .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.82))
         .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         .contentShape(Rectangle())
     }
 }
@@ -3356,18 +3357,6 @@ private struct MacXRightRail: View {
                 contextualCard
             }
 
-            FeedRailCard(title: "Your library") {
-                FeedMetric(
-                    label: "Saved notes",
-                    value: model.projection.entries.filter(\.isMainLibraryEntry).count
-                )
-                FeedMetric(label: "Channels", value: model.channels.count)
-                FeedMetric(
-                    label: "Voice briefs",
-                    value: model.projection.voiceBriefDefinitions.count
-                )
-            }
-
             Spacer()
         }
         .padding(.top, 16)
@@ -3439,11 +3428,7 @@ private struct MacXRightRail: View {
             Button {
                 Task { await model.showTopic(topic) }
             } label: {
-                Text(topic)
-                    .font(.system(size: 17, weight: .semibold))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .contentShape(Rectangle())
+                railRowLabel(topic, icon: "folder")
             }
             .buttonStyle(.plain)
 
@@ -3475,21 +3460,33 @@ private struct MacXRightRail: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 18)
-                Text(title)
-                    .lineLimit(1)
-                Spacer()
+            railRowLabel(title, icon: icon, showsDisclosure: true)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func railRowLabel(
+        _ title: String,
+        icon: String,
+        showsDisclosure: Bool = false
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 17))
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(1)
+            Spacer()
+            if showsDisclosure {
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .contentShape(Rectangle())
     }
 }
 #endif
@@ -3659,6 +3656,17 @@ private struct MobileXAppShell: View {
 
     private var playingEntry: LibraryEntry? {
         guard let id = audioPlayer.currentEntryID else { return nil }
+        if isPlayableDetail, let selectedEntry = model.selectedEntry {
+            let selectedPlaybackID = model.audioPlaybackID(
+                for: selectedEntry,
+                variant: model.selectedVariant,
+                text: model.selectedText
+            )
+            guard
+                selectedEntry.id == id,
+                audioPlayer.isCurrentPlayback(selectedPlaybackID)
+            else { return nil }
+        }
         return model.projection.entries.first { $0.id == id }
     }
 
@@ -7408,11 +7416,6 @@ private struct LibraryCardBrowser: View {
                 }
             }
 
-            FeedRailCard(title: "Your library") {
-                FeedMetric(label: "Saved notes", value: model.projection.entries.filter(\.isMainLibraryEntry).count)
-                FeedMetric(label: "Channels", value: model.channels.count)
-                FeedMetric(label: "Voice briefs", value: model.projection.voiceBriefDefinitions.count)
-            }
         }
     }
 
@@ -7688,23 +7691,6 @@ private struct FeedRailCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.10))
         }
-    }
-}
-
-private struct FeedMetric: View {
-    let label: String
-    let value: Int
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value, format: .number)
-                .fontWeight(.semibold)
-        }
-        .font(.callout)
-        .padding(.vertical, 3)
     }
 }
 
