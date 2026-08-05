@@ -135,7 +135,6 @@ final class NavigationWaiter: NSObject, WKNavigationDelegate {
 enum ChannelBrowserError: LocalizedError {
     case emptyPage
     case timeout
-    case youtubeUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -143,8 +142,6 @@ enum ChannelBrowserError: LocalizedError {
             "The signed-in browser returned no readable text."
         case .timeout:
             "The signed-in browser took too long to load this page."
-        case .youtubeUnavailable:
-            "YouTube did not expose readable video details."
         }
     }
 }

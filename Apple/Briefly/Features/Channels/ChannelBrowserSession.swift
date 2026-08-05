@@ -21,8 +21,17 @@ final class ChannelBrowserSession {
     }
 
     func extractPage(from url: URL) async throws -> SignedInChannelPage {
-        if let videoID = youtubeVideoID(url) {
-            return try await extractYouTubeVideo(url: url, videoID: videoID)
+        let request = ItemInputRequest(source: .url(url))
+        let router = NativeItemInputRouter()
+        if router.inputID(for: request) == .youtube {
+            let draft = try await router.ingest(request)
+            return SignedInChannelPage(
+                title: draft.title,
+                text: draft.content,
+                items: [],
+                faviconData: draft.faviconData,
+                faviconFileExtension: draft.faviconFileExtension
+            )
         }
         let webView = makeWebView()
         let navigation = NavigationWaiter()
@@ -263,112 +272,6 @@ final class ChannelBrowserSession {
         )
     }
 
-    private func extractYouTubeVideo(
-        url: URL,
-        videoID: String
-    ) async throws -> SignedInChannelPage {
-        var request = URLRequest(
-            url: URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!,
-            timeoutInterval: 30
-        )
-        request.httpMethod = "POST"
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
-            "context": [
-                "client": [
-                    "clientName": "IOS",
-                    "clientVersion": "21.26.4",
-                    "deviceMake": "Apple",
-                    "deviceModel": "iPhone16,2",
-                    "hl": "en",
-                    "osName": "iPhone",
-                    "osVersion": "18.3.2.22D82"
-                ]
-            ],
-            "videoId": videoID
-        ])
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(
-            "com.google.ios.youtube/21.26.4 " +
-                "(iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
-            forHTTPHeaderField: "User-Agent"
-        )
-        request.setValue("5", forHTTPHeaderField: "X-YouTube-Client-Name")
-        request.setValue("21.26.4", forHTTPHeaderField: "X-YouTube-Client-Version")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard
-            let response = response as? HTTPURLResponse,
-            (200..<300).contains(response.statusCode),
-            data.count <= 10_000_000,
-            let player = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let video = player["videoDetails"] as? [String: Any],
-            let title = (video["title"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !title.isEmpty
-        else {
-            throw ChannelBrowserError.youtubeUnavailable
-        }
-        let author = (video["author"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let description = (video["shortDescription"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let captions = player["captions"] as? [String: Any]
-        let renderer = captions?["playerCaptionsTracklistRenderer"] as? [String: Any]
-        let tracks = renderer?["captionTracks"] as? [[String: Any]] ?? []
-        let track = tracks
-            .filter { $0["baseUrl"] is String }
-            .sorted { youtubeTrackScore($0) > youtubeTrackScore($1) }
-            .first
-        let transcript: [String]
-        if let value = track?["baseUrl"] as? String {
-            transcript = try await fetchYouTubeTranscript(value)
-        } else {
-            transcript = []
-        }
-        let content = transcript.isEmpty
-            ? [
-                "Transcript unavailable for this video.",
-                author.isEmpty ? nil : "Channel: \(author)",
-                description.isEmpty ? nil : "\nDescription:\n\(description)"
-            ].compactMap { $0 }.joined(separator: "\n")
-            : "Transcript:\n\(transcript.joined(separator: "\n"))"
-        let favicon = await downloadFavicon(
-            at: URL(string: "https://www.youtube.com/favicon.ico")!
-        )
-        return SignedInChannelPage(
-            title: title,
-            text: content,
-            items: [],
-            faviconData: favicon?.data,
-            faviconFileExtension: favicon?.fileExtension
-        )
-    }
-
-    private func fetchYouTubeTranscript(_ value: String) async throws -> [String] {
-        guard var components = URLComponents(string: value) else { return [] }
-        components.queryItems = (components.queryItems ?? [])
-            .filter { $0.name != "fmt" } + [URLQueryItem(name: "fmt", value: "json3")]
-        guard let url = components.url else { return [] }
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        request.setValue("application/json,text/xml;q=0.9,*/*;q=0.1", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard
-            let response = response as? HTTPURLResponse,
-            (200..<300).contains(response.statusCode),
-            data.count <= 10_000_000,
-            let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let events = payload["events"] as? [[String: Any]]
-        else {
-            return []
-        }
-        return events.compactMap { event in
-            let segments = event["segs"] as? [[String: Any]] ?? []
-            let text = segments.compactMap { $0["utf8"] as? String }
-                .joined()
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : text
-        }
-    }
-
     private func downloadFavicon(
         from webView: WKWebView,
         pageURL: URL
@@ -418,53 +321,6 @@ final class ChannelBrowserSession {
         }
         return nil
     }
-
-    private func downloadFavicon(
-        at url: URL
-    ) async -> (data: Data, fileExtension: String)? {
-        var request = URLRequest(url: url, timeoutInterval: 5)
-        request.setValue("image/*", forHTTPHeaderField: "Accept")
-        guard
-            let (data, response) = try? await URLSession.shared.data(for: request),
-            let response = response as? HTTPURLResponse,
-            (200..<300).contains(response.statusCode),
-            data.count <= 1_000_000,
-            let fileExtension = faviconFileExtension(data)
-        else {
-            return nil
-        }
-        return (data, fileExtension)
-    }
-}
-
-private func youtubeVideoID(_ url: URL) -> String? {
-    let host = url.host?.lowercased() ?? ""
-    let parts = url.path.split(separator: "/").map(String.init)
-    let candidate: String?
-    if host == "youtu.be" {
-        candidate = parts.first
-    } else if
-        host == "youtube.com" || host.hasSuffix(".youtube.com") ||
-        host == "youtube-nocookie.com" || host.hasSuffix(".youtube-nocookie.com")
-    {
-        if url.path == "/watch" {
-            candidate = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                .queryItems?.first { $0.name == "v" }?.value
-        } else if ["shorts", "live", "embed"].contains(parts.first ?? "") {
-            candidate = parts.dropFirst().first
-        } else {
-            candidate = nil
-        }
-    } else {
-        candidate = nil
-    }
-    guard
-        let candidate,
-        candidate.range(of: #"^[A-Za-z0-9_-]{6,20}$"#, options: .regularExpression) != nil
-    else {
-        return nil
-    }
-    return candidate
 }
 
 private func isRedditHost(_ host: String) -> Bool {
@@ -489,10 +345,4 @@ private func oldRedditURL(_ url: URL) -> URL? {
     }
     components.host = "old.reddit.com"
     return components.url
-}
-
-private func youtubeTrackScore(_ track: [String: Any]) -> Int {
-    let language = (track["languageCode"] as? String)?.lowercased() ?? ""
-    return (track["kind"] as? String == "asr" ? 0 : 10) +
-        (language == "en" || language.hasPrefix("en-") ? 2 : 0)
 }
