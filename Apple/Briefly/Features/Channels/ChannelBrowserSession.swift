@@ -103,6 +103,9 @@ final class ChannelBrowserSession {
         let isX = url.host?.lowercased() == "x.com" ||
             url.host?.lowercased().hasSuffix(".x.com") == true ||
             url.host?.lowercased().contains("twitter.com") == true
+        let host = url.host?.lowercased() ?? ""
+        let isBiorxivSearch = (host == "biorxiv.org" || host.hasSuffix(".biorxiv.org")) &&
+            url.path.hasPrefix("/search/")
         if
             isX
         {
@@ -228,6 +231,40 @@ final class ChannelBrowserSession {
         }
         var items = [SignedInChannelItem]()
         if
+            isBiorxivSearch,
+            let value = try await webView.evaluateJavaScript("""
+                (() => JSON.stringify(Array.from(document.querySelectorAll('a[href]'))
+                  .map(link => {
+                    const itemURL = new URL(link.getAttribute('href') || '', location.href);
+                    if (!/^\\/content\\/10\\.\\d{4,9}\\/[^/?#]+v\\d+$/.test(itemURL.pathname)) {
+                      return null;
+                    }
+                    itemURL.search = '';
+                    itemURL.hash = '';
+                    const title = (link.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (!title) return null;
+                    const row = link.closest(
+                      'li.search-result, article, .highwire-article-citation, li'
+                    ) || link.parentElement;
+                    return {
+                      id: itemURL.pathname.replace(/^\\/content\\//, ''),
+                      title: title.slice(0, 500),
+                      url: itemURL.href,
+                      publishedAt: null,
+                      content: (row?.innerText || title).trim().slice(0, 20000)
+                    };
+                  })
+                  .filter(Boolean)
+                  .filter((item, index, all) =>
+                    all.findIndex(candidate => candidate.id === item.id) === index)
+                  .slice(0, 100)))()
+            """) as? String,
+            let data = value.data(using: .utf8)
+        {
+            items = (try? JSONDecoder().decode([SignedInChannelItem].self, from: data)) ?? []
+        }
+        if
+            items.isEmpty,
             isX,
             xParts.count == 1,
             let value = try await webView.evaluateJavaScript("""

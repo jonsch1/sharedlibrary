@@ -6,6 +6,7 @@ func inputBatch(_ channel: DiscoveredChannel, channelInput: ChannelInputID) thro
     case .podcast: .podcast
     case .reddit: .reddit
     case .arxiv: .arxiv
+    case .biorxiv: .biorxiv
     default: nil
     }
     let items = channel.items.compactMap { item -> ChannelItemReference? in

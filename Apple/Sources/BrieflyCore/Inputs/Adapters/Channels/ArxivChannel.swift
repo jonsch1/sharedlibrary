@@ -11,7 +11,7 @@ func enumerateArxivChannel(
         guard !query.isEmpty else { throw NativeInputError.unsupportedInput }
         var components = URLComponents(string: "https://export.arxiv.org/api/query")!
         components.queryItems = [
-            URLQueryItem(name: "search_query", value: "all:\(query)"),
+            URLQueryItem(name: "search_query", value: arxivAPIQuery(query)),
             URLQueryItem(name: "start", value: "0"),
             URLQueryItem(name: "max_results", value: "50"),
             URLQueryItem(name: "sortBy", value: "submittedDate"),
@@ -30,12 +30,21 @@ func enumerateArxivChannel(
         throw NativeInputError.unsupportedInput
     }
     let parts = url.path.split(separator: "/").map(String.init)
-    guard parts.first == "list", parts.count > 1 else {
+    let searchQuery: String
+    if parts.first == "list", parts.count > 1 {
+        searchQuery = "cat:\(parts[1])"
+    } else if parts.first == "search",
+              let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "query" })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !query.isEmpty {
+        searchQuery = arxivAPIQuery(query.replacingOccurrences(of: "+", with: " "))
+    } else {
         throw NativeInputError.unsupportedInput
     }
     var components = URLComponents(string: "https://export.arxiv.org/api/query")!
     components.queryItems = [
-        URLQueryItem(name: "search_query", value: "cat:\(parts[1])"),
+        URLQueryItem(name: "search_query", value: searchQuery),
         URLQueryItem(name: "start", value: "0"),
         URLQueryItem(name: "max_results", value: String(maximumItems)),
         URLQueryItem(name: "sortBy", value: "submittedDate"),
@@ -48,4 +57,22 @@ func enumerateArxivChannel(
         maximumItems: maximumItems,
         context: context
     )
+}
+
+func arxivAPIQuery(_ value: String) -> String {
+    guard let expression = try? NSRegularExpression(
+        pattern: #"\"[^\"]+\"|\b(?:ANDNOT|AND|OR)\b|[()]|[^\s()]+"#,
+        options: .caseInsensitive
+    ) else {
+        return "all:\(value)"
+    }
+    let range = NSRange(value.startIndex..., in: value)
+    return expression.matches(in: value, range: range).compactMap { match in
+        guard let tokenRange = Range(match.range, in: value) else { return nil }
+        let token = String(value[tokenRange])
+        let upper = token.uppercased()
+        if ["AND", "OR", "ANDNOT", "(", ")"].contains(upper) { return upper }
+        if token.contains(":") { return token }
+        return "all:\(token)"
+    }.joined(separator: " ")
 }

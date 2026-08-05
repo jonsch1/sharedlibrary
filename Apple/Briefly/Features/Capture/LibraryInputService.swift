@@ -61,6 +61,9 @@ final class LibraryInputService {
             let page = try await ChannelBrowserSession.shared.extractPage(from: url)
             let host = url.host?.lowercased() ?? ""
             let isX = host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com")
+            let isBiorxiv = (host == "biorxiv.org" || host.hasSuffix(".biorxiv.org")) &&
+                url.path.hasPrefix("/search/")
+            let preferredInput: ItemInputID = isX ? .x : isBiorxiv ? .biorxiv : .webPage
             if !page.items.isEmpty {
                 return ChannelInputBatch(
                     inputID: isX ? .x : .page,
@@ -74,7 +77,7 @@ final class LibraryInputService {
                             url: itemURL,
                             publishedAt: item.publishedAt,
                             hints: .init(
-                                preferredInput: isX ? .x : .webPage,
+                                preferredInput: preferredInput,
                                 title: item.title,
                                 content: item.content
                             )

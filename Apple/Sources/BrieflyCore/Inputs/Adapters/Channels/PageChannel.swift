@@ -8,9 +8,18 @@ func enumeratePageChannel(
     context: ChannelInputContext
 ) async throws -> ChannelInputBatch {
     guard let url = httpInputURL(source) else { throw NativeInputError.unsupportedInput }
-    let response = try await context.http.get(url, headers: [
-        "Accept": "application/atom+xml, application/rss+xml, application/xml, text/html;q=0.9"
-    ], maximumBytes: 20_000_000)
+    let response: InputHTTPResponse
+    do {
+        response = try await context.http.get(url, headers: [
+            "Accept": "application/atom+xml, application/rss+xml, application/xml, text/html;q=0.9"
+        ], maximumBytes: 20_000_000)
+    } catch {
+        if let render = context.render,
+           let rendered = try? await render(url, maximumItems), !rendered.items.isEmpty {
+            return inputLimitedBatch(rendered, maximumItems: maximumItems)
+        }
+        throw error
+    }
     if inputLooksLikeFeed(response) {
         if let feed = try? parseFeed(
             response.data,

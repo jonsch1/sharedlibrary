@@ -22,6 +22,7 @@ public enum ChannelInputID: String, CaseIterable, Codable, Sendable {
     case reddit
     case x
     case arxiv
+    case biorxiv
     case hackerNews = "hacker-news"
     case page
 }

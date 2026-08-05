@@ -130,10 +130,10 @@ struct LibraryVoiceBriefCoordinator {
     }
 
     func dueChannelSources(at date: Date) throws -> [String] {
-        try channels.loadChannels().compactMap { channel in
-            guard let scheduled = mostRecentScheduledDate(channel.schedule, at: date) else { return nil }
+        try channels.loadChannels().flatMap { channel -> [String] in
+            guard let scheduled = mostRecentScheduledDate(channel.schedule, at: date) else { return [] }
             let checked = channel.lastCheckedAt.flatMap { ISO8601DateFormatter().date(from: $0) }
-            return checked == nil || checked! < scheduled ? channel.source : nil
+            return checked == nil || checked! < scheduled ? channel.sources : []
         }
     }
 

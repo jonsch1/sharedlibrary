@@ -24,6 +24,7 @@ private let realChannelTestURLs: [(ChannelInputID, URL)] = [
     (.reddit, URL(string: "https://www.reddit.com/r/swift/")!),
     (.x, URL(string: "https://x.com/openai")!),
     (.arxiv, URL(string: "https://arxiv.org/list/cs.AI/recent")!),
+    (.biorxiv, URL(string: "https://www.biorxiv.org/search/rare%20disease")!),
     (.hackerNews, URL(string: "https://news.ycombinator.com/")!),
     (.page, URL(string: "https://example.com/")!)
 ]
@@ -719,6 +720,99 @@ final class NativeChannelInputTests: XCTestCase {
         XCTAssertEqual(batch.items.first?.hints.preferredInput, .arxiv)
     }
 
+    func testArxivSearchURLChannelEnumeratesPapersForMarkxivIngestion() async throws {
+        let atom = """
+        <feed><title>Biomedical search</title><entry><id>https://arxiv.org/abs/2606.07677</id>
+        <title>Rare disease pathways</title><link href="https://arxiv.org/abs/2606.07677"/>
+        <published>2026-06-01T10:00:00Z</published></entry></feed>
+        """
+        let requests = URLLog()
+        let source = "https://arxiv.org/search/?query=%22rare+disease%22+AND+pathway" +
+            "&searchtype=all&order=-announced_date_first"
+        let batch = try await router.enumerate(
+            source: source,
+            context: .init(http: InputHTTPClient { request, _ in
+                await requests.append(request.url!)
+                return InputHTTPResponse(
+                    data: Data(atom.utf8),
+                    finalURL: request.url!,
+                    contentType: "application/atom+xml"
+                )
+            })
+        )
+
+        XCTAssertEqual(batch.inputID, .arxiv)
+        XCTAssertEqual(batch.items.first?.url.absoluteString, "https://arxiv.org/abs/2606.07677")
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .arxiv)
+        let requestedURLs = await requests.values
+        let requestedURL = try XCTUnwrap(requestedURLs.first)
+        let searchQuery = URLComponents(url: requestedURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "search_query" }?.value
+        XCTAssertEqual(searchQuery, #"all:"rare disease" AND all:pathway"#)
+    }
+
+    func testPageChannelFallsBackToRenderedResultsAfterHTTP429() async throws {
+        let renders = AttemptCounter()
+        let source = "https://example.com/rate-limited-channel"
+        let paper = URL(string: "https://www.biorxiv.org/content/10.1101/2026.08.01.123456v1")!
+        let batch = try await router.enumerate(
+            source: source,
+            context: .init(
+                http: InputHTTPClient { request, _ in
+                    InputHTTPResponse(
+                        data: Data("rate limited".utf8),
+                        finalURL: request.url!,
+                        statusCode: 429
+                    )
+                },
+                render: { _, _ in
+                    _ = await renders.increment()
+                    return ChannelInputBatch(
+                        inputID: .page,
+                        title: "Search Results | bioRxiv",
+                        kind: .page,
+                        items: [.init(
+                            id: "10.1101/2026.08.01.123456v1",
+                            title: "Rare disease pathways",
+                            url: paper,
+                            hints: .init(preferredInput: .biorxiv)
+                        )]
+                    )
+                }
+            )
+        )
+
+        let renderCount = await renders.value
+        XCTAssertEqual(renderCount, 1)
+        XCTAssertEqual(batch.items.first?.url, paper)
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .biorxiv)
+    }
+
+    func testBiorxivSearchChannelUsesStructuredPreprintResults() async throws {
+        let response: [String: Any] = [
+            "resultList": ["result": [[
+                "doi": "10.1101/2026.08.01.123456",
+                "title": "Rare disease pathways",
+                "firstPublicationDate": "2026-08-01",
+                "abstractText": "A complete pathway study."
+            ]]]
+        ]
+        let source = "https://www.biorxiv.org/search/%22rare%20disease%22%20AND%20pathway%20" +
+            "numresults%3A50%20sort%3Apublication-date%20direction%3Adescending"
+        let batch = try await enumerate(
+            source,
+            fixtures: ["ebi.ac.uk/europepmc/webservices/rest/search": .json(response)]
+        )
+
+        XCTAssertEqual(batch.inputID, .biorxiv)
+        XCTAssertEqual(
+            batch.items.first?.url.absoluteString,
+            "https://www.biorxiv.org/content/10.1101/2026.08.01.123456"
+        )
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .biorxiv)
+        XCTAssertEqual(batch.items.first?.hints.content, "A complete pathway study.")
+    }
+
     func testYouTubeChannelInput() async throws {
         let atom = """
         <feed><title>Google for Developers</title><entry><id>yt:video:jNQXAC9IVRw</id><title>Me at the zoo</title>
@@ -988,6 +1082,12 @@ final class LiveInputURLTests: XCTestCase {
         XCTAssertGreaterThan(draft.content.count, 10_000)
     }
 
+    func testBiorxivChannelDiscoversAndIngestsLiveItem() async throws {
+        let draft = try await assertLiveChannel(.biorxiv, contains: ["bioRxiv"])
+        XCTAssertEqual(draft.inputID, .biorxiv)
+        XCTAssertGreaterThan(draft.content.count, 1_000)
+    }
+
     func testHackerNewsChannelDiscoversAndIngestsLiveItem() async throws {
         try await assertLiveChannel(.hackerNews, contains: ["Hacker News"])
     }
@@ -1116,6 +1216,14 @@ private actor AttemptCounter {
     func increment() -> Int {
         value += 1
         return value
+    }
+}
+
+private actor URLLog {
+    private(set) var values = [URL]()
+
+    func append(_ value: URL) {
+        values.append(value)
     }
 }
 

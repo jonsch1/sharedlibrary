@@ -337,6 +337,10 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(grouped.title, "Technology")
         XCTAssertTrue(grouped.autoSummarize)
         XCTAssertEqual(grouped.sources, editedSources.sorted())
+        let groupedDue = try await store.dueChannelSources(
+            at: Date(timeIntervalSince1970: 1_910_000_000)
+        )
+        XCTAssertTrue(Set(groupedDue).isSuperset(of: editedSources))
 
         let queuedID = try await store.captureDocument(
             title: "Durable processing",
