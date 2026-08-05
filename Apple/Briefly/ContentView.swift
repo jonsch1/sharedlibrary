@@ -59,11 +59,10 @@ struct BrieflyActivity: Identifiable {
 final class LibraryModel {
     private static let subscriptionProductID = "fyi.readbriefly.plus.monthly"
     private static let managedAICommand =
-        "briefly://openrouter/deepseek/deepseek-v4-flash"
+        "briefly://openrouter/openai/gpt-5.6-luna"
     private static let processingDefaultCommand = managedAICommand
     private static let processingCommandKey = "BrieflyProcessingCommand"
     private static let processingPromptKey = "BrieflyProcessingPrompt"
-    private static let voiceBriefPromptKey = "BrieflyVoiceBriefPrompt"
     private static let aboutYouKey = "BrieflyAboutYou"
     private let backend = BrieflyBackend.shared
     private var cloud: CloudDocumentSync?
@@ -123,9 +122,6 @@ final class LibraryModel {
     var processingPrompt =
         UserDefaults.standard.string(forKey: LibraryModel.processingPromptKey) ??
         defaultProcessingPrompt
-    var voiceBriefPrompt =
-        UserDefaults.standard.string(forKey: LibraryModel.voiceBriefPromptKey) ??
-        defaultVoiceBriefPrompt
     var aboutYou =
         UserDefaults.standard.string(forKey: LibraryModel.aboutYouKey) ?? ""
 
@@ -996,25 +992,12 @@ final class LibraryModel {
 
     func savePersonalizationSettings() {
         let context = aboutYou.trimmingCharacters(in: .whitespacesAndNewlines)
-        let prompt = voiceBriefPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard context.count <= 10_000 else {
             errorMessage = "Personal context must be 10,000 characters or fewer."
             return
         }
-        guard
-            !prompt.isEmpty,
-            prompt.count <= 50_000,
-            prompt.contains("{{voice_brief_title}}"),
-            prompt.contains("{{source_packets}}")
-        else {
-            errorMessage =
-                "The voice brief prompt must contain its title and source placeholders."
-            return
-        }
         aboutYou = context
-        voiceBriefPrompt = prompt
         UserDefaults.standard.set(context, forKey: Self.aboutYouKey)
-        UserDefaults.standard.set(prompt, forKey: Self.voiceBriefPromptKey)
         status = "Personalization settings saved"
     }
 
@@ -9067,7 +9050,6 @@ private struct VoiceBriefConfiguration: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var model: LibraryModel
     @State private var title = ""
-    @State private var prompt = ""
     @State private var schedule = "manual"
     @State private var sources = ""
     @State private var prioritizeForMe = false
@@ -9275,7 +9257,6 @@ private struct VoiceBriefConfiguration: View {
                 schedule: schedule,
                 length: "",
                 sources: Array(selectedSources),
-                prompt: prompt,
                 prioritizeForMe: prioritizeForMe
             )
         )
@@ -9303,13 +9284,11 @@ private struct VoiceBriefConfiguration: View {
     private func loadDraft() {
         if let brief = model.selectedVoiceBrief {
             title = brief.title
-            prompt = brief.prompt ?? model.voiceBriefPrompt
             schedule = brief.schedule
             sources = brief.sources.joined(separator: "\n")
             prioritizeForMe = brief.prioritizeForMe == true
         } else {
             title = "New voice brief"
-            prompt = model.voiceBriefPrompt
             schedule = "manual"
             sources = ""
             prioritizeForMe = false
@@ -10364,9 +10343,6 @@ private struct MacXSettingsWorkspace: View {
                 description: "Context used when Prioritize for me is enabled.",
                 firstTitle: "About you",
                 firstText: $model.aboutYou,
-                secondTitle: "Voice brief prompt",
-                secondText: $model.voiceBriefPrompt,
-                restore: { model.voiceBriefPrompt = defaultVoiceBriefPrompt },
                 save: model.savePersonalizationSettings
             )
 
@@ -10538,9 +10514,6 @@ private struct MacXSettingsWorkspace: View {
         description: String,
         firstTitle: String,
         firstText: Binding<String>,
-        secondTitle: String,
-        secondText: Binding<String>,
-        restore: @escaping () -> Void,
         save: @escaping () -> Void
     ) -> some View {
         detailGroup(title) {
@@ -10553,16 +10526,7 @@ private struct MacXSettingsWorkspace: View {
                     .padding(11)
                     .background(Color.primary.opacity(0.04))
                     .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                Text(secondTitle).font(.callout.weight(.semibold))
-                TextEditor(text: secondText)
-                    .font(.system(.caption, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 240)
-                    .padding(10)
-                    .background(Color.primary.opacity(0.04))
-                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                 HStack {
-                    Button("Restore default", action: restore)
                     Spacer()
                     Button("Save", action: save)
                         .buttonStyle(.borderedProminent)
@@ -10595,7 +10559,7 @@ private struct MacXSettingsWorkspace: View {
         case .library: "Storage, refresh, and iCloud"
         case .capture: "Shortcut, imports, and media"
         case .account: "Sign-in and subscription"
-        case .personalization: "Your context and brief prompt"
+        case .personalization: "Your context"
         case .topics: "Reusable library topics"
         case .ai: "Provider, command, and prompt"
         }
@@ -10991,13 +10955,7 @@ private struct SettingsView: View {
                     Text("Used only when “Prioritize for me” is enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $model.voiceBriefPrompt)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 150)
                     HStack {
-                        Button("Restore default voice prompt") {
-                            model.voiceBriefPrompt = defaultVoiceBriefPrompt
-                        }
                         Spacer()
                         Button("Save") {
                             model.savePersonalizationSettings()
@@ -11212,7 +11170,7 @@ private struct SettingsView: View {
         case .library: "Storage, refresh, and iCloud"
         case .capture: "Shortcut, imports, and media"
         case .account: "Sign-in and subscription"
-        case .personalization: "Your context and brief prompt"
+        case .personalization: "Your context"
         case .topics: "Reusable library topics"
         case .ai: "Provider, command, and prompt"
         }

@@ -107,7 +107,6 @@ public struct LibraryVoiceBrief: Codable, Hashable, Sendable {
     public let schedule: String
     public let length: String
     public let sources: [String]
-    public let prompt: String?
     public let prioritizeForMe: Bool?
 
     public init(
@@ -117,7 +116,6 @@ public struct LibraryVoiceBrief: Codable, Hashable, Sendable {
         schedule: String,
         length: String,
         sources: [String],
-        prompt: String? = nil,
         prioritizeForMe: Bool? = nil
     ) {
         self.id = id
@@ -126,7 +124,6 @@ public struct LibraryVoiceBrief: Codable, Hashable, Sendable {
         self.schedule = schedule
         self.length = length
         self.sources = sources
-        self.prompt = prompt
         self.prioritizeForMe = prioritizeForMe
     }
 
@@ -146,7 +143,6 @@ public struct LibraryVoiceBriefDraft: Hashable, Sendable {
     public let schedule: String
     public let length: String
     public let sources: [String]
-    public let prompt: String
     public let prioritizeForMe: Bool
 
     public init(
@@ -155,7 +151,6 @@ public struct LibraryVoiceBriefDraft: Hashable, Sendable {
         schedule: String,
         length: String,
         sources: [String],
-        prompt: String,
         prioritizeForMe: Bool
     ) {
         self.id = id
@@ -163,7 +158,6 @@ public struct LibraryVoiceBriefDraft: Hashable, Sendable {
         self.schedule = schedule
         self.length = length
         self.sources = sources
-        self.prompt = prompt
         self.prioritizeForMe = prioritizeForMe
     }
 }

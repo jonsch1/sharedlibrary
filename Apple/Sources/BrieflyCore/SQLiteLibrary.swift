@@ -273,6 +273,12 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     "ALTER TABLE channels ADD COLUMN auto_summarize INTEGER NOT NULL DEFAULT 1"
                 )
             }
+            let voiceBriefColumns = try query(
+                "PRAGMA table_info(voice_briefs)"
+            ) { columnText($0, 1) }
+            if voiceBriefColumns.contains("prompt") {
+                try execute("ALTER TABLE voice_briefs DROP COLUMN prompt")
+            }
             let voiceBriefStateColumns = try query(
                 "PRAGMA table_info(voice_brief_state)"
             ) { columnText($0, 1) }
@@ -488,17 +494,17 @@ public final class SQLiteLibrary: @unchecked Sendable {
         try locked {
             let rows = try query(
                 """
-                SELECT id, title, prompt, prioritize_for_me, schedule, length
+                SELECT id, title, prioritize_for_me, schedule, length
                 FROM voice_briefs WHERE deleted_at IS NULL ORDER BY title COLLATE NOCASE
                 """
             ) { statement in
                 (
                     columnText(statement, 0), columnText(statement, 1),
-                    columnText(statement, 2), sqlite3_column_int(statement, 3) != 0,
-                    columnText(statement, 4), columnText(statement, 5)
+                    sqlite3_column_int(statement, 2) != 0,
+                    columnText(statement, 3), columnText(statement, 4)
                 )
             }
-            return try rows.map { id, title, prompt, prioritize, schedule, length in
+            return try rows.map { id, title, prioritize, schedule, length in
                 let sources = try query(
                     "SELECT channel_id FROM voice_brief_sources WHERE voice_brief_id = ? " +
                         "ORDER BY channel_id",
@@ -511,7 +517,6 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     schedule: schedule,
                     length: length,
                     sources: sources,
-                    prompt: prompt,
                     prioritizeForMe: prioritize
                 )
             }
@@ -530,15 +535,15 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 try run(
                     """
                     INSERT INTO voice_briefs(
-                      id, title, prompt, prioritize_for_me, schedule, length, revision
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
-                      title = excluded.title, prompt = excluded.prompt,
+                      id, title, prioritize_for_me, schedule, length, revision
+                    ) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                      title = excluded.title,
                       prioritize_for_me = excluded.prioritize_for_me,
                       schedule = excluded.schedule, length = excluded.length,
                       revision = excluded.revision, deleted_at = NULL
                     """,
                     bindings: [
-                        .text(id), .text(draft.title), .text(draft.prompt),
+                        .text(id), .text(draft.title),
                         .int(draft.prioritizeForMe ? 1 : 0), .text(draft.schedule),
                         .text(draft.length), .int(revision)
                     ]
@@ -1150,13 +1155,13 @@ public final class SQLiteLibrary: @unchecked Sendable {
                 )
             case "voice_brief":
                 guard let row = try query(
-                    "SELECT title, prompt, prioritize_for_me, schedule, length, revision, " +
+                    "SELECT title, prioritize_for_me, schedule, length, revision, " +
                         "deleted_at, cloud_record FROM voice_briefs WHERE id = ?",
                     bindings: [.text(id)],
-                    transform: { (columnText($0, 0), columnText($0, 1),
-                        sqlite3_column_int($0, 2) != 0, columnText($0, 3), columnText($0, 4),
-                        sqlite3_column_int64($0, 5), sqlite3_column_type($0, 6) != SQLITE_NULL,
-                        columnOptionalBlob($0, 7)) }
+                    transform: { (columnText($0, 0),
+                        sqlite3_column_int($0, 1) != 0, columnText($0, 2), columnText($0, 3),
+                        sqlite3_column_int64($0, 4), sqlite3_column_type($0, 5) != SQLITE_NULL,
+                        columnOptionalBlob($0, 6)) }
                 ).first
                 else { throw SQLiteLibraryError.invalidDocument }
                 let sources = try query(
@@ -1164,11 +1169,11 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     bindings: [.text(id)], transform: { columnText($0, 0) }
                 )
                 return SQLiteLogicalRecord(
-                    id: id, revision: row.5, deleted: row.6,
+                    id: id, revision: row.4, deleted: row.5,
                     payload: try JSONSerialization.data(withJSONObject: [
-                        "title": row.0, "prompt": row.1, "prioritizeForMe": row.2,
-                        "schedule": row.3, "length": row.4, "sources": sources
-                    ]), cloudRecordData: row.7
+                        "title": row.0, "prioritizeForMe": row.1,
+                        "schedule": row.2, "length": row.3, "sources": sources
+                    ]), cloudRecordData: row.6
                 )
             default:
                 throw SQLiteLibraryError.invalidDocument
@@ -1255,19 +1260,18 @@ public final class SQLiteLibrary: @unchecked Sendable {
                     )
                 case "voice_brief":
                     guard let title = object["title"] as? String,
-                          let prompt = object["prompt"] as? String,
                           let schedule = object["schedule"] as? String,
                           let length = object["length"] as? String
                     else { throw SQLiteLibraryError.invalidDocument }
                     try run(
-                        "INSERT INTO voice_briefs(id,title,prompt,prioritize_for_me,schedule,length," +
-                            "revision,deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?,?) " +
-                            "ON CONFLICT(id) DO UPDATE SET title=excluded.title,prompt=excluded.prompt," +
+                        "INSERT INTO voice_briefs(id,title,prioritize_for_me,schedule,length," +
+                            "revision,deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?) " +
+                            "ON CONFLICT(id) DO UPDATE SET title=excluded.title," +
                             "prioritize_for_me=excluded.prioritize_for_me,schedule=excluded.schedule," +
                             "length=excluded.length,revision=excluded.revision," +
                             "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
                         bindings: [
-                            .text(id), .text(title), .text(prompt),
+                            .text(id), .text(title),
                             .int((object["prioritizeForMe"] as? Bool ?? false) ? 1 : 0),
                             .text(schedule), .text(length), .int(revision), deletedAt,
                             .blob(cloudRecordData)
@@ -2140,7 +2144,6 @@ public final class SQLiteLibrary: @unchecked Sendable {
     CREATE TABLE IF NOT EXISTS voice_briefs(
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
-      prompt TEXT NOT NULL,
       prioritize_for_me INTEGER NOT NULL DEFAULT 0,
       schedule TEXT NOT NULL DEFAULT 'manual',
       length TEXT NOT NULL DEFAULT '',

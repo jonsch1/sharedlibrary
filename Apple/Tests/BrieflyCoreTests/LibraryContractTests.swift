@@ -64,7 +64,6 @@ final class LibraryContractTests: XCTestCase {
                 schedule: "manual",
                 length: "",
                 sources: [],
-                prompt: "Documentation only.",
                 prioritizeForMe: false
             ))
         }
@@ -530,15 +529,36 @@ final class LibraryContractTests: XCTestCase {
                 schedule: "daily 07:30",
                 length: LibraryVariant.detailed.rawValue,
                 sources: ["https://example.com/feed"],
-                prompt: defaultVoiceBriefPrompt,
                 prioritizeForMe: true
             )
         )
         workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(workspaceProjection.voiceBriefDefinitions.first?.id, voiceBriefID)
+        let renamedBriefID = try await workspace.saveVoiceBrief(
+            LibraryVoiceBriefDraft(
+                title: "ZZ Voice brief",
+                schedule: "manual",
+                length: "",
+                sources: [],
+                prioritizeForMe: false
+            )
+        )
+        _ = try await workspace.saveVoiceBrief(
+            LibraryVoiceBriefDraft(
+                id: renamedBriefID,
+                title: "ZZ Renamed voice brief",
+                schedule: "manual",
+                length: "",
+                sources: [],
+                prioritizeForMe: false
+            )
+        )
+        workspaceProjection = try await workspace.loadProjection()
         XCTAssertEqual(
-            workspaceProjection.voiceBriefDefinitions.first?.prompt,
-            defaultVoiceBriefPrompt
+            workspaceProjection.voiceBriefDefinitions.first {
+                $0.id == renamedBriefID
+            }?.title,
+            "ZZ Renamed voice brief"
         )
         try await workspace.addChannel("https://example.com/feed")
         var channels = try await workspace.loadChannels()
@@ -670,47 +690,10 @@ final class LibraryContractTests: XCTestCase {
         ))
         XCTAssertEqual(hackerNews.items.map(\.id), ["123", "124"])
         XCTAssertEqual(hackerNews.items[1].url, "https://news.ycombinator.com/item?id=124")
-        let renderedVoicePrompt = try renderVoiceBriefPrompt(
-            prompt: defaultVoiceBriefPrompt,
-            title: "Native Daily",
-            requestedLength: "5 minutes",
-            sourcePackets: "A native source packet."
-        )
-        XCTAssertTrue(renderedVoicePrompt.contains("Voice brief: Native Daily"))
-        XCTAssertTrue(renderedVoicePrompt.contains("Requested length: 5 minutes"))
-        let renderedVoicePromptWithoutLength = try renderVoiceBriefPrompt(
-            prompt: defaultVoiceBriefPrompt,
-            title: "Native Daily",
-            requestedLength: "",
-            sourcePackets: "A native source packet."
-        )
-        XCTAssertFalse(renderedVoicePromptWithoutLength.contains("Requested length:"))
-        XCTAssertFalse(renderedVoicePromptWithoutLength.contains("Use editorial judgment."))
-        XCTAssertTrue(
-            try renderVoiceBriefPrompt(
-                prompt: "",
-                template: """
-                Custom {{voice_brief_title}} / {{requested_length}}
-                {{source_packets}}
-                """,
-                title: "Native Daily",
-                requestedLength: "5 minutes",
-                sourcePackets: "A native source packet."
-            ).contains("Custom Native Daily / 5 minutes")
-        )
         XCTAssertEqual(
             spokenVoiceBriefText("# Update\n\nRead [the source](https://example.com)."),
             "Update Read the source."
         )
-        XCTAssertThrowsError(
-            try renderVoiceBriefPrompt(
-                prompt: "{{voice_brief_title}} only",
-                title: "Invalid",
-                requestedLength: "",
-                sourcePackets: ""
-            )
-        )
-
         #if os(macOS)
         let episode = try await workspace.runVoiceBrief(id: voiceBriefID)
         XCTAssertTrue(episode.script.contains("# Native Daily"))

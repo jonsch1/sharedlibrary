@@ -1,5 +1,5 @@
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
-const managedAIModel = 'deepseek/deepseek-v4-flash';
+const managedAIModel = 'openai/gpt-5.6-luna';
 const managedAIMonthlyAllowanceMicros = 5_000_000;
 const managedAIReservationMicros = 500_000;
 const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;

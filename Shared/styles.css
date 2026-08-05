@@ -2275,17 +2275,6 @@ button:disabled {
   line-height: 1.12;
 }
 
-.voice-brief-prompt {
-  display: block;
-  width: 100%;
-  min-height: 132px;
-  padding: 14px 16px;
-  resize: vertical;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
 .brief-editor-section {
   margin-top: 38px;
 }
