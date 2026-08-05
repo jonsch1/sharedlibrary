@@ -88,6 +88,7 @@ final class LibraryModel {
     private static let processingPromptKey = "BrieflyProcessingPrompt"
     private static let aboutYouKey = "BrieflyAboutYou"
     private let backend = BrieflyBackend.shared
+    private let environment: AppEnvironment
     private var cloud: CloudDocumentSync?
     private var started = false
     private var library: SQLiteLibraryStore?
@@ -156,6 +157,12 @@ final class LibraryModel {
         defaultProcessingPrompt
     var aboutYou =
         UserDefaults.standard.string(forKey: LibraryModel.aboutYouKey) ?? ""
+
+    init(environment: AppEnvironment = .current()) {
+        self.environment = environment
+    }
+
+    var runsScheduledWork: Bool { !environment.isUITesting }
 
     var canEdit: Bool {
         library != nil
@@ -306,6 +313,17 @@ final class LibraryModel {
     func start() async {
         guard !started else { return }
         started = true
+        if environment.isUITesting {
+            do {
+                await openLibrary(databaseURL: try environment.prepareUITestLibrary())
+                await loadSelectedText()
+                status = "Ready for application tour"
+            } catch {
+                isReady = true
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
         localSpeechPreparation = Task { await prepareLocalSpeech() }
         let usesDemo = ProcessInfo.processInfo.arguments.contains("--demo")
         if usesDemo {
@@ -385,7 +403,7 @@ final class LibraryModel {
             selectInitialContent()
             isReady = true
             let database = try await next.documentDatabase()
-            cloud = Self.cloudKitAvailable
+            cloud = !environment.isUITesting && Self.cloudKitAvailable
                 ? CloudDocumentSync(
                     store: database,
                     containerIdentifier: "iCloud.fyi.readbriefly"
@@ -445,6 +463,10 @@ final class LibraryModel {
             let id = try await library.captureItem(draft)
             await refreshLibrary(selecting: id)
             activeSection = .items
+            if environment.isUITesting {
+                status = "Captured"
+                return
+            }
             status = "Captured. Preparing summaries…"
             isIngesting = false
             await enqueueProcessing(id)
@@ -1418,14 +1440,10 @@ final class LibraryModel {
             updatedAt: entry.updatedAt,
             texts: texts
         )
-        var result = try await backend.publishShare(
+        let result = try await backend.publishShare(
             captureID: captureID,
             source: source
         )
-        for _ in 0..<30 where result.status == "preparing" {
-            try await Task.sleep(for: .seconds(1))
-            result = try await backend.shareStatus(captureID: captureID)
-        }
         if result.status == "failed" {
             throw BrieflyBackendError.message(
                 result.error ?? "The shareable reader could not be prepared."
@@ -2762,6 +2780,7 @@ struct ContentView: View {
         }
         .task { await model.start() }
         .task {
+            guard model.runsScheduledWork else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
@@ -2771,7 +2790,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) {
-            if scenePhase == .active {
+            if scenePhase == .active, model.runsScheduledWork {
                 Task {
                     #if os(iOS)
                     if model.canEdit { await model.sync() }
@@ -2783,6 +2802,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
+            guard model.runsScheduledWork else { return }
             Task {
                 if model.canEdit { await model.sync() }
             }
@@ -3088,6 +3108,7 @@ private struct MacCaptureComposer: View {
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
                 .disabled(!canCapture)
+                .accessibilityIdentifier("capture.save")
             }
             .padding(.horizontal, 16)
             .frame(height: 54)
@@ -3108,6 +3129,7 @@ private struct MacCaptureComposer: View {
                     .font(.system(size: 18))
                     .scrollContentBackground(.hidden)
                     .focused($focused)
+                    .accessibilityIdentifier("capture.text")
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text("Paste a link or write something…")
@@ -3194,6 +3216,7 @@ private struct MacXNavigation: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("navigation.\(section.rawValue)")
             }
 
             Button {
@@ -3207,6 +3230,7 @@ private struct MacXNavigation: View {
                 )
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("navigation.highlights")
 
             Button {
                 showsSettings = false
@@ -3215,6 +3239,7 @@ private struct MacXNavigation: View {
                 navigationRow("Trash", icon: "trash", selected: model.showingTrash)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("navigation.trash")
 
             Button {
                 switch model.activeSection {
@@ -3235,6 +3260,9 @@ private struct MacXNavigation: View {
             }
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
+            .accessibilityIdentifier(
+                model.activeSection == .items ? "capture.open" : "navigation.primaryAction"
+            )
             .padding(.top, 12)
             .padding(.horizontal, 4)
 
@@ -3247,6 +3275,7 @@ private struct MacXNavigation: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
+            .accessibilityIdentifier("settings.open")
         }
         .padding(.vertical, 12)
         .frame(maxHeight: .infinity)
@@ -3293,6 +3322,7 @@ private struct MacXRightRail: View {
                     .foregroundStyle(.secondary)
                 TextField("Search your library", text: $model.query)
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier("library.search")
                 if !model.query.isEmpty {
                     Button {
                         model.query = ""
@@ -3857,11 +3887,13 @@ private struct MobileXFeedScreen: View {
                     search: MobileXHeaderAction(
                         icon: "magnifyingglass",
                         label: searchPrompt,
+                        identifier: "library.search.open",
                         action: { showsSearch = true }
                     ),
                     primary: MobileXHeaderAction(
                         icon: "plus",
                         label: createLabel,
+                        identifier: createLabel == "Capture" ? "capture.open" : nil,
                         action: create
                     ),
                     trailing: configurationAction
@@ -4048,6 +4080,7 @@ private struct MobileXFeedScreen: View {
 private struct MobileXHeaderAction {
     let icon: String
     let label: String
+    var identifier: String? = nil
     let action: () -> Void
 }
 
@@ -4080,6 +4113,7 @@ private struct MobileXHeader: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Settings")
+                    .accessibilityIdentifier("settings.open")
                 }
 
                 if let search {
@@ -4113,6 +4147,9 @@ private struct MobileXHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(action.label)
+        .accessibilityIdentifier(
+            action.identifier ?? "header.\(action.label.lowercased().replacingOccurrences(of: " ", with: "-"))"
+        )
     }
 }
 
@@ -4131,6 +4168,7 @@ private struct MobileXSearchField: View {
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .submitLabel(.search)
+                    .accessibilityIdentifier("library.search")
                 if !text.isEmpty {
                     Button { text = "" } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -4176,6 +4214,7 @@ private struct MobileXLibraryScreen: View {
                 primary: MobileXHeaderAction(
                     icon: "plus",
                     label: "Capture",
+                    identifier: "capture.open",
                     action: create
                 )
             )
@@ -4307,6 +4346,7 @@ private struct MobileCaptureComposer: View {
                     .font(.system(size: 19))
                     .scrollContentBackground(.hidden)
                     .focused($focused)
+                    .accessibilityIdentifier("capture.text")
                     .padding(.horizontal, 14)
                     .padding(.top, 12)
                     .overlay(alignment: .topLeading) {
@@ -4347,6 +4387,7 @@ private struct MobileCaptureComposer: View {
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .disabled(!canCapture)
+                    .accessibilityIdentifier("capture.save")
                 }
             }
         }
@@ -4590,6 +4631,7 @@ private struct MobileEntryRow: View {
                 .padding(.leading, 54)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("library.entry.\(entry.id)")
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityValue(
             date.map {
@@ -7646,6 +7688,8 @@ private struct FeedEntryRow: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("library.entry.\(entry.id)")
         .overlay(alignment: .topTrailing) {
             if let sourceURL {
                 Link(destination: sourceURL) {
@@ -8785,6 +8829,7 @@ private struct LibraryDocument: View {
                     ),
                     isEditing: isEditing
                 )
+                .accessibilityIdentifier("reader.editor")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id("\(entry.id):\(model.selectedVariant.rawValue)")
             }
@@ -8813,6 +8858,10 @@ private struct LibraryDocument: View {
                             )
                             .accessibilityLabel(
                                 variant == .source ? "Original" : variant.title
+                            )
+                            .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
+                            .accessibilityAddTraits(
+                                model.selectedVariant == variant ? .isSelected : []
                             )
                             .help(variant == .source ? "Original" : variant.title)
                         }
@@ -9080,25 +9129,40 @@ private struct ShareDocumentView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Text("Share link")
+                Text("Share")
                     .font(.headline)
                 Spacer()
-                Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
             }
             .padding(.horizontal, 16)
             .frame(height: 54)
             Divider()
 
-            VStack(alignment: .leading, spacing: 20) {
-                Text(entry.title)
-                    .font(.title3.weight(.bold))
-                    .lineLimit(2)
-                Text(
-                    "Publish the available summaries. The private captured source text is never included."
-                )
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("PUBLIC READER", systemImage: "link")
+                        .font(.system(size: 10, weight: .bold))
+                        .tracking(0.7)
+                        .foregroundStyle(.secondary)
+
+                    Text(entry.title)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .lineLimit(3)
+
+                    Text(
+                        "Share the summaries and a listenable audio version. Your private captured source stays private."
+                    )
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.ultraThinMaterial.opacity(0.72))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.primary.opacity(0.10))
+                }
 
                 if !model.account.authenticated {
                     Label(
@@ -9115,6 +9179,7 @@ private struct ShareDocumentView: View {
                     HStack {
                         Button("Copy link", systemImage: "doc.on.doc") {
                             copyShareURL(url)
+                            model.status = "Share link copied"
                         }
                         ShareLink(item: url) {
                             Label("Share…", systemImage: "square.and.arrow.up")
@@ -9125,14 +9190,34 @@ private struct ShareDocumentView: View {
                         }
                     }
                 } else if link?.shared == true {
-                    Label("The shareable reader is being prepared.", systemImage: "clock")
+                    Label("Publishing continues in the background.", systemImage: "clock")
                 } else {
-                    Button("Create share link", systemImage: "link.badge.plus") {
+                    Button {
                         Task { await publish() }
+                    } label: {
+                        HStack {
+                            if isBusy {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "link.badge.plus")
+                            }
+                            Text(isBusy ? "Creating link…" : "Create link & copy")
+                            Spacer()
+                            Image(systemName: "arrow.right")
+                        }
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .disabled(isBusy)
+
+                    Label(
+                        "The link is copied as soon as it exists. Publishing finishes in the background.",
+                        systemImage: "bolt.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 if !errorMessage.isEmpty {
@@ -9140,13 +9225,13 @@ private struct ShareDocumentView: View {
                         .foregroundStyle(.red)
                 }
             }
-            .padding(24)
+            .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(.regularMaterial)
         .task { await load() }
         #if os(macOS)
-        .frame(minWidth: 520, minHeight: 310)
+        .frame(minWidth: 540, minHeight: 390)
         #endif
     }
 
@@ -9169,6 +9254,8 @@ private struct ShareDocumentView: View {
             link = try await model.publishShare(for: entry)
             if let value = link?.url, let url = URL(string: value) {
                 copyShareURL(url)
+                model.status = "Share link copied. Publishing in the background…"
+                dismiss()
             }
         } catch {
             errorMessage = error.localizedDescription

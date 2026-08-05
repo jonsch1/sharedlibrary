@@ -6,10 +6,15 @@ import Carbon.HIToolbox
 
 @main
 struct BrieflyApp: App {
-    @State private var model = LibraryModel()
+    @State private var model: LibraryModel
     #if os(macOS)
     @NSApplicationDelegateAdaptor(BrieflyAppDelegate.self) private var appDelegate
     #endif
+
+    init() {
+        let environment = AppEnvironment.current()
+        _model = State(initialValue: LibraryModel(environment: environment))
+    }
 
     var body: some Scene {
         #if os(macOS)

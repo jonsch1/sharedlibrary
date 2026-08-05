@@ -3,7 +3,11 @@
 	import ArrowUpRightIcon from '@lucide/svelte/icons/arrow-up-right';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import FlagIcon from '@lucide/svelte/icons/flag';
+	import HeadphonesIcon from '@lucide/svelte/icons/headphones';
 	import LoaderCircleIcon from '@lucide/svelte/icons/loader-circle';
+	import PauseIcon from '@lucide/svelte/icons/pause';
+	import PlayIcon from '@lucide/svelte/icons/play';
+	import SquareIcon from '@lucide/svelte/icons/square';
 	import DepthControl from '../../../Shared/DepthControl.svelte';
 	import MarkdownText from '../../../Shared/MarkdownView.svelte';
 	import {
@@ -31,6 +35,12 @@
 	let reportBusy = $state(false);
 	let reportError = $state('');
 	let reportID = $state('');
+	let isSpeaking = $state(false);
+	let isSpeechPaused = $state(false);
+	let audioMessage = $state('');
+	let speechSession = 0;
+	let speechChunks: string[] = [];
+	let speechChunkIndex = 0;
 
 	let availableVariants = $derived(
 		libraryVariants.filter((variant) =>
@@ -43,11 +53,13 @@
 	let selectedWordCount = $derived(
 		document?.texts.find((text) => text.variant === selectedVariant)?.wordCount ?? 0
 	);
+	let displayedText = $derived(withoutDuplicateTitle(selectedText, document?.title ?? ''));
 	onMount(() => {
 		let active = true;
 		void refreshUntilReady(() => active);
 		return () => {
 			active = false;
+			stopAudio();
 		};
 	});
 
@@ -60,7 +72,7 @@
 					document = result;
 					selectedVariant = result.texts.some((text) => text.variant === 'concise')
 						? 'concise'
-						: result.texts[0]?.variant ?? 'brief';
+						: result.texts[0]?.variant ?? 'concise';
 					loading = false;
 					preparing = false;
 					return;
@@ -87,7 +99,109 @@
 	}
 
 	function selectVariant(variant: LibraryVariant): void {
+		stopAudio();
 		selectedVariant = variant;
+	}
+
+	function withoutDuplicateTitle(markdown: string, title: string): string {
+		const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+		const firstContent = lines.findIndex((line) => line.trim().length > 0);
+		if (firstContent < 0) return markdown;
+		const heading = lines[firstContent].match(/^#\s+(.+)$/);
+		if (!heading || heading[1].trim().toLocaleLowerCase() !== title.trim().toLocaleLowerCase()) {
+			return markdown;
+		}
+		lines.splice(firstContent, 1);
+		return lines.join('\n').trimStart();
+	}
+
+	function narrationText(markdown: string): string {
+		return markdown
+			.replace(/```[\s\S]*?```/g, ' ')
+			.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+			.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+			.replace(/^#{1,6}\s+/gm, '')
+			.replace(/[*_>`~|-]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	function narrationChunks(text: string): string[] {
+		const sentences = text.match(/[^.!?]+(?:[.!?]+|$)/g) ?? [text];
+		const chunks: string[] = [];
+		let current = '';
+		for (const sentence of sentences) {
+			const next = `${current} ${sentence}`.trim();
+			if (current && next.length > 700) {
+				chunks.push(current);
+				current = sentence.trim();
+			} else {
+				current = next;
+			}
+		}
+		if (current) chunks.push(current);
+		return chunks;
+	}
+
+	function speakNextChunk(session: number): void {
+		if (session !== speechSession) return;
+		const text = speechChunks[speechChunkIndex];
+		if (!text) {
+			finishAudio();
+			return;
+		}
+		const utterance = new SpeechSynthesisUtterance(text);
+		utterance.rate = 0.96;
+		utterance.pitch = 1;
+		utterance.onend = () => {
+			if (session !== speechSession) return;
+			speechChunkIndex += 1;
+			speakNextChunk(session);
+		};
+		utterance.onerror = () => {
+			if (session !== speechSession) return;
+			finishAudio();
+			audioMessage = 'Audio narration stopped unexpectedly.';
+		};
+		window.speechSynthesis.speak(utterance);
+	}
+
+	function toggleAudio(): void {
+		if (!('speechSynthesis' in window)) {
+			audioMessage = 'Audio narration is not available in this browser.';
+			return;
+		}
+		if (isSpeaking && isSpeechPaused) {
+			window.speechSynthesis.resume();
+			isSpeechPaused = false;
+			return;
+		}
+		if (isSpeaking) {
+			window.speechSynthesis.pause();
+			isSpeechPaused = true;
+			return;
+		}
+		const text = narrationText(selectedText);
+		if (!text) return;
+		window.speechSynthesis.cancel();
+		const session = ++speechSession;
+		speechChunks = narrationChunks(text);
+		speechChunkIndex = 0;
+		audioMessage = '';
+		isSpeaking = true;
+		isSpeechPaused = false;
+		speakNextChunk(session);
+	}
+
+	function finishAudio(): void {
+		isSpeaking = false;
+		isSpeechPaused = false;
+	}
+
+	function stopAudio(): void {
+		speechSession += 1;
+		if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
+		finishAudio();
 	}
 
 	async function submitReport(event: SubmitEvent): Promise<void> {
@@ -125,11 +239,6 @@
 </svelte:head>
 
 <div class="public-share-shell bg-background! bg-none! text-foreground! font-sans!">
-	<button class="public-share-report" type="button" onclick={() => reportDialog?.showModal()}>
-		<FlagIcon />
-		Report
-	</button>
-	<a class="public-share-cta bg-primary! text-primary-foreground!" href="/landing">Try Briefly</a>
 	{#if loading || preparing}
 		<main class="public-share-state text-muted-foreground!" aria-live="polite">
 			<LoaderCircleIcon class="spin" />
@@ -142,36 +251,89 @@
 			<p>{errorMessage}</p>
 		</main>
 	{:else if document}
-		<main class="public-share-reader">
-			<article class="public-share-body text-foreground! font-serif!">
-				<MarkdownText text={selectedText} />
-			</article>
+		<header class="public-share-mobile-header">
+			<a href="/landing" aria-label="Briefly home">
+				<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
+			</a>
+			<a class="public-share-cta" href="/landing">Try Briefly</a>
+		</header>
+
+		<main class="public-share-workspace">
+			<aside class="public-share-sidebar public-share-panel">
+				<a class="public-share-brand" href="/landing" aria-label="Briefly home">
+					<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
+				</a>
+				<div class="public-share-nav-label">Shared with you</div>
+				<div class="public-share-nav-row active">
+					<BookOpenIcon />
+					<span>Document</span>
+				</div>
+				<div class="public-share-nav-row">
+					<HeadphonesIcon />
+					<span>Audio included</span>
+				</div>
+				<div class="public-share-sidebar-spacer"></div>
+				<a class="public-share-cta" href="/landing">Try Briefly</a>
+			</aside>
+
+			<section class="public-share-document public-share-panel">
+				<header class="public-share-document-header">
+					<div class="public-share-eyebrow">Shared document</div>
+					<h1>{document.title}</h1>
+					{#if document.excerpt}<p>{document.excerpt}</p>{/if}
+				</header>
+				<article class="public-share-body text-foreground! font-serif!">
+					<MarkdownText text={displayedText} />
+				</article>
+			</section>
+
+			<aside class="public-share-details">
+				<section class="public-share-detail-card public-share-panel">
+					<div class="public-share-eyebrow">About this post</div>
+					<h2>{document.title}</h2>
+					<dl>
+						<div><dt>Version</dt><dd>{selectedVariant === 'concise' ? 'Concise' : 'Detailed'}</dd></div>
+						<div><dt>Length</dt><dd>{selectedWordCount.toLocaleString()} words</dd></div>
+						{#if document.createdAt}<div><dt>Published</dt><dd>{new Date(document.createdAt).toLocaleDateString()}</dd></div>{/if}
+					</dl>
+					{#if document.sourceURL}
+						<a class="public-share-source" href={document.sourceURL} target="_blank" rel="noreferrer">
+							<span>Open original</span><ArrowUpRightIcon />
+						</a>
+					{/if}
+				</section>
+				<button class="public-share-report" type="button" onclick={() => reportDialog?.showModal()}>
+					<FlagIcon /> Report this share
+				</button>
+			</aside>
 		</main>
 
 		{#if availableVariants.some((variant) => variant !== 'source')}
-			<footer class="native-document-footer public-share-action-bar" aria-label="Document actions">
-				<div class="footer-stat">{selectedWordCount.toLocaleString()} words</div>
-
+			<footer class="public-share-action-bar" aria-label="Document and audio controls">
+				<button
+					class="public-share-play"
+					type="button"
+					onclick={toggleAudio}
+					aria-label={isSpeaking && !isSpeechPaused ? 'Pause audio' : 'Play audio'}
+				>
+					{#if isSpeaking && !isSpeechPaused}<PauseIcon />{:else}<PlayIcon />{/if}
+				</button>
+				<div class="public-share-audio-copy">
+					<strong>{isSpeaking ? (isSpeechPaused ? 'Audio paused' : 'Playing summary') : 'Listen to this summary'}</strong>
+					<span>{audioMessage || `${selectedWordCount.toLocaleString()} words · ${selectedVariant}`}</span>
+				</div>
+				<div class="public-share-wave" class:is-active={isSpeaking && !isSpeechPaused} aria-hidden="true">
+					{#each [1, 2, 3, 4, 5, 6] as bar}<i style={`--bar:${bar}`}></i>{/each}
+				</div>
+				{#if isSpeaking}
+					<button class="public-share-stop" type="button" onclick={stopAudio} aria-label="Stop audio"><SquareIcon /></button>
+				{/if}
+				<div class="public-share-depth-divider"></div>
 				<DepthControl
 					variants={availableVariants}
 					selected={selectedVariant}
 					onselect={selectVariant}
 				/>
-
-				<div class="native-footer-actions">
-					{#if document.sourceURL}
-						<a
-							class="native-icon-button"
-							href={document.sourceURL}
-							target="_blank"
-							rel="noreferrer"
-							aria-label="Open original source"
-							title="Open original source"
-						>
-							<ArrowUpRightIcon />
-						</a>
-					{/if}
-				</div>
 			</footer>
 		{/if}
 	{/if}
@@ -272,32 +434,6 @@
 </div>
 
 <style>
-	.public-share-report {
-		position: fixed;
-		z-index: 16;
-		top: 14px;
-		left: 16px;
-		display: inline-flex;
-		height: 38px;
-		align-items: center;
-		gap: 7px;
-		padding: 0 13px;
-		border: 1px solid var(--border);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--background) 76%, transparent);
-		color: var(--muted-foreground);
-		box-shadow: var(--theme-shadow-sm);
-		font: inherit;
-		font-size: 12px;
-		cursor: pointer;
-		backdrop-filter: blur(12px);
-	}
-
-	.public-share-report :global(svg) {
-		width: 14px;
-		height: 14px;
-	}
-
 	.content-report-dialog {
 		width: min(620px, calc(100% - 28px));
 		max-height: min(760px, calc(100dvh - 28px));
