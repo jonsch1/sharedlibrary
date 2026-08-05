@@ -1,12 +1,17 @@
 import Foundation
 
-extension SQLiteLibraryStore {
-    public func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
-        let database = try database()
+struct LibraryProjectionService {
+    let repositories: SQLiteLibraryRepositories
+
+    init(repositories: SQLiteLibraryRepositories) {
+        self.repositories = repositories
+    }
+
+    func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
-            try projectionResources(database)
+            try projectionResources()
         let entries = projectEntries(
-            try database.allDocuments(includeDeleted: includeDeleted),
+            try repositories.documents.all(includeDeleted: includeDeleted),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -16,16 +21,15 @@ extension SQLiteLibraryStore {
             generatedAt: Date().iso8601,
             files: [],
             entries: entries,
-            voiceBriefs: try readVoiceBriefs()
+            voiceBriefs: try repositories.documents.voiceBriefs()
         )
     }
 
-    public func loadLibraryIndex(includeDeleted: Bool = false) throws -> LibraryProjection {
-        let database = try database()
+    func loadLibraryIndex(includeDeleted: Bool = false) throws -> LibraryProjection {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
-            try projectionResources(database)
+            try projectionResources()
         let entries = projectIndexEntries(
-            try database.documentIndex(includeDeleted: includeDeleted),
+            try repositories.documents.index(includeDeleted: includeDeleted),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -35,49 +39,45 @@ extension SQLiteLibraryStore {
             generatedAt: Date().iso8601,
             files: [],
             entries: entries,
-            voiceBriefs: try readVoiceBriefs()
+            voiceBriefs: try repositories.documents.voiceBriefs()
         )
     }
 
-    public func loadTrash() throws -> [LibraryEntry] {
-        let database = try database()
+    func loadTrash() throws -> [LibraryEntry] {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
-            try projectionResources(database)
+            try projectionResources()
         return projectEntries(
-            try database.deletedDocuments(),
+            try repositories.documents.deleted(),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
         )
     }
 
-    public func loadTrashIndex() throws -> [LibraryEntry] {
-        let database = try database()
+    func loadTrashIndex() throws -> [LibraryEntry] {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
-            try projectionResources(database)
+            try projectionResources()
         return projectIndexEntries(
-            try database.deletedDocumentIndex(),
+            try repositories.documents.deletedIndex(),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
         )
     }
 
-    private func projectionResources(
-        _ database: SQLiteLibrary
-    ) throws -> (
+    private func projectionResources() throws -> (
         [String: String],
         [String: [SQLiteAttachmentMetadata]],
         [String: [String]]
     ) {
-        let topicNames = Dictionary(uniqueKeysWithValues: try database.topicDefinitions().map {
+        let topicNames = Dictionary(uniqueKeysWithValues: try repositories.documents.topics().map {
             ($0.id, $0.title)
         })
         let attachments = Dictionary(
-            grouping: try database.attachmentMetadata(),
+            grouping: try repositories.attachments.metadata(),
             by: \.documentID
         )
-        return (topicNames, attachments, try database.documentChannelSources())
+        return (topicNames, attachments, try repositories.documents.channelSourcesByDocument())
     }
 
     private func projectEntries(

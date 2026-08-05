@@ -1,13 +1,16 @@
 import Foundation
 
-extension SQLiteLibraryStore {
-    public func ingestMarkdownLibrary(from root: URL) throws -> Int {
-        let database = try database()
+struct LibraryMarkdownImportService {
+    let repositories: SQLiteLibraryRepositories
+    let channelState: LibraryChannelStateRepository
+    let fileManager: FileManager
+
+    func ingest(from root: URL) throws -> Int {
         let topics = try readTopics(from: root).map {
             LibraryTopicDefinition(id: $0.key, title: $0.value)
         }
-        if !topics.isEmpty { try database.replaceTopicDefinitions(topics) }
-        let imported = try database.ingestMarkdownLibrary(root)
+        if !topics.isEmpty { try repositories.documents.replaceTopics(topics) }
+        let imported = try repositories.documents.ingestMarkdownLibrary(root)
         let voiceBriefDirectory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
         if let urls = try? fileManager.contentsOfDirectory(
             at: voiceBriefDirectory,
@@ -19,7 +22,7 @@ extension SQLiteLibraryStore {
                 url.deletingPathExtension().lastPathComponent.lowercased() != "readme"
             {
                 let parsed = parseMarkdown(try String(contentsOf: url, encoding: .utf8))
-                _ = try database.saveVoiceBrief(LibraryVoiceBriefDraft(
+                _ = try repositories.documents.saveVoiceBrief(LibraryVoiceBriefDraft(
                     id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
                     title: parsed.scalar("name") ?? parsed.scalar("title") ??
                         url.deletingPathExtension().lastPathComponent,
@@ -31,11 +34,11 @@ extension SQLiteLibraryStore {
             }
         }
         if
-            let data = try? Data(contentsOf: channelStateURL(for: root)),
+            let data = try? Data(contentsOf: channelState.channelStateURL(for: root)),
             let state = try? JSONDecoder().decode(VoiceBriefWatcherState.self, from: data),
             state.schemaVersion == 1
         {
-            try writeChannelState(state)
+            try channelState.write(state)
         }
         return imported
     }
