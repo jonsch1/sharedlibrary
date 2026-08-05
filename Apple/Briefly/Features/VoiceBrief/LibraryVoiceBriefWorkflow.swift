@@ -1,24 +1,25 @@
 import BrieflyCore
+import Foundation
 import Observation
 #if os(iOS)
 import BackgroundTasks
 #endif
 
 @MainActor
-@Observable
-final class LibraryVoiceBriefModel {
+final class LibraryVoiceBriefWorkflow {
     private static let continuedVoiceBriefTaskPrefix = "fyi.readbriefly.voice-brief"
 
     let session: LibrarySession
-    weak var navigation: LibraryNavigationModel?
-    weak var selection: LibrarySelectionModel?
-    weak var channels: LibraryChannelModel?
-    weak var processing: LibraryProcessingModel?
-    weak var lifecycle: LibraryLifecycleModel?
-    weak var audio: LibraryAudioModel?
+    let navigation: LibraryNavigationModel
+    let selection: LibrarySelectionModel
+    let channels: LibraryChannelModel
+    let processing: LibraryProcessingModel
+    let settings: LibrarySettingsModel
+    let voiceBriefs: LibraryVoiceBriefModel
+    let audio: LibraryAudioModel
+    let lifecycle: LibraryLifecycleModel
 
-    var isRunningVoiceBrief = false
-    var voiceBriefGenerationProgress: VoiceBriefGenerationProgress?
+    private var pendingSync: Task<Void, Never>?
 
     #if os(iOS)
     @ObservationIgnored
@@ -32,28 +33,39 @@ final class LibraryVoiceBriefModel {
         navigation: LibraryNavigationModel,
         selection: LibrarySelectionModel,
         channels: LibraryChannelModel,
-        processing: LibraryProcessingModel
+        processing: LibraryProcessingModel,
+        settings: LibrarySettingsModel,
+        voiceBriefs: LibraryVoiceBriefModel,
+        audio: LibraryAudioModel,
+        lifecycle: LibraryLifecycleModel
     ) {
         self.session = session
         self.navigation = navigation
         self.selection = selection
         self.channels = channels
         self.processing = processing
+        self.settings = settings
+        self.voiceBriefs = voiceBriefs
+        self.audio = audio
+        self.lifecycle = lifecycle
     }
 
-    var selectedVoiceBrief: LibraryVoiceBrief? {
-        guard let id = navigation?.selectedVoiceBriefID, !id.isEmpty else { return nil }
-        return session.projection.voiceBriefDefinitions.first { $0.id == id }
+    private var processingConfiguration: LibraryProcessingConfiguration {
+        LibraryProcessingConfiguration(
+            command: settings.processingCommand,
+            prompt: settings.processingPrompt,
+            usesManagedAI: settings.usesManagedAI
+        )
     }
 
     func checkSelectedVoiceBriefChannels() async {
         guard
             let library = session.library,
-            let brief = selectedVoiceBrief,
-            !isRunningVoiceBrief
+            let brief = voiceBriefs.voiceBrief(for: navigation.selectedVoiceBriefID),
+            !voiceBriefs.isRunningVoiceBrief
         else { return }
-        isRunningVoiceBrief = true
-        defer { isRunningVoiceBrief = false }
+        voiceBriefs.isRunningVoiceBrief = true
+        defer { voiceBriefs.isRunningVoiceBrief = false }
         do {
             session.status = "Checking \(brief.sources.count) " +
                 (brief.sources.count == 1 ? "channel…" : "channels…")
@@ -61,15 +73,15 @@ final class LibraryVoiceBriefModel {
             var channelErrors = [String]()
             for source in brief.sources {
                 do {
-                    let result = try await channels?.retrieveChannel(library, source: source)
-                    newEntryIDs += result?.newEntryIDs ?? []
-                    if let error = result?.channel.error { channelErrors.append(error) }
+                    let result = try await channels.retrieveChannel(library, source: source)
+                    newEntryIDs += result.newEntryIDs
+                    if let error = result.channel.error { channelErrors.append(error) }
                 } catch {
                     channelErrors.append(error.localizedDescription)
                 }
             }
             session.projection = try await library.loadLibraryIndex()
-            try await channels?.refreshChannels(from: library)
+            try await channels.refreshChannels(from: library)
             session.status = newEntryIDs.isEmpty
                 ? "Channels checked. No new items."
                 : "Prepared \(newEntryIDs.count) new " +
@@ -81,7 +93,7 @@ final class LibraryVoiceBriefModel {
     }
 
     func runSelectedVoiceBrief() async {
-        guard let brief = selectedVoiceBrief else { return }
+        guard let brief = voiceBriefs.voiceBrief(for: navigation.selectedVoiceBriefID) else { return }
         do {
             try await session.library?.queueVoiceBriefRun(id: brief.id)
         } catch {
@@ -99,13 +111,12 @@ final class LibraryVoiceBriefModel {
     func resumePendingVoiceBriefs() async {
         guard
             let library = session.library,
-            !isRunningVoiceBrief,
-            audio?.isGeneratingSpeech != true
+            !voiceBriefs.isRunningVoiceBrief,
+            !audio.isGeneratingSpeech
         else { return }
         guard let pending = try? await library.pendingVoiceBriefIDs() else { return }
         for id in pending {
-            guard let brief = session.projection.voiceBriefDefinitions.first(where: { $0.id == id })
-            else { continue }
+            guard let brief = voiceBriefs.voiceBrief(for: id) else { continue }
             await generateVoiceBrief(brief, selectEpisode: false, reportErrors: false)
         }
     }
@@ -113,14 +124,13 @@ final class LibraryVoiceBriefModel {
     func runDueVoiceBriefs() async {
         guard
             let library = session.library,
-            !isRunningVoiceBrief,
-            audio?.isGeneratingSpeech != true
+            !voiceBriefs.isRunningVoiceBrief,
+            !audio.isGeneratingSpeech
         else { return }
         do {
             let due = try await library.dueVoiceBriefIDs()
             for id in due {
-                guard let brief = session.projection.voiceBriefDefinitions.first(where: { $0.id == id })
-                else { continue }
+                guard let brief = voiceBriefs.voiceBrief(for: id) else { continue }
                 try await library.markVoiceBriefAttempt(id: id)
                 try await library.queueVoiceBriefRun(id: id)
                 await generateVoiceBrief(brief, selectEpisode: false, reportErrors: false)
@@ -131,7 +141,50 @@ final class LibraryVoiceBriefModel {
     }
 
     @discardableResult
-    func generateVoiceBrief(
+    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
+        guard let library = session.library else {
+            session.errorMessage = "Open a Briefly library before editing voice briefs."
+            return nil
+        }
+        do {
+            let id = try await library.saveVoiceBrief(draft)
+            session.projection = try await library.loadLibraryIndex()
+            try await channels.refreshChannels(from: library)
+            navigation.activeSection = .briefs
+            selection.clear()
+            navigation.selectedVoiceBriefID = id
+            session.status = "Voice brief saved"
+            requestSync()
+            return id
+        } catch {
+            session.errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    func trashSelectedVoiceBrief() async {
+        guard
+            let library = session.library,
+            !navigation.selectedVoiceBriefID.isEmpty,
+            navigation.selectedVoiceBriefID != "new"
+        else { return }
+        let id = navigation.selectedVoiceBriefID
+        do {
+            try await library.moveVoiceBriefToTrash(id: id)
+            session.projection = try await library.loadLibraryIndex()
+            try await channels.refreshChannels(from: library)
+            navigation.selectedVoiceBriefID = ""
+            navigation.showingVoiceBriefSettings = false
+            selection.clear()
+            session.status = "Voice brief moved to Trash"
+            requestSync()
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    private func generateVoiceBrief(
         _ brief: LibraryVoiceBrief,
         selectEpisode: Bool,
         reportErrors: Bool,
@@ -139,59 +192,65 @@ final class LibraryVoiceBriefModel {
     ) async -> Bool {
         guard let library = session.library else { return false }
         if runAlreadyClaimed {
-            guard isRunningVoiceBrief else { return false }
+            guard voiceBriefs.isRunningVoiceBrief else { return false }
         } else {
-            guard !isRunningVoiceBrief else { return false }
-            isRunningVoiceBrief = true
+            guard voiceBriefs.beginGeneration(for: brief) else { return false }
         }
-        voiceBriefGenerationProgress = VoiceBriefGenerationProgress(
-            voiceBriefID: brief.id,
-            totalChannelCount: brief.sources.count
-        )
+        defer { voiceBriefs.finishGeneration() }
         updateContinuedVoiceBriefProgress()
-        defer {
-            isRunningVoiceBrief = false
-            voiceBriefGenerationProgress = nil
-        }
         do {
             session.status = "Fetching channels for \(brief.title)…"
             var newEntryIDs = [String]()
             for source in brief.sources {
                 do {
-                    newEntryIDs += try await channels?.retrieveChannel(
+                    newEntryIDs += try await channels.retrieveChannel(
                         library,
                         source: source
-                    ).newEntryIDs ?? []
+                    ).newEntryIDs
                 } catch {
                     // A failed channel should not hide progress from the channels that succeeded.
                 }
                 if Task.isCancelled { throw CancellationError() }
-                voiceBriefGenerationProgress?.checkedChannelCount += 1
-                voiceBriefGenerationProgress?.retrievedItemCount = newEntryIDs.count
+                voiceBriefs.voiceBriefGenerationProgress?.checkedChannelCount += 1
+                voiceBriefs.voiceBriefGenerationProgress?.retrievedItemCount = newEntryIDs.count
                 updateContinuedVoiceBriefProgress()
             }
             session.projection = try await library.loadLibraryIndex()
-            try await channels?.refreshChannels(from: library)
-            voiceBriefGenerationProgress?.phase = .summarizing
+            try await channels.refreshChannels(from: library)
+            voiceBriefs.voiceBriefGenerationProgress?.phase = .summarizing
             updateContinuedVoiceBriefProgress()
-            await processing?.enqueueProcessing(
+            let results = await processing.enqueueProcessing(
                 newEntryIDs,
-                trackingVoiceBriefEntries: Set(newEntryIDs)
+                configuration: processingConfiguration
             )
+            for result in results where newEntryIDs.contains(result.entryID) {
+                if result.succeeded {
+                    voiceBriefs.voiceBriefGenerationProgress?.summarizedItemCount += 1
+                } else {
+                    voiceBriefs.voiceBriefGenerationProgress?.failedItemCount += 1
+                }
+                updateContinuedVoiceBriefProgress()
+            }
             try Task.checkCancellation()
-            voiceBriefGenerationProgress?.phase = .assembling
+            voiceBriefs.voiceBriefGenerationProgress?.phase = .assembling
             updateContinuedVoiceBriefProgress()
             session.status = "Assembling short and detailed versions of \(brief.title)…"
             let episode = try await library.runVoiceBrief(id: brief.id)
             session.projection = try await library.loadLibraryIndex()
-            try await channels?.refreshChannels(from: library)
+            try await channels.refreshChannels(from: library)
             if selectEpisode {
-                navigation?.selectedVoiceBriefID = brief.id
-                await selection?.select(episode.entryID)
+                navigation.selectedVoiceBriefID = brief.id
+                await selection.select(episode.entryID)
             }
             session.status = "Brief ready"
+            #if os(iOS)
+            if #available(iOS 26.0, *) {
+                completeContinuedVoiceBriefProgress()
+            }
+            #else
             completeContinuedVoiceBriefProgress()
-            lifecycle?.requestSync()
+            #endif
+            requestSync()
             return true
         } catch is CancellationError {
             session.status = "Brief preparation will resume when you try again"
@@ -206,47 +265,45 @@ final class LibraryVoiceBriefModel {
         }
     }
 
-    @discardableResult
-    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
-        guard let library = session.library else {
-            session.errorMessage = "Open a Briefly library before editing voice briefs."
-            return nil
-        }
-        do {
-            let id = try await library.saveVoiceBrief(draft)
-            session.projection = try await library.loadLibraryIndex()
-            try await channels?.refreshChannels(from: library)
-            navigation?.activeSection = .briefs
-            selection?.clear()
-            navigation?.selectedVoiceBriefID = id
-            session.status = "Voice brief saved"
-            lifecycle?.requestSync()
-            return id
-        } catch {
-            session.errorMessage = error.localizedDescription
-            return nil
+    private func requestSync() {
+        pendingSync?.cancel()
+        pendingSync = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            await self?.lifecycle.sync()
         }
     }
 
-    func trashSelectedVoiceBrief() async {
-        guard
-            let library = session.library,
-            let id = navigation?.selectedVoiceBriefID,
-            !id.isEmpty,
-            id != "new"
+    func updateContinuedVoiceBriefProgress() {
+        #if os(iOS)
+        guard #available(iOS 26.0, *),
+              let task = continuedVoiceBriefTask as? BGContinuedProcessingTask,
+              let progress = voiceBriefs.voiceBriefGenerationProgress
         else { return }
-        do {
-            try await library.moveVoiceBriefToTrash(id: id)
-            session.projection = try await library.loadLibraryIndex()
-            try await channels?.refreshChannels(from: library)
-            navigation?.selectedVoiceBriefID = ""
-            navigation?.showingVoiceBriefSettings = false
-            selection?.clear()
-            session.status = "Voice brief moved to Trash"
-            lifecycle?.requestSync()
-        } catch {
-            session.errorMessage = error.localizedDescription
+
+        let completed: Int64
+        let subtitle: String
+        switch progress.phase {
+        case .retrieving:
+            let total = max(1, progress.totalChannelCount)
+            completed = Int64(200 * progress.checkedChannelCount / total)
+            subtitle = "Checked \(progress.checkedChannelCount) of " +
+                "\(progress.totalChannelCount) channels · " +
+                "\(progress.retrievedItemCount) new items"
+        case .summarizing:
+            let processed = progress.summarizedItemCount + progress.failedItemCount
+            let total = max(1, progress.retrievedItemCount)
+            completed = 200 + Int64(600 * processed / total)
+            subtitle = progress.retrievedItemCount == 0
+                ? "No new items to summarize"
+                : "Summarized \(processed) of \(progress.retrievedItemCount) items"
+        case .assembling:
+            completed = 850
+            subtitle = "Writing short and detailed versions"
         }
+        task.progress.completedUnitCount = completed
+        task.updateTitle("Preparing your brief", subtitle: subtitle)
+        #endif
     }
 
     #if os(iOS)
@@ -275,17 +332,12 @@ final class LibraryVoiceBriefModel {
         )
         request.strategy = .queue
         do {
-            isRunningVoiceBrief = true
-            voiceBriefGenerationProgress = VoiceBriefGenerationProgress(
-                voiceBriefID: brief.id,
-                totalChannelCount: brief.sources.count
-            )
+            guard voiceBriefs.beginGeneration(for: brief) else { return false }
             session.status = "Waiting to prepare \(brief.title)…"
             try scheduler.submit(request)
             return true
         } catch {
-            isRunningVoiceBrief = false
-            voiceBriefGenerationProgress = nil
+            voiceBriefs.finishGeneration()
             return false
         }
     }
@@ -322,47 +374,14 @@ final class LibraryVoiceBriefModel {
             continuedVoiceBriefWork = nil
         }
     }
-    #endif
 
-    func updateContinuedVoiceBriefProgress() {
-        #if os(iOS)
-        guard #available(iOS 26.0, *),
-              let task = continuedVoiceBriefTask as? BGContinuedProcessingTask,
-              let progress = voiceBriefGenerationProgress
-        else { return }
-
-        let completed: Int64
-        let subtitle: String
-        switch progress.phase {
-        case .retrieving:
-            let total = max(1, progress.totalChannelCount)
-            completed = Int64(200 * progress.checkedChannelCount / total)
-            subtitle = "Checked \(progress.checkedChannelCount) of " +
-                "\(progress.totalChannelCount) channels · " +
-                "\(progress.retrievedItemCount) new items"
-        case .summarizing:
-            let processed = progress.summarizedItemCount + progress.failedItemCount
-            let total = max(1, progress.retrievedItemCount)
-            completed = 200 + Int64(600 * processed / total)
-            subtitle = progress.retrievedItemCount == 0
-                ? "No new items to summarize"
-                : "Summarized \(processed) of \(progress.retrievedItemCount) items"
-        case .assembling:
-            completed = 850
-            subtitle = "Writing short and detailed versions"
-        }
-        task.progress.completedUnitCount = completed
-        task.updateTitle("Preparing your brief", subtitle: subtitle)
-        #endif
-    }
-
+    @available(iOS 26.0, *)
     private func completeContinuedVoiceBriefProgress() {
-        #if os(iOS)
-        guard #available(iOS 26.0, *),
-              let task = continuedVoiceBriefTask as? BGContinuedProcessingTask
-        else { return }
+        guard let task = continuedVoiceBriefTask as? BGContinuedProcessingTask else { return }
         task.progress.completedUnitCount = task.progress.totalUnitCount
         task.updateTitle("Brief ready", subtitle: "Short and detailed versions are ready")
-        #endif
     }
+    #else
+    private func completeContinuedVoiceBriefProgress() {}
+    #endif
 }

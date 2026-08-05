@@ -154,16 +154,16 @@ struct MobileXAppShell: View {
             } else if selectedTab == .home {
                 model.navigation.activeSection = .items
             }
-            await model.selection.select(entry.id)
+            await model.workflows.select(entry.id)
             showsDetail = true
         }
     }
 
     private func activate(_ tab: MobilePrimaryTab) async {
         switch tab {
-        case .home: await model.navigation.show(.items)
-        case .channels: await model.navigation.show(.channels)
-        case .briefs: await model.navigation.show(.briefs)
+        case .home: await model.workflows.show(.items)
+        case .channels: await model.workflows.show(.channels)
+        case .briefs: await model.workflows.show(.briefs)
         case .library: break
         }
     }
@@ -208,10 +208,10 @@ struct MobileXAppShell: View {
                 )
                 if shouldGenerate {
                     var startedPlayback = false
-                    _ = await model.audio.streamPlayableAudio(
+                    _ = await model.workflows.streamPlayableAudio(
                         for: entry,
                         variant: variant,
-                        text: text
+                        text: text,
                     ) { url in
                         try audioPlayer.appendSegment(url, playbackID: playbackID)
                         if !startedPlayback {
@@ -236,10 +236,10 @@ struct MobileXAppShell: View {
         case .home, .library:
             showsCaptureComposer = true
         case .channels:
-            model.navigation.showChannelSettings("new")
+            model.workflows.showChannelSettings("new")
             showsDetail = true
         case .briefs:
-            model.navigation.showVoiceBriefSettings("new")
+            model.workflows.showVoiceBriefSettings("new")
             showsDetail = true
         }
     }

@@ -40,7 +40,8 @@ struct VoiceBriefConfiguration: View {
     var body: some View {
         ScrollView {
             if model.session.canEdit &&
-                (model.voiceBriefs.selectedVoiceBrief != nil || model.navigation.selectedVoiceBriefID == "new")
+                (model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil ||
+                    model.navigation.selectedVoiceBriefID == "new")
             {
                 VStack(alignment: .leading, spacing: 28) {
                     TextField("Voice brief title", text: $title)
@@ -136,7 +137,7 @@ struct VoiceBriefConfiguration: View {
                     ScheduleEditor(schedule: $schedule)
 
                     HStack {
-                        if model.voiceBriefs.selectedVoiceBrief != nil {
+                        if model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil {
                             Button("Move voice brief to Trash", role: .destructive) {
                                 confirmsTrash = true
                             }
@@ -149,7 +150,7 @@ struct VoiceBriefConfiguration: View {
                 .background(.ultraThinMaterial.opacity(0.64))
                 .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                 .frame(maxWidth: .infinity, alignment: .top)
-            } else if let brief = model.voiceBriefs.selectedVoiceBrief {
+            } else if let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
                 ConfigurationCard(
                     eyebrow: "VOICE BRIEF",
                     title: brief.title,
@@ -173,11 +174,12 @@ struct VoiceBriefConfiguration: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .top, spacing: 0) {
             if model.session.canEdit &&
-                (model.voiceBriefs.selectedVoiceBrief != nil || model.navigation.selectedVoiceBriefID == "new")
+                (model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil ||
+                    model.navigation.selectedVoiceBriefID == "new")
             {
                 HStack(spacing: 10) {
                     Button {
-                        model.navigation.navigateBack()
+                        model.workflows.navigateBack()
                         #if os(iOS)
                         dismiss()
                         #endif
@@ -214,15 +216,15 @@ struct VoiceBriefConfiguration: View {
             isPresented: $confirmsTrash
         ) {
             Button("Move to Trash", role: .destructive) {
-                Task { await model.voiceBriefs.trashSelectedVoiceBrief() }
+                Task { await model.workflows.trashSelectedVoiceBrief() }
             }
         }
     }
 
     private func save() async {
-        let saved = await model.voiceBriefs.saveVoiceBrief(
+        let saved = await model.workflows.saveVoiceBrief(
             LibraryVoiceBriefDraft(
-                id: model.voiceBriefs.selectedVoiceBrief?.id,
+                id: model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.id,
                 title: title,
                 schedule: schedule,
                 length: "",
@@ -252,7 +254,7 @@ struct VoiceBriefConfiguration: View {
     }
 
     private func loadDraft() {
-        if let brief = model.voiceBriefs.selectedVoiceBrief {
+        if let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
             title = brief.title
             schedule = brief.schedule
             sources = brief.sources.joined(separator: "\n")

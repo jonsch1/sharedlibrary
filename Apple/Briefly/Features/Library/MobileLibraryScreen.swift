@@ -52,8 +52,8 @@ struct MobileXLibraryScreen: View {
                 ForEach(Section.allCases, id: \.self) { item in
                     Button {
                         section = item
-                        if item == .highlights { model.navigation.showHighlights() }
-                        else { model.navigation.showTrash() }
+                        if item == .highlights { model.workflows.showHighlights() }
+                        else { model.workflows.showTrash() }
                     } label: {
                         Text(item.rawValue)
                             .font(.subheadline.weight(.semibold))
@@ -108,7 +108,7 @@ struct MobileXLibraryScreen: View {
         }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .task { model.navigation.showHighlights() }
+        .task { model.workflows.showHighlights() }
     }
 }
 

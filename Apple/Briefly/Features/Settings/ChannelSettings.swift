@@ -30,7 +30,7 @@ struct ChannelConfiguration: View {
         ScrollView {
             if model.navigation.selectedChannelSource == "new" {
                 channelCreation
-            } else if let channel = model.channels.selectedChannel {
+            } else if let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) {
                 #if os(macOS)
                 VStack(alignment: .leading, spacing: 30) {
                     HStack(alignment: .top, spacing: 18) {
@@ -58,7 +58,7 @@ struct ChannelConfiguration: View {
                         Spacer(minLength: 20)
 
                         Button {
-                            Task { await model.channels.checkSelectedChannel() }
+                            Task { await model.workflows.checkSelectedChannel() }
                         } label: {
                             if model.channels.isCheckingChannel {
                                 ProgressView().controlSize(.small)
@@ -71,7 +71,7 @@ struct ChannelConfiguration: View {
 
                         Menu {
                             Button {
-                                Task { await model.channels.checkSelectedChannel(loadMore: true) }
+                                Task { await model.workflows.checkSelectedChannel(loadMore: true) }
                             } label: {
                                 Label("Load more", systemImage: "arrow.down")
                             }
@@ -221,7 +221,7 @@ struct ChannelConfiguration: View {
                     )
                     HStack {
                         Button {
-                            Task { await model.channels.checkSelectedChannel() }
+                            Task { await model.workflows.checkSelectedChannel() }
                         } label: {
                             if model.channels.isCheckingChannel {
                                 ProgressView()
@@ -234,7 +234,7 @@ struct ChannelConfiguration: View {
                         .disabled(model.channels.isCheckingChannel)
                         Button {
                             Task {
-                                await model.channels.checkSelectedChannel(loadMore: true)
+                                await model.workflows.checkSelectedChannel(loadMore: true)
                             }
                         } label: {
                             Label("Load more", systemImage: "arrow.down")
@@ -277,7 +277,7 @@ struct ChannelConfiguration: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 12) {
                 Button {
-                    model.navigation.navigateBack()
+                    model.workflows.navigateBack()
                 } label: {
                     Image(systemName: "arrow.left")
                         .frame(width: 44, height: 44)
@@ -298,22 +298,23 @@ struct ChannelConfiguration: View {
         #endif
         .task(id: model.navigation.selectedChannelSource) {
             source = ""
-            retrievalCount = model.channels.selectedChannel?.retrievalCount ?? 5
-            autoSummarize = model.channels.selectedChannel?.autoSummarize ?? true
-            schedule = model.channels.selectedChannel?.schedule ?? "manual"
-            channelTitle = model.channels.selectedChannel?.title ?? ""
+            let selectedChannel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
+            retrievalCount = selectedChannel?.retrievalCount ?? 5
+            autoSummarize = selectedChannel?.autoSummarize ?? true
+            schedule = selectedChannel?.schedule ?? "manual"
+            channelTitle = selectedChannel?.title ?? ""
             model.channels.newChannelSources = model.navigation.selectedChannelSource == "new"
                 ? []
-                : model.channels.selectedChannel?.sources ?? []
+                : selectedChannel?.sources ?? []
             model.channels.channelBrowserAddress = ""
             model.channels.channelBrowserStagesSource = model.navigation.selectedChannelSource == "new"
         }
         .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
             Button("Delete Channel and Items", role: .destructive) {
-                Task { await model.channels.removeSelectedChannel() }
+                Task { await model.workflows.removeSelectedChannel() }
             }
         } message: {
-            let count = model.channels.selectedChannel.map {
+            let count = model.channels.selectedChannel(for: model.navigation.selectedChannelSource).map {
                 model.channels.channelEntries(for: $0.source).count
             } ?? 0
             Text(
@@ -351,12 +352,12 @@ struct ChannelConfiguration: View {
                 Spacer()
                 Button("Cancel") {
                     model.channels.newChannelSources = []
-                    model.navigation.navigateBack()
+                    model.workflows.navigateBack()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 Button("Create channel") {
-                    Task { await model.channels.createChannel() }
+                    Task { await model.workflows.createChannel() }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -457,7 +458,7 @@ struct ChannelConfiguration: View {
 
     private func saveSettings() {
         Task {
-            await model.channels.updateSelectedChannel(
+            await model.workflows.updateSelectedChannel(
                 title: channelTitle,
                 sources: model.channels.newChannelSources,
                 retrievalCount: retrievalCount,

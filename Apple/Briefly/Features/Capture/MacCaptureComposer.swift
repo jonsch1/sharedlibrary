@@ -45,7 +45,7 @@ struct MacCaptureComposer: View {
                 Button("Save") {
                     let value = draft
                     dismiss()
-                    Task { await model.processing.capture(value) }
+                    Task { await model.workflows.capture(value) }
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)

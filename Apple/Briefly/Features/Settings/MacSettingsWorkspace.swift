@@ -52,7 +52,7 @@ struct MacXSettingsWorkspace: View {
         .fileImporter(isPresented: $showsPDFImporter, allowedContentTypes: [.pdf]) { result in
             switch result {
             case .success(let url):
-                Task { await model.processing.capturePDF(url) }
+                Task { await model.workflows.capturePDF(url) }
             case .failure(let error):
                 model.session.errorMessage = error.localizedDescription
             }
@@ -200,10 +200,10 @@ struct MacXSettingsWorkspace: View {
                 valueRow(icon: "internaldrive", title: "Storage", value: "Local SQLite database")
                 valueRow(icon: "checkmark.circle", title: "Status", value: model.session.status)
                 actionRow(icon: "arrow.clockwise", title: "Refresh library", subtitle: "Reload all saved notes from local storage") {
-                    Task { await model.lifecycle.refreshLibrary() }
+                    Task { await model.workflows.refreshLibrary() }
                 }
                 actionRow(icon: "arrow.triangle.2.circlepath", title: model.lifecycle.isSyncing ? "Syncing…" : "Sync with iCloud", subtitle: "Push and pull the latest library changes") {
-                    Task { await model.lifecycle.sync() }
+                    Task { await model.workflows.sync() }
                 }
                 .disabled(model.lifecycle.isSyncing)
             }
@@ -216,7 +216,7 @@ struct MacXSettingsWorkspace: View {
                 }
                 actionRow(icon: "clipboard", title: "Capture clipboard", subtitle: "Save the current clipboard as a note") {
                     let text = NSPasteboard.general.string(forType: .string) ?? ""
-                    Task { await model.processing.capture(text) }
+                    Task { await model.workflows.capture(text) }
                 }
                 .disabled(!model.session.canEdit)
                 actionRow(icon: "doc.richtext", title: "Import PDF", subtitle: "Add and process a local PDF document") {
@@ -297,7 +297,7 @@ struct MacXSettingsWorkspace: View {
                         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                     HStack {
                         Spacer()
-                        Button("Save topics") { Task { await model.settings.saveTopics() } }
+                        Button("Save topics") { Task { await model.workflows.saveTopics() } }
                             .buttonStyle(.borderedProminent)
                             .buttonBorderShape(.capsule)
                     }

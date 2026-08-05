@@ -5,7 +5,6 @@ import Observation
 @Observable
 final class LibraryNavigationModel {
     let session: LibrarySession
-    let selection: LibrarySelectionModel
 
     var activeSection = LibrarySection.briefs
     var selectedVoiceBriefID = ""
@@ -18,11 +17,8 @@ final class LibraryNavigationModel {
     var selectedTopic = "All"
     var selectedChannelDomain = "All"
 
-    weak var channels: LibraryChannelModel?
-
-    init(session: LibrarySession, selection: LibrarySelectionModel) {
+    init(session: LibrarySession) {
         self.session = session
-        self.selection = selection
     }
 
     var homeEntries: [LibraryEntry] {
@@ -30,19 +26,18 @@ final class LibraryNavigationModel {
     }
 
     var filteredEntries: [LibraryEntry] {
-        let entries = showingTrash ? selection.trashEntries : homeEntries
-        return entries.filter {
-            (selectedTopic.isEmpty || selectedTopic == "All" ||
-                $0.topicNames.contains(selectedTopic)) && $0.matches(query)
-        }
+        filteredEntries(from: homeEntries)
     }
 
-    func show(_ section: LibrarySection) async {
+    func filteredEntries(trashEntries: [LibraryEntry]) -> [LibraryEntry] {
+        filteredEntries(from: showingTrash ? trashEntries : homeEntries)
+    }
+
+    func show(_ section: LibrarySection) {
         activeSection = section
         showingHighlights = false
         showingTrash = false
         query = ""
-        selection.clear()
         switch section {
         case .items:
             #if os(iOS)
@@ -54,7 +49,6 @@ final class LibraryNavigationModel {
             selectedChannelDomain = "All"
             selectedChannelSource = ""
             showingChannelSettings = false
-            await channels?.loadChannels()
         case .briefs:
             selectedVoiceBriefID = ""
             showingVoiceBriefSettings = false
@@ -65,7 +59,6 @@ final class LibraryNavigationModel {
         showingHighlights = false
         showingTrash = false
         showingVoiceBriefSettings = false
-        selection.clear()
         selectedVoiceBriefID = id
     }
 
@@ -73,35 +66,29 @@ final class LibraryNavigationModel {
         showingHighlights = false
         showingTrash = false
         showingChannelSettings = false
-        selection.clear()
         selectedChannelSource = source
     }
 
     func showVoiceBriefSettings(_ id: String) {
         selectVoiceBrief(id)
         showingVoiceBriefSettings = true
-        Task { await channels?.loadChannels() }
     }
 
     func showChannelSettings(_ source: String) {
         selectChannel(source)
         showingChannelSettings = true
-        Task { await channels?.loadChannels() }
     }
 
     func showChannelDomain(_ domain: String) {
         selectedChannelDomain = domain
         selectedChannelSource = ""
         showingChannelSettings = false
-        selection.clear()
     }
 
     func showHighlights() {
         activeSection = .items
-        selection.clear()
         showingTrash = false
         showingHighlights = true
-        Task { await selection.loadHighlights() }
     }
 
     func showInbox() {
@@ -109,7 +96,6 @@ final class LibraryNavigationModel {
         selectedTopic = "All"
         showingHighlights = false
         showingTrash = false
-        selection.clear()
     }
 
     func showTrash() {
@@ -117,21 +103,19 @@ final class LibraryNavigationModel {
         selectedTopic = "All"
         showingHighlights = false
         showingTrash = true
-        selection.clear()
-        Task { await selection.loadTrash() }
     }
 
-    func showTopic(_ topic: String) async {
+    func showTopic(_ topic: String) {
         selectedTopic = topic
         showingHighlights = false
         showingTrash = false
-        selection.clear()
     }
 
-    func navigateBack() {
-        if !selection.selectedID.isEmpty {
-            selection.clear()
-        } else if activeSection == .channels {
+    func navigateBack(hasSelection: Bool) {
+        if hasSelection {
+            return
+        }
+        if activeSection == .channels {
             selectedChannelSource = ""
             showingChannelSettings = false
         } else if activeSection == .briefs {
@@ -144,11 +128,10 @@ final class LibraryNavigationModel {
         }
     }
 
-    func trashSelected() async {
-        await selection.trash(entryID: selection.selectedID)
-    }
-
-    func clearError() {
-        session.errorMessage = nil
+    private func filteredEntries(from entries: [LibraryEntry]) -> [LibraryEntry] {
+        entries.filter {
+            (selectedTopic.isEmpty || selectedTopic == "All" ||
+                $0.topicNames.contains(selectedTopic)) && $0.matches(query)
+        }
     }
 }

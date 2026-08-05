@@ -113,7 +113,7 @@ struct MobileLibraryNavigation: View {
                                     homeSelected = false
                                     preferredCompactColumn = .sidebar
                                 }
-                                Task { await model.navigation.show(section) }
+                                Task { await model.workflows.show(section) }
                             } label: {
                                 tabLabel(
                                     icon: section.icon,
@@ -235,12 +235,12 @@ struct MobileLibraryNavigation: View {
 
     private var isChannelPage: Bool {
         !homeSelected && model.navigation.activeSection == .channels &&
-            model.channels.selectedChannel != nil && model.selection.selectedID.isEmpty
+            model.channels.selectedChannel(for: model.navigation.selectedChannelSource) != nil && model.selection.selectedID.isEmpty
     }
 
     private var isVoiceBriefPage: Bool {
         !homeSelected && model.navigation.activeSection == .briefs &&
-            model.voiceBriefs.selectedVoiceBrief != nil && model.selection.selectedID.isEmpty
+            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil && model.selection.selectedID.isEmpty
     }
 
     private var primaryActionIcon: String {
@@ -263,7 +263,8 @@ struct MobileLibraryNavigation: View {
                 model.selection.selectedText.isEmpty)) ||
             (isChannelPage && model.channels.isCheckingChannel) ||
             (isVoiceBriefPage &&
-                (model.voiceBriefs.isRunningVoiceBrief || model.voiceBriefs.selectedVoiceBrief?.sources.isEmpty != false))
+                (model.voiceBriefs.isRunningVoiceBrief ||
+                    model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.sources.isEmpty != false))
     }
 
     private func primaryAction() {
@@ -285,10 +286,10 @@ struct MobileLibraryNavigation: View {
                     )
                     if shouldGenerate {
                         var startedPlayback = false
-                        _ = await model.audio.streamPlayableAudio(
+                        _ = await model.workflows.streamPlayableAudio(
                             for: entry,
                             variant: variant,
-                            text: text
+                            text: text,
                         ) { url in
                             try audioPlayer.appendSegment(url, playbackID: playbackID)
                             if !startedPlayback {
@@ -309,9 +310,9 @@ struct MobileLibraryNavigation: View {
             return
         }
         if isChannelPage {
-            Task { await model.channels.checkSelectedChannel() }
+            Task { await model.workflows.checkSelectedChannel() }
         } else if isVoiceBriefPage {
-            Task { await model.voiceBriefs.runSelectedVoiceBrief() }
+            Task { await model.workflows.runSelectedVoiceBrief() }
         } else {
             create()
         }

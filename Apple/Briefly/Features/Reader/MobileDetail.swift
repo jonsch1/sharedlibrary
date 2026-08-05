@@ -40,7 +40,7 @@ struct MobileXDetail: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    model.navigation.navigateBack()
+                    model.workflows.navigateBack()
                     dismiss()
                 } label: {
                     Image(systemName: "arrow.left")

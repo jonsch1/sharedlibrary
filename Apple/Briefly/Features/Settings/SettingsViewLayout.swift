@@ -171,13 +171,13 @@ extension SettingsView {
                     }
                     if model.session.canEdit {
                         Button {
-                            Task { await model.lifecycle.refreshLibrary() }
+                            Task { await model.workflows.refreshLibrary() }
                         } label: {
                             Label("Refresh library", systemImage: "arrow.clockwise")
                         }
                     }
                     Button {
-                        Task { await model.lifecycle.sync() }
+                        Task { await model.workflows.sync() }
                     } label: {
                         Label(
                             model.lifecycle.isSyncing ? "Syncing…" : "Sync with iCloud",
@@ -213,7 +213,7 @@ extension SettingsView {
                     if model.session.canEdit {
                         Button {
                             let text = NSPasteboard.general.string(forType: .string) ?? ""
-                            Task { await model.processing.capture(text) }
+                            Task { await model.workflows.capture(text) }
                         } label: {
                             Label("Capture clipboard", systemImage: "clipboard")
                         }
@@ -343,7 +343,7 @@ extension SettingsView {
                         HStack {
                             Spacer()
                             Button("Save topics") {
-                                Task { await model.settings.saveTopics() }
+                                Task { await model.workflows.saveTopics() }
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -478,7 +478,7 @@ extension SettingsView {
             switch result {
             case .success(let url):
                 Task {
-                    await model.processing.capturePDF(url)
+                    await model.workflows.capturePDF(url)
                     dismiss()
                 }
             case .failure(let error):

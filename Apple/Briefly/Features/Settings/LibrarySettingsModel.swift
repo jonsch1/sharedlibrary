@@ -18,12 +18,8 @@ final class LibrarySettingsModel {
     var processingPrompt: String
     var aboutYou: String
 
-    weak var navigation: LibraryNavigationModel?
-    weak var lifecycle: LibraryLifecycleModel?
-
-    init(session: LibrarySession, navigation: LibraryNavigationModel) {
+    init(session: LibrarySession) {
         self.session = session
-        self.navigation = navigation
         processingCommand = UserDefaults.standard.string(forKey: Self.processingCommandKey)
             ?? Self.processingDefaultCommand
         processingPrompt = UserDefaults.standard.string(forKey: Self.processingPromptKey)
@@ -112,8 +108,9 @@ final class LibrarySettingsModel {
         session.status = "Personalization settings saved"
     }
 
-    func saveTopics() async {
-        guard let library = session.library else { return }
+    @discardableResult
+    func saveTopics() async -> Bool {
+        guard let library = session.library else { return false }
         do {
             let definitions = try topicsText
                 .components(separatedBy: .newlines)
@@ -133,14 +130,16 @@ final class LibrarySettingsModel {
             topicsText = saved.map { "\($0.id): \($0.title)" }.joined(separator: "\n")
             session.projection = try await library.loadLibraryIndex()
             session.status = "Topics saved"
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func renameTopic(_ currentTitle: String, to newTitle: String) async {
-        guard let library = session.library else { return }
+    @discardableResult
+    func renameTopic(_ currentTitle: String, to newTitle: String) async -> String? {
+        guard let library = session.library else { return nil }
         do {
             let definitions = try await library.topicDefinitions()
             guard let topic = definitions.first(where: { $0.title == currentTitle }) else {
@@ -153,35 +152,28 @@ final class LibrarySettingsModel {
             }
             let saved = try await library.replaceTopicDefinitions(renamed)
             let savedTitle = saved.first(where: { $0.id == topic.id })?.title ?? newTitle
-            if let lifecycle {
-                await lifecycle.refreshLibrary()
-            }
-            if navigation?.selectedTopic == currentTitle {
-                navigation?.selectedTopic = savedTitle
-            }
             session.status = "Collection renamed"
-            lifecycle?.requestSync()
+            return savedTitle
         } catch {
             session.errorMessage = error.localizedDescription
+            return nil
         }
     }
 
-    func deleteTopic(_ title: String) async {
-        guard let library = session.library else { return }
+    @discardableResult
+    func deleteTopic(_ title: String) async -> Bool {
+        guard let library = session.library else { return false }
         do {
             let definitions = try await library.topicDefinitions()
             guard let topic = definitions.first(where: { $0.title == title }) else {
                 throw BrieflyBackendError.message("That collection no longer exists.")
             }
             try await library.deleteTopicDefinition(id: topic.id)
-            if navigation?.selectedTopic == title { navigation?.showInbox() }
-            if let lifecycle {
-                await lifecycle.refreshLibrary()
-            }
             session.status = "Collection deleted. Its notes are still in your library."
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 }

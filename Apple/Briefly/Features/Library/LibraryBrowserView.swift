@@ -21,7 +21,7 @@ struct LibraryCardBrowser: View {
     @Bindable var model: LibraryModel
 
     private var channels: [LibraryChannel] {
-        model.channels.filteredChannels.filter {
+        model.channels.filteredChannels(query: model.navigation.query).filter {
             model.navigation.selectedChannelDomain == "All" ||
                 channelDomain($0.primarySource) == model.navigation.selectedChannelDomain
         }
@@ -60,7 +60,7 @@ struct LibraryCardBrowser: View {
 
     private var count: Int {
         switch model.navigation.activeSection {
-        case .items: model.navigation.filteredEntries.count
+        case .items: model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).count
         case .channels:
             model.navigation.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
         case .briefs:
@@ -71,7 +71,7 @@ struct LibraryCardBrowser: View {
     private var feedEntries: [LibraryEntry]? {
         switch model.navigation.activeSection {
         case .items:
-            model.navigation.filteredEntries
+            model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
         case .channels:
             model.navigation.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
         case .briefs:
@@ -164,7 +164,7 @@ struct LibraryCardBrowser: View {
                     Spacer(minLength: 12)
 
                     Button {
-                        model.navigation.showChannelSettings(channel.source)
+                        model.workflows.showChannelSettings(channel.source)
                     } label: {
                         Image(systemName: "ellipsis")
                             .frame(width: 44, height: 44)
@@ -176,7 +176,7 @@ struct LibraryCardBrowser: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 13)
                 .contentShape(Rectangle())
-                .onTapGesture { model.navigation.selectChannel(channel.source) }
+                .onTapGesture { model.workflows.selectChannel(channel.source) }
                 .overlay(alignment: .bottom) { Divider().padding(.leading, 70) }
             }
         }
@@ -190,7 +190,7 @@ struct LibraryCardBrowser: View {
                 ForEach(entries) { entry in
                     let row = FeedEntryRow(
                         entry: entry,
-                        action: { Task { await model.selection.select(entry.id) } }
+                        action: { Task { await model.workflows.select(entry.id) } }
                     )
                     if model.navigation.showingTrash {
                         row
@@ -208,7 +208,8 @@ struct LibraryCardBrowser: View {
         VStack(alignment: .leading, spacing: 0) {
             feedTabs
 
-            if model.navigation.activeSection == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
+            if model.navigation.activeSection == .briefs,
+               let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
                 briefRefreshPrompt(brief)
                     .padding(.horizontal, 14)
                     .padding(.top, 12)
@@ -262,9 +263,9 @@ struct LibraryCardBrowser: View {
         case .items:
             EmptyView()
         case .channels:
-            if let channel = model.channels.selectedChannel {
+            if let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) {
                 Button {
-                    model.navigation.showChannelSettings(channel.source)
+                    model.workflows.showChannelSettings(channel.source)
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 44, height: 44)
@@ -277,7 +278,7 @@ struct LibraryCardBrowser: View {
             } else {
                 Button {
                     model.navigation.query = ""
-                    model.navigation.showChannelSettings("new")
+                    model.workflows.showChannelSettings("new")
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 44, height: 44)
@@ -289,9 +290,9 @@ struct LibraryCardBrowser: View {
                 .accessibilityLabel("New channel")
             }
         case .briefs:
-            if let brief = model.voiceBriefs.selectedVoiceBrief {
+            if let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
                 Button {
-                    model.navigation.showVoiceBriefSettings(brief.id)
+                    model.workflows.showVoiceBriefSettings(brief.id)
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 44, height: 44)
@@ -304,7 +305,7 @@ struct LibraryCardBrowser: View {
             } else {
                 Button {
                     model.navigation.query = ""
-                    model.navigation.showVoiceBriefSettings("new")
+                    model.workflows.showVoiceBriefSettings("new")
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 44, height: 44)
@@ -326,14 +327,14 @@ struct LibraryCardBrowser: View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
                 selectionTab("All", selected: model.navigation.selectedChannelSource.isEmpty) {
-                    model.navigation.selectChannel("")
+                    model.workflows.selectChannel("")
                 }
                 ForEach(Array(channels.prefix(7))) { channel in
                     selectionTab(
                         compactLabel(channel.title),
                         selected: model.navigation.selectedChannelSource == channel.source
                     ) {
-                        model.navigation.selectChannel(channel.source)
+                        model.workflows.selectChannel(channel.source)
                     }
                 }
             }
@@ -348,14 +349,14 @@ struct LibraryCardBrowser: View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
                 selectionTab("All", selected: model.navigation.selectedVoiceBriefID.isEmpty) {
-                    model.navigation.selectVoiceBrief("")
+                    model.workflows.selectVoiceBrief("")
                 }
                 ForEach(Array(model.session.projection.voiceBriefDefinitions.prefix(7)), id: \.id) { brief in
                     selectionTab(
                         brief.title,
                         selected: model.navigation.selectedVoiceBriefID == brief.id
                     ) {
-                        model.navigation.selectVoiceBrief(brief.id)
+                        model.workflows.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -391,7 +392,7 @@ struct LibraryCardBrowser: View {
     private func topicTab(_ topic: String) -> some View {
         let selected = model.navigation.selectedTopic == topic
         return Button {
-            Task { await model.navigation.showTopic(topic) }
+            Task { await model.workflows.showTopic(topic) }
         } label: {
             VStack(spacing: 8) {
                 Text(topic)
@@ -430,7 +431,7 @@ struct LibraryCardBrowser: View {
             FeedRailCard(title: "Collections") {
                 ForEach(Array(model.session.projection.documentTopics.prefix(6)), id: \.self) { topic in
                     Button {
-                        Task { await model.navigation.showTopic(topic) }
+                        Task { await model.workflows.showTopic(topic) }
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "folder")
@@ -456,21 +457,21 @@ struct LibraryCardBrowser: View {
         case .items:
             model.navigation.showingTrash ? "Trash" : model.navigation.selectedTopic == "All" ? "For you" : model.navigation.selectedTopic
         case .channels:
-            model.channels.selectedChannel?.title ?? "Channel"
+            model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.title ?? "Channel"
         case .briefs:
-            model.voiceBriefs.selectedVoiceBrief?.title ?? "Briefs"
+            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.title ?? "Briefs"
         }
     }
 
     @ViewBuilder
     private var desktopActions: some View {
         if model.navigation.activeSection == .channels,
-            let channel = model.channels.selectedChannel
+            let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
         {
             HStack {
                 Spacer()
                 Button {
-                    Task { await model.channels.checkSelectedChannel() }
+                    Task { await model.workflows.checkSelectedChannel() }
                 } label: {
                     if model.channels.isCheckingChannel {
                         ProgressView().controlSize(.small)
@@ -482,7 +483,7 @@ struct LibraryCardBrowser: View {
                 .disabled(model.channels.isCheckingChannel)
 
                 Button {
-                    model.navigation.showChannelSettings(channel.source)
+                    model.workflows.showChannelSettings(channel.source)
                 } label: {
                     Image(systemName: "gearshape")
                         .frame(width: 44, height: 44)
@@ -493,12 +494,12 @@ struct LibraryCardBrowser: View {
                 .help("Settings for \(channel.title)")
             }
         } else if model.navigation.activeSection == .briefs,
-            let brief = model.voiceBriefs.selectedVoiceBrief
+            let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)
         {
             HStack {
                 Spacer()
                 Button {
-                    model.navigation.showVoiceBriefSettings(brief.id)
+                    model.workflows.showVoiceBriefSettings(brief.id)
                 } label: {
                     Image(systemName: "gearshape")
                         .frame(width: 44, height: 44)
@@ -521,7 +522,7 @@ struct LibraryCardBrowser: View {
             entry: entry,
             minimumHeight: minimumHeight,
             featured: featured,
-            action: { Task { await model.selection.select(entry.id) } }
+            action: { Task { await model.workflows.select(entry.id) } }
         )
         if model.navigation.showingTrash {
             card
@@ -532,8 +533,8 @@ struct LibraryCardBrowser: View {
 
     private func channelCard(_ channel: LibraryChannel) -> some View {
         BrowserCard(
-            action: { model.navigation.selectChannel(channel.source) },
-            settingsAction: { model.navigation.showChannelSettings(channel.source) },
+            action: { model.workflows.selectChannel(channel.source) },
+            settingsAction: { model.workflows.showChannelSettings(channel.source) },
             settingsLabel: "Settings for \(channel.title)",
             palette: .channel,
             variationKey: channel.source

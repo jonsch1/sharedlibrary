@@ -49,10 +49,10 @@ struct DocumentEditor: View {
             isEditable: model.session.canEdit && !model.navigation.showingTrash && isEditing,
             highlightedPassages: highlightedPassages,
             onHighlight: model.session.canEdit && !model.navigation.showingTrash ? { text in
-                Task { await model.selection.addHighlight(text) }
+                Task { await model.workflows.addHighlight(text) }
             } : nil,
             onRemoveHighlight: model.session.canEdit && !model.navigation.showingTrash ? { text in
-                Task { await model.selection.removeHighlight(text) }
+                Task { await model.workflows.removeHighlight(text) }
             } : nil
         )
         .onChange(of: sourceText) { oldValue, newValue in
@@ -67,7 +67,7 @@ struct DocumentEditor: View {
             pendingSave = Task {
                 try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled else { return }
-                await model.selection.saveText(text, entryID: entryID, variant: variant)
+                await model.workflows.saveText(text, entryID: entryID, variant: variant)
             }
         }
     }

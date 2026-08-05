@@ -26,7 +26,7 @@ struct ReadingDepthStrip: View {
             HStack(spacing: 6) {
                 ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                     Button {
-                        Task { await model.selection.selectVariant(variant) }
+                        Task { await model.workflows.selectVariant(variant) }
                     } label: {
                         ReadingDepthIcon(variant: variant)
                             .frame(width: 44, height: 32)

@@ -2,10 +2,24 @@ import BrieflyCore
 import Foundation
 import Observation
 
+struct LibraryChannelCheckResult {
+    let source: String
+    let newEntryIDs: [String]
+    let errorMessage: String?
+    let autoSummarize: Bool
+}
+
+struct LibraryDueChannelResult {
+    let newEntryIDs: [String]
+    let autoSummarizeIDs: Set<String>
+}
+
 @MainActor
 @Observable
 final class LibraryChannelModel {
     let session: LibrarySession
+    let inputService: LibraryInputService
+
     var libraryChannels = [LibraryChannel]()
     var newChannelSources = [String]()
     var channelBrowserAddress = ""
@@ -13,19 +27,9 @@ final class LibraryChannelModel {
     var isCheckingChannel = false
     var hasLoadedChannels = false
 
-    weak var navigation: LibraryNavigationModel?
-    weak var processing: LibraryProcessingModel?
-    weak var lifecycle: LibraryLifecycleModel?
-    weak var voiceBriefs: LibraryVoiceBriefModel?
-
-    init(
-        session: LibrarySession,
-        navigation: LibraryNavigationModel,
-        processing: LibraryProcessingModel
-    ) {
+    init(session: LibrarySession, inputService: LibraryInputService) {
         self.session = session
-        self.navigation = navigation
-        self.processing = processing
+        self.inputService = inputService
     }
 
     var channels: [LibraryChannel] {
@@ -35,12 +39,12 @@ final class LibraryChannelModel {
         }
     }
 
-    var selectedChannel: LibraryChannel? {
-        channels.first { $0.source == navigation?.selectedChannelSource }
+    func selectedChannel(for source: String) -> LibraryChannel? {
+        channels.first { $0.source == source }
     }
 
-    var filteredChannels: [LibraryChannel] {
-        let needle = navigation?.query.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    func filteredChannels(query: String) -> [LibraryChannel] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return channels }
         return channels.filter {
             $0.matches(needle) || channelEntries(for: $0.source).contains { $0.matches(needle) }
@@ -89,46 +93,49 @@ final class LibraryChannelModel {
         newChannelSources.removeAll { $0 == source }
     }
 
-    func addChannel(_ source: String) async {
+    func addChannel(_ source: String) async -> LibraryChannel? {
         stageChannelSource(source)
-        await createChannel()
+        return await createChannel()
     }
 
-    func createChannel() async {
+    @discardableResult
+    func createChannel() async -> LibraryChannel? {
         guard let library = session.library else {
             session.errorMessage = "Open a Briefly library before adding channels."
-            return
+            return nil
         }
-        guard !newChannelSources.isEmpty else { return }
+        guard !newChannelSources.isEmpty else { return nil }
         do {
             let groupID = try await library.addChannel(newChannelSources)
             try await refreshChannels(from: library)
             guard let added = libraryChannels.first(where: { $0.source == groupID }) else {
                 throw LibraryError.missingChannel
             }
-            navigation?.selectedChannelSource = added.source
             newChannelSources = []
-            navigation?.showingChannelSettings = false
             session.status = added.sources.count == 1
                 ? "Channel added"
                 : "Channel added with \(added.sources.count) sources"
-            lifecycle?.requestSync()
+            return added
         } catch {
             session.errorMessage = error.localizedDescription
+            return nil
         }
     }
 
-    func updateSelectedChannel(
+    @discardableResult
+    func updateChannel(
+        source: String,
         title: String,
         sources: [String],
         retrievalCount: Int,
         autoSummarize: Bool,
         schedule: String
-    ) async {
-        guard let library = session.library, let channel = selectedChannel else { return }
+    ) async -> Bool {
+        guard let library = session.library else { return false }
+        guard selectedChannel(for: source) != nil else { return false }
         do {
             try await library.updateChannelGroup(
-                channel.source,
+                source,
                 title: title,
                 sources: sources,
                 retrievalCount: retrievalCount,
@@ -137,18 +144,20 @@ final class LibraryChannelModel {
             )
             try await refreshChannels(from: library)
             session.status = "Channel settings saved"
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func checkSelectedChannel(loadMore: Bool = false) async {
+    @discardableResult
+    func checkChannel(source: String, loadMore: Bool = false) async -> LibraryChannelCheckResult? {
         guard
             let library = session.library,
-            let channel = selectedChannel,
+            let channel = selectedChannel(for: source),
             !isCheckingChannel
-        else { return }
+        else { return nil }
         isCheckingChannel = true
         session.status = loadMore
             ? "Loading more from \(channel.title)…"
@@ -171,7 +180,6 @@ final class LibraryChannelModel {
             }
             session.projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            navigation?.selectedChannelSource = channel.source
             if let lastError {
                 session.errorMessage = lastError.localizedDescription
                 session.status = newEntryIDs.isEmpty
@@ -183,28 +191,32 @@ final class LibraryChannelModel {
                     : "Gathered \(newEntryIDs.count) new " +
                         (newEntryIDs.count == 1 ? "item" : "items")
             }
-            if channel.autoSummarize {
-                await processing?.enqueueProcessing(newEntryIDs)
-            }
+            return LibraryChannelCheckResult(
+                source: channel.source,
+                newEntryIDs: newEntryIDs,
+                errorMessage: lastError?.localizedDescription,
+                autoSummarize: channel.autoSummarize
+            )
         } catch {
             session.errorMessage = error.localizedDescription
+            return nil
         }
     }
 
-    func removeSelectedChannel() async {
-        guard let library = session.library, let channel = selectedChannel else { return }
+    @discardableResult
+    func removeChannel(source: String) async -> Int? {
+        guard let library = session.library, selectedChannel(for: source) != nil else { return nil }
         do {
-            let deletedItemCount = try await library.removeChannelGroup(channel.source)
+            let deletedItemCount = try await library.removeChannelGroup(source)
             session.projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            navigation?.selectedChannelSource = ""
-            navigation?.showingChannelSettings = false
-            processing?.selection.clear()
             session.status = deletedItemCount == 1
                 ? "Channel removed and 1 downloaded item deleted"
                 : "Channel removed and \(deletedItemCount) downloaded items deleted"
+            return deletedItemCount
         } catch {
             session.errorMessage = error.localizedDescription
+            return nil
         }
     }
 
@@ -213,12 +225,15 @@ final class LibraryChannelModel {
         source: String,
         loadMore: Bool = false
     ) async throws -> LibraryChannelRefresh {
-        guard let processing else { throw LibraryError.invalidChannel }
         let ingest: @Sendable (LibraryChannelCandidate) async throws -> String = { candidate in
             guard let url = URL(string: candidate.url) else {
                 throw LibraryError.invalidChannel
             }
-            return try await processing.ingestURL(url, in: library, candidate: candidate)
+            return try await self.inputService.ingestURL(
+                url,
+                in: library,
+                candidate: candidate
+            )
         }
         let channel = channels.first { $0.source == source }
         let maximum = loadMore
@@ -228,23 +243,23 @@ final class LibraryChannelModel {
             source,
             maximumItems: maximum,
             discover: { limit in
-                return try await NativeChannelInputRouter().enumerate(
+                try await NativeChannelInputRouter().enumerate(
                     source: source,
                     maximumItems: limit,
-                    context: processing.channelInputContext()
+                    context: self.inputService.channelInputContext()
                 )
             },
             ingest: ingest
         )
     }
 
-    func runDueChannelChecks() async {
-        guard
-            let library = session.library,
-            !isCheckingChannel,
-            voiceBriefs?.isRunningVoiceBrief != true
-        else { return }
-        guard let due = try? await library.dueChannelSources(), !due.isEmpty else { return }
+    func runDueChannelChecks() async -> LibraryDueChannelResult {
+        guard let library = session.library, !isCheckingChannel else {
+            return LibraryDueChannelResult(newEntryIDs: [], autoSummarizeIDs: [])
+        }
+        guard let due = try? await library.dueChannelSources(), !due.isEmpty else {
+            return LibraryDueChannelResult(newEntryIDs: [], autoSummarizeIDs: [])
+        }
         isCheckingChannel = true
         defer { isCheckingChannel = false }
         var newEntryIDs = [String]()
@@ -258,7 +273,9 @@ final class LibraryChannelModel {
         session.projection = (try? await library.loadLibraryIndex()) ?? session.projection
         try? await refreshChannels(from: library)
         let autoSummarizeIDs = Set(libraryChannels.filter(\.autoSummarize).flatMap(\.entryIDs))
-        await processing?.enqueueProcessing(newEntryIDs.filter(autoSummarizeIDs.contains))
-        if !newEntryIDs.isEmpty { lifecycle?.requestSync() }
+        return LibraryDueChannelResult(
+            newEntryIDs: newEntryIDs,
+            autoSummarizeIDs: autoSummarizeIDs
+        )
     }
 }

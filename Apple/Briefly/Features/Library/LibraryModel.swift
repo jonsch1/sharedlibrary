@@ -97,43 +97,31 @@ final class LibrarySession {
 final class LibraryModel {
     let session: LibrarySession
     var navigation: LibraryNavigationModel
-    var selection: LibrarySelectionModel
-    var channels: LibraryChannelModel
-    var processing: LibraryProcessingModel
-    var account: LibraryAccountModel
+    let selection: LibrarySelectionModel
+    let channels: LibraryChannelModel
+    let processing: LibraryProcessingModel
+    let account: LibraryAccountModel
     var settings: LibrarySettingsModel
-    var voiceBriefs: LibraryVoiceBriefModel
-    var audio: LibraryAudioModel
-    var sharing: LibrarySharingModel
-    var lifecycle: LibraryLifecycleModel
+    let voiceBriefs: LibraryVoiceBriefModel
+    let audio: LibraryAudioModel
+    let sharing: LibrarySharingModel
+    let lifecycle: LibraryLifecycleModel
+    let workflows: LibraryWorkflowCoordinator
 
     init(environment: AppEnvironment = .current()) {
         let session = LibrarySession(environment: environment)
+        let inputService = LibraryInputService(session: session)
         let selection = LibrarySelectionModel(session: session)
-        let navigation = LibraryNavigationModel(session: session, selection: selection)
-        let settings = LibrarySettingsModel(session: session, navigation: navigation)
-        let processing = LibraryProcessingModel(
-            session: session,
-            navigation: navigation,
-            selection: selection,
-            settings: settings
-        )
-        let channels = LibraryChannelModel(
-            session: session,
-            navigation: navigation,
-            processing: processing
-        )
+        let navigation = LibraryNavigationModel(session: session)
+        let settings = LibrarySettingsModel(session: session)
+        let processing = LibraryProcessingModel(session: session, inputService: inputService)
+        let channels = LibraryChannelModel(session: session, inputService: inputService)
         let account = LibraryAccountModel(session: session)
-        let voiceBriefs = LibraryVoiceBriefModel(
-            session: session,
-            navigation: navigation,
-            selection: selection,
-            channels: channels,
-            processing: processing
-        )
-        let audio = LibraryAudioModel(session: session, selection: selection)
+        let voiceBriefs = LibraryVoiceBriefModel(session: session)
+        let audio = LibraryAudioModel(session: session)
         let sharing = LibrarySharingModel(session: session)
-        let lifecycle = LibraryLifecycleModel(
+        let lifecycle = LibraryLifecycleModel(session: session)
+        let workflows = LibraryWorkflowCoordinator(
             session: session,
             navigation: navigation,
             selection: selection,
@@ -142,7 +130,8 @@ final class LibraryModel {
             account: account,
             settings: settings,
             voiceBriefs: voiceBriefs,
-            audio: audio
+            audio: audio,
+            lifecycle: lifecycle
         )
 
         self.session = session
@@ -156,18 +145,7 @@ final class LibraryModel {
         self.audio = audio
         self.sharing = sharing
         self.lifecycle = lifecycle
-
-        selection.navigation = navigation
-        selection.channels = channels
-        navigation.channels = channels
-        channels.lifecycle = lifecycle
-        channels.voiceBriefs = voiceBriefs
-        processing.lifecycle = lifecycle
-        processing.voiceBriefs = voiceBriefs
-        voiceBriefs.audio = audio
-        audio.voiceBriefs = voiceBriefs
-        voiceBriefs.lifecycle = lifecycle
-        settings.lifecycle = lifecycle
+        self.workflows = workflows
     }
 
     var isWorking: Bool {

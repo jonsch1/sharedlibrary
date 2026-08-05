@@ -78,7 +78,7 @@ struct MobileHome: View {
                                         ? .items
                                         : .briefs
                                     model.navigation.selectedVoiceBriefID = entry.voiceBriefID ?? ""
-                                    await model.selection.select(entry.id)
+                                    await model.workflows.select(entry.id)
                                     onOpenDetail()
                                 }
                             }

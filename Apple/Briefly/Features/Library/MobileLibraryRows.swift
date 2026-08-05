@@ -45,7 +45,7 @@ struct MobileLibraryRows: View {
     }
 
     private var channels: [LibraryChannel] {
-        model.channels.filteredChannels.sorted {
+        model.channels.filteredChannels(query: model.navigation.query).sorted {
             let leftCount = model.channels.channelEntries(for: $0.source).count
             let rightCount = model.channels.channelEntries(for: $1.source).count
             return leftCount != rightCount
@@ -78,7 +78,7 @@ struct MobileLibraryRows: View {
     private var entries: [LibraryEntry] {
         let candidates = switch model.navigation.activeSection {
         case .items:
-            model.navigation.filteredEntries
+            model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
         case .channels:
             model.channels.channelEntries(for: model.navigation.selectedChannelSource)
         case .briefs:
@@ -124,9 +124,9 @@ struct MobileLibraryRows: View {
                 ? "Trash"
                 : model.navigation.selectedTopic == "All" ? "Inbox" : model.navigation.selectedTopic
         case .channels:
-            model.channels.selectedChannel?.title ?? "Channel"
+            model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.title ?? "Channel"
         case .briefs:
-            model.voiceBriefs.selectedVoiceBrief?.title ?? "Voice Brief"
+            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.title ?? "Voice Brief"
         }
     }
 
@@ -184,7 +184,7 @@ struct MobileLibraryRows: View {
                 title: "Inbox",
                 subtitle: "\(notes.count) notes"
             ) {
-                Task { await model.navigation.showTopic("All") }
+                Task { await model.workflows.showTopic("All") }
             }
 
             if model.navigation.query.isEmpty {
@@ -195,7 +195,7 @@ struct MobileLibraryRows: View {
                     title: "Highlights",
                     subtitle: model.selection.loadedHighlightCount.map { "\($0) highlights" } ?? "Open to load"
                 ) {
-                    model.navigation.showHighlights()
+                    model.workflows.showHighlights()
                     onOpenDetail()
                 }
             }
@@ -208,7 +208,7 @@ struct MobileLibraryRows: View {
                     title: topic.name,
                     subtitle: "\(topic.count) notes"
                 ) {
-                    Task { await model.navigation.showTopic(topic.name) }
+                    Task { await model.workflows.showTopic(topic.name) }
                 }
             }
 
@@ -220,7 +220,7 @@ struct MobileLibraryRows: View {
                     title: "Trash",
                     subtitle: model.selection.loadedTrashCount.map { "\($0) notes" } ?? "Open to load"
                 ) {
-                    model.navigation.showTrash()
+                    model.workflows.showTrash()
                 }
             }
         }
@@ -247,11 +247,11 @@ struct MobileLibraryRows: View {
                         subtitle: "\(model.channels.channelEntries(for: channel.source).count) notes",
                         settingsLabel: "Settings for \(channel.title)",
                         settingsAction: {
-                            model.navigation.showChannelSettings(channel.source)
+                            model.workflows.showChannelSettings(channel.source)
                             onOpenDetail()
                         }
                     ) {
-                        model.navigation.selectChannel(channel.source)
+                        model.workflows.selectChannel(channel.source)
                     }
                 }
             }
@@ -277,11 +277,11 @@ struct MobileLibraryRows: View {
                         subtitle: "\(model.session.projection.episodes(for: brief.id).count) episodes",
                         settingsLabel: "Settings for \(brief.title)",
                         settingsAction: {
-                            model.navigation.showVoiceBriefSettings(brief.id)
+                            model.workflows.showVoiceBriefSettings(brief.id)
                             onOpenDetail()
                         }
                     ) {
-                        model.navigation.selectVoiceBrief(brief.id)
+                        model.workflows.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -291,7 +291,7 @@ struct MobileLibraryRows: View {
     private var entryCollection: some View {
         VStack(spacing: 0) {
             MobileCollectionHeader(title: collectionTitle, count: entries.count) {
-                Task { await model.navigation.show(model.navigation.activeSection) }
+                Task { await model.workflows.show(model.navigation.activeSection) }
             }
 
             if entries.isEmpty {
@@ -329,7 +329,7 @@ struct MobileLibraryRows: View {
             selected: model.selection.selectedIDs.contains(entry.id)
         ) {
             Task {
-                await model.selection.select(entry.id)
+                await model.workflows.select(entry.id)
                 onOpenDetail()
             }
         }

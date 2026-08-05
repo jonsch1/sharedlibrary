@@ -31,8 +31,8 @@ struct EntryContextMenu: ViewModifier {
             if model.session.canEdit {
                 Button {
                     Task {
-                        await model.selection.select(entry.id)
-                        await model.processing.processSelected()
+                        await model.workflows.select(entry.id)
+                        await model.workflows.processSelected()
                     }
                 } label: {
                     Label("Regenerate summaries", systemImage: "sparkles")
@@ -58,7 +58,7 @@ struct EntryContextMenu: ViewModifier {
             isPresented: $confirmsTrash
         ) {
             Button("Move to Trash", role: .destructive) {
-                Task { await model.selection.trash(entryID: entry.id) }
+                Task { await model.workflows.trash(entryID: entry.id) }
             }
         }
     }

@@ -29,7 +29,7 @@ struct LibraryDocument: View {
             #if os(macOS)
             HStack(spacing: 12) {
                 Button {
-                    Task { await model.selection.select("") }
+                    Task { await model.workflows.select("") }
                 } label: {
                     Image(systemName: "arrow.left")
                         .frame(width: 44, height: 44)
@@ -41,11 +41,11 @@ struct LibraryDocument: View {
                 Spacer()
                 Menu {
                     Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                        Task { await model.processing.processSelected() }
+                        Task { await model.workflows.processSelected() }
                     }
                     .disabled(model.processing.isProcessing)
                     Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                        Task { await model.navigation.trashSelected() }
+                        Task { await model.workflows.trashSelected() }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -95,7 +95,7 @@ struct LibraryDocument: View {
                     HStack(spacing: 0) {
                         ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                             Button {
-                                Task { await model.selection.selectVariant(variant) }
+                                Task { await model.workflows.selectVariant(variant) }
                             } label: {
                                 ReadingDepthIcon(variant: variant)
                                     .frame(width: 44, height: 44)
@@ -176,10 +176,10 @@ struct LibraryDocument: View {
                                     )
                                     if shouldGenerate {
                                         var startedPlayback = false
-                                        _ = await model.audio.streamPlayableAudio(
+                                        _ = await model.workflows.streamPlayableAudio(
                                             for: entry,
                                             variant: variant,
-                                            text: text
+                                            text: text,
                                         ) { url in
                                             try audioPlayer.appendSegment(
                                                 url,
@@ -295,12 +295,12 @@ struct LibraryDocument: View {
         .contextMenu {
             if model.session.canEdit && !model.navigation.showingTrash {
                 Button("Regenerate summaries") {
-                    Task { await model.processing.processSelected() }
+                    Task { await model.workflows.processSelected() }
                 }
                 .disabled(model.processing.isProcessing)
                 Divider()
                 Button("Move to Trash", role: .destructive) {
-                    Task { await model.navigation.trashSelected() }
+                    Task { await model.workflows.trashSelected() }
                 }
             }
         }
@@ -332,11 +332,11 @@ struct LibraryDocument: View {
                         if model.session.canEdit && !model.navigation.showingTrash {
                             Divider()
                             Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                                Task { await model.processing.processSelected() }
+                                Task { await model.workflows.processSelected() }
                             }
                             .disabled(model.processing.isProcessing)
                             Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                Task { await model.navigation.trashSelected() }
+                                Task { await model.workflows.trashSelected() }
                             }
                         }
                     } label: {

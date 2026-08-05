@@ -54,21 +54,21 @@ struct MacSidebarFilters: View {
                     count: notes.count,
                     selected: model.navigation.selectedTopic == "All" &&
                         !model.navigation.showingHighlights && !model.navigation.showingTrash,
-                    action: model.navigation.showInbox
+                    action: model.workflows.showInbox
                 )
                 SidebarRow(
                     icon: "highlighter",
                     title: "Highlights",
                     count: model.selection.loadedHighlightCount,
                     selected: model.navigation.showingHighlights,
-                    action: model.navigation.showHighlights
+                    action: model.workflows.showHighlights
                 )
                 SidebarRow(
                     icon: "trash",
                     title: "Trash",
                     count: model.selection.loadedTrashCount,
                     selected: model.navigation.showingTrash,
-                    action: model.navigation.showTrash
+                    action: model.workflows.showTrash
                 )
 
                 if !topics.isEmpty {
@@ -81,7 +81,7 @@ struct MacSidebarFilters: View {
                             selected: model.navigation.selectedTopic == topic.name &&
                                 !model.navigation.showingHighlights && !model.navigation.showingTrash
                         ) {
-                            Task { await model.navigation.showTopic(topic.name) }
+                            Task { await model.workflows.showTopic(topic.name) }
                         }
                     }
                 }
@@ -93,7 +93,7 @@ struct MacSidebarFilters: View {
                     count: model.channels.channels.count,
                     selected: model.navigation.selectedChannelDomain == "All"
                 ) {
-                    model.navigation.showChannelDomain("All")
+                    model.workflows.showChannelDomain("All")
                 }
                 if !model.channels.channels.isEmpty {
                     SidebarSectionHeader("Domains")
@@ -104,7 +104,7 @@ struct MacSidebarFilters: View {
                             count: group.channels.count,
                             selected: model.navigation.selectedChannelDomain == group.domain
                         ) {
-                            model.navigation.showChannelDomain(group.domain)
+                            model.workflows.showChannelDomain(group.domain)
                         }
                     }
                 }
@@ -118,7 +118,7 @@ struct MacSidebarFilters: View {
                     },
                     selected: model.navigation.selectedVoiceBriefID.isEmpty
                 ) {
-                    model.navigation.selectVoiceBrief("")
+                    model.workflows.selectVoiceBrief("")
                 }
                 if !model.session.projection.voiceBriefDefinitions.isEmpty {
                     SidebarSectionHeader("Voice Briefs")
@@ -129,7 +129,7 @@ struct MacSidebarFilters: View {
                             count: model.session.projection.episodes(for: brief.id).count,
                             selected: model.navigation.selectedVoiceBriefID == brief.id
                         ) {
-                            model.navigation.selectVoiceBrief(brief.id)
+                            model.workflows.selectVoiceBrief(brief.id)
                         }
                     }
                 }

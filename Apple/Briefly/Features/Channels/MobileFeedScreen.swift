@@ -66,7 +66,8 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        if tab == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
+                        if tab == .briefs,
+                           let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
                             BriefPreparationPanel(model: model, brief: brief)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
@@ -89,7 +90,8 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        if tab == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
+                        if tab == .briefs,
+                           let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
                             BriefPreparationPanel(model: model, brief: brief)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
@@ -177,7 +179,7 @@ struct MobileXFeedScreen: View {
             HStack(spacing: 8) {
                 choiceButton("All", selected: allSelected) {
                     switch tab {
-                    case .home: Task { await model.navigation.showTopic("All") }
+                    case .home: Task { await model.workflows.showTopic("All") }
                     case .channels: model.navigation.selectedChannelSource = ""
                     case .briefs: model.navigation.selectedVoiceBriefID = ""
                     case .library: break
@@ -188,7 +190,7 @@ struct MobileXFeedScreen: View {
                 case .home:
                     ForEach(model.session.projection.documentTopics, id: \.self) { topic in
                         choiceButton(topic, selected: model.navigation.selectedTopic == topic) {
-                            Task { await model.navigation.showTopic(topic) }
+                            Task { await model.workflows.showTopic(topic) }
                         }
                     }
                 case .channels:
@@ -197,7 +199,7 @@ struct MobileXFeedScreen: View {
                             channel.title,
                             selected: model.navigation.selectedChannelSource == channel.source
                         ) {
-                            model.navigation.selectChannel(channel.source)
+                            model.workflows.selectChannel(channel.source)
                         }
                     }
                 case .briefs:
@@ -206,7 +208,7 @@ struct MobileXFeedScreen: View {
                             brief.title,
                             selected: model.navigation.selectedVoiceBriefID == brief.id
                         ) {
-                            model.navigation.selectVoiceBrief(brief.id)
+                            model.workflows.selectVoiceBrief(brief.id)
                         }
                     }
                 case .library:
@@ -241,15 +243,15 @@ struct MobileXFeedScreen: View {
     private var configurationAction: MobileXHeaderAction? {
         switch tab {
         case .channels:
-            guard let channel = model.channels.selectedChannel else { return nil }
+            guard let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) else { return nil }
             return MobileXHeaderAction(icon: "ellipsis", label: "Channel settings") {
-                model.navigation.showChannelSettings(channel.source)
+                model.workflows.showChannelSettings(channel.source)
                 openConfiguration()
             }
         case .briefs:
-            guard let brief = model.voiceBriefs.selectedVoiceBrief else { return nil }
+            guard let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) else { return nil }
             return MobileXHeaderAction(icon: "ellipsis", label: "Brief settings") {
-                model.navigation.showVoiceBriefSettings(brief.id)
+                model.workflows.showVoiceBriefSettings(brief.id)
                 openConfiguration()
             }
         default:
@@ -259,13 +261,19 @@ struct MobileXFeedScreen: View {
 
     private func refresh() async {
         switch tab {
-        case .home: await model.lifecycle.refreshLibrary()
+        case .home: await model.workflows.refreshLibrary()
         case .channels:
-            if model.channels.selectedChannel != nil { await model.channels.checkSelectedChannel() }
-            else { await model.channels.runDueChannelChecks() }
+            if model.channels.selectedChannel(for: model.navigation.selectedChannelSource) != nil {
+                await model.workflows.checkSelectedChannel()
+            } else {
+                await model.workflows.runDueChannelChecks()
+            }
         case .briefs:
-            if model.voiceBriefs.selectedVoiceBrief != nil { await model.voiceBriefs.runSelectedVoiceBrief() }
-            else { await model.voiceBriefs.runDueVoiceBriefs() }
+            if model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil {
+                await model.workflows.runSelectedVoiceBrief()
+            } else {
+                await model.workflows.runDueVoiceBriefs()
+            }
         case .library: break
         }
     }

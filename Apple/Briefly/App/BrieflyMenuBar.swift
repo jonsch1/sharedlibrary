@@ -26,12 +26,12 @@ struct BrieflyMenuBar: View {
         if model.session.canEdit {
             Button("Capture Clipboard") {
                 let text = NSPasteboard.general.string(forType: .string) ?? ""
-                Task { await model.processing.capture(text) }
+                Task { await model.workflows.capture(text) }
             }
         }
 
         Button("Sync Now") {
-            Task { await model.lifecycle.sync() }
+            Task { await model.workflows.sync() }
         }
         .disabled(model.lifecycle.isSyncing)
 

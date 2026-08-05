@@ -81,7 +81,7 @@ struct LibrarySidebar: View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(LibrarySection.allCases) { section in
                 Button {
-                    Task { await model.navigation.show(section) }
+                    Task { await model.workflows.show(section) }
                 } label: {
                     xSidebarRow(
                         icon: section.icon,
@@ -100,7 +100,7 @@ struct LibrarySidebar: View {
                     .padding(.vertical, 10)
                     .padding(.horizontal, 8)
 
-                Button(action: model.navigation.showInbox) {
+                Button(action: model.workflows.showInbox) {
                     xSidebarRow(
                         icon: "tray",
                         title: "Inbox",
@@ -108,14 +108,14 @@ struct LibrarySidebar: View {
                             !model.navigation.showingHighlights && !model.navigation.showingTrash
                     )
                 }
-                Button(action: model.navigation.showHighlights) {
+                Button(action: model.workflows.showHighlights) {
                     xSidebarRow(
                         icon: "highlighter",
                         title: "Highlights",
                         selected: model.navigation.showingHighlights
                     )
                 }
-                Button(action: model.navigation.showTrash) {
+                Button(action: model.workflows.showTrash) {
                     xSidebarRow(
                         icon: "trash",
                         title: "Trash",
@@ -128,9 +128,9 @@ struct LibrarySidebar: View {
                 Button {
                     model.navigation.query = ""
                     if model.navigation.activeSection == .channels {
-                        model.navigation.showChannelSettings("new")
+                        model.workflows.showChannelSettings("new")
                     } else {
-                        model.navigation.showVoiceBriefSettings("new")
+                        model.workflows.showVoiceBriefSettings("new")
                     }
                 } label: {
                     Label(
@@ -148,7 +148,7 @@ struct LibrarySidebar: View {
             } else {
                 Button {
                     let text = NSPasteboard.general.string(forType: .string) ?? ""
-                    Task { await model.processing.capture(text) }
+                    Task { await model.workflows.capture(text) }
                 } label: {
                     Label("Capture", systemImage: "plus")
                         .font(.headline)

@@ -65,7 +65,8 @@ struct LibraryDetail: View {
                     model: model,
                     showsChannelBrowser: $showsChannelBrowser
                 )
-            } else if model.navigation.activeSection == .items && model.navigation.filteredEntries.isEmpty {
+            } else if model.navigation.activeSection == .items &&
+                model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).isEmpty {
                 ContentUnavailableView(
                     model.navigation.query.isEmpty
                         ? model.navigation.selectedTopic == "All"

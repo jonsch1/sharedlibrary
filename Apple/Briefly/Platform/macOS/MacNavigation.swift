@@ -35,7 +35,7 @@ struct MacXNavigation: View {
             ForEach(LibrarySection.allCases) { section in
                 Button {
                     showsSettings = false
-                    Task { await model.navigation.show(section) }
+                    Task { await model.workflows.show(section) }
                 } label: {
                     navigationRow(
                         section.title,
@@ -50,7 +50,7 @@ struct MacXNavigation: View {
 
             Button {
                 showsSettings = false
-                model.navigation.showHighlights()
+                model.workflows.showHighlights()
             } label: {
                 navigationRow(
                     "Highlights",
@@ -63,7 +63,7 @@ struct MacXNavigation: View {
 
             Button {
                 showsSettings = false
-                model.navigation.showTrash()
+                model.workflows.showTrash()
             } label: {
                 navigationRow("Trash", icon: "trash", selected: model.navigation.showingTrash)
             }
@@ -76,10 +76,10 @@ struct MacXNavigation: View {
                     showsCaptureComposer = true
                 case .channels:
                     model.navigation.query = ""
-                    model.navigation.showChannelSettings("new")
+                    model.workflows.showChannelSettings("new")
                 case .briefs:
                     model.navigation.query = ""
-                    model.navigation.showVoiceBriefSettings("new")
+                    model.workflows.showVoiceBriefSettings("new")
                 }
             } label: {
                 Label(primaryActionTitle, systemImage: "plus")

@@ -105,40 +105,40 @@ struct ContentView: View {
                 #endif
             }
         }
-        .task { await model.lifecycle.start() }
+        .task { await model.workflows.start() }
         .task {
             guard model.lifecycle.runsScheduledWork else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
-                await model.voiceBriefs.resumePendingVoiceBriefs()
-                await model.channels.runDueChannelChecks()
-                await model.voiceBriefs.runDueVoiceBriefs()
+                await model.workflows.resumePendingVoiceBriefs()
+                await model.workflows.runDueChannelChecks()
+                await model.workflows.runDueVoiceBriefs()
             }
         }
         .onChange(of: scenePhase) {
             if scenePhase == .active, model.lifecycle.runsScheduledWork {
                 Task {
                     #if os(iOS)
-                    if model.session.canEdit { await model.lifecycle.sync() }
+                    if model.session.canEdit { await model.workflows.sync() }
                     #endif
-                    await model.voiceBriefs.resumePendingVoiceBriefs()
-                    await model.channels.runDueChannelChecks()
-                    await model.voiceBriefs.runDueVoiceBriefs()
+                    await model.workflows.resumePendingVoiceBriefs()
+                    await model.workflows.runDueChannelChecks()
+                    await model.workflows.runDueVoiceBriefs()
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
             guard model.lifecycle.runsScheduledWork else { return }
             Task {
-                if model.session.canEdit { await model.lifecycle.sync() }
+                if model.session.canEdit { await model.workflows.sync() }
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
             if model.session.canEdit {
                 ChannelLoginView(
                     initialAddress: model.channels.channelBrowserAddress.isEmpty
-                        ? model.channels.selectedChannel?.primarySource ?? ""
+                        ? model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.primarySource ?? ""
                         : model.channels.channelBrowserAddress,
                     onCapture: { url, page in
                         if model.navigation.selectedChannelSource == "new" ||
@@ -146,15 +146,15 @@ struct ContentView: View {
                         {
                             model.channels.stageChannelSource(url.absoluteString)
                         } else {
-                            await model.processing.captureWebPage(url: url, page: page)
+                            await model.workflows.captureWebPage(url: url, page: page)
                         }
                     },
-                    onActivity: model.processing.setBrowserIngesting
+                    onActivity: model.workflows.setBrowserIngesting
                 )
             } else {
                 ChannelLoginView(
                     initialAddress: model.channels.channelBrowserAddress.isEmpty
-                        ? model.channels.selectedChannel?.primarySource ?? ""
+                        ? model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.primarySource ?? ""
                         : model.channels.channelBrowserAddress
                 )
             }
@@ -198,7 +198,7 @@ struct ContentView: View {
         ) { result in
             switch result {
             case .success(let url):
-                Task { await model.processing.capturePDF(url) }
+                Task { await model.workflows.capturePDF(url) }
             case .failure(let error):
                 model.session.errorMessage = error.localizedDescription
             }
@@ -209,11 +209,11 @@ struct ContentView: View {
                 return false
             }
             if urls[0].pathExtension.lowercased() == "pdf" {
-                Task { await model.processing.capturePDF(urls[0]) }
+                Task { await model.workflows.capturePDF(urls[0]) }
                 return true
             }
             if ["http", "https"].contains(urls[0].scheme?.lowercased() ?? "") {
-                Task { await model.processing.capture(urls[0].absoluteString) }
+                Task { await model.workflows.capture(urls[0].absoluteString) }
                 return true
             }
             model.session.errorMessage = "Drop a PDF or web link."
@@ -224,17 +224,17 @@ struct ContentView: View {
             "Briefly",
             isPresented: Binding(
                 get: { model.session.errorMessage != nil },
-                set: { if !$0 { model.lifecycle.clearError() } }
+                set: { if !$0 { model.workflows.clearError() } }
             )
         ) {
-            Button("OK") { model.lifecycle.clearError() }
+            Button("OK") { model.workflows.clearError() }
         } message: {
             Text(model.session.errorMessage ?? "")
         }
         #else
         .overlay(alignment: .top) {
             if let message = model.session.errorMessage {
-                XErrorBanner(message: message, dismiss: model.lifecycle.clearError)
+                XErrorBanner(message: message, dismiss: model.workflows.clearError)
                     .padding(.top, 18)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -279,7 +279,7 @@ struct ContentView: View {
             NotificationCenter.default.publisher(for: .brieflyCaptureClipboard)
         ) { _ in
             let text = NSPasteboard.general.string(forType: .string) ?? ""
-            Task { await model.processing.capture(text) }
+            Task { await model.workflows.capture(text) }
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyImportPDF)
@@ -289,7 +289,7 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)
         ) { _ in
-            Task<Void, Never> { await model.lifecycle.refreshLibrary() }
+            Task<Void, Never> { await model.workflows.refreshLibrary() }
         }
         #endif
         .preferredColorScheme(

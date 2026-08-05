@@ -77,7 +77,7 @@ struct BriefPreparationPanel: View {
                 }
 
                 Button {
-                    Task { await model.voiceBriefs.runSelectedVoiceBrief() }
+                    Task { await model.workflows.runSelectedVoiceBrief() }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "sparkles")

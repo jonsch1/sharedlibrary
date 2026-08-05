@@ -5,6 +5,7 @@ import Observation
 @Observable
 final class LibrarySelectionModel {
     let session: LibrarySession
+
     var selectedID = ""
     var selectedIDs = Set<String>()
     var selectedVariant = LibraryVariant.concise
@@ -15,9 +16,7 @@ final class LibrarySelectionModel {
     var hasLoadedTrash = false
     var hasLoadedHighlights = false
 
-    weak var navigation: LibraryNavigationModel?
-    weak var channels: LibraryChannelModel?
-    weak var lifecycle: LibraryLifecycleModel?
+    private var selectedEntryIsInTrash = false
 
     init(session: LibrarySession) {
         self.session = session
@@ -39,8 +38,12 @@ final class LibrarySelectionModel {
         hasLoadedTrash ? trashEntries.count : nil
     }
 
-    func select(_ id: String, extending: Bool = false) async {
-        navigation?.showingHighlights = false
+    @discardableResult
+    func select(
+        _ id: String,
+        extending: Bool = false,
+        includeDeleted: Bool = false
+    ) async -> LibraryEntry? {
         if extending {
             if selectedIDs.remove(id) != nil {
                 if selectedID == id {
@@ -54,17 +57,14 @@ final class LibrarySelectionModel {
             selectedID = id
             selectedIDs = id.isEmpty ? [] : [id]
         }
+        selectedEntryIsInTrash = includeDeleted && !id.isEmpty
         guard let entry = selectedEntry else {
             selectedText = ""
-            return
-        }
-        if let voiceBriefID = entry.voiceBriefID,
-           navigation?.selectedVoiceBriefID.isEmpty == false
-        {
-            navigation?.selectedVoiceBriefID = voiceBriefID
+            return nil
         }
         selectedVariant = entry.preferredVariant
-        await loadSelectedText()
+        await loadSelectedText(includeDeleted: includeDeleted)
+        return entry
     }
 
     func selectedEntryIDs(fallback: String) -> [String] {
@@ -82,89 +82,39 @@ final class LibrarySelectionModel {
         selectedID = ""
         selectedIDs = []
         selectedText = ""
+        selectedEntryIsInTrash = false
     }
 
-    func selectInitialContent() {
-        navigation?.showingHighlights = false
-        navigation?.showingTrash = false
+    @discardableResult
+    func selectInitialContent() -> LibrarySection {
+        selectedEntryIsInTrash = false
         #if os(macOS)
-        navigation?.activeSection = .items
-        navigation?.selectedTopic = "All"
-        navigation?.selectedChannelDomain = "All"
-        navigation?.selectedChannelSource = ""
-        navigation?.selectedVoiceBriefID = ""
-        navigation?.showingChannelSettings = false
-        navigation?.showingVoiceBriefSettings = false
         clear()
+        return .items
         #else
         if session.projection.voiceBriefDefinitions.contains(where: {
             !session.projection.episodes(for: $0.id).isEmpty
         }) {
-            navigation?.activeSection = .briefs
-            navigation?.selectedVoiceBriefID = ""
             clear()
-        } else {
-            navigation?.activeSection = .items
-            selectedID = session.projection.entries.first(where: \.isMainLibraryEntry)?.id ?? ""
-            selectedIDs = selectedID.isEmpty ? [] : [selectedID]
-            selectedVariant = selectedEntry?.preferredVariant ?? .concise
-            selectedText = ""
+            return .briefs
         }
+        selectedID = session.projection.entries.first(where: \.isMainLibraryEntry)?.id ?? ""
+        selectedIDs = selectedID.isEmpty ? [] : [selectedID]
+        selectedVariant = selectedEntry?.preferredVariant ?? .concise
+        selectedText = ""
+        return .items
         #endif
     }
 
-    func restoreSelection(preferredEntryID: String? = nil) async {
-        if navigation?.showingHighlights == true {
-            clear()
-            return
-        }
+    @discardableResult
+    func restoreSelection(preferredEntryID: String? = nil) async -> Bool {
         let entryID = preferredEntryID ?? selectedID
-        if (session.projection.entries + trashEntries).contains(where: { $0.id == entryID }) {
-            await select(entryID)
-            return
+        guard (session.projection.entries + trashEntries).contains(where: { $0.id == entryID }) else {
+            clear()
+            return false
         }
-
-        clear()
-        #if os(macOS)
-        let hasSelectedChannel = channels?.channels.contains(where: {
-            $0.source == navigation?.selectedChannelSource
-        }) ?? false
-        if navigation?.selectedChannelSource != "new", !hasSelectedChannel
-        {
-            navigation?.selectedChannelSource = ""
-            navigation?.showingChannelSettings = false
-        }
-        if navigation?.selectedVoiceBriefID != "new",
-           !session.projection.voiceBriefDefinitions.contains(where: {
-               $0.id == navigation?.selectedVoiceBriefID
-           })
-        {
-            navigation?.selectedVoiceBriefID = ""
-            navigation?.showingVoiceBriefSettings = false
-        }
-        #else
-        switch navigation?.activeSection {
-        case .items, .none:
-            break
-        case .channels:
-            let hasSelectedChannel = channels?.channels.contains(where: {
-                $0.source == navigation?.selectedChannelSource
-            }) ?? false
-            if navigation?.selectedChannelSource != "new", !hasSelectedChannel
-            {
-                navigation?.selectedChannelSource = channels?.channels.first?.source ?? ""
-            }
-        case .briefs:
-            if navigation?.selectedVoiceBriefID != "new",
-               !session.projection.voiceBriefDefinitions.contains(where: {
-                   $0.id == navigation?.selectedVoiceBriefID
-               })
-            {
-                navigation?.selectedVoiceBriefID =
-                    session.projection.voiceBriefDefinitions.first?.id ?? ""
-            }
-        }
-        #endif
+        await select(entryID, includeDeleted: selectedEntryIsInTrash)
+        return true
     }
 
     func refreshTrash(from store: SQLiteLibraryStore) async throws {
@@ -195,7 +145,7 @@ final class LibrarySelectionModel {
         }
     }
 
-    func loadSelectedText() async {
+    func loadSelectedText(includeDeleted: Bool = false) async {
         guard
             let entry = selectedEntry,
             let reference = entry.text(for: selectedVariant)
@@ -212,10 +162,7 @@ final class LibrarySelectionModel {
         isLoadingText = true
         defer { isLoadingText = false }
         do {
-            let document = try await library.getDocument(
-                entryID,
-                includeDeleted: navigation?.showingTrash == true
-            )
+            let document = try await library.getDocument(entryID, includeDeleted: includeDeleted)
             guard selectedID == entryID, selectedVariant == variant else { return }
             selectedText = document.texts[variant] ?? ""
             await loadHighlights()
@@ -225,13 +172,17 @@ final class LibrarySelectionModel {
         }
     }
 
-    func selectVariant(_ variant: LibraryVariant) async {
+    func selectVariant(_ variant: LibraryVariant, includeDeleted: Bool? = nil) async {
+        if let includeDeleted {
+            selectedEntryIsInTrash = includeDeleted
+        }
         selectedVariant = variant
-        await loadSelectedText()
+        await loadSelectedText(includeDeleted: selectedEntryIsInTrash)
     }
 
-    func saveText(_ text: String, entryID: String, variant: LibraryVariant) async {
-        guard let library = session.library, !entryID.isEmpty else { return }
+    @discardableResult
+    func saveText(_ text: String, entryID: String, variant: LibraryVariant) async -> Bool {
+        guard let library = session.library, !entryID.isEmpty else { return false }
         do {
             try await library.writeText(entryID: entryID, variant: variant, text: text)
             session.projection = try await library.loadLibraryIndex()
@@ -239,52 +190,56 @@ final class LibrarySelectionModel {
                 selectedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             session.status = "Document saved"
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func addHighlight(_ text: String) async {
-        guard let library = session.library, !selectedID.isEmpty else { return }
+    @discardableResult
+    func addHighlight(_ text: String) async -> Bool {
+        guard let library = session.library, !selectedID.isEmpty else { return false }
         do {
             try await library.addHighlight(entryID: selectedID, variant: selectedVariant, text: text)
             try await refreshHighlights(from: library)
             session.status = "Added to Highlights"
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func removeHighlight(_ text: String) async {
-        guard let library = session.library else { return }
+    @discardableResult
+    func removeHighlight(_ text: String) async -> Bool {
+        guard let library = session.library else { return false }
         do {
-            guard try await library.removeHighlight(text) else { return }
+            guard try await library.removeHighlight(text) else { return false }
             try await refreshHighlights(from: library)
             session.status = "Removed from Highlights"
-            lifecycle?.requestSync()
+            return true
         } catch {
             session.errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func trash(entryID: String) async {
-        guard let library = session.library else { return }
+    @discardableResult
+    func trash(entryID: String) async -> Int {
+        guard let library = session.library else { return 0 }
         let ids = selectedEntryIDs(fallback: entryID)
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty else { return 0 }
         do {
             for id in ids { try await library.moveToTrash(entryID: id) }
             clear()
-            if let lifecycle {
-                await lifecycle.refreshLibrary()
-            }
             session.status = ids.count == 1
                 ? "The document and its summaries were moved to Trash"
                 : "\(ids.count) documents and their summaries were moved to Trash"
-            lifecycle?.requestSync()
+            return ids.count
         } catch {
             session.errorMessage = error.localizedDescription
+            return 0
         }
     }
 }
