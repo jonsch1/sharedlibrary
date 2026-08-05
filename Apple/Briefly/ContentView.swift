@@ -47,6 +47,13 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
+struct BrieflyActivity: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    let detail: String
+}
+
 @MainActor
 @Observable
 final class LibraryModel {
@@ -173,6 +180,35 @@ final class LibraryModel {
 
     var activityStatus: String {
         isPreparingSpeech ? speechPreparationStatus : status
+    }
+
+    var activeActivities: [BrieflyActivity] {
+        var activities = [BrieflyActivity]()
+        if isRunningVoiceBrief {
+            activities.append(.init(icon: "sparkles", title: "Creating brief", detail: status))
+        }
+        if isGeneratingSpeech {
+            activities.append(.init(icon: "waveform", title: "Creating audio", detail: status))
+        }
+        if isPreparingSpeech {
+            activities.append(.init(icon: "waveform", title: "Preparing voice", detail: speechPreparationStatus))
+        }
+        if isProcessing {
+            activities.append(.init(icon: "sparkles", title: "Preparing summaries", detail: status))
+        }
+        if isIngesting || isCheckingChannel {
+            activities.append(.init(icon: "square.and.arrow.down", title: "Gathering items", detail: status))
+        }
+        if isSyncing {
+            let detail = syncTotal > 0
+                ? "Uploading \(syncCompleted) of \(syncTotal) changes"
+                : status
+            activities.append(.init(icon: "icloud", title: "Syncing", detail: detail))
+        }
+        if isTestingAI {
+            activities.append(.init(icon: "checkmark.bubble", title: "Testing AI", detail: status))
+        }
+        return activities
     }
 
     var selectedEntry: LibraryEntry? {
@@ -583,22 +619,6 @@ final class LibraryModel {
         }
     }
 
-    func selectVoiceBriefVariant(_ variant: LibraryVariant) async {
-        guard variant == .concise || variant == .detailed,
-              let brief = selectedVoiceBrief else { return }
-        _ = await saveVoiceBrief(LibraryVoiceBriefDraft(
-            id: brief.id,
-            title: brief.title,
-            schedule: brief.schedule,
-            length: variant.rawValue,
-            sources: brief.sources,
-            prompt: brief.prompt ?? voiceBriefPrompt,
-            prioritizeForMe: brief.prioritizeForMe == true
-        ))
-        showingVoiceBriefSettings = false
-        status = variant == .concise ? "Short brief selected" : "Detailed brief selected"
-    }
-
     func trashSelectedVoiceBrief() async {
         guard
             let library,
@@ -734,9 +754,7 @@ final class LibraryModel {
                         (newEntryIDs.count == 1 ? "item" : "items")
             }
             if channel.autoSummarize {
-                for entryID in newEntryIDs {
-                    await enqueueProcessing(entryID, selectWhenFinished: false)
-                }
+                await enqueueProcessing(newEntryIDs)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -861,9 +879,7 @@ final class LibraryModel {
         projection = (try? await library.loadLibraryIndex()) ?? projection
         try? await refreshChannels(from: library)
         let autoSummarizeIDs = Set(libraryChannels.filter(\.autoSummarize).flatMap(\.entryIDs))
-        for entryID in newEntryIDs where autoSummarizeIDs.contains(entryID) {
-            await enqueueProcessing(entryID, selectWhenFinished: false)
-        }
+        await enqueueProcessing(newEntryIDs.filter(autoSummarizeIDs.contains))
         if !newEntryIDs.isEmpty { requestSync() }
     }
 
@@ -875,68 +891,31 @@ final class LibraryModel {
         guard let library, !isRunningVoiceBrief else { return }
         isRunningVoiceBrief = true
         defer { isRunningVoiceBrief = false }
-        let audioURL = FileManager.default.temporaryDirectory.appending(
-            path: "\(UUID().uuidString).wav"
-        )
-        defer { try? FileManager.default.removeItem(at: audioURL) }
         do {
-            let episode: LibraryVoiceBriefEpisodeResult
-            if let pending = try await library.pendingVoiceBriefEpisode(id: brief.id) {
-                episode = pending
-                status = "Resuming audio for \(brief.title)…"
-            } else {
-                status = "Fetching channels for \(brief.title)…"
-                var newEntryIDs = [String]()
-                for source in brief.sources {
-                    do {
-                        newEntryIDs += try await retrieveChannel(
-                            library,
-                            source: source
-                        ).newEntryIDs
-                    } catch {
-                        continue
-                    }
-                }
-                projection = try await library.loadLibraryIndex()
-                try await refreshChannels(from: library)
-                for entryID in newEntryIDs {
-                    await enqueueProcessing(entryID, selectWhenFinished: false)
-                }
-                status = "Assembling \(brief.title)…"
-                episode = try await library.runVoiceBrief(id: brief.id)
-            }
-            let speechText = spokenVoiceBriefText(episode.script)
-            var usedLocalVoice = false
-            if isLocalSpeechReady {
-                status = "Preparing on-device voice…"
+            status = "Fetching channels for \(brief.title)…"
+            var newEntryIDs = [String]()
+            for source in brief.sources {
                 do {
-                    try await LocalVoiceBriefSynthesizer.shared.synthesize(
-                        speechText,
-                        to: audioURL
-                    )
-                    usedLocalVoice = true
+                    newEntryIDs += try await retrieveChannel(
+                        library,
+                        source: source
+                    ).newEntryIDs
                 } catch {
-                    status = "Local voice unavailable; using system voice…"
-                    try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
+                    continue
                 }
-            } else {
-                status = "Local voice unavailable; using system voice…"
-                try await synthesizeSystemVoiceBriefAudio(speechText, to: audioURL)
             }
-            try await library.attachAudio(entryID: episode.entryID, file: audioURL)
-            try await library.completeVoiceBriefRun(
-                id: brief.id,
-                episodeID: episode.entryID
-            )
+            projection = try await library.loadLibraryIndex()
+            try await refreshChannels(from: library)
+            await enqueueProcessing(newEntryIDs)
+            status = "Assembling short and detailed versions of \(brief.title)…"
+            let episode = try await library.runVoiceBrief(id: brief.id)
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             if selectEpisode {
                 selectedVoiceBriefID = brief.id
                 await select(episode.entryID)
             }
-            status = usedLocalVoice
-                ? "Voice brief ready (on-device voice)"
-                : "Voice brief ready (system voice)"
+            status = "Brief ready"
             requestSync()
         } catch {
             if reportErrors {
@@ -1320,19 +1299,6 @@ final class LibraryModel {
         text rawText: String,
         segmentReady: (URL) throws -> Void
     ) async -> Bool {
-        if entry.voiceBriefID != nil {
-            guard let url = await audioURL(for: entry.id) else {
-                errorMessage = "This voice brief audio is not available locally."
-                return false
-            }
-            do {
-                try segmentReady(url)
-                return true
-            } catch {
-                errorMessage = error.localizedDescription
-                return false
-            }
-        }
         if variant == .source, let original = await audioURL(for: entry.id) {
             do {
                 try segmentReady(original)
@@ -1623,7 +1589,7 @@ final class LibraryModel {
                 }
             )
             try await refreshLibraryAfterCloudFetch(from: library)
-            status = "Everything is up to date"
+            status = "Sync complete"
         } catch {
             errorMessage = error.localizedDescription
             status = "Using the last complete offline library"
@@ -1649,12 +1615,21 @@ final class LibraryModel {
         _ entryID: String,
         selectWhenFinished: Bool = true
     ) async {
+        await enqueueProcessing([entryID], selectWhenFinished: selectWhenFinished)
+    }
+
+    private func enqueueProcessing(
+        _ entryIDs: [String],
+        selectWhenFinished: Bool = false
+    ) async {
         guard let library else { return }
         do {
-            try await library.enqueueProcessingJob(
-                entryID: entryID,
-                selectWhenFinished: selectWhenFinished
-            )
+            for entryID in entryIDs {
+                try await library.enqueueProcessingJob(
+                    entryID: entryID,
+                    selectWhenFinished: selectWhenFinished
+                )
+            }
             await drainProcessingQueue()
         } catch {
             errorMessage = error.localizedDescription
@@ -1664,10 +1639,32 @@ final class LibraryModel {
     private func drainProcessingQueue() async {
         guard let library, !isProcessing else { return }
         isProcessing = true
-        defer { isProcessing = false }
-        while let job = try? await library.claimNextProcessingJob() {
-            await process(job)
+        status = "Preparing summaries…"
+        var selectedProcessedID: String?
+        await withTaskGroup(of: String?.self) { group in
+            var activeTasks = 0
+
+            for _ in 0..<3 {
+                guard let job = try? await library.claimNextProcessingJob() else { break }
+                activeTasks += 1
+                group.addTask { await self.process(job) }
+            }
+
+            while activeTasks > 0 {
+                if let processedID = await group.next() ?? nil {
+                    selectedProcessedID = processedID
+                }
+                activeTasks -= 1
+                if let job = try? await library.claimNextProcessingJob() {
+                    activeTasks += 1
+                    group.addTask { await self.process(job) }
+                }
+            }
         }
+        isProcessing = false
+        await refreshLibrary(selecting: selectedProcessedID)
+        status = "Summaries ready"
+        requestSync()
     }
 
     private func requestSync() {
@@ -1798,11 +1795,10 @@ final class LibraryModel {
         })
     }
 
-    private func process(_ job: SQLiteProcessingJob) async {
-        guard let library else { return }
+    private func process(_ job: SQLiteProcessingJob) async -> String? {
+        guard let library else { return nil }
         let entryID = job.documentID
         do {
-            status = "Preparing summaries…"
             let prompt = try await library.processingPrompt(
                 entryID: entryID,
                 template: processingPrompt
@@ -1829,9 +1825,7 @@ final class LibraryModel {
                 suggestion: suggestion
             )
             try await library.completeProcessingJob(entryID: entryID)
-            await refreshLibrary(selecting: job.selectWhenFinished ? processedID : nil)
-            status = "Summaries ready"
-            requestSync()
+            return job.selectWhenFinished ? processedID : nil
         } catch {
             try? await library.failProcessingJob(
                 entryID: entryID,
@@ -1839,6 +1833,7 @@ final class LibraryModel {
             )
             errorMessage = error.localizedDescription
             status = "The capture is saved without summaries"
+            return nil
         }
     }
 
@@ -2474,6 +2469,7 @@ struct ContentView: View {
     @State private var windowControlsVisible = true
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
+    @State private var showsActivityDetails = false
 
     var body: some View {
         Group {
@@ -2692,17 +2688,12 @@ struct ContentView: View {
                 .padding(.bottom, 18)
         }
         #endif
+        #if os(macOS)
         .overlay(alignment: .bottomTrailing) {
             if model.isSyncing {
                 SyncActivityView(model: model)
-                    #if os(iOS)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 152)
-                    #else
                     .padding(.horizontal, 18)
                     .padding(.bottom, 66)
-                    #endif
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if model.isProcessing || model.isGeneratingSpeech ||
                 model.isPreparingSpeech
@@ -2715,18 +2706,30 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 40)
-                #if os(macOS)
                 .macLiquidGlass(in: Capsule())
-                #else
-                .background(.regularMaterial, in: Capsule())
-                #endif
                 .padding(18)
-                #if os(macOS)
                 .padding(.bottom, 48)
-                #endif
                 .accessibilityElement(children: .combine)
             }
         }
+        #else
+        .overlay(alignment: .bottomLeading) {
+            if !model.activeActivities.isEmpty {
+                MobileActivityCapsule(model: model) {
+                    showsActivityDetails = true
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 88)
+                .padding(.bottom, 62)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .sheet(isPresented: $showsActivityDetails) {
+            MobileActivityDetails(model: model)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        #endif
         .animation(.snappy(duration: 0.24), value: model.isSyncing)
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
@@ -3351,9 +3354,34 @@ private struct MobileXAppShell: View {
             .tabItem { Label("Library", systemImage: "bookmark") }
             .tag(MobilePrimaryTab.library)
         }
-        .tint(.primary)
+        .tint(Color.accentColor)
         .overlay(alignment: .bottomTrailing) {
-            if isPlayableDetail {
+            if let playingEntry {
+                Button {
+                    audioEntry = playingEntry
+                } label: {
+                    ZStack {
+                        Circle().fill(Color.accentColor)
+                        if audioPlayer.isPlaying {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .symbolEffect(.variableColor.iterative, options: .repeating)
+                        } else {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+                .padding(.trailing, 18)
+                .padding(.bottom, 58)
+                .accessibilityLabel("Open audio player")
+            } else if isPlayableDetail {
                 Button(action: primaryAction) {
                     if model.isGeneratingSpeech {
                         ProgressView()
@@ -3438,6 +3466,11 @@ private struct MobileXAppShell: View {
         showsDetail && model.selectedEntry != nil
     }
 
+    private var playingEntry: LibraryEntry? {
+        guard let id = audioPlayer.currentEntryID else { return nil }
+        return model.projection.entries.first { $0.id == id }
+    }
+
     private func primaryAction() {
         guard isPlayableDetail, let entry = model.selectedEntry else { return }
 
@@ -3502,6 +3535,7 @@ private struct MobileXFeedScreen: View {
     let openEntry: (LibraryEntry) -> Void
     let openConfiguration: () -> Void
     let create: () -> Void
+    @State private var showsSearch = false
 
     private var entries: [LibraryEntry] {
         let candidates: [LibraryEntry]
@@ -3537,30 +3571,6 @@ private struct MobileXFeedScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MobileXHeader(
-                title: title,
-                showsLogo: tab == .home,
-                showsSettings: $showsSettings,
-                primary: MobileXHeaderAction(
-                    icon: "plus",
-                    label: createLabel,
-                    action: create
-                ),
-                trailing: configurationAction
-            )
-
-            MobileXSearchField(text: $model.query, prompt: searchPrompt)
-                .padding(.top, 8)
-
-            choices
-
-            if tab == .briefs, let brief = model.selectedVoiceBrief {
-                BriefPreparationPanel(model: model, brief: brief)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
             if entries.isEmpty {
                 XEmptyState(
                     icon: emptyIcon,
@@ -3569,9 +3579,20 @@ private struct MobileXFeedScreen: View {
                 )
                 .frame(maxWidth: 720, maxHeight: .infinity)
                 .frame(maxWidth: .infinity)
+                .padding(.top, floatingHeaderHeight)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: floatingHeaderHeight)
+
+                        if tab == .briefs, let brief = model.selectedVoiceBrief {
+                            BriefPreparationPanel(model: model, brief: brief)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
                         ForEach(entries) { entry in
                             FeedEntryRow(entry: entry) {
                                 openEntry(entry)
@@ -3587,9 +3608,63 @@ private struct MobileXFeedScreen: View {
                 .refreshable { await refresh() }
             }
         }
+        .overlay(alignment: .top) { floatingHeader }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .animation(.smooth(duration: 0.3), value: model.selectedVoiceBriefID)
+        .animation(.snappy(duration: 0.24), value: showsSearch)
+        .onDisappear {
+            showsSearch = false
+            model.query = ""
+        }
+    }
+
+    private func closeSearch() {
+        model.query = ""
+        showsSearch = false
+    }
+
+    private let floatingHeaderHeight: CGFloat = 116
+
+    private var floatingHeader: some View {
+        VStack(spacing: 0) {
+            if showsSearch {
+                MobileXSearchField(
+                    text: $model.query,
+                    prompt: searchPrompt,
+                    cancel: closeSearch
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                MobileXHeader(
+                    title: title,
+                    showsLogo: tab == .home,
+                    showsSettings: $showsSettings,
+                    showsSettingsButton: tab == .home,
+                    search: MobileXHeaderAction(
+                        icon: "magnifyingglass",
+                        label: searchPrompt,
+                        action: { showsSearch = true }
+                    ),
+                    primary: MobileXHeaderAction(
+                        icon: "plus",
+                        label: createLabel,
+                        action: create
+                    ),
+                    trailing: configurationAction
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            choices
+        }
+        .mobileGlass(
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+            interactive: false
+        )
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .zIndex(10)
     }
 
     private var choices: some View {
@@ -3634,10 +3709,10 @@ private struct MobileXFeedScreen: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.top, 4)
+            .padding(.bottom, 12)
         }
         .defaultScrollAnchor(.leading)
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private func choiceButton(
@@ -3767,6 +3842,8 @@ private struct MobileXHeader: View {
     let title: String
     var showsLogo = false
     @Binding var showsSettings: Bool
+    var showsSettingsButton = false
+    var search: MobileXHeaderAction? = nil
     var primary: MobileXHeaderAction? = nil
     var trailing: MobileXHeaderAction? = nil
 
@@ -3780,15 +3857,21 @@ private struct MobileXHeader: View {
             }
 
             HStack {
-                Button { showsSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 19, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .background(Color(uiColor: .systemBackground), in: Circle())
-                        .contentShape(Circle())
+                if showsSettingsButton {
+                    Button { showsSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 19, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(Color.primary.opacity(0.06), in: Circle())
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Settings")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Settings")
+
+                if let search {
+                    headerButton(search)
+                }
 
                 Spacer()
 
@@ -3805,10 +3888,6 @@ private struct MobileXHeader: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 52)
-        .mobileGlass(
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous),
-            interactive: false
-        )
     }
 
     private func headerButton(_ action: MobileXHeaderAction) -> some View {
@@ -3816,7 +3895,7 @@ private struct MobileXHeader: View {
             Image(systemName: action.icon)
                 .font(.system(size: 18, weight: .semibold))
                 .frame(width: 44, height: 44)
-                .background(Color(uiColor: .systemBackground), in: Circle())
+                .background(Color.primary.opacity(0.06), in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -3827,30 +3906,40 @@ private struct MobileXHeader: View {
 private struct MobileXSearchField: View {
     @Binding var text: String
     let prompt: String
+    let cancel: () -> Void
+    @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField(prompt, text: $text)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-            if !text.isEmpty {
-                Button { text = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 32, height: 32)
+        HStack(spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(prompt, text: $text)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                    .submitLabel(.search)
+                if !text.isEmpty {
+                    Button { text = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
             }
+            .padding(.leading, 14)
+            .padding(.trailing, 6)
+            .frame(height: 40)
+            .background(Color.primary.opacity(0.07), in: Capsule())
+
+            Button("Cancel", action: cancel)
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.plain)
         }
-        .padding(.leading, 14)
-        .padding(.trailing, 6)
-        .frame(maxWidth: 688)
-        .frame(height: 44)
-        .background(Color.primary.opacity(0.06), in: Capsule())
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
+        .frame(height: 52)
+        .task { focused = true }
     }
 }
 
@@ -3877,6 +3966,12 @@ private struct MobileXLibraryScreen: View {
                     action: create
                 )
             )
+            .mobileGlass(
+                in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+                interactive: false
+            )
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
 
             HStack(spacing: 8) {
                 ForEach(Section.allCases, id: \.self) { item in
@@ -3958,6 +4053,10 @@ private struct MobileXDetail: View {
         )
         .background(readerBackground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(
+            model.showingVoiceBriefSettings ? .hidden : .visible,
+            for: .navigationBar
+        )
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -3969,30 +4068,6 @@ private struct MobileXDetail: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Back")
-            }
-            if model.selectedEntry != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        if model.canEdit && !model.showingTrash {
-                            Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                                Task { await model.processSelected() }
-                            }
-                            .disabled(model.isProcessing)
-                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                Task {
-                                    await model.trashSelected()
-                                    dismiss()
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 44, height: 44)
-                            .background(Color(uiColor: .systemBackground), in: Circle())
-                            .contentShape(Circle())
-                    }
-                    .accessibilityLabel("More actions")
-                }
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -5139,6 +5214,86 @@ private struct SyncActivityView: View {
         )
     }
 }
+
+#if os(iOS)
+private struct MobileActivityCapsule: View {
+    @Bindable var model: LibraryModel
+    let showDetails: () -> Void
+
+    var body: some View {
+        Button(action: showDetails) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Color.accentColor)
+                Text(model.activeActivities.first?.title ?? "Working")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(.regularMaterial, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
+        .accessibilityLabel("Show current activity")
+        .accessibilityValue(model.activeActivities.first?.detail ?? "")
+    }
+}
+
+private struct MobileActivityDetails: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var model: LibraryModel
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if model.activeActivities.isEmpty {
+                    ContentUnavailableView(
+                        "All done",
+                        systemImage: "checkmark.circle",
+                        description: Text("There are no background tasks running.")
+                    )
+                } else {
+                    List(model.activeActivities) { activity in
+                        HStack(alignment: .top, spacing: 13) {
+                            Image(systemName: activity.icon)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Color.accentColor)
+                                .frame(width: 34, height: 34)
+                                .background(Color.accentColor.opacity(0.12), in: Circle())
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(activity.title)
+                                    .font(.body.weight(.semibold))
+                                Text(activity.detail)
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Activity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+#endif
 
 private struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
@@ -7614,33 +7769,20 @@ private struct BriefPreparationPanel: View {
     @Bindable var model: LibraryModel
     let brief: LibraryVoiceBrief
 
-    private var selectedVariant: LibraryVariant {
-        brief.length == LibraryVariant.detailed.rawValue ? .detailed : .concise
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.isRunningVoiceBrief ? "Preparing your brief" : "Prepare a new brief")
-                        .font(.callout.weight(.semibold))
-                    Text(
-                        model.isRunningVoiceBrief
-                            ? model.status
-                            : "Fetch the channels, assemble the summaries, and create audio."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .contentTransition(.opacity)
-                }
-
-                Spacer(minLength: 8)
-
-                HStack(spacing: 6) {
-                    modeButton(.concise, label: "Short")
-                    modeButton(.detailed, label: "Detailed")
-                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.isRunningVoiceBrief ? "Preparing your brief" : "Prepare a new brief")
+                    .font(.callout.weight(.semibold))
+                Text(
+                    model.isRunningVoiceBrief
+                        ? model.status
+                        : "Fetch the channels and assemble short and detailed versions."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .contentTransition(.opacity)
             }
 
             Button {
@@ -7658,10 +7800,11 @@ private struct BriefPreparationPanel: View {
                         .font(.callout.weight(.semibold))
                         .contentTransition(.opacity)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.white)
+            .background(Color.blue, in: Capsule())
             .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
         }
         .padding(14)
@@ -7681,33 +7824,6 @@ private struct BriefPreparationPanel: View {
         }
         .animation(.smooth(duration: 0.35), value: model.isRunningVoiceBrief)
         .animation(.smooth(duration: 0.25), value: model.status)
-    }
-
-    private func modeButton(_ variant: LibraryVariant, label: String) -> some View {
-        Button {
-            Task { await model.selectVoiceBriefVariant(variant) }
-        } label: {
-            HStack(spacing: 6) {
-                ReadingDepthIcon(variant: variant)
-                    .frame(width: 22, height: 22)
-                Text(label)
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selectedVariant == variant ? Color.white : Color.primary)
-        .background(
-            selectedVariant == variant
-                ? Color.accentColor
-                : Color.primary.opacity(0.055),
-            in: Capsule()
-        )
-        .disabled(model.isRunningVoiceBrief)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(selectedVariant == variant ? .isSelected : [])
     }
 }
 
@@ -8454,7 +8570,7 @@ private struct LibraryDocument: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
-                if entry.texts.count > 1 && !usesMobileItemControls {
+                if entry.texts.count > 1 {
                     HStack(spacing: 0) {
                         ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                             Button {
@@ -8482,20 +8598,8 @@ private struct LibraryDocument: View {
                         }
                     }
                     #if os(iOS)
-                    .background(readerBackground)
-                    .clipShape(
-                        .rect(
-                            topLeadingRadius: 0,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: 14
-                        )
-                    )
-                    .overlay(alignment: .top) {
-                        Rectangle()
-                            .fill(.primary.opacity(0.08))
-                            .frame(height: 1)
-                    }
+                    .padding(4)
+                    .mobileGlass(in: Capsule())
                     #endif
                 }
 
@@ -8637,6 +8741,10 @@ private struct LibraryDocument: View {
                 }
                 #endif
             }
+            #if os(iOS)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 8)
+            #endif
             #if os(macOS)
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity)
@@ -8961,7 +9069,6 @@ private struct VoiceBriefConfiguration: View {
     @State private var title = ""
     @State private var prompt = ""
     @State private var schedule = "manual"
-    @State private var length = LibraryVariant.concise.rawValue
     @State private var sources = ""
     @State private var prioritizeForMe = false
     @State private var confirmsTrash = false
@@ -9075,6 +9182,7 @@ private struct VoiceBriefConfiguration: View {
                     }
 
                     ScheduleEditor(schedule: $schedule)
+
                     HStack {
                         if model.selectedVoiceBrief != nil {
                             Button("Move voice brief to Trash", role: .destructive) {
@@ -9096,12 +9204,6 @@ private struct VoiceBriefConfiguration: View {
                     description: "A private brief assembled from the selected channel summaries."
                 ) {
                     LabeledContent("Schedule", value: brief.schedule)
-                    LabeledContent(
-                        "Brief length",
-                        value: brief.length == LibraryVariant.detailed.rawValue
-                            ? "Detailed"
-                            : "Short"
-                    )
                     LabeledContent("Sources", value: brief.sources.joined(separator: "\n"))
                 }
             } else {
@@ -9124,6 +9226,9 @@ private struct VoiceBriefConfiguration: View {
                 HStack(spacing: 10) {
                     Button {
                         model.navigateBack()
+                        #if os(iOS)
+                        dismiss()
+                        #endif
                     } label: {
                         Image(systemName: "arrow.left")
                             .frame(width: 44, height: 44)
@@ -9133,10 +9238,6 @@ private struct VoiceBriefConfiguration: View {
                     Text("Voice brief")
                         .font(.headline)
                     Spacer(minLength: 0)
-                    Text(model.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
 
                     Button {
                         Task { await save() }
@@ -9172,7 +9273,7 @@ private struct VoiceBriefConfiguration: View {
                 id: model.selectedVoiceBrief?.id,
                 title: title,
                 schedule: schedule,
-                length: length,
+                length: "",
                 sources: Array(selectedSources),
                 prompt: prompt,
                 prioritizeForMe: prioritizeForMe
@@ -9204,16 +9305,12 @@ private struct VoiceBriefConfiguration: View {
             title = brief.title
             prompt = brief.prompt ?? model.voiceBriefPrompt
             schedule = brief.schedule
-            length = brief.length == LibraryVariant.detailed.rawValue
-                ? LibraryVariant.detailed.rawValue
-                : LibraryVariant.concise.rawValue
             sources = brief.sources.joined(separator: "\n")
             prioritizeForMe = brief.prioritizeForMe == true
         } else {
             title = "New voice brief"
             prompt = model.voiceBriefPrompt
             schedule = "manual"
-            length = LibraryVariant.concise.rawValue
             sources = ""
             prioritizeForMe = false
         }

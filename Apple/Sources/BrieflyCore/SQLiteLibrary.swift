@@ -339,6 +339,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
     public func createDocument(
         title: String,
         body: String,
+        texts requestedTexts: [LibraryVariant: String]? = nil,
         type: String = "document",
         sourceURL: String? = nil,
         mediaURL: String? = nil,
@@ -353,8 +354,14 @@ public final class SQLiteLibrary: @unchecked Sendable {
         addToOutbox: Bool = true
     ) throws -> SQLiteDocument {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let texts = requestedTexts.map { values in
+            values.reduce(into: [LibraryVariant: String]()) { result, value in
+                let text = value.value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { result[value.key] = text }
+            }
+        } ?? [.source: trimmed]
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !normalizedTitle.isEmpty else {
+        guard !texts.isEmpty, !normalizedTitle.isEmpty else {
             throw SQLiteLibraryError.invalidDocument
         }
         let captureID = requestedCaptureID ?? UUID().uuidString.uppercased()
@@ -373,7 +380,7 @@ public final class SQLiteLibrary: @unchecked Sendable {
             tags: tags,
             sourceIDs: sourceIDs,
             sourceURLs: sourceURLs,
-            texts: [.source: trimmed]
+            texts: texts
         )
         return try locked {
             try transaction {

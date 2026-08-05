@@ -1,6 +1,7 @@
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 const managedAIModel = 'deepseek/deepseek-v4-flash';
 const managedAIMonthlyAllowanceMicros = 5_000_000;
+const managedAIReservationMicros = 500_000;
 const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;
 const managedAIReservationStaleMilliseconds = 20 * 60 * 1000;
 const maximumManagedAIPromptLength = 600_000;
@@ -1138,7 +1139,6 @@ async function hasComplimentaryPlusAccess(env, email) {
 
 async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros) {
 	const now = Date.now();
-	const reservationID = crypto.randomUUID();
 	await env.DB.prepare(
 		`INSERT OR IGNORE INTO managed_ai_usage (
 			account_id, usage_month, spent_micros, reserved_micros, updated_at
@@ -1148,20 +1148,27 @@ async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros
 		.run();
 	const result = await env.DB.prepare(
 		`UPDATE managed_ai_usage
-		 SET reserved_micros = ? - spent_micros,
-		     reservation_id = ?,
+		 SET reserved_micros = CASE
+		       WHEN updated_at < ? THEN ?
+		       ELSE reserved_micros + ?
+		     END,
+		     reservation_id = NULL,
 		     updated_at = ?
 		 WHERE account_id = ? AND usage_month = ?
-		   AND (reserved_micros = 0 OR updated_at < ?)
-		   AND spent_micros < ?`
+		   AND spent_micros + CASE
+		         WHEN updated_at < ? THEN 0
+		         ELSE reserved_micros
+		       END + ? <= ?`
 	)
 		.bind(
-			allowanceMicros,
-			reservationID,
+			now - managedAIReservationStaleMilliseconds,
+			managedAIReservationMicros,
+			managedAIReservationMicros,
 			now,
 			accountID,
 			usageMonth,
 			now - managedAIReservationStaleMilliseconds,
+			managedAIReservationMicros,
 			allowanceMicros
 		)
 		.run();
@@ -1174,19 +1181,19 @@ async function reserveManagedAIUsage(env, accountID, usageMonth, allowanceMicros
 		.first();
 	return {
 		reserved: databaseChanges(result) > 0,
-		reservationID,
 		spentMicros: Number(usage?.spent_micros ?? 0),
-		reservedMicros: Number(usage?.reserved_micros ?? 0)
+		reservedMicros: Number(usage?.reserved_micros ?? 0),
+		reservationMicros: managedAIReservationMicros
 	};
 }
 
-async function releaseManagedAIUsage(env, accountID, usageMonth, reservationID) {
+async function releaseManagedAIUsage(env, accountID, usageMonth, reservationMicros) {
 	await env.DB.prepare(
 		`UPDATE managed_ai_usage
-		 SET reserved_micros = 0, reservation_id = NULL, updated_at = ?
-		 WHERE account_id = ? AND usage_month = ? AND reservation_id = ?`
+		 SET reserved_micros = MAX(0, reserved_micros - ?), updated_at = ?
+		 WHERE account_id = ? AND usage_month = ?`
 	)
-		.bind(Date.now(), accountID, usageMonth, reservationID)
+		.bind(reservationMicros, Date.now(), accountID, usageMonth)
 		.run();
 }
 
@@ -1194,25 +1201,24 @@ async function settleManagedAIUsage(
 	env,
 	accountID,
 	usageMonth,
-	reservationID,
+	reservationMicros,
 	costMicros,
 	allowanceMicros
 ) {
 	await env.DB.prepare(
 		`UPDATE managed_ai_usage
 		 SET spent_micros = MIN(?, spent_micros + ?),
-		     reserved_micros = 0,
-		     reservation_id = NULL,
+		     reserved_micros = MAX(0, reserved_micros - ?),
 		     updated_at = ?
-		 WHERE account_id = ? AND usage_month = ? AND reservation_id = ?`
+		 WHERE account_id = ? AND usage_month = ?`
 	)
 		.bind(
 			allowanceMicros,
 			costMicros,
+			reservationMicros,
 			Date.now(),
 			accountID,
-			usageMonth,
-			reservationID
+			usageMonth
 		)
 		.run();
 }
@@ -1268,10 +1274,8 @@ async function processWithManagedAI(request, env) {
 	if (!reservation.reserved) {
 		return json(
 			{
-				error: reservation.reservedMicros
-					? 'Another Briefly AI request is already running.'
-					: 'Your Briefly AI allowance resets next month.',
-				code: reservation.reservedMicros ? 'request_in_progress' : 'monthly_limit_reached'
+				error: 'Your Briefly AI allowance resets next month.',
+				code: 'monthly_limit_reached'
 			},
 			{ status: 429 }
 		);
@@ -1332,12 +1336,12 @@ async function processWithManagedAI(request, env) {
 		const costMicros =
 			Number.isFinite(reportedCost) && reportedCost >= 0
 				? Math.ceil(reportedCost * 1_000_000)
-				: reservation.reservedMicros;
+				: reservation.reservationMicros;
 		await settleManagedAIUsage(
 			env,
 			customer.account_id,
 			usageMonth,
-			reservation.reservationID,
+			reservation.reservationMicros,
 			costMicros,
 			allowanceMicros
 		);
@@ -1371,7 +1375,7 @@ async function processWithManagedAI(request, env) {
 				env,
 				customer.account_id,
 				usageMonth,
-				reservation.reservationID
+				reservation.reservationMicros
 			);
 		}
 	}

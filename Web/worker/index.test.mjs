@@ -154,6 +154,55 @@ test('Briefly AI prefers Fireworks with zero-data-retention routing and provider
 	}
 });
 
+test('Briefly AI reserves usage for concurrent processing requests', async () => {
+	const originalFetch = globalThis.fetch;
+	let releaseUpstream;
+	const upstreamBarrier = new Promise((resolve) => {
+		releaseUpstream = resolve;
+	});
+	let upstreamCalls = 0;
+	globalThis.fetch = async () => {
+		upstreamCalls += 1;
+		await upstreamBarrier;
+		return new Response(
+			JSON.stringify({
+				choices: [{ message: { content: 'Concurrent summary.' } }],
+				usage: { cost: 0.001 }
+			}),
+			{ headers: { 'Content-Type': 'application/json' } }
+		);
+	};
+
+	try {
+		const environment = managedAIEnvironment();
+		const makeRequest = () =>
+			worker.fetch(
+				authenticatedRequest('/api/ai/process', {
+					method: 'POST',
+					headers: {
+						Origin: 'https://library.example',
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({ prompt: 'Summarize this.', format: 'text' })
+				}),
+				environment
+			);
+		const requests = [makeRequest(), makeRequest(), makeRequest()];
+		for (let attempt = 0; attempt < 20 && upstreamCalls < 3; attempt += 1) {
+			await Promise.resolve();
+		}
+		releaseUpstream();
+		const responses = await Promise.all(requests);
+		assert.equal(upstreamCalls, 3);
+		assert.deepEqual(responses.map((response) => response.status), [200, 200, 200]);
+		assert.equal(environment.managedAIState.spentMicros, 3_000);
+		assert.equal(environment.managedAIState.reservedMicros, 0);
+	} finally {
+		releaseUpstream?.();
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test('share mutations reject cross-origin requests', async () => {
 	const response = await worker.fetch(
 		authenticatedRequest('/api/share-links', {
@@ -226,42 +275,40 @@ function managedAIEnvironment(initialState = {}) {
 						return null;
 					},
 					async run() {
-						if (sql.includes('SET reserved_micros = ? - spent_micros')) {
-							const [allowance, reservationID, now, , , staleBefore] = bindings;
-							if (
-								managedAIState.reservedMicros !== 0 &&
-								managedAIState.updatedAt >= staleBefore
-							) {
+						if (sql.includes('SET reserved_micros = CASE')) {
+							const [staleBefore, reservation, , now, , , , , allowance] = bindings;
+							const reserved = managedAIState.updatedAt < staleBefore
+								? 0
+								: managedAIState.reservedMicros;
+							if (managedAIState.spentMicros + reserved + reservation > allowance) {
 								return { success: true, meta: { changes: 0 } };
 							}
-							managedAIState.reservedMicros = allowance - managedAIState.spentMicros;
-							managedAIState.reservationID = reservationID;
+							managedAIState.reservedMicros = reserved + reservation;
+							managedAIState.reservationID = null;
 							managedAIState.updatedAt = now;
 							return { success: true, meta: { changes: 1 } };
 						}
-						if (sql.includes('SET reserved_micros = 0, reservation_id = NULL')) {
-							const [now, , , reservationID] = bindings;
-							if (managedAIState.reservationID === reservationID) {
-								managedAIState.reservedMicros = 0;
-								managedAIState.reservationID = null;
-								managedAIState.updatedAt = now;
-								return { success: true, meta: { changes: 1 } };
-							}
-							return { success: true, meta: { changes: 0 } };
-						}
 						if (sql.includes('SET spent_micros = MIN')) {
-							const [allowance, cost, now, , , reservationID] = bindings;
-							if (managedAIState.reservationID === reservationID) {
-								managedAIState.spentMicros = Math.min(
-									allowance,
-									managedAIState.spentMicros + cost
-								);
-								managedAIState.reservedMicros = 0;
-								managedAIState.reservationID = null;
-								managedAIState.updatedAt = now;
-								return { success: true, meta: { changes: 1 } };
-							}
-							return { success: true, meta: { changes: 0 } };
+							const [allowance, cost, reservation, now] = bindings;
+							managedAIState.spentMicros = Math.min(
+								allowance,
+								managedAIState.spentMicros + cost
+							);
+							managedAIState.reservedMicros = Math.max(
+								0,
+								managedAIState.reservedMicros - reservation
+							);
+							managedAIState.updatedAt = now;
+							return { success: true, meta: { changes: 1 } };
+						}
+						if (sql.includes('SET reserved_micros = MAX(0, reserved_micros - ?)')) {
+							const [reservation, now] = bindings;
+							managedAIState.reservedMicros = Math.max(
+								0,
+								managedAIState.reservedMicros - reservation
+							);
+							managedAIState.updatedAt = now;
+							return { success: true, meta: { changes: 1 } };
 						}
 						return { success: true, meta: { changes: 1 } };
 					}

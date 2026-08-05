@@ -714,10 +714,9 @@ final class LibraryContractTests: XCTestCase {
         #if os(macOS)
         let episode = try await workspace.runVoiceBrief(id: voiceBriefID)
         XCTAssertTrue(episode.script.contains("# Native Daily"))
-        XCTAssertTrue(episode.script.contains("## Signed item"))
-        XCTAssertTrue(episode.script.contains("Detailed summary."))
+        XCTAssertTrue(episode.script.contains("Concise summary."))
         let pendingAfterAssembly = try await workspace.pendingVoiceBriefIDs()
-        XCTAssertTrue(pendingAfterAssembly.contains(voiceBriefID))
+        XCTAssertFalse(pendingAfterAssembly.contains(voiceBriefID))
         workspaceProjection = try await workspace.loadProjection()
         let savedEpisode = try XCTUnwrap(
             workspaceProjection.entries.first { $0.id == episode.entryID }
@@ -728,23 +727,16 @@ final class LibraryContractTests: XCTestCase {
             Set(savedEpisode.sourceIDs ?? []),
             Set(signedIn.newEntryIDs + [capturedID])
         )
-        let generatedAudio = temporary.appending(path: "episode.wav")
-        try Data("RIFF native audio boundary".utf8).write(to: generatedAudio)
-        try await workspace.attachAudio(
-            entryID: episode.entryID,
-            file: generatedAudio
+        XCTAssertTrue(
+            savedEpisode.text(for: .concise)?.text?.contains("Concise summary.") == true
         )
-        try await workspace.completeVoiceBriefRun(
-            id: voiceBriefID,
-            episodeID: episode.entryID
+        XCTAssertTrue(
+            savedEpisode.text(for: .detailed)?.text?.contains("Detailed summary.") == true
         )
-        let pendingAfterAudio = try await workspace.pendingVoiceBriefIDs()
-        XCTAssertFalse(pendingAfterAudio.contains(voiceBriefID))
-        workspaceProjection = try await workspace.loadProjection()
-        XCTAssertEqual(
-            workspaceProjection.entries.first { $0.id == episode.entryID }?.hasAudio,
-            true
+        XCTAssertTrue(
+            savedEpisode.text(for: .detailed)?.text?.contains("Signed detailed summary.") == true
         )
+        XCTAssertEqual(savedEpisode.hasAudio, false)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
         let scheduledCheck = try XCTUnwrap(

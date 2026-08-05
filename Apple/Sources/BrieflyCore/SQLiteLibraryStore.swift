@@ -1084,7 +1084,6 @@ public actor SQLiteLibraryStore {
         }
         var state = readChannelState()
         var run = state.voiceBriefs[id] ?? .init()
-        if let pending = try pendingVoiceBriefEpisode(id: id) { return pending }
         run.lastAttemptAt = Date().iso8601
         state.voiceBriefs[id] = run
         try writeChannelState(state)
@@ -1098,48 +1097,60 @@ public actor SQLiteLibraryStore {
 
         let projection = try loadProjection()
         let entries = Dictionary(uniqueKeysWithValues: projection.entries.map { ($0.id, $0) })
-        let summaryVariant = LibraryVariant(rawValue: brief.length) ?? .concise
-        var sections = [String]()
+        var sections = [LibraryVariant: [String]]()
         var selected = [(String, LibraryChannelItem)]()
-        var characterCount = 0
+        var characterCounts = [LibraryVariant: Int]()
         for (source, item) in pending {
             let entry = entries[item.entryID]
-            guard let text = entry?.text(for: summaryVariant)?.text?
-                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
-            else { continue }
-            let section = """
-            ## \(item.title)
+            var included = false
+            for variant in [LibraryVariant.concise, .detailed] {
+                guard let text = entry?.text(for: variant)?.text?
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+                else { continue }
+                let section = """
+                ## \(item.title)
 
-            \(text)
-            """
-            if characterCount + section.count > 120_000, !sections.isEmpty { break }
-            let fitted = String(section.prefix(max(0, 120_000 - characterCount)))
-            sections.append(fitted)
-            selected.append((source, item))
-            characterCount += fitted.count
+                \(text)
+                """
+                let count = characterCounts[variant, default: 0]
+                guard count < 120_000 else { continue }
+                let fitted = String(section.prefix(120_000 - count))
+                sections[variant, default: []].append(fitted)
+                characterCounts[variant] = count + fitted.count
+                included = true
+            }
+            if included { selected.append((source, item)) }
         }
-        guard !sections.isEmpty else { throw LibraryError.noVoiceBriefItems }
+        guard sections.values.contains(where: { !$0.isEmpty }) else {
+            throw LibraryError.noVoiceBriefItems
+        }
 
         run.status = "generating"
         run.message = "Generating \(brief.title)"
         state.voiceBriefs[id] = run
         try writeChannelState(state)
         do {
-            let script = "# \(brief.title)\n\n" + sections.joined(separator: "\n\n")
+            let scripts = sections.mapValues {
+                "# \(brief.title)\n\n" + $0.joined(separator: "\n\n")
+            }
             let entryID = try saveVoiceBriefEpisode(
                 brief: brief,
-                script: script,
+                scripts: scripts,
                 sources: selected.map(\.1)
             )
             run.consumed = Array(Set(
                 run.consumed + selected.map { voiceBriefItemKey($0.0, $0.1.id) }
             ))
-            run.pendingEpisodeID = entryID
-            run.status = "audio_pending"
-            run.message = "Preparing audio"
+            run.pendingEpisodeID = nil
+            run.lastRunAt = Date().iso8601
+            run.status = "ready"
+            run.message = "Brief ready."
             state.voiceBriefs[id] = run
             try writeChannelState(state)
-            return LibraryVoiceBriefEpisodeResult(entryID: entryID, script: script)
+            return LibraryVoiceBriefEpisodeResult(
+                entryID: entryID,
+                script: scripts[.concise] ?? scripts[.detailed] ?? ""
+            )
         } catch {
             run.status = "error"
             run.message = error.localizedDescription
@@ -1147,20 +1158,6 @@ public actor SQLiteLibraryStore {
             try? writeChannelState(state)
             throw error
         }
-    }
-
-    public func pendingVoiceBriefEpisode(
-        id: String
-    ) throws -> LibraryVoiceBriefEpisodeResult? {
-        guard let pendingEpisodeID = readChannelState().voiceBriefs[id]?.pendingEpisodeID else {
-            return nil
-        }
-        let pending = try database().getDocument(pendingEpisodeID)
-        guard let body = pending.texts[.source], !body.isEmpty else { return nil }
-        return LibraryVoiceBriefEpisodeResult(
-            entryID: pendingEpisodeID,
-            script: body.components(separatedBy: "\n\n## Sources\n\n").first ?? body
-        )
     }
 
     public func queueVoiceBriefRun(id: String) throws {
@@ -1178,23 +1175,10 @@ public actor SQLiteLibraryStore {
     }
 
     public func pendingVoiceBriefIDs() throws -> [String] {
-        let active = Set(["queued", "generating", "audio_pending"])
+        let active = Set(["queued", "generating"])
         return readChannelState().voiceBriefs.compactMap { id, run in
             run.status.map(active.contains) == true ? id : nil
         }
-    }
-
-    public func completeVoiceBriefRun(id: String, episodeID: String) throws {
-        var state = readChannelState()
-        guard var run = state.voiceBriefs[id], run.pendingEpisodeID == episodeID else {
-            throw LibraryError.missingVoiceBrief
-        }
-        run.pendingEpisodeID = nil
-        run.lastRunAt = Date().iso8601
-        run.status = "ready"
-        run.message = "Voice brief ready."
-        state.voiceBriefs[id] = run
-        try writeChannelState(state)
     }
 
     public func dueVoiceBriefIDs(at date: Date = Date()) throws -> [String] {
@@ -1805,27 +1789,31 @@ public actor SQLiteLibraryStore {
 
     private func saveVoiceBriefEpisode(
         brief: LibraryVoiceBrief,
-        script: String,
+        scripts: [LibraryVariant: String],
         sources: [LibraryChannelItem]
     ) throws -> String {
         let captureID = UUID().uuidString.uppercased()
-        let title = firstHeading(script) ??
+        let title = scripts[.concise].flatMap(firstHeading) ??
+            scripts[.detailed].flatMap(firstHeading) ??
             "\(brief.title) — \(Date().formatted(date: .abbreviated, time: .omitted))"
         let sourceIDs = Array(Set(sources.map(\.entryID)))
         let sourceURLs = Array(Set(sources.map(\.url)))
         let sourceList = sources.map {
             "- [\($0.title)](\($0.url))"
         }.joined(separator: "\n")
-        let body = """
-        \(script.trimmingCharacters(in: .whitespacesAndNewlines))
+        let texts = scripts.mapValues { script in
+            """
+            \(script.trimmingCharacters(in: .whitespacesAndNewlines))
 
-        ## Sources
+            ## Sources
 
-        \(sourceList)
-        """
+            \(sourceList)
+            """
+        }
         return try database().createDocument(
             title: title,
-            body: body,
+            body: texts[.concise] ?? texts[.detailed] ?? "",
+            texts: texts,
             type: "voice_brief_episode",
             voiceBriefID: brief.id,
             sourceIDs: sourceIDs,

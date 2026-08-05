@@ -42,32 +42,10 @@ struct BrieflyShareSource: Encodable {
     let texts: [Text]
 }
 
-private actor ManagedAIRequestGate {
-    private var available = true
-    private var waiters = [CheckedContinuation<Void, Never>]()
-
-    func acquire() async {
-        if available {
-            available = false
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func release() {
-        if waiters.isEmpty {
-            available = true
-        } else {
-            waiters.removeFirst().resume()
-        }
-    }
-}
-
 @MainActor
 final class BrieflyBackend {
     static let shared = BrieflyBackend()
     static let origin = URL(string: "https://www.readbriefly.fyi")!
-    private static let managedAIGate = ManagedAIRequestGate()
 
     func accountStatus() async throws -> BrieflyAccountStatus {
         let (data, response) = try await request("api/auth/status")
@@ -120,15 +98,7 @@ final class BrieflyBackend {
     }
 
     func runManagedAI(prompt: String, format: String) async throws -> String {
-        await Self.managedAIGate.acquire()
-        do {
-            let output = try await performManagedAI(prompt: prompt, format: format)
-            await Self.managedAIGate.release()
-            return output
-        } catch {
-            await Self.managedAIGate.release()
-            throw error
-        }
+        try await performManagedAI(prompt: prompt, format: format)
     }
 
     private func performManagedAI(prompt: String, format: String) async throws -> String {
