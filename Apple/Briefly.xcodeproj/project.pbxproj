@@ -17,6 +17,13 @@
 		100000000000000000000008 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* FluidAudio */; };
 		100000000000000000000009 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* AppEnvironment.swift */; };
 		10000000000000000000000A /* BrieflyApplicationTours.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* BrieflyApplicationTours.swift */; };
+		10000000000000000000000B /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* LibraryModel.swift */; };
+		10000000000000000000000C /* NativeAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000C /* NativeAudioPlayer.swift */; };
+		10000000000000000000000D /* AppShells.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* AppShells.swift */; };
+		10000000000000000000000E /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000E /* SharedComponents.swift */; };
+		10000000000000000000000F /* LibraryDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000F /* LibraryDocument.swift */; };
+		100000000000000000000010 /* MarkdownEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* MarkdownEditor.swift */; };
+		100000000000000000000011 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* SettingsViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -40,6 +47,13 @@
 		200000000000000000000008 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		200000000000000000000009 /* BrieflyApplicationTours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyApplicationTours.swift; sourceTree = "<group>"; };
 		20000000000000000000000A /* BrieflyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrieflyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		20000000000000000000000B /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
+		20000000000000000000000C /* NativeAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioPlayer.swift; sourceTree = "<group>"; };
+		20000000000000000000000D /* AppShells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShells.swift; sourceTree = "<group>"; };
+		20000000000000000000000E /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
+		20000000000000000000000F /* LibraryDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDocument.swift; sourceTree = "<group>"; };
+		200000000000000000000010 /* MarkdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditor.swift; sourceTree = "<group>"; };
+		200000000000000000000011 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,6 +90,13 @@
 			children = (
 				200000000000000000000008 /* AppEnvironment.swift */,
 				200000000000000000000001 /* BrieflyApp.swift */,
+				20000000000000000000000B /* LibraryModel.swift */,
+				20000000000000000000000C /* NativeAudioPlayer.swift */,
+				20000000000000000000000D /* AppShells.swift */,
+				20000000000000000000000E /* SharedComponents.swift */,
+				20000000000000000000000F /* LibraryDocument.swift */,
+				200000000000000000000010 /* MarkdownEditor.swift */,
+				200000000000000000000011 /* SettingsViews.swift */,
 				200000000000000000000002 /* ContentView.swift */,
 				200000000000000000000003 /* ChannelBrowser.swift */,
 				200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */,
@@ -228,6 +249,13 @@
 			files = (
 				100000000000000000000009 /* AppEnvironment.swift in Sources */,
 				100000000000000000000001 /* BrieflyApp.swift in Sources */,
+				10000000000000000000000B /* LibraryModel.swift in Sources */,
+				10000000000000000000000C /* NativeAudioPlayer.swift in Sources */,
+				10000000000000000000000D /* AppShells.swift in Sources */,
+				10000000000000000000000E /* SharedComponents.swift in Sources */,
+				10000000000000000000000F /* LibraryDocument.swift in Sources */,
+				100000000000000000000010 /* MarkdownEditor.swift in Sources */,
+				100000000000000000000011 /* SettingsViews.swift in Sources */,
 				100000000000000000000002 /* ContentView.swift in Sources */,
 				100000000000000000000003 /* ChannelBrowser.swift in Sources */,
 				100000000000000000000007 /* LocalVoiceBriefSynthesizer.swift in Sources */,
