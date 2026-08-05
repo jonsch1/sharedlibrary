@@ -1,6 +1,7 @@
 import Foundation
 import BrieflyCore
 
+@MainActor
 final class BrieflyBackend {
     static let shared = BrieflyBackend()
     static let origin = URL(string: "https://www.readbriefly.fyi")!
