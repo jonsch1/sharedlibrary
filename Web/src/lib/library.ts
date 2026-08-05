@@ -1,1 +1,8 @@
-export { libraryVariants, type LibraryVariant } from '../../../Shared/library.js';
+export {
+	isReadingDepth,
+	libraryVariants,
+	readingDepths,
+	sourceVariant,
+	type LibraryVariant,
+	type ReadingDepth
+} from '../../../Shared/reading-depth.js';

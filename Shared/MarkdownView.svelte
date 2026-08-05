@@ -1,7 +1,7 @@
 <script lang="ts">
   import DOMPurify from 'dompurify';
   import { marked } from 'marked';
-  import { sourceTextParagraphs } from './library';
+  import { sourceTextParagraphs } from './source-text';
 
   let { text, plain = false }: { text: string; plain?: boolean } = $props();
   let html = $derived(

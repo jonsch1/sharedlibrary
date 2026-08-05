@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { LibraryVariant } from './library';
+  import {
+    isReadingDepth,
+    readingDepths,
+    sourceVariant,
+    type LibraryVariant
+  } from './reading-depth';
 
   let {
     variants,
@@ -13,9 +18,9 @@
     presentation?: 'compact' | 'showcase';
   } = $props();
 
-  const variantOrder: LibraryVariant[] = ['concise', 'detailed'];
-  const summaryVariants = $derived(variants.filter((variant) => variant !== 'source'));
-  const hasSource = $derived(variants.includes('source'));
+  const variantOrder = readingDepths;
+  const summaryVariants = $derived(variants.filter(isReadingDepth));
+  const hasSource = $derived(variants.includes(sourceVariant));
   const depthIconPaths = [
     'M4 9h16v2H4V9zm0 4h10v2H4v-2z',
     'M3 18h12v-2H3v2zm0-12v2h18V6H3zm0 7h18v-2H3v2z'
@@ -59,12 +64,12 @@
         <button
           type="button"
           class="depth-step original-step"
-          class:is-active={selected === 'source'}
+          class:is-active={selected === sourceVariant}
           role="radio"
-          aria-checked={selected === 'source'}
+          aria-checked={selected === sourceVariant}
           aria-label={variantNames.source}
           title={variantNames.source}
-          onclick={() => onselect('source')}
+          onclick={() => onselect(sourceVariant)}
         >
           <span class="depth-step-core original-step-core">
             <svg class="original-icon" viewBox="0 0 24 24" aria-hidden="true">

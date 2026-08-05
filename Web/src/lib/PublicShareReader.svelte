@@ -14,7 +14,7 @@
 		type ContentReportCategory,
 		type PublicShareDocument
 	} from '$lib/share-links.js';
-	import { libraryVariants, type LibraryVariant } from '$lib/library.js';
+	import { readingDepths, type LibraryVariant } from '$lib/library.js';
 
 	let { token }: { token: string } = $props();
 
@@ -41,7 +41,7 @@
 	let speechChunkIndex = 0;
 
 	let availableVariants = $derived(
-		libraryVariants.filter((variant) =>
+		readingDepths.filter((variant) =>
 			document?.texts.some((text) => text.variant === variant)
 		)
 	);
@@ -64,9 +64,10 @@
 				if (!isActive()) return;
 				if (result.status === 'ready') {
 					document = result;
-					selectedVariant = result.texts.some((text) => text.variant === 'concise')
-						? 'concise'
-						: result.texts[0]?.variant ?? 'concise';
+					selectedVariant =
+						readingDepths.find((variant) =>
+							result.texts.some((text) => text.variant === variant)
+						) ?? 'concise';
 					loading = false;
 					preparing = false;
 					return;
@@ -251,7 +252,7 @@
 			</footer>
 		</main>
 
-		{#if availableVariants.some((variant) => variant !== 'source')}
+		{#if availableVariants.length > 0}
 			<footer class="public-share-action-bar" aria-label="Document and audio controls">
 				<button
 					class="public-share-play"

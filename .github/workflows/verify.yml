@@ -1,0 +1,71 @@
+name: Verify Briefly
+
+on:
+  pull_request:
+    paths:
+      - "Apple/**"
+      - "Shared/**"
+      - "Tools/extractor/**"
+      - "Web/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  javascript:
+    name: Verify web and JavaScript packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PUBLIC_POSTHOG_PROJECT_TOKEN: phc_w66BqjKTdB2kHnyvyurtEGH2uKaVNqJ7ywf5ZtaKGqJW
+      PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            Shared/package-lock.json
+            Tools/extractor/package-lock.json
+            Web/package-lock.json
+
+      - name: Install Shared dependencies
+        run: npm ci
+        working-directory: Shared
+
+      - name: Install Web dependencies
+        run: npm ci
+        working-directory: Web
+
+      - name: Install extractor dependencies
+        run: npm ci
+        working-directory: Tools/extractor
+
+      - name: Test Shared
+        run: npm test
+        working-directory: Shared
+
+      - name: Test Web
+        run: npm test
+        working-directory: Web
+
+      - name: Test extractor
+        run: npm test
+        working-directory: Tools/extractor
+
+  swiftpm:
+    name: Verify SwiftPM
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Test Swift package
+        run: swift test
+        working-directory: Apple
