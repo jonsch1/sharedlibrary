@@ -1,23 +1,23 @@
 import { databaseChanges } from '../../infrastructure/database.js';
 import { emailAddressPattern } from '../../infrastructure/input-validation.js';
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import {
 	contentReportCategories,
 	contentReportString,
 	maximumContentReportsPerSharePerDay,
 	shareLinkURL,
-	shareVariants
+	shareVariants,
+	sourceVariant
 } from './validation.js';
 import { shareLinkByToken } from './repository.js';
 
 async function publicContentReport(request, env, token) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
 	const share = await shareLinkByToken(env, token);
 	if (!share) return json({ error: 'This share link is no longer available.' }, { status: 404 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid content report.' }, { status: 400 });
 	}
 	try {
@@ -110,9 +110,9 @@ async function publicShareDocument(request, env, token) {
 	}
 	const textResult = await env.DB.prepare(
 		'SELECT variant, markdown, word_count FROM share_texts\n' +
-			'WHERE share_token = ? AND generation = ? AND variant <> \'source\''
+			'WHERE share_token = ? AND generation = ? AND variant <> ?'
 	)
-		.bind(token, record.generation)
+		.bind(token, record.generation, sourceVariant)
 		.all();
 	let metadata = {};
 	try {

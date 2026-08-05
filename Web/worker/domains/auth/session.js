@@ -1,6 +1,6 @@
 import {
 	json,
-	requireSameOrigin,
+	sameOriginResponse,
 	sessionCookie,
 	sessionLifetimeMilliseconds,
 	sessionTokenFromRequest
@@ -27,6 +27,21 @@ async function authenticatedEmail(request, env) {
 	return session.user_email;
 }
 
+async function authenticatedMutation(request, env, options = {}) {
+	const originError = sameOriginResponse(request);
+	if (originError) return { response: originError };
+	const email = await authenticatedEmail(request, env);
+	if (!email) {
+		return {
+			response: json(
+				options.authenticationError ?? { error: 'Authentication required.' },
+				{ status: 401 }
+			)
+		};
+	}
+	return { email };
+}
+
 async function createSession(env, email) {
 	const sessionToken = randomBase64URL(32);
 	await env.DB.prepare(
@@ -47,7 +62,8 @@ async function createSession(env, email) {
 }
 
 async function signOut(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
 	const rawToken = sessionTokenFromRequest(request);
 	if (rawToken) {
 		await env.DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
@@ -63,4 +79,4 @@ async function signOut(request, env) {
 	});
 }
 
-export { authenticatedEmail, createSession, signOut };
+export { authenticatedEmail, authenticatedMutation, createSession, signOut };

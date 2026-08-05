@@ -1,6 +1,6 @@
 import { databaseChanges } from '../../infrastructure/database.js';
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
-import { authenticatedEmail } from '../auth/session.js';
+import { json, requestJSON } from '../../infrastructure/http-security.js';
+import { authenticatedEmail, authenticatedMutation } from '../auth/session.js';
 
 const maximumFeedbackItemsPerAccount = 10;
 const maximumFeedbackItemsPerDay = 3;
@@ -44,13 +44,11 @@ async function feedbackBoard(request, env) {
 }
 
 async function createFeedback(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const authentication = await authenticatedMutation(request, env);
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid feedback request.' }, { status: 400 });
 	}
 	const title = typeof value?.title === 'string' ? value.title.trim() : '';
@@ -104,13 +102,11 @@ async function createFeedback(request, env) {
 }
 
 async function setFeedbackUpvote(request, env, itemID) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const authentication = await authenticatedMutation(request, env);
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid upvote request.' }, { status: 400 });
 	}
 	if (typeof value?.upvoted !== 'boolean') {

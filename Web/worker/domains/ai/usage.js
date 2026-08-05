@@ -1,5 +1,5 @@
 import { databaseChanges } from '../../infrastructure/database.js';
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON } from '../../infrastructure/http-security.js';
 import { authenticatedEmail } from '../auth/session.js';
 import { accountRecord, ensureAccount } from '../auth/account-operations.js';
 import {
@@ -174,10 +174,8 @@ async function consumeServiceUnits(env, accountID, service, units, limits) {
 }
 
 async function serviceUsage(request, env) {
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid usage request.' }, { status: 400 });
 	}
 	const defaults = serviceUsageLimits[value?.service];

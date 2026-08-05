@@ -18,8 +18,7 @@ final class LibraryVoiceBriefWorkflow {
     let voiceBriefs: LibraryVoiceBriefModel
     let audio: LibraryAudioModel
     let lifecycle: LibraryLifecycleModel
-
-    private var pendingSync: Task<Void, Never>?
+    let syncScheduler: LibrarySyncScheduler
 
     #if os(iOS)
     @ObservationIgnored
@@ -37,7 +36,8 @@ final class LibraryVoiceBriefWorkflow {
         settings: LibrarySettingsModel,
         voiceBriefs: LibraryVoiceBriefModel,
         audio: LibraryAudioModel,
-        lifecycle: LibraryLifecycleModel
+        lifecycle: LibraryLifecycleModel,
+        syncScheduler: LibrarySyncScheduler
     ) {
         self.session = session
         self.navigation = navigation
@@ -48,14 +48,7 @@ final class LibraryVoiceBriefWorkflow {
         self.voiceBriefs = voiceBriefs
         self.audio = audio
         self.lifecycle = lifecycle
-    }
-
-    private var processingConfiguration: LibraryProcessingConfiguration {
-        LibraryProcessingConfiguration(
-            command: settings.processingCommand,
-            prompt: settings.processingPrompt,
-            usesManagedAI: settings.usesManagedAI
-        )
+        self.syncScheduler = syncScheduler
     }
 
     func checkSelectedVoiceBriefChannels() async {
@@ -221,7 +214,7 @@ final class LibraryVoiceBriefWorkflow {
             updateContinuedVoiceBriefProgress()
             let results = await processing.enqueueProcessing(
                 newEntryIDs,
-                configuration: processingConfiguration
+                configuration: settings.processingConfiguration
             )
             for result in results where newEntryIDs.contains(result.entryID) {
                 if result.succeeded {
@@ -266,12 +259,7 @@ final class LibraryVoiceBriefWorkflow {
     }
 
     private func requestSync() {
-        pendingSync?.cancel()
-        pendingSync = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            await self?.lifecycle.sync()
-        }
+        syncScheduler.requestLifecycleSync()
     }
 
     func updateContinuedVoiceBriefProgress() {

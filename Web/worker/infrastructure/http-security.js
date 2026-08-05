@@ -34,6 +34,20 @@ function requireSameOrigin(request) {
 	return origin === expected;
 }
 
+function sameOriginResponse(request) {
+	return requireSameOrigin(request)
+		? null
+		: json({ error: 'Invalid request origin.' }, { status: 403 });
+}
+
+async function requestJSON(request) {
+	try {
+		return await request.json();
+	} catch {
+		return undefined;
+	}
+}
+
 const contentSecurityPolicy = [
 	"default-src 'self'",
 	"script-src 'self'",
@@ -69,6 +83,8 @@ export {
 	contentSecurityPolicy,
 	json,
 	requireSameOrigin,
+	requestJSON,
+	sameOriginResponse,
 	secureResponse,
 	sessionCookie,
 	sessionLifetimeMilliseconds,

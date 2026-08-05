@@ -1,7 +1,7 @@
 import { databaseChanges } from '../../infrastructure/database.js';
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON } from '../../infrastructure/http-security.js';
 import { randomBase64URL } from '../../infrastructure/crypto.js';
-import { authenticatedEmail } from '../auth/session.js';
+import { authenticatedEmail, authenticatedMutation } from '../auth/session.js';
 import {
 	directShareSource,
 	maximumActiveShareLinks,
@@ -37,13 +37,11 @@ async function ownerShareLinkStatus(request, env) {
 }
 
 async function publishShareLink(request, env, context) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const authentication = await authenticatedMutation(request, env);
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid share-link request.' }, { status: 400 });
 	}
 	const captureID = value?.captureID;
@@ -132,9 +130,9 @@ async function publishShareLink(request, env, context) {
 
 async function revokeShareLink(request, env, token, context) {
 	void context;
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
+	const authentication = await authenticatedMutation(request, env);
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
 	const record = await shareLinkByToken(env, token);
 	if (!record || record.owner_email !== email) {
 		return json({ error: 'Share link not found.' }, { status: 404 });

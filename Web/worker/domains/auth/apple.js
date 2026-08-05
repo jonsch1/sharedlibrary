@@ -1,4 +1,4 @@
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import {
 	base64URLToBytes,
 	bytesToBase64URL,
@@ -235,11 +235,10 @@ async function finishAppleLogin(request, env) {
 }
 
 async function finishNativeAppleLogin(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid Apple credential.' }, { status: 400 });
 	}
 	const identityToken = typeof value?.identityToken === 'string' ? value.identityToken : '';

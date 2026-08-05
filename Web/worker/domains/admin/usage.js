@@ -1,4 +1,4 @@
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import { emailAddressPattern, normalizedEmail } from '../../infrastructure/input-validation.js';
 import { accountRecord } from '../auth/account-operations.js';
 import { administratorRequest } from './access.js';
@@ -69,13 +69,10 @@ async function adminUsage(request, env) {
 			}))
 		});
 	}
-	if (!requireSameOrigin(request)) {
-		return json({ error: 'Invalid request origin.' }, { status: 403 });
-	}
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid usage limit request.' }, { status: 400 });
 	}
 	const email = normalizedEmail(value?.email);

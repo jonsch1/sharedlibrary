@@ -32,6 +32,14 @@ final class LibrarySettingsModel {
             == Self.managedAICommand
     }
 
+    var processingConfiguration: LibraryProcessingConfiguration {
+        LibraryProcessingConfiguration(
+            command: processingCommand,
+            prompt: processingPrompt,
+            usesManagedAI: usesManagedAI
+        )
+    }
+
     var defaultProcessingCommand: String { BrieflyCore.defaultProcessingCommand }
 
     func refreshTopics(from library: SQLiteLibraryStore) async throws {

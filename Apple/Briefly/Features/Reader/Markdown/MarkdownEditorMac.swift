@@ -1,22 +1,8 @@
-import AVFoundation
-import AuthenticationServices
-import BrieflyCore
-import CloudKit
-import CryptoKit
-import Observation
-import StoreKit
 import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
-import MediaPlayer
-import UIKit
-#endif
 
 #if os(macOS)
+import AppKit
+
 struct EditableDocumentTextView: NSViewRepresentable {
     @Binding var text: String
     let isEditable: Bool
@@ -135,7 +121,6 @@ private final class MarkdownTextView: NSTextView {
         guard !isRendering, let storage = textStorage else { return }
         isRendering = true
         defer { isRendering = false }
-        let range = NSRange(location: 0, length: string.utf16.count)
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 32
         paragraph.maximumLineHeight = 32
@@ -147,62 +132,50 @@ private final class MarkdownTextView: NSTextView {
         let hidden = NSFont.systemFont(ofSize: 0.1)
 
         storage.beginEditing()
-        storage.setAttributes(
-            [
+        applyMarkdownStyling(
+            to: storage,
+            text: string,
+            highlightedPassages: highlightedPassages,
+            baseAttributes: [
                 .font: body,
                 .foregroundColor: NSColor.textColor,
                 .paragraphStyle: paragraph
             ],
-            range: range
+            attributesFor: { style in
+                switch style {
+                case .hidden:
+                    return [.font: hidden, .foregroundColor: NSColor.clear]
+                case .bold:
+                    return [.font: bold]
+                case .italic:
+                    return [.font: italic]
+                case .code:
+                    return [
+                        .font: NSFont.monospacedSystemFont(ofSize: 17, weight: .regular),
+                        .backgroundColor: NSColor.quaternaryLabelColor
+                    ]
+                case .link:
+                    return [
+                        .foregroundColor: NSColor.controlAccentColor,
+                        .underlineStyle: NSUnderlineStyle.single.rawValue
+                    ]
+                case .quote:
+                    return [
+                        .font: italic,
+                        .foregroundColor: NSColor.secondaryLabelColor
+                    ]
+                case let .heading(level):
+                    let size = level == 1 ? 28.0 : level == 2 ? 23.0 : 19.0
+                    return [
+                        .font: NSFont(name: "NewYork-Bold", size: size) ??
+                            .boldSystemFont(ofSize: size)
+                    ]
+                }
+            },
+            highlightAttributes: [
+                .backgroundColor: NSColor.systemYellow.withAlphaComponent(0.34)
+            ]
         )
-        for (range, style) in markdownRuns(in: string) {
-            let attributes: [NSAttributedString.Key: Any]
-            switch style {
-            case .hidden:
-                attributes = [.font: hidden, .foregroundColor: NSColor.clear]
-            case .bold:
-                attributes = [.font: bold]
-            case .italic:
-                attributes = [.font: italic]
-            case .code:
-                attributes = [
-                    .font: NSFont.monospacedSystemFont(ofSize: 17, weight: .regular),
-                    .backgroundColor: NSColor.quaternaryLabelColor
-                ]
-            case .link:
-                attributes = [
-                    .foregroundColor: NSColor.controlAccentColor,
-                    .underlineStyle: NSUnderlineStyle.single.rawValue
-                ]
-            case .quote:
-                attributes = [
-                    .font: italic,
-                    .foregroundColor: NSColor.secondaryLabelColor
-                ]
-            case let .heading(level):
-                let size = level == 1 ? 28.0 : level == 2 ? 23.0 : 19.0
-                attributes = [
-                    .font: NSFont(name: "NewYork-Bold", size: size) ??
-                        .boldSystemFont(ofSize: size)
-                ]
-            }
-            storage.addAttributes(attributes, range: range)
-        }
-        let source = string as NSString
-        for passage in highlightedPassages where !passage.isEmpty {
-            var searchRange = NSRange(location: 0, length: source.length)
-            while searchRange.length > 0 {
-                let found = source.range(of: passage, options: [], range: searchRange)
-                guard found.location != NSNotFound else { break }
-                storage.addAttribute(
-                    .backgroundColor,
-                    value: NSColor.systemYellow.withAlphaComponent(0.34),
-                    range: found
-                )
-                let next = NSMaxRange(found)
-                searchRange = NSRange(location: next, length: source.length - next)
-            }
-        }
         storage.endEditing()
         typingAttributes = [
             .font: body,

@@ -1,6 +1,6 @@
 import { databaseChanges } from '../../infrastructure/database.js';
 import { emailAddressPattern, normalizedEmail } from '../../infrastructure/input-validation.js';
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import { authenticatedEmail } from '../auth/session.js';
 import { isAdministrator } from '../auth/entitlements.js';
 
@@ -34,13 +34,10 @@ async function adminComplimentaryAccess(request, env) {
 			}))
 		});
 	}
-	if (!requireSameOrigin(request)) {
-		return json({ error: 'Invalid request origin.' }, { status: 403 });
-	}
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid access request.' }, { status: 400 });
 	}
 	const email = normalizedEmail(value?.email);

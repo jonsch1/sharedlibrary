@@ -1,6 +1,6 @@
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON } from '../../infrastructure/http-security.js';
 import { accountRecord, ensureAccount } from '../auth/account-operations.js';
-import { authenticatedEmail } from '../auth/session.js';
+import { authenticatedMutation } from '../auth/session.js';
 import {
 	activeAppStoreSubscription,
 	hasComplimentaryPlusAccess
@@ -17,16 +17,14 @@ const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;
 const maximumManagedAIPromptLength = 600_000;
 
 async function processWithManagedAI(request, env) {
-	if (!requireSameOrigin(request)) {
-		return json({ error: 'Invalid request origin.' }, { status: 403 });
-	}
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json(
-			{ error: 'Sign in before using Briefly AI.', code: 'authentication_required' },
-			{ status: 401 }
-		);
-	}
+	const authentication = await authenticatedMutation(request, env, {
+		authenticationError: {
+			error: 'Sign in before using Briefly AI.',
+			code: 'authentication_required'
+		}
+	});
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
 	const apiKey = managedAIKey(env);
 	if (!apiKey) {
 		return json({ error: 'Briefly AI is unavailable.' }, { status: 503 });
@@ -44,10 +42,8 @@ async function processWithManagedAI(request, env) {
 	}
 	customer ??= await ensureAccount(env, email);
 
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid AI request.' }, { status: 400 });
 	}
 	const prompt = typeof value.prompt === 'string' ? value.prompt.trim() : '';

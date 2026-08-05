@@ -1,4 +1,4 @@
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import { uuidPattern } from '../../infrastructure/input-validation.js';
 import { administratorRequest } from './access.js';
 
@@ -35,11 +35,10 @@ async function adminContentReports(request, env, context) {
 			}))
 		});
 	}
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid report decision.' }, { status: 400 });
 	}
 	if (!uuidPattern.test(value?.id ?? '') || !['removed', 'no-action'].includes(value?.decision)) {

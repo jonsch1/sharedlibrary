@@ -2,6 +2,46 @@ import BrieflyCore
 import Foundation
 
 @MainActor
+final class LibrarySyncScheduler {
+    enum Request {
+        case lifecycle
+        case library
+    }
+
+    private var pendingSync: Task<Void, Never>?
+    private var pendingRequest: Request?
+    private var operation: ((Request) async -> Void)?
+
+    func setOperation(_ operation: @escaping (Request) async -> Void) {
+        self.operation = operation
+    }
+
+    func requestLibrarySync() {
+        request(.library)
+    }
+
+    func requestLifecycleSync() {
+        request(.lifecycle)
+    }
+
+    private func request(_ request: Request) {
+        if case .library = request {
+            pendingRequest = request
+        } else if pendingRequest == nil {
+            pendingRequest = request
+        }
+        pendingSync?.cancel()
+        pendingSync = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            guard let self, let request = self.pendingRequest else { return }
+            self.pendingRequest = nil
+            await self.operation?(request)
+        }
+    }
+}
+
+@MainActor
 final class LibraryWorkflowCoordinator {
     let session: LibrarySession
     let navigation: LibraryNavigationModel
@@ -15,7 +55,7 @@ final class LibraryWorkflowCoordinator {
     let lifecycle: LibraryLifecycleModel
     let voiceBriefWorkflow: LibraryVoiceBriefWorkflow
 
-    private var pendingSync: Task<Void, Never>?
+    private let syncScheduler: LibrarySyncScheduler
 
     init(
         session: LibrarySession,
@@ -29,6 +69,7 @@ final class LibraryWorkflowCoordinator {
         audio: LibraryAudioModel,
         lifecycle: LibraryLifecycleModel
     ) {
+        let syncScheduler = LibrarySyncScheduler()
         self.session = session
         self.navigation = navigation
         self.selection = selection
@@ -39,6 +80,7 @@ final class LibraryWorkflowCoordinator {
         self.voiceBriefs = voiceBriefs
         self.audio = audio
         self.lifecycle = lifecycle
+        self.syncScheduler = syncScheduler
         self.voiceBriefWorkflow = LibraryVoiceBriefWorkflow(
             session: session,
             navigation: navigation,
@@ -48,16 +90,17 @@ final class LibraryWorkflowCoordinator {
             settings: settings,
             voiceBriefs: voiceBriefs,
             audio: audio,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            syncScheduler: syncScheduler
         )
-    }
-
-    var processingConfiguration: LibraryProcessingConfiguration {
-        LibraryProcessingConfiguration(
-            command: settings.processingCommand,
-            prompt: settings.processingPrompt,
-            usesManagedAI: settings.usesManagedAI
-        )
+        syncScheduler.setOperation { [weak self] request in
+            switch request {
+            case .lifecycle:
+                await self?.lifecycle.sync()
+            case .library:
+                await self?.sync()
+            }
+        }
     }
 
     func start() async {
@@ -101,7 +144,9 @@ final class LibraryWorkflowCoordinator {
         if session.library != nil {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
-            _ = await processing.drainProcessingQueue(configuration: processingConfiguration)
+            _ = await processing.drainProcessingQueue(
+                configuration: settings.processingConfiguration
+            )
             await voiceBriefWorkflow.resumePendingVoiceBriefs()
             await runDueChannelChecks()
             await voiceBriefWorkflow.runDueVoiceBriefs()
@@ -151,12 +196,7 @@ final class LibraryWorkflowCoordinator {
     }
 
     func requestSync() {
-        pendingSync?.cancel()
-        pendingSync = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            await self?.sync()
-        }
+        syncScheduler.requestLibrarySync()
     }
 
     func clearError() {
@@ -287,7 +327,7 @@ final class LibraryWorkflowCoordinator {
         let results = await processing.enqueueProcessing(
             entryIDs,
             selectWhenFinished: selectWhenFinished,
-            configuration: processingConfiguration
+            configuration: settings.processingConfiguration
         )
         for result in results where trackingVoiceBriefEntries.contains(result.entryID) {
             if result.succeeded {

@@ -1,8 +1,14 @@
+import {
+	libraryVariants,
+	readingDepths,
+	sourceVariant
+} from '../../../../Shared/reading-depth.ts';
+
 const maximumActiveShareLinks = 100;
 const maximumContentReportsPerSharePerDay = 20;
 const contentReportCategories = new Set(['copyright', 'privacy', 'child-safety', 'other']);
-const shareVariants = ['concise', 'detailed'];
-const shareInputVariants = [...shareVariants, 'source'];
+const shareVariants = readingDepths;
+const shareInputVariants = libraryVariants;
 const maximumShareDocumentBytes = 1_000_000;
 const maximumSharePayloadBytes = 3_000_000;
 const maximumShareTextBytesPerAccount = 100_000_000;
@@ -83,7 +89,7 @@ function directShareSource(value, captureID) {
 			throw new Error('The selected document is too large to share.');
 		}
 		variants.add(document.variant);
-		if (document.variant === 'source') continue;
+		if (document.variant === sourceVariant) continue;
 		totalBytes += byteCount;
 		if (totalBytes > maximumSharePayloadBytes) {
 			throw new Error('The selected document is too large to share.');
@@ -150,6 +156,7 @@ export {
 	shareSourceString,
 	shareSourceStrings,
 	shareVariants,
+	sourceVariant,
 	validCaptureIdentifier,
 	validShareToken,
 	validateShareDocuments,

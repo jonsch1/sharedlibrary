@@ -1,19 +1,8 @@
 import AVFoundation
-import AuthenticationServices
-import BrieflyCore
-import CloudKit
-import CryptoKit
+import Foundation
 import Observation
-import StoreKit
-import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
+#if os(iOS)
 import MediaPlayer
-import UIKit
 #endif
 
 @Observable

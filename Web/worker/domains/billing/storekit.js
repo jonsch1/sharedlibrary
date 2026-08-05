@@ -1,11 +1,11 @@
 import {
 	json,
-	requireSameOrigin
+	requestJSON
 } from '../../infrastructure/http-security.js';
 import { base64URLToBytes, bytesToBase64URL, decodeJWTPart, pemBytes } from '../../infrastructure/crypto.js';
 import { accountPayload } from '../auth/account-status.js';
 import { accountRecord, ensureAccount } from '../auth/account-operations.js';
-import { authenticatedEmail } from '../auth/session.js';
+import { authenticatedMutation } from '../auth/session.js';
 
 function appStoreConfig(env) {
 	const issuerID = String(env.APP_STORE_ISSUER_ID || '').trim();
@@ -143,13 +143,11 @@ async function storeAppStoreTransaction(env, config, transaction) {
 }
 
 async function syncAppStoreTransaction(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const email = await authenticatedEmail(request, env);
-	if (!email) return json({ error: 'Authentication required.' }, { status: 401 });
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const authentication = await authenticatedMutation(request, env);
+	if (authentication.response) return authentication.response;
+	const { email } = authentication;
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid App Store transaction.' }, { status: 400 });
 	}
 	const transactionID = typeof value?.transactionID === 'string' ? value.transactionID : '';
@@ -174,10 +172,8 @@ async function syncAppStoreTransaction(request, env) {
 }
 
 async function appStoreNotification(request, env) {
-	let value;
-	try {
-		value = await request.json();
-	} catch {
+	const value = await requestJSON(request);
+	if (value === undefined) {
 		return json({ error: 'Invalid App Store notification.' }, { status: 400 });
 	}
 	const notification = decodedJWS(value?.signedPayload);

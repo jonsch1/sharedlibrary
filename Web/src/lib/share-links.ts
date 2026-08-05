@@ -101,7 +101,7 @@ export async function loadPublishedShareLinks(): Promise<PublishedShareLinks> {
 		headers: { Accept: 'application/json' },
 		cache: 'no-store'
 	});
-	if (response.status === 401) return { limit: 200, links: [] };
+	if (response.status === 401) return { limit: 100, links: [] };
 	if (!response.ok) {
 		throw new Error(await responseError(response, 'Could not load your published links.'));
 	}

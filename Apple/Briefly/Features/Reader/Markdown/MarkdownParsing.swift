@@ -1,38 +1,5 @@
-import AVFoundation
-import AuthenticationServices
-import BrieflyCore
-import CloudKit
-import CryptoKit
-import Observation
-import StoreKit
-import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
-import MediaPlayer
-import UIKit
-#endif
+import Foundation
 
-import AVFoundation
-import AuthenticationServices
-import BrieflyCore
-import CloudKit
-import CryptoKit
-import Observation
-import StoreKit
-import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
-import MediaPlayer
-import UIKit
-#endif
 enum MarkdownRunStyle {
     case hidden
     case bold
@@ -111,6 +78,33 @@ func markdownRuns(in text: String) -> [(NSRange, MarkdownRunStyle)] {
         runs.append((prefix, .hidden))
     }
     return runs
+}
+
+func applyMarkdownStyling(
+    to storage: NSMutableAttributedString,
+    text: String,
+    highlightedPassages: [String],
+    baseAttributes: [NSAttributedString.Key: Any],
+    attributesFor: (MarkdownRunStyle) -> [NSAttributedString.Key: Any],
+    highlightAttributes: [NSAttributedString.Key: Any]
+) {
+    let range = NSRange(location: 0, length: text.utf16.count)
+    storage.setAttributes(baseAttributes, range: range)
+    for (range, style) in markdownRuns(in: text) {
+        storage.addAttributes(attributesFor(style), range: range)
+    }
+
+    let source = text as NSString
+    for passage in highlightedPassages where !passage.isEmpty {
+        var searchRange = NSRange(location: 0, length: source.length)
+        while searchRange.length > 0 {
+            let found = source.range(of: passage, options: [], range: searchRange)
+            guard found.location != NSNotFound else { break }
+            storage.addAttributes(highlightAttributes, range: found)
+            let next = NSMaxRange(found)
+            searchRange = NSRange(location: next, length: source.length - next)
+        }
+    }
 }
 
 func highlightedPassages(in markdown: String) -> [String] {

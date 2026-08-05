@@ -1,4 +1,4 @@
-import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
+import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import { accountRecord, ensureAccount } from '../auth/account-operations.js';
 import { authenticatedEmail } from '../auth/session.js';
 import { paidAccessResponse } from '../auth/entitlements.js';
@@ -14,7 +14,8 @@ import {
 const firecrawlEndpoint = 'https://api.firecrawl.dev/v2/scrape';
 
 async function scrapeWithFirecrawl(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
+	const originError = sameOriginResponse(request);
+	if (originError) return originError;
 	const denied = await paidAccessResponse(request, env);
 	if (denied) return denied;
 	if (!paidProcessingEnabled(env)) {
@@ -22,7 +23,7 @@ async function scrapeWithFirecrawl(request, env) {
 	}
 	let rawURL;
 	try {
-		rawURL = (await request.json()).url;
+		rawURL = (await requestJSON(request)).url;
 		const url = new URL(rawURL);
 		if (
 			(url.protocol !== 'http:' && url.protocol !== 'https:') ||
