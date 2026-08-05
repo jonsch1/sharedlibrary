@@ -35,7 +35,9 @@ struct VoiceBriefWatcherState: Codable {
 /// Durable channel and voice-brief state. This repository translates between
 /// normalized SQLite records and the workflow state used by channel services.
 struct LibraryChannelStateRepository {
-    let repositories: SQLiteLibraryRepositories
+    let documents: SQLiteDocumentRepository
+    let voiceBriefRepository: SQLiteVoiceBriefRepository
+    let channels: SQLiteChannelRepository
 
     func channelStateURL(for root: URL) -> URL {
         root
@@ -44,7 +46,7 @@ struct LibraryChannelStateRepository {
     }
 
     func voiceBriefs() throws -> [LibraryVoiceBrief] {
-        try repositories.documents.voiceBriefs()
+        try voiceBriefRepository.all()
     }
 
     func saveVoiceBriefEpisode(
@@ -68,7 +70,7 @@ struct LibraryChannelStateRepository {
             \(sourceList)
             """
         }
-        return try repositories.documents.create(
+        return try documents.create(
             title: title,
             body: texts[.concise] ?? texts[.detailed] ?? "",
             texts: texts,
@@ -153,7 +155,7 @@ struct LibraryChannelStateRepository {
 
     func repair(_ current: inout VoiceBriefWatcherState.Source) throws {
         let missing = Set(current.items.compactMap { item in
-            (try? repositories.documents.get(item.entryID)) == nil ? item.id : nil
+            (try? documents.get(item.entryID)) == nil ? item.id : nil
         })
         guard !missing.isEmpty else { return }
         current.items.removeAll { missing.contains($0.id) }
@@ -161,8 +163,8 @@ struct LibraryChannelStateRepository {
     }
 
     func read() -> VoiceBriefWatcherState {
-        let sources = (try? repositories.channels.records()) ?? []
-        let runs = (try? repositories.channels.runStates()) ?? []
+        let sources = (try? channels.records()) ?? []
+        let runs = (try? voiceBriefRepository.runStates()) ?? []
         return VoiceBriefWatcherState(
             schemaVersion: 1,
             sources: Dictionary(uniqueKeysWithValues: sources.map { record in
@@ -195,7 +197,7 @@ struct LibraryChannelStateRepository {
     }
 
     func write(_ state: VoiceBriefWatcherState) throws {
-        try repositories.channels.saveRecords(state.sources.map { source, value in
+        try channels.saveRecords(state.sources.map { source, value in
             SQLiteChannelRecord(
                 source: source,
                 groupID: value.groupID ?? source,
@@ -212,7 +214,7 @@ struct LibraryChannelStateRepository {
                 items: value.items
             )
         })
-        try repositories.channels.saveRunStates(state.voiceBriefs.map { id, value in
+        try voiceBriefRepository.saveRunStates(state.voiceBriefs.map { id, value in
             SQLiteVoiceBriefRunState(
                 voiceBriefID: id,
                 lastRunAt: value.lastRunAt,

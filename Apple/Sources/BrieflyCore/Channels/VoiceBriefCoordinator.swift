@@ -1,7 +1,7 @@
 import Foundation
 
 struct LibraryVoiceBriefCoordinator {
-    let repositories: SQLiteLibraryRepositories
+    let voiceBriefs: SQLiteVoiceBriefRepository
     let state: LibraryChannelStateRepository
     let projection: LibraryProjectionService
     let channels: LibraryChannelCoordinator
@@ -152,6 +152,6 @@ struct LibraryVoiceBriefCoordinator {
         guard try state.voiceBriefs().contains(where: { $0.id == id }) else {
             throw LibraryError.missingVoiceBrief
         }
-        try repositories.documents.deleteVoiceBrief(id)
+        try voiceBriefs.delete(id)
     }
 }

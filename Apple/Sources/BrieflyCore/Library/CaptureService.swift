@@ -3,7 +3,8 @@ import Foundation
 /// Application-facing capture workflow. It validates drafts and coordinates the
 /// document and attachment repositories; it does not know how SQLite stores rows.
 struct LibraryCaptureService {
-    let repositories: SQLiteLibraryRepositories
+    let documents: SQLiteDocumentRepository
+    let attachments: SQLiteAttachmentRepository
     let fileManager: FileManager
 
     func capture(_ value: String) throws -> String {
@@ -61,7 +62,7 @@ struct LibraryCaptureService {
         let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { throw LibraryError.emptyCapture }
         if let key = draft.canonicalKey,
-           let existing = try repositories.documents.all().first(where: {
+           let existing = try documents.all().first(where: {
                $0.type != "voice_brief_episode" &&
                    canonicalItemIdentity($0.sourceURL.flatMap(URL.init(string:))) == key
            }) {
@@ -71,7 +72,7 @@ struct LibraryCaptureService {
                 (existing.mediaURL == nil && mediaURL != nil) ||
                 (existing.sourceURL == nil && sourceURL != nil) ||
                 (existing.type == "voice_brief_source" && !asVoiceBriefSource) {
-                _ = try repositories.documents.commit(SQLiteDocumentCommit(
+                _ = try documents.commit(SQLiteDocumentCommit(
                     id: existing.id,
                     baseRevision: existing.revision,
                     type: existing.type == "voice_brief_source" && !asVoiceBriefSource
@@ -113,8 +114,8 @@ struct LibraryCaptureService {
         guard !data.isEmpty, data.count <= 100_000_000 else {
             throw LibraryError.invalidAudio
         }
-        _ = try repositories.documents.get(entryID)
-        try repositories.attachments.save(
+        _ = try documents.get(entryID)
+        try attachments.save(
             documentID: entryID,
             kind: "audio",
             mimeType: fileExtension == "m4a" ? "audio/mp4" : "audio/wav",
@@ -123,9 +124,9 @@ struct LibraryCaptureService {
     }
 
     func writeText(entryID: String, variant: LibraryVariant, text: String) throws {
-        let document = try repositories.documents.get(entryID)
+        let document = try documents.get(entryID)
         guard document.texts[variant] != nil else { throw LibraryError.missingVariant }
-        _ = try repositories.documents.commit(SQLiteDocumentCommit(
+        _ = try documents.commit(SQLiteDocumentCommit(
             id: entryID,
             baseRevision: document.revision,
             texts: [variant: text]
@@ -133,11 +134,11 @@ struct LibraryCaptureService {
     }
 
     func search(_ query: String, limit: Int) throws -> [SQLiteSearchResult] {
-        try repositories.documents.search(query, limit: limit)
+        try documents.search(query, limit: limit)
     }
 
     func getDocument(_ id: String, includeDeleted: Bool) throws -> SQLiteDocument {
-        try repositories.documents.get(id, includeDeleted: includeDeleted)
+        try documents.get(id, includeDeleted: includeDeleted)
     }
 
     func commitDocument(
@@ -146,7 +147,7 @@ struct LibraryCaptureService {
         texts: [LibraryVariant: String],
         title: String?
     ) throws -> SQLiteDocument {
-        try repositories.documents.commit(SQLiteDocumentCommit(
+        try documents.commit(SQLiteDocumentCommit(
             id: id,
             baseRevision: baseRevision,
             title: title,
@@ -155,7 +156,7 @@ struct LibraryCaptureService {
     }
 
     func batch(_ commits: [SQLiteDocumentCommit]) throws -> [SQLiteDocument] {
-        try repositories.documents.batch(commits)
+        try documents.batch(commits)
     }
 
     func audioURL(entryID: String) throws -> URL? {
@@ -177,7 +178,7 @@ struct LibraryCaptureService {
         audioData: Data? = nil,
         audioMimeType: String? = nil
     ) throws -> String {
-        let document = try repositories.documents.create(
+        let document = try documents.create(
             title: title,
             body: content,
             type: entryType,
@@ -203,7 +204,7 @@ struct LibraryCaptureService {
         if let data = draft.faviconData,
            let ext = draft.faviconFileExtension?.lowercased(),
            data.count <= 1_000_000, validFavicon(data, fileExtension: ext) {
-            try repositories.attachments.save(
+            try attachments.save(
                 documentID: documentID,
                 kind: "favicon",
                 mimeType: ext == "svg" ? "image/svg+xml" :
@@ -213,7 +214,7 @@ struct LibraryCaptureService {
         }
         if let data = draft.audioData, !data.isEmpty, data.count <= 100_000_000,
            let mime = draft.audioMimeType, mime.lowercased().hasPrefix("audio/") {
-            try repositories.attachments.save(
+            try attachments.save(
                 documentID: documentID,
                 kind: "audio",
                 mimeType: mime,
@@ -223,7 +224,7 @@ struct LibraryCaptureService {
     }
 
     private func attachmentURL(entryID: String, kind: String) throws -> URL? {
-        guard let (mime, data) = try repositories.attachments.data(
+        guard let (mime, data) = try attachments.data(
             documentID: entryID,
             kind: kind
         ) else { return nil }

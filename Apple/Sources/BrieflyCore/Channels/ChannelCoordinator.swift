@@ -3,9 +3,10 @@ import Foundation
 /// Owns channel lifecycle and refresh workflows. Discovery is supplied by the
 /// channel layer and persistence is accessed only through repositories.
 struct LibraryChannelCoordinator {
-    let repositories: SQLiteLibraryRepositories
+    let documents: SQLiteDocumentRepository
+    let voiceBriefs: SQLiteVoiceBriefRepository
+    let channels: SQLiteChannelRepository
     let state: LibraryChannelStateRepository
-    let projection: LibraryProjectionService
 
     func loadChannels() throws -> [LibraryChannel] {
         var currentState = state.read()
@@ -139,12 +140,12 @@ struct LibraryChannelCoordinator {
         }
         let entryIDs = Set(currentState.sources[source]?.items.map(\.entryID) ?? [])
             .filter { !$0.isEmpty }
-        let documents = entryIDs.compactMap { try? repositories.documents.get($0) }
-        _ = try repositories.documents.batch(documents.map {
+        let documents = entryIDs.compactMap { try? self.documents.get($0) }
+        _ = try self.documents.batch(documents.map {
             SQLiteDocumentCommit(id: $0.id, baseRevision: $0.revision, deleted: true)
         })
         currentState.sources.removeValue(forKey: source)
-        try repositories.channels.delete(source)
+        try channels.delete(source)
         try state.write(currentState)
         return documents.count
     }
@@ -337,7 +338,7 @@ struct LibraryChannelCoordinator {
         guard sources.count <= 200, sources.allSatisfy(validChannelSource) else {
             throw LibraryError.invalidChannel
         }
-        return try repositories.documents.saveVoiceBrief(LibraryVoiceBriefDraft(
+        return try voiceBriefs.save(LibraryVoiceBriefDraft(
             id: value.id,
             title: title,
             schedule: schedule.isEmpty ? "manual" : schedule,

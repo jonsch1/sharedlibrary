@@ -1,26 +1,9 @@
 import Foundation
 
-/// Focused persistence accessors keep application workflows independent from the
-/// SQL-shaped surface of `SQLiteLibrary`. They intentionally contain no
-/// discovery, processing, or projection policy.
-struct SQLiteLibraryRepositories {
-    let documents: SQLiteDocumentRepository
-    let channels: SQLiteChannelRepository
-    let attachments: SQLiteAttachmentRepository
-    let processing: SQLiteProcessingRepository
-
-    init(database: SQLiteLibrary) {
-        documents = SQLiteDocumentRepository(database: database)
-        channels = SQLiteChannelRepository(database: database)
-        attachments = SQLiteAttachmentRepository(database: database)
-        processing = SQLiteProcessingRepository(database: database)
-    }
-}
-
+/// Persistence access for library documents. Application workflows depend on
+/// this capability instead of the SQL-shaped surface of `SQLiteLibrary`.
 struct SQLiteDocumentRepository {
     let database: SQLiteLibrary
-
-    func isEmpty() throws -> Bool { try database.isEmpty() }
 
     func create(
         title: String,
@@ -85,45 +68,55 @@ struct SQLiteDocumentRepository {
     func batch(_ commits: [SQLiteDocumentCommit]) throws -> [SQLiteDocument] {
         try database.batch(commits)
     }
+}
 
-    func topics() throws -> [LibraryTopicDefinition] { try database.topicDefinitions() }
+/// Persistence access for the user-maintained topic catalog.
+struct SQLiteTopicRepository {
+    let database: SQLiteLibrary
 
-    func replaceTopics(_ definitions: [LibraryTopicDefinition]) throws {
+    func all() throws -> [LibraryTopicDefinition] {
+        try database.topicDefinitions()
+    }
+
+    func replace(_ definitions: [LibraryTopicDefinition]) throws {
         try database.replaceTopicDefinitions(definitions)
-    }
-
-    func voiceBriefs() throws -> [LibraryVoiceBrief] { try database.voiceBriefs() }
-
-    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) throws -> String {
-        try database.saveVoiceBrief(draft)
-    }
-
-    func deleteVoiceBrief(_ id: String) throws { try database.deleteVoiceBrief(id) }
-
-    func channelSourcesByDocument() throws -> [String: [String]] {
-        try database.documentChannelSources()
-    }
-
-    func ingestMarkdownLibrary(_ root: URL) throws -> Int {
-        try database.ingestMarkdownLibrary(root)
     }
 }
 
-struct SQLiteChannelRepository {
+/// Persistence access for voice-brief definitions and durable run state.
+struct SQLiteVoiceBriefRepository {
     let database: SQLiteLibrary
 
-    func records() throws -> [SQLiteChannelRecord] { try database.channelRecords() }
+    func all() throws -> [LibraryVoiceBrief] { try database.voiceBriefs() }
+
+    func save(_ draft: LibraryVoiceBriefDraft) throws -> String {
+        try database.saveVoiceBrief(draft)
+    }
+
+    func delete(_ id: String) throws { try database.deleteVoiceBrief(id) }
 
     func runStates() throws -> [SQLiteVoiceBriefRunState] {
         try database.voiceBriefRunStates()
     }
 
-    func saveRecords(_ records: [SQLiteChannelRecord]) throws {
-        try database.saveChannelRecords(records)
-    }
-
     func saveRunStates(_ states: [SQLiteVoiceBriefRunState]) throws {
         try database.saveVoiceBriefRunStates(states)
+    }
+}
+
+/// Persistence access for channel definitions, items, and channel-derived
+/// document relationships.
+struct SQLiteChannelRepository {
+    let database: SQLiteLibrary
+
+    func records() throws -> [SQLiteChannelRecord] { try database.channelRecords() }
+
+    func sourcesByDocument() throws -> [String: [String]] {
+        try database.documentChannelSources()
+    }
+
+    func saveRecords(_ records: [SQLiteChannelRecord]) throws {
+        try database.saveChannelRecords(records)
     }
 
     func delete(_ source: String) throws { try database.deleteChannel(source) }
@@ -134,6 +127,7 @@ struct SQLiteChannelRepository {
     }
 }
 
+/// Persistence access for binary document attachments.
 struct SQLiteAttachmentRepository {
     let database: SQLiteLibrary
 
@@ -160,6 +154,7 @@ struct SQLiteAttachmentRepository {
     }
 }
 
+/// Persistence access for the local processing queue.
 struct SQLiteProcessingRepository {
     let database: SQLiteLibrary
 
@@ -180,5 +175,14 @@ struct SQLiteProcessingRepository {
 
     func fail(documentID: String, error: String) throws {
         try database.failProcessingJob(documentID: documentID, error: error)
+    }
+}
+
+/// Persistence access for the explicit one-time Markdown import.
+struct SQLiteMarkdownRepository {
+    let database: SQLiteLibrary
+
+    func ingest(from root: URL) throws -> Int {
+        try database.ingestMarkdownLibrary(root)
     }
 }

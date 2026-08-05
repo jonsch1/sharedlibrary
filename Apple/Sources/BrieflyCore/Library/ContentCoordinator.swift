@@ -3,19 +3,20 @@ import Foundation
 /// Coordinates user-facing library actions that span documents and channel
 /// references, without exposing SQLite details to the store facade.
 struct LibraryContentCoordinator {
-    let repositories: SQLiteLibraryRepositories
+    let documents: SQLiteDocumentRepository
+    let topics: SQLiteTopicRepository
     let channelState: LibraryChannelStateRepository
     let projection: LibraryProjectionService
 
     func loadHighlights() throws -> String {
-        (try? repositories.documents.get("system:highlights").texts[.source]) ?? ""
+        (try? documents.get("system:highlights").texts[.source]) ?? ""
     }
 
     func addHighlight(entryID: String, variant: LibraryVariant, text: String) throws {
         let highlighted = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !highlighted.isEmpty else { throw LibraryError.emptyHighlight }
         guard highlighted.count <= 50_000 else { throw LibraryError.highlightTooLong }
-        let document = try repositories.documents.get(entryID)
+        let document = try documents.get(entryID)
         let title = document.title.replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespaces)
         let quote = highlighted.components(separatedBy: .newlines)
@@ -56,7 +57,7 @@ struct LibraryContentCoordinator {
     }
 
     func topicDefinitions() throws -> [LibraryTopicDefinition] {
-        try repositories.documents.topics()
+        try topics.all()
     }
 
     @discardableResult
@@ -103,14 +104,14 @@ struct LibraryContentCoordinator {
                 "The topic “\(used)” is still used by library items. Rename it instead."
             )
         }
-        try repositories.documents.replaceTopics(normalized)
+        try topics.replace(normalized)
         return normalized
     }
 
     func deleteTopicDefinition(id: String) throws {
         let topicID = id.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !topicID.isEmpty else { throw LibraryError.invalidTopic }
-        let commits = try repositories.documents.all(includeDeleted: true).compactMap { document -> SQLiteDocumentCommit? in
+        let commits = try documents.all(includeDeleted: true).compactMap { document -> SQLiteDocumentCommit? in
             guard document.topicIDs.contains(topicID) else { return nil }
             return SQLiteDocumentCommit(
                 id: document.id,
@@ -118,15 +119,15 @@ struct LibraryContentCoordinator {
                 topicIDs: document.topicIDs.filter { $0 != topicID }
             )
         }
-        _ = try repositories.documents.batch(commits)
-        try repositories.documents.replaceTopics(
-            try repositories.documents.topics().filter { $0.id != topicID }
+        _ = try documents.batch(commits)
+        try topics.replace(
+            try topics.all().filter { $0.id != topicID }
         )
     }
 
     func moveToTrash(entryID: String) throws {
-        let document = try repositories.documents.get(entryID)
-        _ = try repositories.documents.commit(SQLiteDocumentCommit(
+        let document = try documents.get(entryID)
+        _ = try documents.commit(SQLiteDocumentCommit(
             id: entryID,
             baseRevision: document.revision,
             deleted: true
@@ -152,15 +153,15 @@ struct LibraryContentCoordinator {
     }
 
     private func saveHighlights(_ text: String) throws {
-        if let document = try? repositories.documents.get("system:highlights", includeDeleted: true) {
-            _ = try repositories.documents.commit(SQLiteDocumentCommit(
+        if let document = try? documents.get("system:highlights", includeDeleted: true) {
+            _ = try documents.commit(SQLiteDocumentCommit(
                 id: document.id,
                 baseRevision: document.revision,
                 texts: [.source: text],
                 deleted: false
             ))
         } else if !text.isEmpty {
-            _ = try repositories.documents.create(
+            _ = try documents.create(
                 title: "Highlights",
                 body: text,
                 type: "highlights",

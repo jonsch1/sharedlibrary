@@ -1,17 +1,31 @@
 import Foundation
 
 struct LibraryProjectionService {
-    let repositories: SQLiteLibraryRepositories
+    let documents: SQLiteDocumentRepository
+    let topics: SQLiteTopicRepository
+    let voiceBriefs: SQLiteVoiceBriefRepository
+    let channels: SQLiteChannelRepository
+    let attachments: SQLiteAttachmentRepository
 
-    init(repositories: SQLiteLibraryRepositories) {
-        self.repositories = repositories
+    init(
+        documents: SQLiteDocumentRepository,
+        topics: SQLiteTopicRepository,
+        voiceBriefs: SQLiteVoiceBriefRepository,
+        channels: SQLiteChannelRepository,
+        attachments: SQLiteAttachmentRepository
+    ) {
+        self.documents = documents
+        self.topics = topics
+        self.voiceBriefs = voiceBriefs
+        self.channels = channels
+        self.attachments = attachments
     }
 
     func loadProjection(includeDeleted: Bool = false) throws -> LibraryProjection {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
             try projectionResources()
         let entries = projectEntries(
-            try repositories.documents.all(includeDeleted: includeDeleted),
+            try documents.all(includeDeleted: includeDeleted),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -21,7 +35,7 @@ struct LibraryProjectionService {
             generatedAt: Date().iso8601,
             files: [],
             entries: entries,
-            voiceBriefs: try repositories.documents.voiceBriefs()
+            voiceBriefs: try voiceBriefs.all()
         )
     }
 
@@ -29,7 +43,7 @@ struct LibraryProjectionService {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
             try projectionResources()
         let entries = projectIndexEntries(
-            try repositories.documents.index(includeDeleted: includeDeleted),
+            try documents.index(includeDeleted: includeDeleted),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -39,7 +53,7 @@ struct LibraryProjectionService {
             generatedAt: Date().iso8601,
             files: [],
             entries: entries,
-            voiceBriefs: try repositories.documents.voiceBriefs()
+            voiceBriefs: try voiceBriefs.all()
         )
     }
 
@@ -47,7 +61,7 @@ struct LibraryProjectionService {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
             try projectionResources()
         return projectEntries(
-            try repositories.documents.deleted(),
+            try documents.deleted(),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -58,7 +72,7 @@ struct LibraryProjectionService {
         let (topicNames, attachmentsByDocument, channelSourcesByDocument) =
             try projectionResources()
         return projectIndexEntries(
-            try repositories.documents.deletedIndex(),
+            try documents.deletedIndex(),
             topicNames: topicNames,
             attachmentsByDocument: attachmentsByDocument,
             channelSourcesByDocument: channelSourcesByDocument
@@ -70,14 +84,14 @@ struct LibraryProjectionService {
         [String: [SQLiteAttachmentMetadata]],
         [String: [String]]
     ) {
-        let topicNames = Dictionary(uniqueKeysWithValues: try repositories.documents.topics().map {
+        let topicNames = Dictionary(uniqueKeysWithValues: try topics.all().map {
             ($0.id, $0.title)
         })
         let attachments = Dictionary(
-            grouping: try repositories.attachments.metadata(),
+            grouping: try self.attachments.metadata(),
             by: \.documentID
         )
-        return (topicNames, attachments, try repositories.documents.channelSourcesByDocument())
+        return (topicNames, attachments, try channels.sourcesByDocument())
     }
 
     private func projectEntries(

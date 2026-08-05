@@ -1,7 +1,9 @@
 import Foundation
 
 struct LibraryMarkdownImportService {
-    let repositories: SQLiteLibraryRepositories
+    let topics: SQLiteTopicRepository
+    let voiceBriefs: SQLiteVoiceBriefRepository
+    let markdown: SQLiteMarkdownRepository
     let channelState: LibraryChannelStateRepository
     let fileManager: FileManager
 
@@ -9,8 +11,8 @@ struct LibraryMarkdownImportService {
         let topics = try readTopics(from: root).map {
             LibraryTopicDefinition(id: $0.key, title: $0.value)
         }
-        if !topics.isEmpty { try repositories.documents.replaceTopics(topics) }
-        let imported = try repositories.documents.ingestMarkdownLibrary(root)
+        if !topics.isEmpty { try self.topics.replace(topics) }
+        let imported = try markdown.ingest(from: root)
         let voiceBriefDirectory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
         if let urls = try? fileManager.contentsOfDirectory(
             at: voiceBriefDirectory,
@@ -22,7 +24,7 @@ struct LibraryMarkdownImportService {
                 url.deletingPathExtension().lastPathComponent.lowercased() != "readme"
             {
                 let parsed = parseMarkdown(try String(contentsOf: url, encoding: .utf8))
-                _ = try repositories.documents.saveVoiceBrief(LibraryVoiceBriefDraft(
+                _ = try voiceBriefs.save(LibraryVoiceBriefDraft(
                     id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
                     title: parsed.scalar("name") ?? parsed.scalar("title") ??
                         url.deletingPathExtension().lastPathComponent,
