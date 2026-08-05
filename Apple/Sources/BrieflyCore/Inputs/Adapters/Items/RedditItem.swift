@@ -54,8 +54,9 @@ func ingestReddit(
         if let embedded = try? await ingestRedditEmbed(url, postID: postID, http: context.http) {
             return embedded
         }
-        let endpoint = URL(string: "https://www.reddit.com/oembed?url=\(url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")!
-        let response = try await context.http.get(endpoint, headers: ["Accept": "application/json"])
+        var endpoint = URLComponents(string: "https://www.reddit.com/oembed")!
+        endpoint.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
+        let response = try await context.http.get(endpoint.url!, headers: ["Accept": "application/json"])
         guard
             let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
             let title = cleanInputText(object["title"] as? String)

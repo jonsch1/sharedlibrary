@@ -21,7 +21,8 @@ public func canonicalItemIdentity(_ value: URL?) -> String? {
        parts.indices.contains(comments + 1) {
         return "reddit:post:\(parts[comments + 1].lowercased())"
     }
-    if host == "bsky.app", parts.count == 4, parts[0] == "profile", parts[2] == "post" {
+    if (host == "bsky.app" || host == "www.bsky.app"),
+       parts.count == 4, parts[0] == "profile", parts[2] == "post" {
         return "bluesky:post:\(parts[1]):\(parts[3])"
     }
     if host == "youtu.be", let id = parts.first { return "youtube:video:\(id)" }
@@ -217,7 +218,7 @@ func xStatus(_ url: URL) -> (actor: String, id: String)? {
 
 func blueskyPost(_ url: URL) -> (actor: String, rkey: String)? {
     let parts = url.path.split(separator: "/").map(String.init)
-    guard url.host?.lowercased() == "bsky.app", parts.count == 4,
+    guard ["bsky.app", "www.bsky.app"].contains(url.host?.lowercased() ?? ""), parts.count == 4,
           parts[0] == "profile", parts[2] == "post" else { return nil }
     return (parts[1], parts[3])
 }
@@ -263,6 +264,13 @@ func inputCountLabel(_ raw: Any?, _ singular: String, _ plural: String) -> Strin
     let count = (raw as? NSNumber)?.intValue ?? (raw as? String).flatMap(Int.init)
     guard let count else { return nil }
     return "\(count) \(count == 1 ? singular : plural)"
+}
+
+func truncateInputText(_ value: String, maximumLength: Int) -> String {
+    guard maximumLength > 0, value.utf16.count > maximumLength else { return value }
+    let prefix = value.utf16.prefix(maximumLength - 1)
+    return String(decoding: prefix, as: UTF16.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines) + "…"
 }
 
 func inputHTMLMetadata(_ html: String, baseURL: URL) -> InputHTMLMetadata {

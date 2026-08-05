@@ -180,7 +180,10 @@ final class NativeItemInputTests: XCTestCase {
                 "permalink": "/r/IAmA/comments/z1c9z/i_am_barack_obama_president_of_the_united_states/"
             ]]]]],
             ["data": ["children": [["kind": "t1", "data": [
-                "author": "commenter", "body": "Useful reply"
+                "author": "commenter", "body": "Useful reply",
+                "replies": ["data": ["children": [["kind": "t1", "data": [
+                    "author": "nested", "body": "Nested reply"
+                ]]]]]
             ]]]]]
         ]
         let value = try await router.ingest(
@@ -197,20 +200,109 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertTrue(value.content.contains("Full linked article content"))
         XCTAssertTrue(value.content.contains("[Open linked content](\(linkedURL))"))
         XCTAssertTrue(value.content.contains("Useful reply"))
+        XCTAssertTrue(value.content.contains("Nested reply"))
     }
 
     func testXInput() async throws {
+        let longText = String(repeating: "x", count: 100)
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.x))),
             context: .init(http: fixtureHTTP(["api.fxtwitter.com/jack/status/20": .json([
                 "tweet": [
-                    "raw_text": "Native X post", "created_at": "today", "likes": 4,
-                    "author": ["name": "Briefly", "screen_name": "briefly"]
+                    "raw_text": longText, "created_at": "today", "likes": 1234,
+                    "author": ["name": "Briefly", "screen_name": "briefly"],
+                    "quote": ["text": "Quoted post", "author": ["screen_name": "quoted"]],
+                    "twitter_card": ["url": "https://example.com/card"]
                 ]
             ])]))
         )
         XCTAssertEqual(value.inputID, .x)
-        XCTAssertTrue(value.content.contains("Native X post"))
+        XCTAssertEqual(
+            value.title,
+            "Post by Briefly (@briefly): \(String(longText.prefix(89)))…"
+        )
+        XCTAssertTrue(value.content.contains("1,234 likes"))
+        XCTAssertTrue(value.content.contains("> @quoted: Quoted post"))
+        XCTAssertTrue(value.content.contains("Link: https://example.com/card"))
+    }
+
+    func testXArticleInputRendersBlocksEntitiesAndMedia() async throws {
+        let article: [String: Any] = [
+            "title": " Native article \u{200B}",
+            "preview_text": "A preview",
+            "cover_media": ["media_info": [
+                "original_img_url": "https://images.example/cover(hero).jpg"
+            ]],
+            "media_entities": [[
+                "media_id": "media-1",
+                "media_info": [
+                    "original_img_url": "https://images.example/article(image).jpg"
+                ]
+            ]],
+            "content": [
+                "blocks": [
+                    ["type": "header-two", "text": "Heading"],
+                    [
+                        "type": "unstyled", "text": "🙂 Bold link",
+                        "inlineStyleRanges": [["offset": 3, "length": 4, "style": "BOLD"]],
+                        "entityRanges": [["offset": 8, "length": 4, "key": 0]]
+                    ],
+                    [
+                        "type": "unstyled", "text": "styled mono",
+                        "inlineStyleRanges": [
+                            ["offset": 0, "length": 2, "style": "ITALIC"],
+                            ["offset": 2, "length": 2, "style": "STRIKETHROUGH"],
+                            ["offset": 4, "length": 2, "style": "UNDERLINE"],
+                            ["offset": 7, "length": 4, "style": "MONOSPACE"]
+                        ]
+                    ],
+                    ["type": "unordered-list-item", "depth": 1, "text": "nested"],
+                    ["type": "ordered-list-item", "text": "step"],
+                    ["type": "blockquote", "text": "quoted\nline"],
+                    ["type": "code-block", "text": "let x = ```"],
+                    ["type": "atomic", "entityRanges": [["offset": 0, "length": 1, "key": 1]]]
+                ],
+                "entityMap": [
+                    ["key": 0, "value": [
+                        "type": "LINK", "data": ["url": "https://example.com/a(b)"]
+                    ]],
+                    ["key": 1, "value": [
+                        "type": "MEDIA", "data": ["mediaItems": [["mediaId": "media-1"]]]
+                    ]]
+                ]
+            ]
+        ]
+        let value = try await router.ingest(
+            .init(source: .url(itemTestURL(.x))),
+            context: .init(http: fixtureHTTP([
+                "api.fxtwitter.com/jack/status/20": .json(["tweet": ["article": article]])
+            ]))
+        )
+
+        XCTAssertEqual(value.inputID, .x)
+        XCTAssertEqual(value.title, "Native article")
+        XCTAssertEqual(value.content, """
+            ![Cover image](https://images.example/cover%28hero%29.jpg)
+
+            ## Heading
+
+            🙂 **Bold** [link](https://example.com/a%28b%29)
+
+            _st_~~yl~~<u>ed</u> `mono`
+
+              - nested
+
+            1. step
+
+            > quoted
+            > line
+
+            ````
+            let x = ```
+            ````
+
+            ![Article image](https://images.example/article%28image%29.jpg)
+            """)
     }
 
     func testBlueskyInput() async throws {
@@ -219,7 +311,9 @@ final class NativeItemInputTests: XCTestCase {
             context: .init(http: fixtureHTTP([
                 "resolveHandle": .json(["did": "did:plc:native"]),
                 "getPostThread": .json(["thread": ["post": [
-                    "record": ["text": "Native Bluesky post", "createdAt": "today"],
+                    "record": [
+                        "$type": "app.bsky.feed.post", "text": "Native Bluesky post", "createdAt": "today"
+                    ],
                     "author": ["handle": "test.bsky.social", "displayName": "Tester"],
                     "likeCount": 2
                 ]]])
@@ -246,11 +340,13 @@ final class NativeItemInputTests: XCTestCase {
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.tiktok))),
             context: .init(http: fixtureHTTP(["tiktok.com/oembed": .json([
-                "title": "Native TikTok caption", "author_name": "Briefly"
+                "title": " Native\nTikTok   caption ", "author_name": " Briefly ",
+                "thumbnail_url": "https://example.com/thumb.jpg"
             ])]))
         )
         XCTAssertEqual(value.inputID, .tiktok)
         XCTAssertTrue(value.content.contains("Native TikTok caption"))
+        XCTAssertTrue(value.content.contains("Thumbnail: https://example.com/thumb.jpg"))
     }
 
     func testGeneralPageInput() async throws {

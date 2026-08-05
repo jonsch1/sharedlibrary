@@ -12,7 +12,9 @@ func ingestBluesky(
             "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle"
         )!
         components.queryItems = [URLQueryItem(name: "handle", value: post.actor)]
-        let response = try await http.get(components.url!, headers: ["Accept": "application/json"])
+        let response = try await http.get(components.url!, headers: [
+            "Accept": "application/json", "User-Agent": "Briefly/1.0"
+        ])
         guard
             let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
             let resolved = cleanInputText(object["did"] as? String)
@@ -26,14 +28,18 @@ func ingestBluesky(
         URLQueryItem(name: "uri", value: "at://\(did)/app.bsky.feed.post/\(post.rkey)"),
         URLQueryItem(name: "depth", value: "0")
     ]
-    let response = try await http.get(components.url!, headers: ["Accept": "application/json"])
+    let response = try await http.get(components.url!, headers: [
+        "Accept": "application/json", "User-Agent": "Briefly/1.0"
+    ])
     guard
         let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
         let thread = object["thread"] as? [String: Any],
         let value = thread["post"] as? [String: Any],
         let record = value["record"] as? [String: Any],
-        let text = cleanInputText(record["text"] as? String)
+        record["$type"] as? String == "app.bsky.feed.post",
+        let rawText = record["text"] as? String
     else { throw NativeInputError.unreadableContent }
+    let text = cleanInputText(rawText) ?? ""
     let author = value["author"] as? [String: Any]
     let handle = cleanInputText(author?["handle"] as? String) ?? post.actor
     let display = cleanInputText(author?["displayName"] as? String)
@@ -47,9 +53,9 @@ func ingestBluesky(
     ].compactMap { $0 }
     return ItemDraft(
         inputID: .bluesky,
-        title: "Bluesky post by \(authorLine): \(String(text.prefix(90)))",
+        title: "Bluesky post by \(authorLine)\(text.isEmpty ? "" : ": \(truncateInputText(text, maximumLength: 90))")",
         content: [
-            authorLine, cleanInputText(record["createdAt"] as? String), "", text,
+            authorLine, cleanInputText(record["createdAt"] as? String) ?? "", "", text, "",
             stats.isEmpty ? nil : stats.joined(separator: " | "),
             cleanInputText(value["uri"] as? String).map { "Bluesky URI: \($0)" },
             cleanInputText(value["cid"] as? String).map { "CID: \($0)" }
