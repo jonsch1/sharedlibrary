@@ -7,23 +7,95 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		100000000000000000000001 /* BrieflyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000001 /* BrieflyApp.swift */; };
-		100000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000002 /* ContentView.swift */; };
-		100000000000000000000003 /* ChannelBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000003 /* ChannelBrowser.swift */; };
-		100000000000000000000004 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrieflyCore */; };
+		100000000000000000000100 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000100 /* AppEnvironment.swift */; };
+		100000000000000000000101 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000101 /* AppNotifications.swift */; };
+		100000000000000000000102 /* BrieflyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000102 /* BrieflyApp.swift */; };
+		100000000000000000000103 /* BrieflyAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000103 /* BrieflyAppDelegate.swift */; };
+		100000000000000000000104 /* BrieflyMenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000104 /* BrieflyMenuBar.swift */; };
+		100000000000000000000105 /* CaptureShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000105 /* CaptureShortcut.swift */; };
+		100000000000000000000106 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000106 /* ContentView.swift */; };
+		100000000000000000000107 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000107 /* Appearance.swift */; };
+		100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000108 /* BrieflyAtmosphere.swift */; };
+		100000000000000000000109 /* GlassEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000109 /* GlassEffects.swift */; };
+		100000000000000000000110 /* GrainyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000110 /* GrainyCard.swift */; };
+		100000000000000000000111 /* GrainyGradient.metal in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000111 /* GrainyGradient.metal */; };
+		100000000000000000000112 /* MacCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* MacCaptureComposer.swift */; };
+		100000000000000000000113 /* MobileCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000113 /* MobileCaptureComposer.swift */; };
+		100000000000000000000114 /* ChannelBrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000114 /* ChannelBrowserSession.swift */; };
+		100000000000000000000115 /* ChannelBrowserState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000115 /* ChannelBrowserState.swift */; };
+		100000000000000000000116 /* ChannelBrowserViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000116 /* ChannelBrowserViews.swift */; };
+		100000000000000000000117 /* ChannelModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000117 /* ChannelModels.swift */; };
+		100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000118 /* ChannelPresentationHelpers.swift */; };
+		100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000119 /* ChannelSidebarComponents.swift */; };
+		100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000120 /* ChannelWebViewAdapter.swift */; };
+		100000000000000000000121 /* LibraryModelChannels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000121 /* LibraryModelChannels.swift */; };
+		100000000000000000000122 /* MobileFeedScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000122 /* MobileFeedScreen.swift */; };
+		100000000000000000000123 /* EntryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000123 /* EntryContextMenu.swift */; };
+		100000000000000000000124 /* HighlightsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000124 /* HighlightsDocument.swift */; };
+		100000000000000000000125 /* LibraryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000125 /* LibraryBrowserView.swift */; };
+		100000000000000000000126 /* LibraryDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000126 /* LibraryDetail.swift */; };
+		100000000000000000000127 /* LibraryEntryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000127 /* LibraryEntryCard.swift */; };
+		100000000000000000000128 /* LibraryFeedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000128 /* LibraryFeedComponents.swift */; };
+		100000000000000000000129 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000129 /* LibraryModel.swift */; };
+		100000000000000000000130 /* LibraryModelActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000130 /* LibraryModelActions.swift */; };
+		100000000000000000000131 /* LibraryModelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000131 /* LibraryModelLifecycle.swift */; };
+		100000000000000000000132 /* LibraryModelNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000132 /* LibraryModelNavigation.swift */; };
+		100000000000000000000133 /* LibraryModelProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000133 /* LibraryModelProcessingQueue.swift */; };
+		100000000000000000000134 /* LibraryModelSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000134 /* LibraryModelSelection.swift */; };
+		100000000000000000000135 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000135 /* LibrarySidebar.swift */; };
+		100000000000000000000136 /* MacSidebarFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000136 /* MacSidebarFilters.swift */; };
+		100000000000000000000137 /* MobileCollections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000137 /* MobileCollections.swift */; };
+		100000000000000000000138 /* MobileEntryCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000138 /* MobileEntryCards.swift */; };
+		100000000000000000000139 /* MobileHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000139 /* MobileHome.swift */; };
+		100000000000000000000140 /* MobileLibraryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000140 /* MobileLibraryRows.swift */; };
+		100000000000000000000141 /* MobileLibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000141 /* MobileLibraryScreen.swift */; };
+		100000000000000000000142 /* SyncActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000142 /* SyncActivityView.swift */; };
+		100000000000000000000143 /* LibraryModelSharingAudio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000143 /* LibraryModelSharingAudio.swift */; };
+		100000000000000000000144 /* ShareDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000144 /* ShareDocumentView.swift */; };
+		100000000000000000000145 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000145 /* AudioPlayer.swift */; };
+		100000000000000000000146 /* AudioPlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000146 /* AudioPlayerScreen.swift */; };
+		100000000000000000000147 /* AudioTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000147 /* AudioTime.swift */; };
+		100000000000000000000148 /* MobileDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000148 /* MobileDetail.swift */; };
+		100000000000000000000149 /* ReaderDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000149 /* ReaderDocumentView.swift */; };
+		100000000000000000000150 /* ReaderLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000150 /* ReaderLayouts.swift */; };
+		100000000000000000000151 /* ReadingDepthIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000151 /* ReadingDepthIcon.swift */; };
+		100000000000000000000152 /* ReadingDepthStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000152 /* ReadingDepthStrip.swift */; };
+		100000000000000000000153 /* DocumentEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000153 /* DocumentEditor.swift */; };
+		100000000000000000000154 /* MarkdownArticle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000154 /* MarkdownArticle.swift */; };
+		100000000000000000000155 /* MarkdownEditorIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000155 /* MarkdownEditorIOS.swift */; };
+		100000000000000000000156 /* MarkdownEditorMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000156 /* MarkdownEditorMac.swift */; };
+		100000000000000000000157 /* MarkdownParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000157 /* MarkdownParsing.swift */; };
+		100000000000000000000158 /* ChannelSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000158 /* ChannelSettings.swift */; };
+		100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000159 /* ChannelSettingsComponents.swift */; };
+		100000000000000000000160 /* LibraryModelAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000160 /* LibraryModelAccount.swift */; };
+		100000000000000000000161 /* LibraryModelProcessingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000161 /* LibraryModelProcessingSettings.swift */; };
+		100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000162 /* MacSettingsWorkspace.swift */; };
+		100000000000000000000163 /* ScheduleEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000163 /* ScheduleEditor.swift */; };
+		100000000000000000000164 /* SettingsHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000164 /* SettingsHelpers.swift */; };
+		100000000000000000000165 /* SettingsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000165 /* SettingsSections.swift */; };
+		100000000000000000000166 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000166 /* SettingsView.swift */; };
+		100000000000000000000167 /* SettingsViewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000167 /* SettingsViewLayout.swift */; };
+		100000000000000000000168 /* SettingsViewNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000168 /* SettingsViewNavigation.swift */; };
+		100000000000000000000169 /* VoiceBriefSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000169 /* VoiceBriefSettings.swift */; };
+		100000000000000000000170 /* BriefPreparationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000170 /* BriefPreparationPanel.swift */; };
+		100000000000000000000171 /* LibraryModelVoiceBriefs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000171 /* LibraryModelVoiceBriefs.swift */; };
+		100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */; };
+		100000000000000000000173 /* NativeLibraryError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000173 /* NativeLibraryError.swift */; };
+		100000000000000000000174 /* NativeVoiceSynthesis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000174 /* NativeVoiceSynthesis.swift */; };
+		100000000000000000000175 /* BrieflyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000175 /* BrieflyBackend.swift */; };
+		100000000000000000000176 /* BrieflyBackendModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000176 /* BrieflyBackendModels.swift */; };
+		100000000000000000000177 /* MobileAppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000177 /* MobileAppShell.swift */; };
+		100000000000000000000178 /* MobileHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000178 /* MobileHeader.swift */; };
+		100000000000000000000179 /* MobileNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000179 /* MobileNavigation.swift */; };
+		100000000000000000000180 /* MobilePrimaryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000180 /* MobilePrimaryTab.swift */; };
+		100000000000000000000181 /* MacErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000181 /* MacErrorBanner.swift */; };
+		100000000000000000000182 /* MacLoadingWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000182 /* MacLoadingWorkspace.swift */; };
+		100000000000000000000183 /* MacNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000183 /* MacNavigation.swift */; };
+		100000000000000000000184 /* MacRightRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000184 /* MacRightRail.swift */; };
+		100000000000000000000185 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000185 /* ShortcutRecorder.swift */; };
 		100000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Assets.xcassets */; };
-		100000000000000000000006 /* GrainyGradient.metal in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000006 /* GrainyGradient.metal */; };
-		100000000000000000000007 /* LocalVoiceBriefSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */; };
+		100000000000000000000004 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrieflyCore */; };
 		100000000000000000000008 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* FluidAudio */; };
-		100000000000000000000009 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000008 /* AppEnvironment.swift */; };
-		10000000000000000000000A /* BrieflyApplicationTours.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000009 /* BrieflyApplicationTours.swift */; };
-		10000000000000000000000B /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000B /* LibraryModel.swift */; };
-		10000000000000000000000C /* NativeAudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000C /* NativeAudioPlayer.swift */; };
-		10000000000000000000000D /* AppShells.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000D /* AppShells.swift */; };
-		10000000000000000000000E /* SharedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000E /* SharedComponents.swift */; };
-		10000000000000000000000F /* LibraryDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20000000000000000000000F /* LibraryDocument.swift */; };
-		100000000000000000000010 /* MarkdownEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000010 /* MarkdownEditor.swift */; };
-		100000000000000000000011 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000011 /* SettingsViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -37,23 +109,96 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		200000000000000000000001 /* BrieflyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyApp.swift; sourceTree = "<group>"; };
-		200000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		200000000000000000000003 /* ChannelBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelBrowser.swift; sourceTree = "<group>"; };
+		200000000000000000000100 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		200000000000000000000101 /* AppNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotifications.swift; sourceTree = "<group>"; };
+		200000000000000000000102 /* BrieflyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyApp.swift; sourceTree = "<group>"; };
+		200000000000000000000103 /* BrieflyAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyAppDelegate.swift; sourceTree = "<group>"; };
+		200000000000000000000104 /* BrieflyMenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyMenuBar.swift; sourceTree = "<group>"; };
+		200000000000000000000105 /* CaptureShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureShortcut.swift; sourceTree = "<group>"; };
+		200000000000000000000106 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		200000000000000000000107 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
+		200000000000000000000108 /* BrieflyAtmosphere.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyAtmosphere.swift; sourceTree = "<group>"; };
+		200000000000000000000109 /* GlassEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassEffects.swift; sourceTree = "<group>"; };
+		200000000000000000000110 /* GrainyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrainyCard.swift; sourceTree = "<group>"; };
+		200000000000000000000111 /* GrainyGradient.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GrainyGradient.metal; sourceTree = "<group>"; };
+		200000000000000000000112 /* MacCaptureComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCaptureComposer.swift; sourceTree = "<group>"; };
+		200000000000000000000113 /* MobileCaptureComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCaptureComposer.swift; sourceTree = "<group>"; };
+		200000000000000000000114 /* ChannelBrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelBrowserSession.swift; sourceTree = "<group>"; };
+		200000000000000000000115 /* ChannelBrowserState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelBrowserState.swift; sourceTree = "<group>"; };
+		200000000000000000000116 /* ChannelBrowserViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelBrowserViews.swift; sourceTree = "<group>"; };
+		200000000000000000000117 /* ChannelModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelModels.swift; sourceTree = "<group>"; };
+		200000000000000000000118 /* ChannelPresentationHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelPresentationHelpers.swift; sourceTree = "<group>"; };
+		200000000000000000000119 /* ChannelSidebarComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelSidebarComponents.swift; sourceTree = "<group>"; };
+		200000000000000000000120 /* ChannelWebViewAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelWebViewAdapter.swift; sourceTree = "<group>"; };
+		200000000000000000000121 /* LibraryModelChannels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelChannels.swift; sourceTree = "<group>"; };
+		200000000000000000000122 /* MobileFeedScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileFeedScreen.swift; sourceTree = "<group>"; };
+		200000000000000000000123 /* EntryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryContextMenu.swift; sourceTree = "<group>"; };
+		200000000000000000000124 /* HighlightsDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightsDocument.swift; sourceTree = "<group>"; };
+		200000000000000000000125 /* LibraryBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowserView.swift; sourceTree = "<group>"; };
+		200000000000000000000126 /* LibraryDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDetail.swift; sourceTree = "<group>"; };
+		200000000000000000000127 /* LibraryEntryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryEntryCard.swift; sourceTree = "<group>"; };
+		200000000000000000000128 /* LibraryFeedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFeedComponents.swift; sourceTree = "<group>"; };
+		200000000000000000000129 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
+		200000000000000000000130 /* LibraryModelActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelActions.swift; sourceTree = "<group>"; };
+		200000000000000000000131 /* LibraryModelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelLifecycle.swift; sourceTree = "<group>"; };
+		200000000000000000000132 /* LibraryModelNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelNavigation.swift; sourceTree = "<group>"; };
+		200000000000000000000133 /* LibraryModelProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelProcessingQueue.swift; sourceTree = "<group>"; };
+		200000000000000000000134 /* LibraryModelSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelSelection.swift; sourceTree = "<group>"; };
+		200000000000000000000135 /* LibrarySidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySidebar.swift; sourceTree = "<group>"; };
+		200000000000000000000136 /* MacSidebarFilters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebarFilters.swift; sourceTree = "<group>"; };
+		200000000000000000000137 /* MobileCollections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCollections.swift; sourceTree = "<group>"; };
+		200000000000000000000138 /* MobileEntryCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileEntryCards.swift; sourceTree = "<group>"; };
+		200000000000000000000139 /* MobileHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHome.swift; sourceTree = "<group>"; };
+		200000000000000000000140 /* MobileLibraryRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryRows.swift; sourceTree = "<group>"; };
+		200000000000000000000141 /* MobileLibraryScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileLibraryScreen.swift; sourceTree = "<group>"; };
+		200000000000000000000142 /* SyncActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncActivityView.swift; sourceTree = "<group>"; };
+		200000000000000000000143 /* LibraryModelSharingAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelSharingAudio.swift; sourceTree = "<group>"; };
+		200000000000000000000144 /* ShareDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareDocumentView.swift; sourceTree = "<group>"; };
+		200000000000000000000145 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		200000000000000000000146 /* AudioPlayerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerScreen.swift; sourceTree = "<group>"; };
+		200000000000000000000147 /* AudioTime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioTime.swift; sourceTree = "<group>"; };
+		200000000000000000000148 /* MobileDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileDetail.swift; sourceTree = "<group>"; };
+		200000000000000000000149 /* ReaderDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderDocumentView.swift; sourceTree = "<group>"; };
+		200000000000000000000150 /* ReaderLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderLayouts.swift; sourceTree = "<group>"; };
+		200000000000000000000151 /* ReadingDepthIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingDepthIcon.swift; sourceTree = "<group>"; };
+		200000000000000000000152 /* ReadingDepthStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadingDepthStrip.swift; sourceTree = "<group>"; };
+		200000000000000000000153 /* DocumentEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentEditor.swift; sourceTree = "<group>"; };
+		200000000000000000000154 /* MarkdownArticle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownArticle.swift; sourceTree = "<group>"; };
+		200000000000000000000155 /* MarkdownEditorIOS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorIOS.swift; sourceTree = "<group>"; };
+		200000000000000000000156 /* MarkdownEditorMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditorMac.swift; sourceTree = "<group>"; };
+		200000000000000000000157 /* MarkdownParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParsing.swift; sourceTree = "<group>"; };
+		200000000000000000000158 /* ChannelSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelSettings.swift; sourceTree = "<group>"; };
+		200000000000000000000159 /* ChannelSettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelSettingsComponents.swift; sourceTree = "<group>"; };
+		200000000000000000000160 /* LibraryModelAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelAccount.swift; sourceTree = "<group>"; };
+		200000000000000000000161 /* LibraryModelProcessingSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelProcessingSettings.swift; sourceTree = "<group>"; };
+		200000000000000000000162 /* MacSettingsWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSettingsWorkspace.swift; sourceTree = "<group>"; };
+		200000000000000000000185 /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorder.swift; sourceTree = "<group>"; };
+		200000000000000000000163 /* ScheduleEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleEditor.swift; sourceTree = "<group>"; };
+		200000000000000000000164 /* SettingsHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsHelpers.swift; sourceTree = "<group>"; };
+		200000000000000000000165 /* SettingsSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSections.swift; sourceTree = "<group>"; };
+		200000000000000000000166 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		200000000000000000000167 /* SettingsViewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewLayout.swift; sourceTree = "<group>"; };
+		200000000000000000000168 /* SettingsViewNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewNavigation.swift; sourceTree = "<group>"; };
+		200000000000000000000169 /* VoiceBriefSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBriefSettings.swift; sourceTree = "<group>"; };
+		200000000000000000000170 /* BriefPreparationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefPreparationPanel.swift; sourceTree = "<group>"; };
+		200000000000000000000171 /* LibraryModelVoiceBriefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelVoiceBriefs.swift; sourceTree = "<group>"; };
+		200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceBriefSynthesizer.swift; sourceTree = "<group>"; };
+		200000000000000000000173 /* NativeLibraryError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryError.swift; sourceTree = "<group>"; };
+		200000000000000000000174 /* NativeVoiceSynthesis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceSynthesis.swift; sourceTree = "<group>"; };
+		200000000000000000000175 /* BrieflyBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackend.swift; sourceTree = "<group>"; };
+		200000000000000000000176 /* BrieflyBackendModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackendModels.swift; sourceTree = "<group>"; };
+		200000000000000000000177 /* MobileAppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAppShell.swift; sourceTree = "<group>"; };
+		200000000000000000000178 /* MobileHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHeader.swift; sourceTree = "<group>"; };
+		200000000000000000000179 /* MobileNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNavigation.swift; sourceTree = "<group>"; };
+		200000000000000000000180 /* MobilePrimaryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePrimaryTab.swift; sourceTree = "<group>"; };
+		200000000000000000000181 /* MacErrorBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacErrorBanner.swift; sourceTree = "<group>"; };
+		200000000000000000000182 /* MacLoadingWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLoadingWorkspace.swift; sourceTree = "<group>"; };
+		200000000000000000000183 /* MacNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacNavigation.swift; sourceTree = "<group>"; };
+		200000000000000000000184 /* MacRightRail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRightRail.swift; sourceTree = "<group>"; };
 		200000000000000000000004 /* Briefly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Briefly.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		200000000000000000000006 /* GrainyGradient.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GrainyGradient.metal; sourceTree = "<group>"; };
-		200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceBriefSynthesizer.swift; sourceTree = "<group>"; };
-		200000000000000000000008 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		200000000000000000000009 /* BrieflyApplicationTours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyApplicationTours.swift; sourceTree = "<group>"; };
 		20000000000000000000000A /* BrieflyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrieflyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		20000000000000000000000B /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
-		20000000000000000000000C /* NativeAudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAudioPlayer.swift; sourceTree = "<group>"; };
-		20000000000000000000000D /* AppShells.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShells.swift; sourceTree = "<group>"; };
-		20000000000000000000000E /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
-		20000000000000000000000F /* LibraryDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryDocument.swift; sourceTree = "<group>"; };
-		200000000000000000000010 /* MarkdownEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEditor.swift; sourceTree = "<group>"; };
-		200000000000000000000011 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,22 +233,223 @@
 		400000000000000000000002 /* Briefly */ = {
 			isa = PBXGroup;
 			children = (
-				200000000000000000000008 /* AppEnvironment.swift */,
-				200000000000000000000001 /* BrieflyApp.swift */,
-				20000000000000000000000B /* LibraryModel.swift */,
-				20000000000000000000000C /* NativeAudioPlayer.swift */,
-				20000000000000000000000D /* AppShells.swift */,
-				20000000000000000000000E /* SharedComponents.swift */,
-				20000000000000000000000F /* LibraryDocument.swift */,
-				200000000000000000000010 /* MarkdownEditor.swift */,
-				200000000000000000000011 /* SettingsViews.swift */,
-				200000000000000000000002 /* ContentView.swift */,
-				200000000000000000000003 /* ChannelBrowser.swift */,
-				200000000000000000000007 /* LocalVoiceBriefSynthesizer.swift */,
-				200000000000000000000006 /* GrainyGradient.metal */,
+				400000000000000000000100 /* App */,
+				400000000000000000000101 /* DesignSystem */,
+				400000000000000000000102 /* Features */,
+				400000000000000000000111 /* Infrastructure */,
+				400000000000000000000113 /* Platform */,
 				200000000000000000000005 /* Assets.xcassets */,
 			);
 			path = Briefly;
+			sourceTree = "<group>";
+		};
+		400000000000000000000100 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000100 /* AppEnvironment.swift */,
+				200000000000000000000101 /* AppNotifications.swift */,
+				200000000000000000000102 /* BrieflyApp.swift */,
+				200000000000000000000103 /* BrieflyAppDelegate.swift */,
+				200000000000000000000104 /* BrieflyMenuBar.swift */,
+				200000000000000000000105 /* CaptureShortcut.swift */,
+				200000000000000000000106 /* ContentView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		400000000000000000000101 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000107 /* Appearance.swift */,
+				200000000000000000000108 /* BrieflyAtmosphere.swift */,
+				200000000000000000000109 /* GlassEffects.swift */,
+				200000000000000000000110 /* GrainyCard.swift */,
+				200000000000000000000111 /* GrainyGradient.metal */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		400000000000000000000102 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000103 /* Capture */,
+				400000000000000000000104 /* Channels */,
+				400000000000000000000105 /* Library */,
+				400000000000000000000107 /* Reader */,
+				400000000000000000000109 /* Settings */,
+				400000000000000000000110 /* VoiceBrief */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		400000000000000000000103 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000112 /* MacCaptureComposer.swift */,
+				200000000000000000000113 /* MobileCaptureComposer.swift */,
+			);
+			path = Capture;
+			sourceTree = "<group>";
+		};
+		400000000000000000000104 /* Channels */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000114 /* ChannelBrowserSession.swift */,
+				200000000000000000000115 /* ChannelBrowserState.swift */,
+				200000000000000000000116 /* ChannelBrowserViews.swift */,
+				200000000000000000000117 /* ChannelModels.swift */,
+				200000000000000000000118 /* ChannelPresentationHelpers.swift */,
+				200000000000000000000119 /* ChannelSidebarComponents.swift */,
+				200000000000000000000120 /* ChannelWebViewAdapter.swift */,
+				200000000000000000000121 /* LibraryModelChannels.swift */,
+				200000000000000000000122 /* MobileFeedScreen.swift */,
+			);
+			path = Channels;
+			sourceTree = "<group>";
+		};
+		400000000000000000000105 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000106 /* Sharing */,
+				200000000000000000000123 /* EntryContextMenu.swift */,
+				200000000000000000000124 /* HighlightsDocument.swift */,
+				200000000000000000000125 /* LibraryBrowserView.swift */,
+				200000000000000000000126 /* LibraryDetail.swift */,
+				200000000000000000000127 /* LibraryEntryCard.swift */,
+				200000000000000000000128 /* LibraryFeedComponents.swift */,
+				200000000000000000000129 /* LibraryModel.swift */,
+				200000000000000000000130 /* LibraryModelActions.swift */,
+				200000000000000000000131 /* LibraryModelLifecycle.swift */,
+				200000000000000000000132 /* LibraryModelNavigation.swift */,
+				200000000000000000000133 /* LibraryModelProcessingQueue.swift */,
+				200000000000000000000134 /* LibraryModelSelection.swift */,
+				200000000000000000000135 /* LibrarySidebar.swift */,
+				200000000000000000000136 /* MacSidebarFilters.swift */,
+				200000000000000000000137 /* MobileCollections.swift */,
+				200000000000000000000138 /* MobileEntryCards.swift */,
+				200000000000000000000139 /* MobileHome.swift */,
+				200000000000000000000140 /* MobileLibraryRows.swift */,
+				200000000000000000000141 /* MobileLibraryScreen.swift */,
+				200000000000000000000142 /* SyncActivityView.swift */,
+			);
+			path = Library;
+			sourceTree = "<group>";
+		};
+		400000000000000000000106 /* Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000143 /* LibraryModelSharingAudio.swift */,
+				200000000000000000000144 /* ShareDocumentView.swift */,
+			);
+			path = Sharing;
+			sourceTree = "<group>";
+		};
+		400000000000000000000107 /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000108 /* Markdown */,
+				200000000000000000000145 /* AudioPlayer.swift */,
+				200000000000000000000146 /* AudioPlayerScreen.swift */,
+				200000000000000000000147 /* AudioTime.swift */,
+				200000000000000000000148 /* MobileDetail.swift */,
+				200000000000000000000149 /* ReaderDocumentView.swift */,
+				200000000000000000000150 /* ReaderLayouts.swift */,
+				200000000000000000000151 /* ReadingDepthIcon.swift */,
+				200000000000000000000152 /* ReadingDepthStrip.swift */,
+			);
+			path = Reader;
+			sourceTree = "<group>";
+		};
+		400000000000000000000108 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000153 /* DocumentEditor.swift */,
+				200000000000000000000154 /* MarkdownArticle.swift */,
+				200000000000000000000155 /* MarkdownEditorIOS.swift */,
+				200000000000000000000156 /* MarkdownEditorMac.swift */,
+				200000000000000000000157 /* MarkdownParsing.swift */,
+			);
+			path = Markdown;
+			sourceTree = "<group>";
+		};
+		400000000000000000000109 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000158 /* ChannelSettings.swift */,
+				200000000000000000000159 /* ChannelSettingsComponents.swift */,
+				200000000000000000000160 /* LibraryModelAccount.swift */,
+				200000000000000000000161 /* LibraryModelProcessingSettings.swift */,
+				200000000000000000000162 /* MacSettingsWorkspace.swift */,
+				200000000000000000000185 /* ShortcutRecorder.swift */,
+				200000000000000000000163 /* ScheduleEditor.swift */,
+				200000000000000000000164 /* SettingsHelpers.swift */,
+				200000000000000000000165 /* SettingsSections.swift */,
+				200000000000000000000166 /* SettingsView.swift */,
+				200000000000000000000167 /* SettingsViewLayout.swift */,
+				200000000000000000000168 /* SettingsViewNavigation.swift */,
+				200000000000000000000169 /* VoiceBriefSettings.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		400000000000000000000110 /* VoiceBrief */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000170 /* BriefPreparationPanel.swift */,
+				200000000000000000000171 /* LibraryModelVoiceBriefs.swift */,
+				200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */,
+				200000000000000000000173 /* NativeLibraryError.swift */,
+				200000000000000000000174 /* NativeVoiceSynthesis.swift */,
+			);
+			path = VoiceBrief;
+			sourceTree = "<group>";
+		};
+		400000000000000000000111 /* Infrastructure */ = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000112 /* Backend */,
+			);
+			path = Infrastructure;
+			sourceTree = "<group>";
+		};
+		400000000000000000000112 /* Backend */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000175 /* BrieflyBackend.swift */,
+				200000000000000000000176 /* BrieflyBackendModels.swift */,
+			);
+			path = Backend;
+			sourceTree = "<group>";
+		};
+		400000000000000000000113 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				400000000000000000000114 /* iOS */,
+				400000000000000000000115 /* macOS */,
+			);
+			path = Platform;
+			sourceTree = "<group>";
+		};
+		400000000000000000000114 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000177 /* MobileAppShell.swift */,
+				200000000000000000000178 /* MobileHeader.swift */,
+				200000000000000000000179 /* MobileNavigation.swift */,
+				200000000000000000000180 /* MobilePrimaryTab.swift */,
+			);
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		400000000000000000000115 /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000181 /* MacErrorBanner.swift */,
+				200000000000000000000182 /* MacLoadingWorkspace.swift */,
+				200000000000000000000183 /* MacNavigation.swift */,
+				200000000000000000000184 /* MacRightRail.swift */,
+			);
+			path = macOS;
 			sourceTree = "<group>";
 		};
 		400000000000000000000004 /* BrieflyUITests */ = {
@@ -247,19 +593,92 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				100000000000000000000009 /* AppEnvironment.swift in Sources */,
-				100000000000000000000001 /* BrieflyApp.swift in Sources */,
-				10000000000000000000000B /* LibraryModel.swift in Sources */,
-				10000000000000000000000C /* NativeAudioPlayer.swift in Sources */,
-				10000000000000000000000D /* AppShells.swift in Sources */,
-				10000000000000000000000E /* SharedComponents.swift in Sources */,
-				10000000000000000000000F /* LibraryDocument.swift in Sources */,
-				100000000000000000000010 /* MarkdownEditor.swift in Sources */,
-				100000000000000000000011 /* SettingsViews.swift in Sources */,
-				100000000000000000000002 /* ContentView.swift in Sources */,
-				100000000000000000000003 /* ChannelBrowser.swift in Sources */,
-				100000000000000000000007 /* LocalVoiceBriefSynthesizer.swift in Sources */,
-				100000000000000000000006 /* GrainyGradient.metal in Sources */,
+				100000000000000000000100 /* AppEnvironment.swift in Sources */,
+				100000000000000000000101 /* AppNotifications.swift in Sources */,
+				100000000000000000000102 /* BrieflyApp.swift in Sources */,
+				100000000000000000000103 /* BrieflyAppDelegate.swift in Sources */,
+				100000000000000000000104 /* BrieflyMenuBar.swift in Sources */,
+				100000000000000000000105 /* CaptureShortcut.swift in Sources */,
+				100000000000000000000106 /* ContentView.swift in Sources */,
+				100000000000000000000107 /* Appearance.swift in Sources */,
+				100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */,
+				100000000000000000000109 /* GlassEffects.swift in Sources */,
+				100000000000000000000110 /* GrainyCard.swift in Sources */,
+				100000000000000000000111 /* GrainyGradient.metal in Sources */,
+				100000000000000000000112 /* MacCaptureComposer.swift in Sources */,
+				100000000000000000000113 /* MobileCaptureComposer.swift in Sources */,
+				100000000000000000000114 /* ChannelBrowserSession.swift in Sources */,
+				100000000000000000000115 /* ChannelBrowserState.swift in Sources */,
+				100000000000000000000116 /* ChannelBrowserViews.swift in Sources */,
+				100000000000000000000117 /* ChannelModels.swift in Sources */,
+				100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */,
+				100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */,
+				100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */,
+				100000000000000000000121 /* LibraryModelChannels.swift in Sources */,
+				100000000000000000000122 /* MobileFeedScreen.swift in Sources */,
+				100000000000000000000123 /* EntryContextMenu.swift in Sources */,
+				100000000000000000000124 /* HighlightsDocument.swift in Sources */,
+				100000000000000000000125 /* LibraryBrowserView.swift in Sources */,
+				100000000000000000000126 /* LibraryDetail.swift in Sources */,
+				100000000000000000000127 /* LibraryEntryCard.swift in Sources */,
+				100000000000000000000128 /* LibraryFeedComponents.swift in Sources */,
+				100000000000000000000129 /* LibraryModel.swift in Sources */,
+				100000000000000000000130 /* LibraryModelActions.swift in Sources */,
+				100000000000000000000131 /* LibraryModelLifecycle.swift in Sources */,
+				100000000000000000000132 /* LibraryModelNavigation.swift in Sources */,
+				100000000000000000000133 /* LibraryModelProcessingQueue.swift in Sources */,
+				100000000000000000000134 /* LibraryModelSelection.swift in Sources */,
+				100000000000000000000135 /* LibrarySidebar.swift in Sources */,
+				100000000000000000000136 /* MacSidebarFilters.swift in Sources */,
+				100000000000000000000137 /* MobileCollections.swift in Sources */,
+				100000000000000000000138 /* MobileEntryCards.swift in Sources */,
+				100000000000000000000139 /* MobileHome.swift in Sources */,
+				100000000000000000000140 /* MobileLibraryRows.swift in Sources */,
+				100000000000000000000141 /* MobileLibraryScreen.swift in Sources */,
+				100000000000000000000143 /* LibraryModelSharingAudio.swift in Sources */,
+				100000000000000000000144 /* ShareDocumentView.swift in Sources */,
+				100000000000000000000142 /* SyncActivityView.swift in Sources */,
+				100000000000000000000145 /* AudioPlayer.swift in Sources */,
+				100000000000000000000146 /* AudioPlayerScreen.swift in Sources */,
+				100000000000000000000147 /* AudioTime.swift in Sources */,
+				100000000000000000000153 /* DocumentEditor.swift in Sources */,
+				100000000000000000000154 /* MarkdownArticle.swift in Sources */,
+				100000000000000000000155 /* MarkdownEditorIOS.swift in Sources */,
+				100000000000000000000156 /* MarkdownEditorMac.swift in Sources */,
+				100000000000000000000157 /* MarkdownParsing.swift in Sources */,
+				100000000000000000000148 /* MobileDetail.swift in Sources */,
+				100000000000000000000149 /* ReaderDocumentView.swift in Sources */,
+				100000000000000000000150 /* ReaderLayouts.swift in Sources */,
+				100000000000000000000151 /* ReadingDepthIcon.swift in Sources */,
+				100000000000000000000152 /* ReadingDepthStrip.swift in Sources */,
+				100000000000000000000158 /* ChannelSettings.swift in Sources */,
+				100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */,
+				100000000000000000000160 /* LibraryModelAccount.swift in Sources */,
+				100000000000000000000161 /* LibraryModelProcessingSettings.swift in Sources */,
+				100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */,
+				100000000000000000000163 /* ScheduleEditor.swift in Sources */,
+				100000000000000000000164 /* SettingsHelpers.swift in Sources */,
+				100000000000000000000165 /* SettingsSections.swift in Sources */,
+				100000000000000000000166 /* SettingsView.swift in Sources */,
+				100000000000000000000167 /* SettingsViewLayout.swift in Sources */,
+				100000000000000000000168 /* SettingsViewNavigation.swift in Sources */,
+				100000000000000000000169 /* VoiceBriefSettings.swift in Sources */,
+				100000000000000000000170 /* BriefPreparationPanel.swift in Sources */,
+				100000000000000000000171 /* LibraryModelVoiceBriefs.swift in Sources */,
+				100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */,
+				100000000000000000000173 /* NativeLibraryError.swift in Sources */,
+				100000000000000000000174 /* NativeVoiceSynthesis.swift in Sources */,
+				100000000000000000000175 /* BrieflyBackend.swift in Sources */,
+				100000000000000000000176 /* BrieflyBackendModels.swift in Sources */,
+				100000000000000000000177 /* MobileAppShell.swift in Sources */,
+				100000000000000000000178 /* MobileHeader.swift in Sources */,
+				100000000000000000000179 /* MobileNavigation.swift in Sources */,
+				100000000000000000000180 /* MobilePrimaryTab.swift in Sources */,
+				100000000000000000000181 /* MacErrorBanner.swift in Sources */,
+				100000000000000000000182 /* MacLoadingWorkspace.swift in Sources */,
+				100000000000000000000183 /* MacNavigation.swift in Sources */,
+				100000000000000000000184 /* MacRightRail.swift in Sources */,
+				100000000000000000000185 /* ShortcutRecorder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
