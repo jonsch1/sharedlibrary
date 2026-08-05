@@ -68,6 +68,32 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertTrue(value.content.contains("Native PDF content"))
     }
 
+    func testLocalPDFInputUsesFilenameWhenMetadataIsEmpty() async throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "briefly-native-report.pdf")
+        try? FileManager.default.removeItem(at: url)
+        try fixturePDF(text: "Filename fallback content", title: "").write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let value = try await router.ingest(.init(source: .file(url)))
+
+        XCTAssertEqual(value.inputID, .pdf)
+        XCTAssertEqual(value.title, "briefly native report")
+        XCTAssertTrue(value.content.contains("Filename fallback content"))
+    }
+
+    func testLocalPDFInputRejectsFilesOverTheImportLimit() async throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "oversized-\(UUID()).pdf")
+        try Data(repeating: 0, count: 20_000_001).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            _ = try await router.ingest(.init(source: .file(url)))
+            XCTFail("Expected the PDF import limit to be enforced")
+        } catch let error as NativeInputError {
+            XCTAssertEqual(error, .responseTooLarge)
+        }
+    }
+
     func testArxivInput() async throws {
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.arxiv))),
@@ -150,6 +176,57 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertEqual(value.audioData, Data("audio".utf8))
     }
 
+    func testYouTubeInputFallsBackToPagePlayerAndPrefersManualXMLCaptions() async throws {
+        let player = #"{"videoDetails":{"title":"Page video","author":"Page channel"},"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://www.youtube.com/api/timedtext?lang=fr","languageCode":"fr"},{"baseUrl":"https://www.youtube.com/api/timedtext?lang=en&kind=asr","languageCode":"en","kind":"asr"},{"baseUrl":"https://www.youtube.com/api/timedtext?lang=en&kind=manual","languageCode":"en","kind":"manual"}]}}}"#
+        let page = """
+            <html><head>
+            <meta property="og:description" content="Page description fallback">
+            <link rel="icon" href="https://cdn.example.org/youtube-icon.png">
+            <script>var ytInitialPlayerResponse = \(player);</script>
+            </head></html>
+            """
+        let manualXML = #"<transcript><text start="0">Preferred &amp; <b>manual</b>.</text><text start="1">Second line.</text></transcript>"#
+        let asrXML = #"<transcript><text start="0">ASR should not win.</text></transcript>"#
+        let value = try await router.ingest(
+            .init(source: .url(itemTestURL(.youtube))),
+            context: .init(http: fixtureHTTP([
+                "youtube.com/watch": .text(page),
+                "timedtext?lang=en&kind=manual": .text(manualXML, "text/xml"),
+                "timedtext?lang=en&kind=asr": .text(asrXML, "text/xml")
+            ]))
+        )
+
+        XCTAssertEqual(value.title, "Page video")
+        XCTAssertEqual(value.transcriptLanguage, "en")
+        XCTAssertTrue(value.content.contains("Preferred & manual."))
+        XCTAssertTrue(value.content.contains("Second line."))
+        XCTAssertFalse(value.content.contains("ASR should not win"))
+        XCTAssertEqual(value.faviconURL?.absoluteString, "https://cdn.example.org/youtube-icon.png")
+    }
+
+    func testYouTubeInputUsesTranscriptionWhenPublishedCaptionsAreUnavailable() async throws {
+        let player: [String: Any] = [
+            "videoDetails": ["title": "Generated video", "author": "Briefly"],
+            "streamingData": ["adaptiveFormats": [[
+                "mimeType": "audio/mpeg", "url": "https://cdn.example.org/generated.mp3"
+            ]]]
+        ]
+        let value = try await router.ingest(
+            .init(source: .url(itemTestURL(.youtube))),
+            context: .init(
+                http: fixtureHTTP(["youtubei/v1/player": .json(player)]),
+                transcribe: { url in
+                    XCTAssertEqual(url.absoluteString, "https://cdn.example.org/generated.mp3")
+                    return InputTranscript(text: "Generated transcript.", language: "en")
+                }
+            )
+        )
+
+        XCTAssertTrue(value.transcriptAvailable)
+        XCTAssertEqual(value.transcriptLanguage, "en")
+        XCTAssertTrue(value.content.contains("Generated transcript."))
+    }
+
     func testPodcastInput() async throws {
         let episode = itemTestURL(.podcast)
         let media = URL(string: "https://traffic.libsyn.com/atpfm/atp300.mp3")!
@@ -169,6 +246,82 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertEqual(value.inputID, .podcast)
         XCTAssertEqual(value.mediaURL, media)
         XCTAssertTrue(value.content.contains("Spoken words"))
+    }
+
+    func testPodcastInputDiscoversFeedAndParsesPreferredVTTTranscript() async throws {
+        let page = """
+            <html><head>
+            <meta property="og:title" content="Behind the Scenes | Apple Podcasts">
+            <meta property="og:description" content="Episode page description">
+            <link rel="canonical" href="https://inandaroundpodcasting.com/episode/behind-the-scenes">
+            <link rel="alternate" type="application/rss+xml" href="/feed.xml">
+            </head></html>
+            """
+        let feed = """
+            <rss xmlns:podcastindex="https://podcastindex.org/namespace/1.0"><channel>
+            <title>Native podcast show</title><item>
+            <guid>https://inandaroundpodcasting.com/episode/behind-the-scenes</guid>
+            <title>Behind the Scenes</title>
+            <link>https://inandaroundpodcasting.com/episode/behind-the-scenes</link>
+            <description><![CDATA[<p>Episode description.</p>]]></description>
+            <enclosure url="https://cdn.example.org/episode.mp3" type="audio/mpeg"/>
+            <podcastindex:transcript url="https://cdn.example.org/episode.txt" type="text/plain"/>
+            <podcastindex:transcript url="https://cdn.example.org/episode.json" type="application/json"/>
+            <podcastindex:transcript url="https://cdn.example.org/episode.vtt" type="text/vtt" language="en"/>
+            </item></channel></rss>
+            """
+        let vtt = """
+            WEBVTT
+
+            00:00:00.000 --> 00:00:01.000
+            <v Host>Hello there.</v>
+
+            00:00:01.000 --> 00:00:02.000
+            <v Guest>Native transcript.</v>
+            """
+        let value = try await router.ingest(
+            .init(source: .url(itemTestURL(.podcast)), hints: .init(preferredInput: .podcast)),
+            context: .init(http: fixtureHTTP([
+                "inandaroundpodcasting.com/episode/behind-the-scenes": .text(page),
+                "feed.xml": .text(feed, "application/rss+xml"),
+                "episode.vtt": .text(vtt, "text/vtt")
+            ]))
+        )
+
+        XCTAssertEqual(value.title, "Behind the Scenes")
+        XCTAssertEqual(value.mediaURL?.absoluteString, "https://cdn.example.org/episode.mp3")
+        XCTAssertEqual(value.transcriptLanguage, "en")
+        XCTAssertTrue(value.content.contains("Host: Hello there."))
+        XCTAssertTrue(value.content.contains("Guest: Native transcript."))
+        XCTAssertFalse(value.content.contains("00:00:00"))
+    }
+
+    func testPodcastInputParsesStructuredJSONSpeakers() async throws {
+        let media = URL(string: "https://cdn.example.org/json-episode.mp3")!
+        let transcript = URL(string: "https://cdn.example.org/json-episode.json")!
+        let json: [String: Any] = ["segments": [
+            ["speaker": "Host", "body": "Welcome."],
+            ["speaker": "Host", "body": "Let us begin."],
+            ["speaker": "Guest", "body": "Thanks for having me."]
+        ]]
+        let value = try await router.ingest(
+            .init(
+                source: .url(itemTestURL(.podcast)),
+                hints: .init(
+                    preferredInput: .podcast,
+                    title: "JSON episode",
+                    mediaURL: media,
+                    transcriptURL: transcript,
+                    transcriptType: "application/json",
+                    transcriptLanguage: "en"
+                )
+            ),
+            context: .init(http: fixtureHTTP(["json-episode.json": .json(json)]))
+        )
+
+        XCTAssertTrue(value.transcriptAvailable)
+        XCTAssertEqual(value.transcriptLanguage, "en")
+        XCTAssertTrue(value.content.contains("Host: Welcome. Let us begin. Guest: Thanks for having me."))
     }
 
     func testRedditInput() async throws {

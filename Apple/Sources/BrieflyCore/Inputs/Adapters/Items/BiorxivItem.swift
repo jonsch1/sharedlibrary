@@ -34,7 +34,7 @@ func ingestBiorxiv(
         .appending(path: "\(UUID().uuidString).pdf")
     defer { try? FileManager.default.removeItem(at: temporary) }
     try pdfResponse.data.write(to: temporary, options: .atomic)
-    var draft = try ingestPDF(.init(source: .file(temporary)))
+    var draft = try ingestPDFFile(at: temporary, maximumBytes: 50_000_000)
     let metadata = await pageResponse.map {
         inputHTMLMetadata($0.text, baseURL: $0.finalURL)
     }

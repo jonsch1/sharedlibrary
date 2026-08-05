@@ -18,6 +18,7 @@ func ingestPodcast(
     var resolvedEpisode = episode.title != nil || episode.description != nil ||
         episode.mediaURL != nil || episode.transcriptURL != nil
     var showTitle: String?
+    var pageMetadata: InputHTMLMetadata?
     if episode.mediaURL == nil && episode.transcriptURL == nil {
         let response = try await context.http.get(url)
         if let feed = parseNativePodcastFeed(response.data, baseURL: response.finalURL) {
@@ -26,6 +27,8 @@ func ingestPodcast(
             resolvedEpisode = !feed.episodes.isEmpty
         } else {
             let metadata = inputHTMLMetadata(response.text, baseURL: response.finalURL)
+            pageMetadata = metadata
+            let matchingURL = metadata.canonicalURL ?? response.finalURL
             let feedURLs = try await podcastFeedURLs(
                 html: response.text,
                 pageURL: response.finalURL,
@@ -37,12 +40,13 @@ func ingestPodcast(
                     let feed = parseNativePodcastFeed(feedResponse.data, baseURL: feedResponse.finalURL)
                 else { continue }
                 let match = feed.episodes.max { left, right in
-                    podcastEpisodeScore(left, url: response.finalURL, title: metadata.title) <
-                        podcastEpisodeScore(right, url: response.finalURL, title: metadata.title)
+                    podcastEpisodeScore(left, url: matchingURL, title: metadata.title) <
+                        podcastEpisodeScore(right, url: matchingURL, title: metadata.title)
                 }
-                if let match, podcastEpisodeScore(match, url: response.finalURL, title: metadata.title) > 0 {
+                if let match, podcastEpisodeScore(match, url: matchingURL, title: metadata.title) > 0 {
                     showTitle = feed.title
                     episode = match
+                    episode.description = episode.description ?? metadata.description
                     resolvedEpisode = true
                     break
                 }
@@ -56,7 +60,9 @@ func ingestPodcast(
         do {
             let response = try await context.http.get(
                 transcriptURL,
-                headers: ["Accept": episode.transcriptType ?? "text/plain"],
+                headers: [
+                    "Accept": "\(episode.transcriptType ?? "text/plain"),text/plain;q=0.9,*/*;q=0.1"
+                ],
                 maximumBytes: 20_000_000
             )
             let text = parsePodcastTranscript(response.text, type: episode.transcriptType)
@@ -68,7 +74,11 @@ func ingestPodcast(
     }
     if transcript == nil, let mediaURL = episode.mediaURL, let transcribe = context.transcribe {
         do {
-            transcript = try await transcribe(mediaURL)
+            let generated = try await transcribe(mediaURL)
+            guard !generated.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NativeInputError.unreadableContent
+            }
+            transcript = generated
             transcriptError = nil
         } catch {
             transcriptError = error.localizedDescription
@@ -80,12 +90,13 @@ func ingestPodcast(
     ].compactMap { $0 }.joined(separator: "\n")
     return ItemDraft(
         inputID: .podcast,
-        title: episode.title ?? showTitle ?? "Podcast episode",
+        title: episode.title ?? showTitle ?? pageMetadata?.title ?? "Podcast episode",
         content: content,
         sourceURL: url,
         canonicalURL: episode.link ?? url,
         mediaURL: episode.mediaURL,
-        faviconURL: URL(string: "/favicon.ico", relativeTo: episode.link ?? url)?.absoluteURL,
+        faviconURL: pageMetadata?.faviconURL ??
+            URL(string: "/favicon.ico", relativeTo: episode.link ?? url)?.absoluteURL,
         transcriptAvailable: transcript != nil,
         transcriptLanguage: transcript?.language,
         transcriptError: transcriptError
