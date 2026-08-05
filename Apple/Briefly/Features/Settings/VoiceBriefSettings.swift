@@ -39,8 +39,8 @@ struct VoiceBriefConfiguration: View {
 
     var body: some View {
         ScrollView {
-            if model.canEdit &&
-                (model.selectedVoiceBrief != nil || model.selectedVoiceBriefID == "new")
+            if model.session.canEdit &&
+                (model.voiceBriefs.selectedVoiceBrief != nil || model.navigation.selectedVoiceBriefID == "new")
             {
                 VStack(alignment: .leading, spacing: 28) {
                     TextField("Voice brief title", text: $title)
@@ -57,12 +57,12 @@ struct VoiceBriefConfiguration: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text("\(model.channels.count(where: isChannelSelected)) selected")
+                            Text("\(model.channels.channels.count(where: isChannelSelected)) selected")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
-                        if model.channels.isEmpty {
+                        if model.channels.channels.isEmpty {
                             Label(
                                 "Add channels in the Channel tab, then choose them here.",
                                 systemImage: "dot.radiowaves.left.and.right"
@@ -81,7 +81,7 @@ struct VoiceBriefConfiguration: View {
                             }
                         } else {
                             VStack(spacing: 0) {
-                                ForEach(model.channels) { channel in
+                                ForEach(model.channels.channels) { channel in
                                     Button {
                                         toggleChannel(channel)
                                     } label: {
@@ -120,7 +120,7 @@ struct VoiceBriefConfiguration: View {
                                             : Color.clear
                                     )
 
-                                    if channel.id != model.channels.last?.id {
+                                    if channel.id != model.channels.channels.last?.id {
                                         Divider()
                                     }
                                 }
@@ -136,7 +136,7 @@ struct VoiceBriefConfiguration: View {
                     ScheduleEditor(schedule: $schedule)
 
                     HStack {
-                        if model.selectedVoiceBrief != nil {
+                        if model.voiceBriefs.selectedVoiceBrief != nil {
                             Button("Move voice brief to Trash", role: .destructive) {
                                 confirmsTrash = true
                             }
@@ -149,7 +149,7 @@ struct VoiceBriefConfiguration: View {
                 .background(.ultraThinMaterial.opacity(0.64))
                 .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                 .frame(maxWidth: .infinity, alignment: .top)
-            } else if let brief = model.selectedVoiceBrief {
+            } else if let brief = model.voiceBriefs.selectedVoiceBrief {
                 ConfigurationCard(
                     eyebrow: "VOICE BRIEF",
                     title: brief.title,
@@ -172,12 +172,12 @@ struct VoiceBriefConfiguration: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .top, spacing: 0) {
-            if model.canEdit &&
-                (model.selectedVoiceBrief != nil || model.selectedVoiceBriefID == "new")
+            if model.session.canEdit &&
+                (model.voiceBriefs.selectedVoiceBrief != nil || model.navigation.selectedVoiceBriefID == "new")
             {
                 HStack(spacing: 10) {
                     Button {
-                        model.navigateBack()
+                        model.navigation.navigateBack()
                         #if os(iOS)
                         dismiss()
                         #endif
@@ -206,7 +206,7 @@ struct VoiceBriefConfiguration: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .task(id: model.selectedVoiceBriefID) {
+        .task(id: model.navigation.selectedVoiceBriefID) {
             loadDraft()
         }
         .confirmationDialog(
@@ -214,15 +214,15 @@ struct VoiceBriefConfiguration: View {
             isPresented: $confirmsTrash
         ) {
             Button("Move to Trash", role: .destructive) {
-                Task { await model.trashSelectedVoiceBrief() }
+                Task { await model.voiceBriefs.trashSelectedVoiceBrief() }
             }
         }
     }
 
     private func save() async {
-        let saved = await model.saveVoiceBrief(
+        let saved = await model.voiceBriefs.saveVoiceBrief(
             LibraryVoiceBriefDraft(
-                id: model.selectedVoiceBrief?.id,
+                id: model.voiceBriefs.selectedVoiceBrief?.id,
                 title: title,
                 schedule: schedule,
                 length: "",
@@ -231,7 +231,7 @@ struct VoiceBriefConfiguration: View {
             )
         )
         guard saved != nil else { return }
-        model.showingVoiceBriefSettings = false
+        model.navigation.showingVoiceBriefSettings = false
         #if os(iOS)
         dismiss()
         #endif
@@ -252,7 +252,7 @@ struct VoiceBriefConfiguration: View {
     }
 
     private func loadDraft() {
-        if let brief = model.selectedVoiceBrief {
+        if let brief = model.voiceBriefs.selectedVoiceBrief {
             title = brief.title
             schedule = brief.schedule
             sources = brief.sources.joined(separator: "\n")

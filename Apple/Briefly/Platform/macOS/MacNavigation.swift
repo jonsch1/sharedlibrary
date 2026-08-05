@@ -35,13 +35,13 @@ struct MacXNavigation: View {
             ForEach(LibrarySection.allCases) { section in
                 Button {
                     showsSettings = false
-                    Task { await model.show(section) }
+                    Task { await model.navigation.show(section) }
                 } label: {
                     navigationRow(
                         section.title,
                         icon: section.icon,
-                        selected: model.activeSection == section &&
-                            !model.showingHighlights && !model.showingTrash
+                        selected: model.navigation.activeSection == section &&
+                            !model.navigation.showingHighlights && !model.navigation.showingTrash
                     )
                 }
                 .buttonStyle(.plain)
@@ -50,12 +50,12 @@ struct MacXNavigation: View {
 
             Button {
                 showsSettings = false
-                model.showHighlights()
+                model.navigation.showHighlights()
             } label: {
                 navigationRow(
                     "Highlights",
                     icon: "highlighter",
-                    selected: model.showingHighlights
+                    selected: model.navigation.showingHighlights
                 )
             }
             .buttonStyle(.plain)
@@ -63,23 +63,23 @@ struct MacXNavigation: View {
 
             Button {
                 showsSettings = false
-                model.showTrash()
+                model.navigation.showTrash()
             } label: {
-                navigationRow("Trash", icon: "trash", selected: model.showingTrash)
+                navigationRow("Trash", icon: "trash", selected: model.navigation.showingTrash)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("navigation.trash")
 
             Button {
-                switch model.activeSection {
+                switch model.navigation.activeSection {
                 case .items:
                     showsCaptureComposer = true
                 case .channels:
-                    model.query = ""
-                    model.showChannelSettings("new")
+                    model.navigation.query = ""
+                    model.navigation.showChannelSettings("new")
                 case .briefs:
-                    model.query = ""
-                    model.showVoiceBriefSettings("new")
+                    model.navigation.query = ""
+                    model.navigation.showVoiceBriefSettings("new")
                 }
             } label: {
                 Label(primaryActionTitle, systemImage: "plus")
@@ -90,7 +90,7 @@ struct MacXNavigation: View {
             .buttonStyle(.borderedProminent)
             .buttonBorderShape(.capsule)
             .accessibilityIdentifier(
-                model.activeSection == .items ? "capture.open" : "navigation.primaryAction"
+                model.navigation.activeSection == .items ? "capture.open" : "navigation.primaryAction"
             )
             .padding(.top, 12)
             .padding(.horizontal, 4)
@@ -111,7 +111,7 @@ struct MacXNavigation: View {
     }
 
     private var primaryActionTitle: String {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items: "Capture"
         case .channels: "New channel"
         case .briefs: "New brief"

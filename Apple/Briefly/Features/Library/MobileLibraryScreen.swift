@@ -52,8 +52,8 @@ struct MobileXLibraryScreen: View {
                 ForEach(Section.allCases, id: \.self) { item in
                     Button {
                         section = item
-                        if item == .highlights { model.showHighlights() }
-                        else { model.showTrash() }
+                        if item == .highlights { model.navigation.showHighlights() }
+                        else { model.navigation.showTrash() }
                     } label: {
                         Text(item.rawValue)
                             .font(.subheadline.weight(.semibold))
@@ -69,7 +69,7 @@ struct MobileXLibraryScreen: View {
             .overlay(alignment: .bottom) { Divider() }
 
             if section == .highlights {
-                if model.highlightsText.isEmpty {
+                if model.selection.highlightsText.isEmpty {
                     XEmptyState(
                         icon: "highlighter",
                         title: "No highlights yet",
@@ -78,7 +78,7 @@ struct MobileXLibraryScreen: View {
                     .frame(maxWidth: 720, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        MarkdownArticle(model.highlightsText)
+                        MarkdownArticle(model.selection.highlightsText)
                             .frame(maxWidth: 680, alignment: .leading)
                             .padding(.horizontal, 22)
                             .padding(.vertical, 28)
@@ -86,7 +86,7 @@ struct MobileXLibraryScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-            } else if model.trashEntries.isEmpty {
+            } else if model.selection.trashEntries.isEmpty {
                 XEmptyState(
                     icon: "trash",
                     title: "Trash is empty",
@@ -96,7 +96,7 @@ struct MobileXLibraryScreen: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(model.trashEntries) { entry in
+                        ForEach(model.selection.trashEntries) { entry in
                             FeedEntryRow(entry: entry) { openEntry(entry) }
                         }
                     }
@@ -108,7 +108,7 @@ struct MobileXLibraryScreen: View {
         }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .task { model.showHighlights() }
+        .task { model.navigation.showHighlights() }
     }
 }
 

@@ -25,21 +25,21 @@ struct LibraryDetail: View {
     var body: some View {
         Group {
             #if os(macOS)
-            if model.showingHighlights {
+            if model.navigation.showingHighlights {
                 HighlightsDocument(model: model)
-            } else if let entry = model.selectedEntry {
+            } else if let entry = model.selection.selectedEntry {
                 LibraryDocument(
                     model: model,
                     entry: entry,
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
-            } else if model.activeSection == .briefs &&
-                model.showingVoiceBriefSettings
+            } else if model.navigation.activeSection == .briefs &&
+                model.navigation.showingVoiceBriefSettings
             {
                 VoiceBriefConfiguration(model: model)
-            } else if model.activeSection == .channels &&
-                model.showingChannelSettings
+            } else if model.navigation.activeSection == .channels &&
+                model.navigation.showingChannelSettings
             {
                 ChannelConfiguration(
                     model: model,
@@ -49,35 +49,35 @@ struct LibraryDetail: View {
                 LibraryCardBrowser(model: model)
             }
             #else
-            if model.showingHighlights {
+            if model.navigation.showingHighlights {
                 HighlightsDocument(model: model)
-            } else if let entry = model.selectedEntry {
+            } else if let entry = model.selection.selectedEntry {
                 LibraryDocument(
                     model: model,
                     entry: entry,
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
-            } else if model.activeSection == .briefs {
+            } else if model.navigation.activeSection == .briefs {
                 VoiceBriefConfiguration(model: model)
-            } else if model.activeSection == .channels {
+            } else if model.navigation.activeSection == .channels {
                 ChannelConfiguration(
                     model: model,
                     showsChannelBrowser: $showsChannelBrowser
                 )
-            } else if model.activeSection == .items && model.filteredEntries.isEmpty {
+            } else if model.navigation.activeSection == .items && model.navigation.filteredEntries.isEmpty {
                 ContentUnavailableView(
-                    model.query.isEmpty
-                        ? model.selectedTopic == "All"
+                    model.navigation.query.isEmpty
+                        ? model.navigation.selectedTopic == "All"
                             ? "No documents yet"
-                            : "No documents in \(model.selectedTopic)"
+                            : "No documents in \(model.navigation.selectedTopic)"
                         : "No matching documents",
-                    systemImage: model.query.isEmpty
+                    systemImage: model.navigation.query.isEmpty
                         ? "doc.text"
                         : "doc.text.magnifyingglass",
                     description: Text(
-                        model.query.isEmpty
-                            ? model.selectedTopic == "All"
+                        model.navigation.query.isEmpty
+                            ? model.navigation.selectedTopic == "All"
                                 ? "Add a document to start your library."
                                 : "Choose another topic or add a document."
                             : "Try another search."

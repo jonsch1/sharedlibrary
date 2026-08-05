@@ -28,12 +28,12 @@ struct MacXRightRail: View {
             HStack(spacing: 9) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search your library", text: $model.query)
+                TextField("Search your library", text: $model.navigation.query)
                     .textFieldStyle(.plain)
                     .accessibilityIdentifier("library.search")
-                if !model.query.isEmpty {
+                if !model.navigation.query.isEmpty {
                     Button {
-                        model.query = ""
+                        model.navigation.query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.tertiary)
@@ -48,7 +48,7 @@ struct MacXRightRail: View {
             .background(.regularMaterial, in: Capsule())
             .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
 
-            if let entry = model.selectedEntry {
+            if let entry = model.selection.selectedEntry {
                 FeedRailCard(title: "About this post") {
                     if let source = entry.sourceURL,
                         let url = URL(string: source)
@@ -72,8 +72,8 @@ struct MacXRightRail: View {
                     ForEach(Array(entry.topicNames.prefix(5)), id: \.self) { topic in
                         Button {
                             Task {
-                                await model.select("")
-                                await model.showTopic(topic)
+                                await model.selection.select("")
+                                await model.navigation.showTopic(topic)
                             }
                         } label: {
                             HStack(spacing: 8) {
@@ -104,7 +104,7 @@ struct MacXRightRail: View {
             Button("Cancel", role: .cancel) {}
             Button("Rename") {
                 guard let topicBeingRenamed else { return }
-                Task { await model.renameTopic(topicBeingRenamed, to: renamedTopic) }
+                Task { await model.settings.renameTopic(topicBeingRenamed, to: renamedTopic) }
             }
             .disabled(renamedTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
@@ -112,7 +112,7 @@ struct MacXRightRail: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 guard let topicBeingDeleted else { return }
-                Task { await model.deleteTopic(topicBeingDeleted) }
+                Task { await model.settings.deleteTopic(topicBeingDeleted) }
             }
         } message: {
             Text("The collection will be removed, but its notes will stay in your library.")
@@ -135,26 +135,26 @@ struct MacXRightRail: View {
 
     @ViewBuilder
     private var contextualCard: some View {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
             FeedRailCard(title: "Collections") {
-                ForEach(Array(model.projection.documentTopics.prefix(6)), id: \.self) { topic in
+                ForEach(Array(model.session.projection.documentTopics.prefix(6)), id: \.self) { topic in
                     collectionRow(topic)
                 }
             }
         case .channels:
             FeedRailCard(title: "Main channels") {
-                ForEach(Array(model.channels.prefix(6))) { channel in
+                ForEach(Array(model.channels.channels.prefix(6))) { channel in
                     railButton(compactLabel(channel.title), icon: channel.kind == .podcast ? "waveform" : "dot.radiowaves.left.and.right") {
-                        model.selectChannel(channel.source)
+                        model.navigation.selectChannel(channel.source)
                     }
                 }
             }
         case .briefs:
             FeedRailCard(title: "Main briefs") {
-                ForEach(Array(model.projection.voiceBriefDefinitions.prefix(6)), id: \.id) { brief in
+                ForEach(Array(model.session.projection.voiceBriefDefinitions.prefix(6)), id: \.id) { brief in
                     railButton(brief.title, icon: "headphones") {
-                        model.selectVoiceBrief(brief.id)
+                        model.navigation.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -164,7 +164,7 @@ struct MacXRightRail: View {
     private func collectionRow(_ topic: String) -> some View {
         HStack(spacing: 6) {
             Button {
-                Task { await model.showTopic(topic) }
+                Task { await model.navigation.showTopic(topic) }
             } label: {
                 railRowLabel(topic, icon: "folder")
             }

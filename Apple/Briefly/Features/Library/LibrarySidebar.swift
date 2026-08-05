@@ -81,60 +81,60 @@ struct LibrarySidebar: View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(LibrarySection.allCases) { section in
                 Button {
-                    Task { await model.show(section) }
+                    Task { await model.navigation.show(section) }
                 } label: {
                     xSidebarRow(
                         icon: section.icon,
                         title: section.title,
-                        selected: model.activeSection == section
+                        selected: model.navigation.activeSection == section
                     )
                 }
                 .accessibilityAddTraits(
-                    model.activeSection == section ? .isSelected : []
+                    model.navigation.activeSection == section ? .isSelected : []
                 )
                 .help(section.title)
             }
 
-            if model.activeSection == .items {
+            if model.navigation.activeSection == .items {
                 Divider()
                     .padding(.vertical, 10)
                     .padding(.horizontal, 8)
 
-                Button(action: model.showInbox) {
+                Button(action: model.navigation.showInbox) {
                     xSidebarRow(
                         icon: "tray",
                         title: "Inbox",
-                        selected: model.selectedTopic == "All" &&
-                            !model.showingHighlights && !model.showingTrash
+                        selected: model.navigation.selectedTopic == "All" &&
+                            !model.navigation.showingHighlights && !model.navigation.showingTrash
                     )
                 }
-                Button(action: model.showHighlights) {
+                Button(action: model.navigation.showHighlights) {
                     xSidebarRow(
                         icon: "highlighter",
                         title: "Highlights",
-                        selected: model.showingHighlights
+                        selected: model.navigation.showingHighlights
                     )
                 }
-                Button(action: model.showTrash) {
+                Button(action: model.navigation.showTrash) {
                     xSidebarRow(
                         icon: "trash",
                         title: "Trash",
-                        selected: model.showingTrash
+                        selected: model.navigation.showingTrash
                     )
                 }
             }
 
-            if model.activeSection != .items {
+            if model.navigation.activeSection != .items {
                 Button {
-                    model.query = ""
-                    if model.activeSection == .channels {
-                        model.showChannelSettings("new")
+                    model.navigation.query = ""
+                    if model.navigation.activeSection == .channels {
+                        model.navigation.showChannelSettings("new")
                     } else {
-                        model.showVoiceBriefSettings("new")
+                        model.navigation.showVoiceBriefSettings("new")
                     }
                 } label: {
                     Label(
-                        model.activeSection == .channels ? "New channel" : "New brief",
+                        model.navigation.activeSection == .channels ? "New channel" : "New brief",
                         systemImage: "plus"
                     )
                     .font(.headline)
@@ -148,7 +148,7 @@ struct LibrarySidebar: View {
             } else {
                 Button {
                     let text = NSPasteboard.general.string(forType: .string) ?? ""
-                    Task { await model.capture(text) }
+                    Task { await model.processing.capture(text) }
                 } label: {
                     Label("Capture", systemImage: "plus")
                         .font(.headline)
@@ -192,7 +192,7 @@ struct LibrarySidebar: View {
             audioPlayer.isPlaying,
             let id = audioPlayer.currentEntryID
         else { return nil }
-        return model.projection.entries.first { $0.id == id }
+        return model.session.projection.entries.first { $0.id == id }
     }
 
     private func xSidebarRow(

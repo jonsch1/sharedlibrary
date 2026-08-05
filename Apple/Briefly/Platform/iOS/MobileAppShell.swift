@@ -89,7 +89,7 @@ struct MobileXAppShell: View {
                 .accessibilityLabel("Open audio player")
             } else if isPlayableDetail {
                 Button(action: primaryAction) {
-                    if model.isGeneratingSpeech {
+                    if model.audio.isGeneratingSpeech {
                         ProgressView()
                             .tint(.white)
                             .frame(width: 56, height: 56)
@@ -110,14 +110,14 @@ struct MobileXAppShell: View {
                 .padding(.bottom, 58)
                 .accessibilityLabel("Play audio")
                 .disabled(
-                    model.isGeneratingSpeech || model.isRunningVoiceBrief ||
-                        model.selectedText.isEmpty
+                    model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
+                        model.selection.selectedText.isEmpty
                 )
             }
         }
         .onChange(of: selectedTab) {
             showsDetail = false
-            model.query = ""
+            model.navigation.query = ""
             Task { await activate(selectedTab) }
         }
         .task { await activate(selectedTab) }
@@ -149,52 +149,52 @@ struct MobileXAppShell: View {
     private func openEntry(_ entry: LibraryEntry) {
         Task {
             if entry.voiceBriefID != nil {
-                model.activeSection = .briefs
-                model.selectedVoiceBriefID = entry.voiceBriefID ?? ""
+                model.navigation.activeSection = .briefs
+                model.navigation.selectedVoiceBriefID = entry.voiceBriefID ?? ""
             } else if selectedTab == .home {
-                model.activeSection = .items
+                model.navigation.activeSection = .items
             }
-            await model.select(entry.id)
+            await model.selection.select(entry.id)
             showsDetail = true
         }
     }
 
     private func activate(_ tab: MobilePrimaryTab) async {
         switch tab {
-        case .home: await model.show(.items)
-        case .channels: await model.show(.channels)
-        case .briefs: await model.show(.briefs)
+        case .home: await model.navigation.show(.items)
+        case .channels: await model.navigation.show(.channels)
+        case .briefs: await model.navigation.show(.briefs)
         case .library: break
         }
     }
 
     private var isPlayableDetail: Bool {
-        showsDetail && model.selectedEntry != nil
+        showsDetail && model.selection.selectedEntry != nil
     }
 
     private var playingEntry: LibraryEntry? {
         guard let id = audioPlayer.currentEntryID else { return nil }
-        if isPlayableDetail, let selectedEntry = model.selectedEntry {
-            let selectedPlaybackID = model.audioPlaybackID(
+        if isPlayableDetail, let selectedEntry = model.selection.selectedEntry {
+            let selectedPlaybackID = model.audio.audioPlaybackID(
                 for: selectedEntry,
-                variant: model.selectedVariant,
-                text: model.selectedText
+                variant: model.selection.selectedVariant,
+                text: model.selection.selectedText
             )
             guard
                 selectedEntry.id == id,
                 audioPlayer.isCurrentPlayback(selectedPlaybackID)
             else { return nil }
         }
-        return model.projection.entries.first { $0.id == id }
+        return model.session.projection.entries.first { $0.id == id }
     }
 
     private func primaryAction() {
-        guard isPlayableDetail, let entry = model.selectedEntry else { return }
+        guard isPlayableDetail, let entry = model.selection.selectedEntry else { return }
 
         Task {
-            let variant = model.selectedVariant
-            let text = model.selectedText
-            let playbackID = model.audioPlaybackID(
+            let variant = model.selection.selectedVariant
+            let text = model.selection.selectedText
+            let playbackID = model.audio.audioPlaybackID(
                 for: entry,
                 variant: variant,
                 text: text
@@ -208,7 +208,7 @@ struct MobileXAppShell: View {
                 )
                 if shouldGenerate {
                     var startedPlayback = false
-                    _ = await model.streamPlayableAudio(
+                    _ = await model.audio.streamPlayableAudio(
                         for: entry,
                         variant: variant,
                         text: text
@@ -225,7 +225,7 @@ struct MobileXAppShell: View {
                     audioEntry = entry
                 }
             } catch {
-                model.errorMessage = error.localizedDescription
+                model.session.errorMessage = error.localizedDescription
                 audioPlayer.stop()
             }
         }
@@ -236,10 +236,10 @@ struct MobileXAppShell: View {
         case .home, .library:
             showsCaptureComposer = true
         case .channels:
-            model.showChannelSettings("new")
+            model.navigation.showChannelSettings("new")
             showsDetail = true
         case .briefs:
-            model.showVoiceBriefSettings("new")
+            model.navigation.showVoiceBriefSettings("new")
             showsDetail = true
         }
     }

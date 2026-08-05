@@ -27,11 +27,11 @@ struct MacSidebarFilters: View {
     @Bindable var model: LibraryModel
 
     private var notes: [LibraryEntry] {
-        model.projection.entries.filter(\.isMainLibraryEntry)
+        model.session.projection.entries.filter(\.isMainLibraryEntry)
     }
 
     private var topics: [SidebarTopic] {
-        model.projection.documentTopics.map { topic in
+        model.session.projection.documentTopics.map { topic in
             SidebarTopic(
                 name: topic,
                 count: notes.count { $0.topicNames.contains(topic) }
@@ -46,29 +46,29 @@ struct MacSidebarFilters: View {
 
     var body: some View {
         LazyVStack(spacing: 2) {
-            switch model.activeSection {
+            switch model.navigation.activeSection {
             case .items:
                 SidebarRow(
                     icon: "tray",
                     title: "Inbox",
                     count: notes.count,
-                    selected: model.selectedTopic == "All" &&
-                        !model.showingHighlights && !model.showingTrash,
-                    action: model.showInbox
+                    selected: model.navigation.selectedTopic == "All" &&
+                        !model.navigation.showingHighlights && !model.navigation.showingTrash,
+                    action: model.navigation.showInbox
                 )
                 SidebarRow(
                     icon: "highlighter",
                     title: "Highlights",
-                    count: model.loadedHighlightCount,
-                    selected: model.showingHighlights,
-                    action: model.showHighlights
+                    count: model.selection.loadedHighlightCount,
+                    selected: model.navigation.showingHighlights,
+                    action: model.navigation.showHighlights
                 )
                 SidebarRow(
                     icon: "trash",
                     title: "Trash",
-                    count: model.loadedTrashCount,
-                    selected: model.showingTrash,
-                    action: model.showTrash
+                    count: model.selection.loadedTrashCount,
+                    selected: model.navigation.showingTrash,
+                    action: model.navigation.showTrash
                 )
 
                 if !topics.isEmpty {
@@ -78,10 +78,10 @@ struct MacSidebarFilters: View {
                             icon: "folder",
                             title: topic.name,
                             count: topic.count,
-                            selected: model.selectedTopic == topic.name &&
-                                !model.showingHighlights && !model.showingTrash
+                            selected: model.navigation.selectedTopic == topic.name &&
+                                !model.navigation.showingHighlights && !model.navigation.showingTrash
                         ) {
-                            Task { await model.showTopic(topic.name) }
+                            Task { await model.navigation.showTopic(topic.name) }
                         }
                     }
                 }
@@ -90,21 +90,21 @@ struct MacSidebarFilters: View {
                 SidebarRow(
                     icon: "dot.radiowaves.left.and.right",
                     title: "All Channels",
-                    count: model.channels.count,
-                    selected: model.selectedChannelDomain == "All"
+                    count: model.channels.channels.count,
+                    selected: model.navigation.selectedChannelDomain == "All"
                 ) {
-                    model.showChannelDomain("All")
+                    model.navigation.showChannelDomain("All")
                 }
-                if !model.channels.isEmpty {
+                if !model.channels.channels.isEmpty {
                     SidebarSectionHeader("Domains")
-                    ForEach(channelDomainGroups(model.channels)) { group in
+                    ForEach(channelDomainGroups(model.channels.channels)) { group in
                         SidebarRow(
                             icon: "globe",
                             title: group.domain,
                             count: group.channels.count,
-                            selected: model.selectedChannelDomain == group.domain
+                            selected: model.navigation.selectedChannelDomain == group.domain
                         ) {
-                            model.showChannelDomain(group.domain)
+                            model.navigation.showChannelDomain(group.domain)
                         }
                     }
                 }
@@ -113,23 +113,23 @@ struct MacSidebarFilters: View {
                 SidebarRow(
                     icon: "headphones",
                     title: "All",
-                    count: model.projection.entries.count {
+                    count: model.session.projection.entries.count {
                         $0.entryType == "voice_brief_episode"
                     },
-                    selected: model.selectedVoiceBriefID.isEmpty
+                    selected: model.navigation.selectedVoiceBriefID.isEmpty
                 ) {
-                    model.selectVoiceBrief("")
+                    model.navigation.selectVoiceBrief("")
                 }
-                if !model.projection.voiceBriefDefinitions.isEmpty {
+                if !model.session.projection.voiceBriefDefinitions.isEmpty {
                     SidebarSectionHeader("Voice Briefs")
-                    ForEach(model.projection.voiceBriefDefinitions, id: \.id) { brief in
+                    ForEach(model.session.projection.voiceBriefDefinitions, id: \.id) { brief in
                         SidebarRow(
                             icon: "headphones",
                             title: brief.title,
-                            count: model.projection.episodes(for: brief.id).count,
-                            selected: model.selectedVoiceBriefID == brief.id
+                            count: model.session.projection.episodes(for: brief.id).count,
+                            selected: model.navigation.selectedVoiceBriefID == brief.id
                         ) {
-                            model.selectVoiceBrief(brief.id)
+                            model.navigation.selectVoiceBrief(brief.id)
                         }
                     }
                 }

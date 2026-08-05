@@ -30,28 +30,28 @@ struct MobileXFeedScreen: View {
         let candidates: [LibraryEntry]
         switch tab {
         case .home:
-            candidates = model.filteredEntries
+            candidates = model.navigation.filteredEntries
         case .channels:
-            if model.selectedChannelSource.isEmpty {
+            if model.navigation.selectedChannelSource.isEmpty {
                 var seen = Set<String>()
-                candidates = model.channels.flatMap { model.channelEntries(for: $0.source) }
+                candidates = model.channels.channels.flatMap { model.channels.channelEntries(for: $0.source) }
                     .filter { seen.insert($0.id).inserted }
             } else {
-                candidates = model.channelEntries(for: model.selectedChannelSource)
+                candidates = model.channels.channelEntries(for: model.navigation.selectedChannelSource)
             }
         case .briefs:
-            if model.selectedVoiceBriefID.isEmpty {
-                candidates = model.projection.voiceBriefDefinitions.flatMap {
-                    model.projection.episodes(for: $0.id)
+            if model.navigation.selectedVoiceBriefID.isEmpty {
+                candidates = model.session.projection.voiceBriefDefinitions.flatMap {
+                    model.session.projection.episodes(for: $0.id)
                 }
             } else {
-                candidates = model.projection.episodes(for: model.selectedVoiceBriefID)
+                candidates = model.session.projection.episodes(for: model.navigation.selectedVoiceBriefID)
             }
         case .library:
             candidates = []
         }
         return candidates
-            .filter { $0.matches(model.query) }
+            .filter { $0.matches(model.navigation.query) }
             .sorted {
                 ($0.createdAt ?? $0.updatedAt ?? "") >
                     ($1.createdAt ?? $1.updatedAt ?? "")
@@ -66,7 +66,7 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        if tab == .briefs, let brief = model.selectedVoiceBrief {
+                        if tab == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
                             BriefPreparationPanel(model: model, brief: brief)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
@@ -89,7 +89,7 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        if tab == .briefs, let brief = model.selectedVoiceBrief {
+                        if tab == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
                             BriefPreparationPanel(model: model, brief: brief)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
@@ -114,16 +114,16 @@ struct MobileXFeedScreen: View {
         .overlay(alignment: .top) { floatingHeader }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .animation(.smooth(duration: 0.3), value: model.selectedVoiceBriefID)
+        .animation(.smooth(duration: 0.3), value: model.navigation.selectedVoiceBriefID)
         .animation(.snappy(duration: 0.24), value: showsSearch)
         .onDisappear {
             showsSearch = false
-            model.query = ""
+            model.navigation.query = ""
         }
     }
 
     private func closeSearch() {
-        model.query = ""
+        model.navigation.query = ""
         showsSearch = false
     }
 
@@ -133,7 +133,7 @@ struct MobileXFeedScreen: View {
         VStack(spacing: 0) {
             if showsSearch {
                 MobileXSearchField(
-                    text: $model.query,
+                    text: $model.navigation.query,
                     prompt: searchPrompt,
                     cancel: closeSearch
                 )
@@ -177,36 +177,36 @@ struct MobileXFeedScreen: View {
             HStack(spacing: 8) {
                 choiceButton("All", selected: allSelected) {
                     switch tab {
-                    case .home: Task { await model.showTopic("All") }
-                    case .channels: model.selectedChannelSource = ""
-                    case .briefs: model.selectedVoiceBriefID = ""
+                    case .home: Task { await model.navigation.showTopic("All") }
+                    case .channels: model.navigation.selectedChannelSource = ""
+                    case .briefs: model.navigation.selectedVoiceBriefID = ""
                     case .library: break
                     }
                 }
 
                 switch tab {
                 case .home:
-                    ForEach(model.projection.documentTopics, id: \.self) { topic in
-                        choiceButton(topic, selected: model.selectedTopic == topic) {
-                            Task { await model.showTopic(topic) }
+                    ForEach(model.session.projection.documentTopics, id: \.self) { topic in
+                        choiceButton(topic, selected: model.navigation.selectedTopic == topic) {
+                            Task { await model.navigation.showTopic(topic) }
                         }
                     }
                 case .channels:
-                    ForEach(model.channels) { channel in
+                    ForEach(model.channels.channels) { channel in
                         choiceButton(
                             channel.title,
-                            selected: model.selectedChannelSource == channel.source
+                            selected: model.navigation.selectedChannelSource == channel.source
                         ) {
-                            model.selectChannel(channel.source)
+                            model.navigation.selectChannel(channel.source)
                         }
                     }
                 case .briefs:
-                    ForEach(model.projection.voiceBriefDefinitions, id: \.id) { brief in
+                    ForEach(model.session.projection.voiceBriefDefinitions, id: \.id) { brief in
                         choiceButton(
                             brief.title,
-                            selected: model.selectedVoiceBriefID == brief.id
+                            selected: model.navigation.selectedVoiceBriefID == brief.id
                         ) {
-                            model.selectVoiceBrief(brief.id)
+                            model.navigation.selectVoiceBrief(brief.id)
                         }
                     }
                 case .library:
@@ -241,15 +241,15 @@ struct MobileXFeedScreen: View {
     private var configurationAction: MobileXHeaderAction? {
         switch tab {
         case .channels:
-            guard let channel = model.selectedChannel else { return nil }
+            guard let channel = model.channels.selectedChannel else { return nil }
             return MobileXHeaderAction(icon: "ellipsis", label: "Channel settings") {
-                model.showChannelSettings(channel.source)
+                model.navigation.showChannelSettings(channel.source)
                 openConfiguration()
             }
         case .briefs:
-            guard let brief = model.selectedVoiceBrief else { return nil }
+            guard let brief = model.voiceBriefs.selectedVoiceBrief else { return nil }
             return MobileXHeaderAction(icon: "ellipsis", label: "Brief settings") {
-                model.showVoiceBriefSettings(brief.id)
+                model.navigation.showVoiceBriefSettings(brief.id)
                 openConfiguration()
             }
         default:
@@ -259,13 +259,13 @@ struct MobileXFeedScreen: View {
 
     private func refresh() async {
         switch tab {
-        case .home: await model.refreshLibrary()
+        case .home: await model.lifecycle.refreshLibrary()
         case .channels:
-            if model.selectedChannel != nil { await model.checkSelectedChannel() }
-            else { await model.runDueChannelChecks() }
+            if model.channels.selectedChannel != nil { await model.channels.checkSelectedChannel() }
+            else { await model.channels.runDueChannelChecks() }
         case .briefs:
-            if model.selectedVoiceBrief != nil { await model.runSelectedVoiceBrief() }
-            else { await model.runDueVoiceBriefs() }
+            if model.voiceBriefs.selectedVoiceBrief != nil { await model.voiceBriefs.runSelectedVoiceBrief() }
+            else { await model.voiceBriefs.runDueVoiceBriefs() }
         case .library: break
         }
     }
@@ -299,15 +299,15 @@ struct MobileXFeedScreen: View {
 
     private var allSelected: Bool {
         switch tab {
-        case .home: model.selectedTopic == "All" || model.selectedTopic.isEmpty
-        case .channels: model.selectedChannelSource.isEmpty
-        case .briefs: model.selectedVoiceBriefID.isEmpty
+        case .home: model.navigation.selectedTopic == "All" || model.navigation.selectedTopic.isEmpty
+        case .channels: model.navigation.selectedChannelSource.isEmpty
+        case .briefs: model.navigation.selectedVoiceBriefID.isEmpty
         case .library: false
         }
     }
 
     private var emptyIcon: String {
-        if !model.query.isEmpty { return "magnifyingglass" }
+        if !model.navigation.query.isEmpty { return "magnifyingglass" }
         return switch tab {
         case .home: "tray"
         case .channels: "dot.radiowaves.left.and.right"
@@ -317,7 +317,7 @@ struct MobileXFeedScreen: View {
     }
 
     private var emptyTitle: String {
-        if !model.query.isEmpty { return "No matches" }
+        if !model.navigation.query.isEmpty { return "No matches" }
         return switch tab {
         case .home: "Nothing here yet"
         case .channels: "No channel updates"
@@ -327,7 +327,7 @@ struct MobileXFeedScreen: View {
     }
 
     private var emptyMessage: String {
-        if !model.query.isEmpty { return "Try another search." }
+        if !model.navigation.query.isEmpty { return "Try another search." }
         return switch tab {
         case .home: "Capture a link or note to start your feed."
         case .channels: "Add a channel, then pull to fetch its latest updates."

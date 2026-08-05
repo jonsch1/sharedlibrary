@@ -1,22 +1,39 @@
-import AVFoundation
-import AuthenticationServices
 import BrieflyCore
-import CloudKit
 import CryptoKit
+import Foundation
 import Observation
-import StoreKit
-import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
-import MediaPlayer
-import UIKit
-#endif
 
-extension LibraryModel {
+@MainActor
+@Observable
+final class LibraryProcessingModel {
+    let session: LibrarySession
+    let navigation: LibraryNavigationModel
+    let selection: LibrarySelectionModel
+    let settings: LibrarySettingsModel
+
+    weak var lifecycle: LibraryLifecycleModel?
+    weak var voiceBriefs: LibraryVoiceBriefModel?
+
+    var isIngesting = false
+    var isProcessing = false
+
+    init(
+        session: LibrarySession,
+        navigation: LibraryNavigationModel,
+        selection: LibrarySelectionModel,
+        settings: LibrarySettingsModel
+    ) {
+        self.session = session
+        self.navigation = navigation
+        self.selection = selection
+        self.settings = settings
+    }
+
+    func processSelected() async {
+        guard !selection.selectedID.isEmpty else { return }
+        await enqueueProcessing(selection.selectedID)
+    }
+
     func enqueueProcessing(
         _ entryID: String,
         selectWhenFinished: Bool = true
@@ -29,7 +46,7 @@ extension LibraryModel {
         selectWhenFinished: Bool = false,
         trackingVoiceBriefEntries: Set<String> = []
     ) async {
-        guard let library else { return }
+        guard let library = session.library else { return }
         do {
             for entryID in entryIDs {
                 try await library.enqueueProcessingJob(
@@ -39,16 +56,16 @@ extension LibraryModel {
             }
             await drainProcessingQueue(trackingVoiceBriefEntries: trackingVoiceBriefEntries)
         } catch {
-            errorMessage = error.localizedDescription
+            session.errorMessage = error.localizedDescription
         }
     }
 
     func drainProcessingQueue(
         trackingVoiceBriefEntries: Set<String> = []
     ) async {
-        guard let library, !isProcessing else { return }
+        guard let library = session.library, !isProcessing else { return }
         isProcessing = true
-        status = "Preparing summaries…"
+        session.status = "Preparing summaries…"
         var selectedProcessedID: String?
         await withTaskGroup(of: ProcessingJobResult.self) { group in
             var activeTasks = 0
@@ -67,68 +84,133 @@ extension LibraryModel {
                     }
                     if trackingVoiceBriefEntries.contains(result.entryID) {
                         if result.succeeded {
-                            voiceBriefGenerationProgress?.summarizedItemCount += 1
+                            voiceBriefs?.voiceBriefGenerationProgress?.summarizedItemCount += 1
                         } else {
-                            voiceBriefGenerationProgress?.failedItemCount += 1
+                            voiceBriefs?.voiceBriefGenerationProgress?.failedItemCount += 1
                         }
-                        updateContinuedVoiceBriefProgress()
+                        voiceBriefs?.updateContinuedVoiceBriefProgress()
                     }
                 }
                 activeTasks -= 1
                 if !Task.isCancelled,
-                   let job = try? await library.claimNextProcessingJob() {
+                   let job = try? await library.claimNextProcessingJob()
+                {
                     activeTasks += 1
                     group.addTask { await self.process(job) }
                 }
             }
         }
         isProcessing = false
-        await refreshLibrary(selecting: selectedProcessedID)
-        status = "Summaries ready"
-        requestSync()
-    }
-
-    func requestSync() {
-        pendingSync?.cancel()
-        pendingSync = Task {
-            try? await Task.sleep(for: .milliseconds(900))
-            guard !Task.isCancelled else { return }
-            await sync()
+        if let lifecycle {
+            await lifecycle.refreshLibrary(selecting: selectedProcessedID)
+            lifecycle.requestSync()
         }
+        session.status = "Summaries ready"
     }
 
-    func retrieveChannel(
-        _ library: SQLiteLibraryStore,
-        source: String,
-        loadMore: Bool = false
-    ) async throws -> LibraryChannelRefresh {
-        let ingest: @Sendable (LibraryChannelCandidate) async throws -> String = {
-            candidate in
-            guard let url = URL(string: candidate.url) else {
-                throw LibraryError.invalidChannel
+    func capture(_ text: String) async {
+        guard let library = session.library else {
+            session.errorMessage = "Open a Briefly library before capturing."
+            return
+        }
+        isIngesting = true
+        defer { isIngesting = false }
+        do {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let url = URL(string: trimmed).flatMap {
+                ["http", "https"].contains($0.scheme?.lowercased() ?? "") &&
+                    $0.host != nil &&
+                    !trimmed.contains(where: \.isWhitespace)
+                    ? $0
+                    : nil
             }
-            return try await self.ingestURL(
-                url,
-                in: library,
-                candidate: candidate
-            )
+            session.status = url == nil ? "Capturing text…" : "Extracting the item…"
+            let router = NativeItemInputRouter()
+            var request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
+            request.retainAudio = UserDefaults.standard.bool(forKey: "BrieflySaveCapturedAudio") &&
+                router.inputID(for: request) == .youtube
+            let draft = try await router.ingest(request, context: itemInputContext())
+            let id = try await library.captureItem(draft)
+            if let lifecycle {
+                await lifecycle.refreshLibrary(selecting: id)
+            }
+            navigation.activeSection = .items
+            if session.environment.isUITesting {
+                session.status = "Captured"
+                return
+            }
+            session.status = "Captured. Preparing summaries…"
+            isIngesting = false
+            await enqueueProcessing(id)
+            lifecycle?.requestSync()
+        } catch {
+            session.errorMessage = error.localizedDescription
         }
-        let channel = libraryChannels.first { $0.source == source }
-        let maximum = loadMore
-            ? min(100, (channel?.items.count ?? 0) + (channel?.retrievalCount ?? 5))
-            : nil
-        return try await library.checkChannelInput(
-            source,
-            maximumItems: maximum,
-            discover: { limit in
-                try await NativeChannelInputRouter().enumerate(
-                    source: source,
-                    maximumItems: limit,
-                    context: self.channelInputContext()
-                )
-            },
-            ingest: ingest
-        )
+    }
+
+    func setBrowserIngesting(_ ingesting: Bool) {
+        isIngesting = ingesting
+        if ingesting {
+            session.status = "Extracting the signed-in page…"
+        }
+    }
+
+    func captureWebPage(url: URL, page: SignedInChannelPage) async {
+        guard let library = session.library else {
+            session.errorMessage = "Open a Briefly library before saving web pages."
+            return
+        }
+        isIngesting = true
+        defer { isIngesting = false }
+        do {
+            let id = try await library.captureItem(ItemDraft(
+                inputID: .webPage,
+                title: page.title,
+                content: page.text,
+                sourceURL: url,
+                canonicalURL: url,
+                faviconData: page.faviconData,
+                faviconFileExtension: page.faviconFileExtension
+            ))
+            if let lifecycle {
+                await lifecycle.refreshLibrary(selecting: id)
+            }
+            session.status = "Saved the signed-in page. Preparing summaries…"
+            isIngesting = false
+            await enqueueProcessing(id)
+            lifecycle?.requestSync()
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    func capturePDF(_ url: URL) async {
+        guard let library = session.library else {
+            session.errorMessage = "Choose a local Briefly library before importing a PDF."
+            return
+        }
+        isIngesting = true
+        defer { isIngesting = false }
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasAccess { url.stopAccessingSecurityScopedResource() }
+        }
+        do {
+            let draft = try await NativeItemInputRouter().ingest(
+                ItemInputRequest(source: .file(url)),
+                context: itemInputContext()
+            )
+            let entryID = try await library.captureItem(draft)
+            if let lifecycle {
+                await lifecycle.refreshLibrary(selecting: entryID)
+            }
+            session.status = "PDF captured. Preparing summaries…"
+            isIngesting = false
+            await enqueueProcessing(entryID)
+            lifecycle?.requestSync()
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
     }
 
     func ingestURL(
@@ -216,8 +298,8 @@ extension LibraryModel {
         })
     }
 
-    func process(_ job: SQLiteProcessingJob) async -> ProcessingJobResult {
-        guard let library else {
+    private func process(_ job: SQLiteProcessingJob) async -> ProcessingJobResult {
+        guard let library = session.library else {
             return ProcessingJobResult(
                 entryID: job.documentID,
                 selectedID: nil,
@@ -228,18 +310,18 @@ extension LibraryModel {
         do {
             let prompt = try await library.processingPrompt(
                 entryID: entryID,
-                template: processingPrompt
+                template: settings.processingPrompt
             )
             let output: String
-            if usesManagedAI {
-                output = try await backend.runManagedAI(
+            if settings.usesManagedAI {
+                output = try await session.backend.runManagedAI(
                     prompt: prompt,
                     format: "json"
                 )
             } else {
                 #if os(macOS)
                 output = try await runProcessingCommand(
-                    processingCommand,
+                    settings.processingCommand,
                     prompt: prompt
                 )
                 #else
@@ -272,8 +354,8 @@ extension LibraryModel {
                 entryID: entryID,
                 error: error.localizedDescription
             )
-            errorMessage = error.localizedDescription
-            status = "The capture is saved without summaries"
+            session.errorMessage = error.localizedDescription
+            session.status = "The capture is saved without summaries"
             return ProcessingJobResult(
                 entryID: entryID,
                 selectedID: nil,
@@ -281,5 +363,4 @@ extension LibraryModel {
             )
         }
     }
-
 }

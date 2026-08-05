@@ -23,8 +23,8 @@ struct MobileHome: View {
     let onOpenDetail: () -> Void
 
     private var entries: [LibraryEntry] {
-        model.homeEntries
-            .filter { $0.matches(model.query) }
+        model.navigation.homeEntries
+            .filter { $0.matches(model.navigation.query) }
             .sorted {
                 ($0.createdAt ?? $0.updatedAt ?? "") <
                     ($1.createdAt ?? $1.updatedAt ?? "")
@@ -57,10 +57,10 @@ struct MobileHome: View {
 
             if entries.isEmpty {
                 ContentUnavailableView(
-                    model.query.isEmpty ? "Nothing here yet" : "No recent matches",
-                    systemImage: model.query.isEmpty ? "tray" : "magnifyingglass",
+                    model.navigation.query.isEmpty ? "Nothing here yet" : "No recent matches",
+                    systemImage: model.navigation.query.isEmpty ? "tray" : "magnifyingglass",
                     description: Text(
-                        model.query.isEmpty
+                        model.navigation.query.isEmpty
                             ? "New items and voice briefs will appear here."
                             : "Try another search."
                     )
@@ -74,11 +74,11 @@ struct MobileHome: View {
                                 entry: entry
                             ) {
                                 Task {
-                                    model.activeSection = entry.voiceBriefID == nil
+                                    model.navigation.activeSection = entry.voiceBriefID == nil
                                         ? .items
                                         : .briefs
-                                    model.selectedVoiceBriefID = entry.voiceBriefID ?? ""
-                                    await model.select(entry.id)
+                                    model.navigation.selectedVoiceBriefID = entry.voiceBriefID ?? ""
+                                    await model.selection.select(entry.id)
                                     onOpenDetail()
                                 }
                             }

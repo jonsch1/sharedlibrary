@@ -31,12 +31,12 @@ struct SyncActivityView: View {
                 Text("Syncing with iCloud")
                     .font(.subheadline.weight(.semibold))
 
-                if model.syncTotal > 0 {
+                if model.lifecycle.syncTotal > 0 {
                     HStack {
-                        Text("\(model.syncCompleted) of \(model.syncTotal) changes")
+                        Text("\(model.lifecycle.syncCompleted) of \(model.lifecycle.syncTotal) changes")
                         Spacer(minLength: 16)
                         Text(
-                            Double(model.syncCompleted) / Double(model.syncTotal),
+                            Double(model.lifecycle.syncCompleted) / Double(model.lifecycle.syncTotal),
                             format: .percent.precision(.fractionLength(0))
                         )
                         .monospacedDigit()
@@ -45,15 +45,15 @@ struct SyncActivityView: View {
                     .foregroundStyle(.secondary)
 
                     ProgressView(
-                        value: Double(model.syncCompleted),
-                        total: Double(model.syncTotal)
+                        value: Double(model.lifecycle.syncCompleted),
+                        total: Double(model.lifecycle.syncTotal)
                     )
                     .tint(.accentColor)
                 } else {
                     HStack(spacing: 7) {
                         ProgressView()
                             .controlSize(.small)
-                        Text(model.status)
+                        Text(model.session.status)
                             .lineLimit(1)
                     }
                     .font(.caption)
@@ -74,9 +74,9 @@ struct SyncActivityView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Syncing with iCloud")
         .accessibilityValue(
-            model.syncTotal > 0
-                ? "\(model.syncCompleted) of \(model.syncTotal) changes"
-                : model.status
+            model.lifecycle.syncTotal > 0
+                ? "\(model.lifecycle.syncCompleted) of \(model.lifecycle.syncTotal) changes"
+                : model.session.status
         )
     }
 }

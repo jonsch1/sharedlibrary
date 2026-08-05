@@ -28,22 +28,22 @@ struct EntryContextMenu: ViewModifier {
                     Label("Open original", systemImage: "arrow.up.right")
                 }
             }
-            if model.canEdit {
+            if model.session.canEdit {
                 Button {
                     Task {
-                        await model.select(entry.id)
-                        await model.processSelected()
+                        await model.selection.select(entry.id)
+                        await model.processing.processSelected()
                     }
                 } label: {
                     Label("Regenerate summaries", systemImage: "sparkles")
                 }
-                .disabled(model.isProcessing)
+                .disabled(model.processing.isProcessing)
                 Divider()
                 Button(role: .destructive) {
                     confirmsTrash = true
                 } label: {
                     Label(
-                        model.selectionCount(for: entry.id) > 1
+                        model.selection.selectionCount(for: entry.id) > 1
                             ? "Move Items to Trash"
                             : "Move to Trash",
                         systemImage: "trash"
@@ -52,13 +52,13 @@ struct EntryContextMenu: ViewModifier {
             }
         }
         .confirmationDialog(
-            model.selectionCount(for: entry.id) > 1
-                ? "Move \(model.selectionCount(for: entry.id)) items to Trash?"
+            model.selection.selectionCount(for: entry.id) > 1
+                ? "Move \(model.selection.selectionCount(for: entry.id)) items to Trash?"
                 : "Move this item to Trash?",
             isPresented: $confirmsTrash
         ) {
             Button("Move to Trash", role: .destructive) {
-                Task { await model.trash(entryID: entry.id) }
+                Task { await model.selection.trash(entryID: entry.id) }
             }
         }
     }

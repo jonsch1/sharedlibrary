@@ -29,7 +29,7 @@ struct LibraryDocument: View {
             #if os(macOS)
             HStack(spacing: 12) {
                 Button {
-                    Task { await model.select("") }
+                    Task { await model.selection.select("") }
                 } label: {
                     Image(systemName: "arrow.left")
                         .frame(width: 44, height: 44)
@@ -41,11 +41,11 @@ struct LibraryDocument: View {
                 Spacer()
                 Menu {
                     Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                        Task { await model.processSelected() }
+                        Task { await model.processing.processSelected() }
                     }
-                    .disabled(model.isProcessing)
+                    .disabled(model.processing.isProcessing)
                     Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                        Task { await model.trashSelected() }
+                        Task { await model.navigation.trashSelected() }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -63,12 +63,12 @@ struct LibraryDocument: View {
             #endif
 
             ZStack(alignment: .bottom) {
-            if model.isLoadingText {
+            if model.selection.isLoadingText {
                 XLoadingState(
                     title: "Loading post",
                     message: "Fetching the saved document and its reading variants."
                 )
-            } else if model.selectedText.isEmpty && !model.canEdit {
+            } else if model.selection.selectedText.isEmpty && !model.session.canEdit {
                 XEmptyState(
                     icon: "icloud.slash",
                     title: "Document unavailable",
@@ -78,16 +78,16 @@ struct LibraryDocument: View {
                 DocumentEditor(
                     model: model,
                     entryID: entry.id,
-                    variant: model.selectedVariant,
-                    sourceText: model.selectedText,
+                    variant: model.selection.selectedVariant,
+                    sourceText: model.selection.selectedText,
                     highlightedPassages: highlightedPassages(
-                        in: model.highlightsText
+                        in: model.selection.highlightsText
                     ),
                     isEditing: isEditing
                 )
                 .accessibilityIdentifier("reader.editor")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .id("\(entry.id):\(model.selectedVariant.rawValue)")
+                .id("\(entry.id):\(model.selection.selectedVariant.rawValue)")
             }
 
             HStack(alignment: .bottom, spacing: 0) {
@@ -95,7 +95,7 @@ struct LibraryDocument: View {
                     HStack(spacing: 0) {
                         ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                             Button {
-                                Task { await model.selectVariant(variant) }
+                                Task { await model.selection.selectVariant(variant) }
                             } label: {
                                 ReadingDepthIcon(variant: variant)
                                     .frame(width: 44, height: 44)
@@ -103,12 +103,12 @@ struct LibraryDocument: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(
-                                model.selectedVariant == variant
+                                model.selection.selectedVariant == variant
                                     ? Color.accentColor
                                     : Color.primary
                             )
                             .background(
-                                model.selectedVariant == variant
+                                model.selection.selectedVariant == variant
                                     ? Color.accentColor.opacity(0.12)
                                     : Color.clear
                             )
@@ -117,7 +117,7 @@ struct LibraryDocument: View {
                             )
                             .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
                             .accessibilityAddTraits(
-                                model.selectedVariant == variant ? .isSelected : []
+                                model.selection.selectedVariant == variant ? .isSelected : []
                             )
                             .help(variant == .source ? "Original" : variant.title)
                         }
@@ -136,7 +136,7 @@ struct LibraryDocument: View {
 
                 HStack(spacing: 0) {
                     #if os(macOS)
-                    if model.canEdit && !model.showingTrash {
+                    if model.session.canEdit && !model.navigation.showingTrash {
                         Button {
                             isEditing.toggle()
                         } label: {
@@ -160,9 +160,9 @@ struct LibraryDocument: View {
                     if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
                             Task {
-                                let variant = model.selectedVariant
-                                let text = model.selectedText
-                                let playbackID = model.audioPlaybackID(
+                                let variant = model.selection.selectedVariant
+                                let text = model.selection.selectedText
+                                let playbackID = model.audio.audioPlaybackID(
                                     for: entry,
                                     variant: variant,
                                     text: text
@@ -176,7 +176,7 @@ struct LibraryDocument: View {
                                     )
                                     if shouldGenerate {
                                         var startedPlayback = false
-                                        _ = await model.streamPlayableAudio(
+                                        _ = await model.audio.streamPlayableAudio(
                                             for: entry,
                                             variant: variant,
                                             text: text
@@ -196,12 +196,12 @@ struct LibraryDocument: View {
                                         audioEntry = entry
                                     }
                                 } catch {
-                                    model.errorMessage = error.localizedDescription
+                                    model.session.errorMessage = error.localizedDescription
                                     audioPlayer.stop()
                                 }
                             }
                         } label: {
-                            if model.isGeneratingSpeech {
+                            if model.audio.isGeneratingSpeech {
                                 ProgressView()
                                     .tint(.white)
                                     .frame(width: 44, height: 44)
@@ -219,8 +219,8 @@ struct LibraryDocument: View {
                         .accessibilityLabel("Play audio")
                         .help("Play audio")
                         .disabled(
-                            model.isGeneratingSpeech || model.isRunningVoiceBrief ||
-                                model.selectedText.isEmpty
+                            model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
+                                model.selection.selectedText.isEmpty
                         )
                     }
 
@@ -234,7 +234,7 @@ struct LibraryDocument: View {
                         .accessibilityLabel("Open original source")
                     }
 
-                    if !model.showingTrash &&
+                    if !model.navigation.showingTrash &&
                         entry.origin != .shared &&
                         !usesMobileVoiceBriefControls &&
                         !usesMobileItemControls
@@ -293,14 +293,14 @@ struct LibraryDocument: View {
             isEditing = false
         }
         .contextMenu {
-            if model.canEdit && !model.showingTrash {
+            if model.session.canEdit && !model.navigation.showingTrash {
                 Button("Regenerate summaries") {
-                    Task { await model.processSelected() }
+                    Task { await model.processing.processSelected() }
                 }
-                .disabled(model.isProcessing)
+                .disabled(model.processing.isProcessing)
                 Divider()
                 Button("Move to Trash", role: .destructive) {
-                    Task { await model.trashSelected() }
+                    Task { await model.navigation.trashSelected() }
                 }
             }
         }
@@ -329,14 +329,14 @@ struct LibraryDocument: View {
                                 )
                             }
                         }
-                        if model.canEdit && !model.showingTrash {
+                        if model.session.canEdit && !model.navigation.showingTrash {
                             Divider()
                             Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                                Task { await model.processSelected() }
+                                Task { await model.processing.processSelected() }
                             }
-                            .disabled(model.isProcessing)
+                            .disabled(model.processing.isProcessing)
                             Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                Task { await model.trashSelected() }
+                                Task { await model.navigation.trashSelected() }
                             }
                         }
                     } label: {

@@ -26,7 +26,7 @@ struct ReadingDepthStrip: View {
             HStack(spacing: 6) {
                 ForEach(entry.texts.map(\.variant), id: \.self) { variant in
                     Button {
-                        Task { await model.selectVariant(variant) }
+                        Task { await model.selection.selectVariant(variant) }
                     } label: {
                         ReadingDepthIcon(variant: variant)
                             .frame(width: 44, height: 32)
@@ -34,19 +34,19 @@ struct ReadingDepthStrip: View {
                     }
                     .buttonStyle(.plain)
                     .background(
-                        model.selectedVariant == variant
+                        model.selection.selectedVariant == variant
                             ? Color.accentColor
                             : Color.primary.opacity(0.055)
                     )
                     .foregroundStyle(
-                        model.selectedVariant == variant ? Color.white : Color.primary
+                        model.selection.selectedVariant == variant ? Color.white : Color.primary
                     )
                     .clipShape(Capsule())
                     .accessibilityLabel(
                         variant == .source ? "Original" : variant.title
                     )
                     .accessibilityAddTraits(
-                        model.selectedVariant == variant ? .isSelected : []
+                        model.selection.selectedVariant == variant ? .isSelected : []
                     )
                 }
             }

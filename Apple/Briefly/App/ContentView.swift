@@ -30,7 +30,7 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if model.isReady {
+            if model.lifecycle.isReady {
                 #if os(macOS)
                 HStack(alignment: .top, spacing: 24) {
                     MacXNavigation(
@@ -98,64 +98,64 @@ struct ContentView: View {
                 #endif
             } else {
                 #if os(macOS)
-                MacXLoadingWorkspace(status: model.status)
+                MacXLoadingWorkspace(status: model.session.status)
                 #else
-                ProgressView(model.status)
+                ProgressView(model.session.status)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #endif
             }
         }
-        .task { await model.start() }
+        .task { await model.lifecycle.start() }
         .task {
-            guard model.runsScheduledWork else { return }
+            guard model.lifecycle.runsScheduledWork else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
-                await model.resumePendingVoiceBriefs()
-                await model.runDueChannelChecks()
-                await model.runDueVoiceBriefs()
+                await model.voiceBriefs.resumePendingVoiceBriefs()
+                await model.channels.runDueChannelChecks()
+                await model.voiceBriefs.runDueVoiceBriefs()
             }
         }
         .onChange(of: scenePhase) {
-            if scenePhase == .active, model.runsScheduledWork {
+            if scenePhase == .active, model.lifecycle.runsScheduledWork {
                 Task {
                     #if os(iOS)
-                    if model.canEdit { await model.sync() }
+                    if model.session.canEdit { await model.lifecycle.sync() }
                     #endif
-                    await model.resumePendingVoiceBriefs()
-                    await model.runDueChannelChecks()
-                    await model.runDueVoiceBriefs()
+                    await model.voiceBriefs.resumePendingVoiceBriefs()
+                    await model.channels.runDueChannelChecks()
+                    await model.voiceBriefs.runDueVoiceBriefs()
                 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
-            guard model.runsScheduledWork else { return }
+            guard model.lifecycle.runsScheduledWork else { return }
             Task {
-                if model.canEdit { await model.sync() }
+                if model.session.canEdit { await model.lifecycle.sync() }
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
-            if model.canEdit {
+            if model.session.canEdit {
                 ChannelLoginView(
-                    initialAddress: model.channelBrowserAddress.isEmpty
-                        ? model.selectedChannel?.primarySource ?? ""
-                        : model.channelBrowserAddress,
+                    initialAddress: model.channels.channelBrowserAddress.isEmpty
+                        ? model.channels.selectedChannel?.primarySource ?? ""
+                        : model.channels.channelBrowserAddress,
                     onCapture: { url, page in
-                        if model.selectedChannelSource == "new" ||
-                            model.channelBrowserStagesSource
+                        if model.navigation.selectedChannelSource == "new" ||
+                            model.channels.channelBrowserStagesSource
                         {
-                            model.stageChannelSource(url.absoluteString)
+                            model.channels.stageChannelSource(url.absoluteString)
                         } else {
-                            await model.captureWebPage(url: url, page: page)
+                            await model.processing.captureWebPage(url: url, page: page)
                         }
                     },
-                    onActivity: model.setBrowserIngesting
+                    onActivity: model.processing.setBrowserIngesting
                 )
             } else {
                 ChannelLoginView(
-                    initialAddress: model.channelBrowserAddress.isEmpty
-                        ? model.selectedChannel?.primarySource ?? ""
-                        : model.channelBrowserAddress
+                    initialAddress: model.channels.channelBrowserAddress.isEmpty
+                        ? model.channels.selectedChannel?.primarySource ?? ""
+                        : model.channels.channelBrowserAddress
                 )
             }
         }
@@ -198,43 +198,43 @@ struct ContentView: View {
         ) { result in
             switch result {
             case .success(let url):
-                Task { await model.capturePDF(url) }
+                Task { await model.processing.capturePDF(url) }
             case .failure(let error):
-                model.errorMessage = error.localizedDescription
+                model.session.errorMessage = error.localizedDescription
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard urls.count == 1 else {
-                model.errorMessage = "Drop one document or link at a time."
+                model.session.errorMessage = "Drop one document or link at a time."
                 return false
             }
             if urls[0].pathExtension.lowercased() == "pdf" {
-                Task { await model.capturePDF(urls[0]) }
+                Task { await model.processing.capturePDF(urls[0]) }
                 return true
             }
             if ["http", "https"].contains(urls[0].scheme?.lowercased() ?? "") {
-                Task { await model.capture(urls[0].absoluteString) }
+                Task { await model.processing.capture(urls[0].absoluteString) }
                 return true
             }
-            model.errorMessage = "Drop a PDF or web link."
+            model.session.errorMessage = "Drop a PDF or web link."
             return false
         }
         #if os(iOS)
         .alert(
             "Briefly",
             isPresented: Binding(
-                get: { model.errorMessage != nil },
-                set: { if !$0 { model.clearError() } }
+                get: { model.session.errorMessage != nil },
+                set: { if !$0 { model.lifecycle.clearError() } }
             )
         ) {
-            Button("OK") { model.clearError() }
+            Button("OK") { model.lifecycle.clearError() }
         } message: {
-            Text(model.errorMessage ?? "")
+            Text(model.session.errorMessage ?? "")
         }
         #else
         .overlay(alignment: .top) {
-            if let message = model.errorMessage {
-                XErrorBanner(message: message, dismiss: model.clearError)
+            if let message = model.session.errorMessage {
+                XErrorBanner(message: message, dismiss: model.lifecycle.clearError)
                     .padding(.top, 18)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -242,13 +242,13 @@ struct ContentView: View {
         #endif
         #if os(macOS)
         .overlay(alignment: .bottomTrailing) {
-            if model.isSyncing {
+            if model.lifecycle.isSyncing {
                 SyncActivityView(model: model)
                     .padding(.horizontal, 18)
                     .padding(.bottom, 66)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if model.isProcessing || model.isGeneratingSpeech ||
-                model.isPreparingSpeech
+            } else if model.processing.isProcessing || model.audio.isGeneratingSpeech ||
+                model.audio.isPreparingSpeech
             {
                 HStack(spacing: 9) {
                     ProgressView()
@@ -265,12 +265,12 @@ struct ContentView: View {
             }
         }
         #endif
-        .animation(.snappy(duration: 0.24), value: model.isSyncing)
+        .animation(.snappy(duration: 0.24), value: model.lifecycle.isSyncing)
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
-                text: model.selectedID == entry.id && !model.selectedText.isEmpty
-                    ? model.selectedText
-                    : entry.text(for: model.selectedVariant)?.text ?? entry.excerpt,
+                text: model.selection.selectedID == entry.id && !model.selection.selectedText.isEmpty
+                    ? model.selection.selectedText
+                    : entry.text(for: model.selection.selectedVariant)?.text ?? entry.excerpt,
                 audioPlayer: audioPlayer
             )
         }
@@ -279,7 +279,7 @@ struct ContentView: View {
             NotificationCenter.default.publisher(for: .brieflyCaptureClipboard)
         ) { _ in
             let text = NSPasteboard.general.string(forType: .string) ?? ""
-            Task { await model.capture(text) }
+            Task { await model.processing.capture(text) }
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyImportPDF)
@@ -289,7 +289,7 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)
         ) { _ in
-            Task<Void, Never> { await model.refreshLibrary() }
+            Task<Void, Never> { await model.lifecycle.refreshLibrary() }
         }
         #endif
         .preferredColorScheme(

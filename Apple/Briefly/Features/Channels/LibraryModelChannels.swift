@@ -1,28 +1,83 @@
-import AVFoundation
-import AuthenticationServices
 import BrieflyCore
-import CloudKit
-import CryptoKit
+import Foundation
 import Observation
-import StoreKit
-import SwiftUI
-import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-import Carbon.HIToolbox
-#elseif os(iOS)
-import BackgroundTasks
-import MediaPlayer
-import UIKit
-#endif
 
-extension LibraryModel {
+@MainActor
+@Observable
+final class LibraryChannelModel {
+    let session: LibrarySession
+    var libraryChannels = [LibraryChannel]()
+    var newChannelSources = [String]()
+    var channelBrowserAddress = ""
+    var channelBrowserStagesSource = false
+    var isCheckingChannel = false
+    var hasLoadedChannels = false
+
+    weak var navigation: LibraryNavigationModel?
+    weak var processing: LibraryProcessingModel?
+    weak var lifecycle: LibraryLifecycleModel?
+    weak var voiceBriefs: LibraryVoiceBriefModel?
+
+    init(
+        session: LibrarySession,
+        navigation: LibraryNavigationModel,
+        processing: LibraryProcessingModel
+    ) {
+        self.session = session
+        self.navigation = navigation
+        self.processing = processing
+    }
+
+    var channels: [LibraryChannel] {
+        if session.library != nil { return libraryChannels }
+        return session.projection.channelSources.map {
+            LibraryChannel(source: $0, title: channelTitle($0))
+        }
+    }
+
+    var selectedChannel: LibraryChannel? {
+        channels.first { $0.source == navigation?.selectedChannelSource }
+    }
+
+    var filteredChannels: [LibraryChannel] {
+        let needle = navigation?.query.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !needle.isEmpty else { return channels }
+        return channels.filter {
+            $0.matches(needle) || channelEntries(for: $0.source).contains { $0.matches(needle) }
+        }
+    }
+
+    func channelEntries(for source: String) -> [LibraryEntry] {
+        guard let channel = channels.first(where: { $0.source == source }) else {
+            return session.projection.entries(forChannel: source)
+        }
+        let entryIDs = Set(channel.entryIDs)
+        if entryIDs.isEmpty { return session.projection.entries(forChannel: source) }
+        return session.projection.entries
+            .filter { entryIDs.contains($0.id) }
+            .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+    }
+
+    func refreshChannels(from store: SQLiteLibraryStore) async throws {
+        libraryChannels = try await store.loadChannels()
+        hasLoadedChannels = true
+    }
+
+    func loadChannels() async {
+        guard let library = session.library, !hasLoadedChannels else { return }
+        do {
+            try await refreshChannels(from: library)
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
     func stageChannelSource(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let candidate = if trimmed.contains("://") { trimmed } else { "https://\(trimmed)" }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard let url = URL(string: candidate), ["http", "https"].contains(url.scheme) else {
-            errorMessage = LibraryError.invalidChannel.localizedDescription
+            session.errorMessage = LibraryError.invalidChannel.localizedDescription
             return
         }
         let normalized = url.absoluteString
@@ -40,8 +95,8 @@ extension LibraryModel {
     }
 
     func createChannel() async {
-        guard let library else {
-            errorMessage = "Open a Briefly library before adding channels."
+        guard let library = session.library else {
+            session.errorMessage = "Open a Briefly library before adding channels."
             return
         }
         guard !newChannelSources.isEmpty else { return }
@@ -51,15 +106,15 @@ extension LibraryModel {
             guard let added = libraryChannels.first(where: { $0.source == groupID }) else {
                 throw LibraryError.missingChannel
             }
-            selectedChannelSource = added.source
+            navigation?.selectedChannelSource = added.source
             newChannelSources = []
-            showingChannelSettings = false
-            status = added.sources.count == 1
+            navigation?.showingChannelSettings = false
+            session.status = added.sources.count == 1
                 ? "Channel added"
                 : "Channel added with \(added.sources.count) sources"
-            requestSync()
+            lifecycle?.requestSync()
         } catch {
-            errorMessage = error.localizedDescription
+            session.errorMessage = error.localizedDescription
         }
     }
 
@@ -70,7 +125,7 @@ extension LibraryModel {
         autoSummarize: Bool,
         schedule: String
     ) async {
-        guard let library, let channel = selectedChannel else { return }
+        guard let library = session.library, let channel = selectedChannel else { return }
         do {
             try await library.updateChannelGroup(
                 channel.source,
@@ -81,23 +136,23 @@ extension LibraryModel {
                 schedule: schedule
             )
             try await refreshChannels(from: library)
-            status = "Channel settings saved"
-            requestSync()
+            session.status = "Channel settings saved"
+            lifecycle?.requestSync()
         } catch {
-            errorMessage = error.localizedDescription
+            session.errorMessage = error.localizedDescription
         }
     }
 
     func checkSelectedChannel(loadMore: Bool = false) async {
         guard
-            let library,
+            let library = session.library,
             let channel = selectedChannel,
             !isCheckingChannel
-        else {
-            return
-        }
+        else { return }
         isCheckingChannel = true
-        status = loadMore ? "Loading more from \(channel.title)…" : "Checking \(channel.title)…"
+        session.status = loadMore
+            ? "Loading more from \(channel.title)…"
+            : "Checking \(channel.title)…"
         defer { isCheckingChannel = false }
         do {
             var newEntryIDs = [String]()
@@ -114,153 +169,96 @@ extension LibraryModel {
                     lastError = error
                 }
             }
-            projection = try await library.loadLibraryIndex()
+            session.projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            selectedChannelSource = channel.source
+            navigation?.selectedChannelSource = channel.source
             if let lastError {
-                errorMessage = lastError.localizedDescription
-                status = newEntryIDs.isEmpty
+                session.errorMessage = lastError.localizedDescription
+                session.status = newEntryIDs.isEmpty
                     ? "Channel check failed."
                     : "Gathered \(newEntryIDs.count) items; some sources failed and will retry."
             } else {
-                status = newEntryIDs.isEmpty
+                session.status = newEntryIDs.isEmpty
                     ? "Channel checked. No new items."
                     : "Gathered \(newEntryIDs.count) new " +
                         (newEntryIDs.count == 1 ? "item" : "items")
             }
             if channel.autoSummarize {
-                await enqueueProcessing(newEntryIDs)
+                await processing?.enqueueProcessing(newEntryIDs)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            session.errorMessage = error.localizedDescription
         }
     }
 
     func removeSelectedChannel() async {
-        guard let library, let channel = selectedChannel else { return }
+        guard let library = session.library, let channel = selectedChannel else { return }
         do {
             let deletedItemCount = try await library.removeChannelGroup(channel.source)
-            projection = try await library.loadLibraryIndex()
+            session.projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            selectedChannelSource = ""
-            showingChannelSettings = false
-            selectedID = ""
-            selectedIDs = []
-            status = deletedItemCount == 1
+            navigation?.selectedChannelSource = ""
+            navigation?.showingChannelSettings = false
+            processing?.selection.clear()
+            session.status = deletedItemCount == 1
                 ? "Channel removed and 1 downloaded item deleted"
                 : "Channel removed and \(deletedItemCount) downloaded items deleted"
         } catch {
-            errorMessage = error.localizedDescription
+            session.errorMessage = error.localizedDescription
         }
     }
 
-    func checkSelectedVoiceBriefChannels() async {
-        guard
-            let library,
-            let brief = selectedVoiceBrief,
-            !isRunningVoiceBrief
-        else {
-            return
-        }
-        isRunningVoiceBrief = true
-        defer { isRunningVoiceBrief = false }
-        do {
-            status = "Checking \(brief.sources.count) " +
-                (brief.sources.count == 1 ? "channel…" : "channels…")
-            var newEntryIDs = [String]()
-            var channelErrors = [String]()
-            for source in brief.sources {
-                do {
-                    let result = try await retrieveChannel(library, source: source)
-                    newEntryIDs += result.newEntryIDs
-                    if let error = result.channel.error { channelErrors.append(error) }
-                } catch {
-                    channelErrors.append(error.localizedDescription)
-                }
+    func retrieveChannel(
+        _ library: SQLiteLibraryStore,
+        source: String,
+        loadMore: Bool = false
+    ) async throws -> LibraryChannelRefresh {
+        guard let processing else { throw LibraryError.invalidChannel }
+        let ingest: @Sendable (LibraryChannelCandidate) async throws -> String = { candidate in
+            guard let url = URL(string: candidate.url) else {
+                throw LibraryError.invalidChannel
             }
-            projection = try await library.loadLibraryIndex()
-            try await refreshChannels(from: library)
-            status = newEntryIDs.isEmpty
-                ? "Channels checked. No new items."
-                : "Prepared \(newEntryIDs.count) new " +
-                    (newEntryIDs.count == 1 ? "item" : "items")
-            if let error = channelErrors.first { errorMessage = error }
-        } catch {
-            errorMessage = error.localizedDescription
+            return try await processing.ingestURL(url, in: library, candidate: candidate)
         }
-    }
-
-    func runSelectedVoiceBrief() async {
-        guard let brief = selectedVoiceBrief else { return }
-        do {
-            try await library?.queueVoiceBriefRun(id: brief.id)
-        } catch {
-            errorMessage = error.localizedDescription
-            return
-        }
-        #if os(iOS)
-        if #available(iOS 26.0, *), submitContinuedVoiceBrief(brief) {
-            return
-        }
-        #endif
-        await generateVoiceBrief(brief, selectEpisode: true, reportErrors: true)
-    }
-
-    func resumePendingVoiceBriefs() async {
-        guard let library, !isRunningVoiceBrief, !isGeneratingSpeech else { return }
-        guard let pending = try? await library.pendingVoiceBriefIDs() else { return }
-        for id in pending {
-            guard let brief = projection.voiceBriefDefinitions.first(where: { $0.id == id }) else {
-                continue
-            }
-            await generateVoiceBrief(brief, selectEpisode: false, reportErrors: false)
-        }
-    }
-
-    func runDueVoiceBriefs() async {
-        guard let library, !isRunningVoiceBrief, !isGeneratingSpeech else { return }
-        do {
-            let due = try await library.dueVoiceBriefIDs()
-            for id in due {
-                guard let brief = projection.voiceBriefDefinitions.first(where: {
-                    $0.id == id
-                }) else {
-                    continue
-                }
-                try await library.markVoiceBriefAttempt(id: id)
-                try await library.queueVoiceBriefRun(id: id)
-                await generateVoiceBrief(
-                    brief,
-                    selectEpisode: false,
-                    reportErrors: false
+        let channel = channels.first { $0.source == source }
+        let maximum = loadMore
+            ? min(100, (channel?.items.count ?? 0) + (channel?.retrievalCount ?? 5))
+            : nil
+        return try await library.checkChannelInput(
+            source,
+            maximumItems: maximum,
+            discover: { limit in
+                return try await NativeChannelInputRouter().enumerate(
+                    source: source,
+                    maximumItems: limit,
+                    context: processing.channelInputContext()
                 )
-            }
-        } catch {
-            status = "Scheduled voice briefs will retry later"
-        }
+            },
+            ingest: ingest
+        )
     }
 
     func runDueChannelChecks() async {
-        guard let library, !isCheckingChannel, !isRunningVoiceBrief else { return }
+        guard
+            let library = session.library,
+            !isCheckingChannel,
+            voiceBriefs?.isRunningVoiceBrief != true
+        else { return }
         guard let due = try? await library.dueChannelSources(), !due.isEmpty else { return }
         isCheckingChannel = true
         defer { isCheckingChannel = false }
         var newEntryIDs = [String]()
         for source in due {
             do {
-                newEntryIDs += try await retrieveChannel(
-                    library,
-                    source: source
-                ).newEntryIDs
+                newEntryIDs += try await retrieveChannel(library, source: source).newEntryIDs
             } catch {
                 continue
             }
         }
-        projection = (try? await library.loadLibraryIndex()) ?? projection
+        session.projection = (try? await library.loadLibraryIndex()) ?? session.projection
         try? await refreshChannels(from: library)
         let autoSummarizeIDs = Set(libraryChannels.filter(\.autoSummarize).flatMap(\.entryIDs))
-        await enqueueProcessing(newEntryIDs.filter(autoSummarizeIDs.contains))
-        if !newEntryIDs.isEmpty { requestSync() }
+        await processing?.enqueueProcessing(newEntryIDs.filter(autoSummarizeIDs.contains))
+        if !newEntryIDs.isEmpty { lifecycle?.requestSync() }
     }
-
 }

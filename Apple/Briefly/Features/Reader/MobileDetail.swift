@@ -34,13 +34,13 @@ struct MobileXDetail: View {
         .background(readerBackground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(
-            model.showingVoiceBriefSettings ? .hidden : .visible,
+            model.navigation.showingVoiceBriefSettings ? .hidden : .visible,
             for: .navigationBar
         )
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    model.navigateBack()
+                    model.navigation.navigateBack()
                     dismiss()
                 } label: {
                     Image(systemName: "arrow.left")

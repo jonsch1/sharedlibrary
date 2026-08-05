@@ -22,19 +22,19 @@ struct MobileLibraryRows: View {
     let onOpenDetail: () -> Void
 
     private var notes: [LibraryEntry] {
-        model.projection.entries.filter {
-            $0.isMainLibraryEntry && $0.matches(model.query)
+        model.session.projection.entries.filter {
+            $0.isMainLibraryEntry && $0.matches(model.navigation.query)
         }
     }
 
     private var trashNotes: [LibraryEntry] {
-        model.trashEntries.filter { $0.matches(model.query) }
+        model.selection.trashEntries.filter { $0.matches(model.navigation.query) }
     }
 
     private var topics: [(name: String, count: Int)] {
-        model.projection.documentTopics.compactMap { topic in
+        model.session.projection.documentTopics.compactMap { topic in
             let count = notes.count { $0.topicNames.contains(topic) }
-            guard model.query.isEmpty || count > 0 else { return nil }
+            guard model.navigation.query.isEmpty || count > 0 else { return nil }
             return (name: topic, count: count)
         }
         .sorted {
@@ -45,9 +45,9 @@ struct MobileLibraryRows: View {
     }
 
     private var channels: [LibraryChannel] {
-        model.filteredChannels.sorted {
-            let leftCount = model.channelEntries(for: $0.source).count
-            let rightCount = model.channelEntries(for: $1.source).count
+        model.channels.filteredChannels.sorted {
+            let leftCount = model.channels.channelEntries(for: $0.source).count
+            let rightCount = model.channels.channelEntries(for: $1.source).count
             return leftCount != rightCount
                 ? leftCount > rightCount
                 : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -55,15 +55,15 @@ struct MobileLibraryRows: View {
     }
 
     private var briefs: [LibraryVoiceBrief] {
-        let query = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matching = model.projection.voiceBriefDefinitions.filter { brief in
+        let query = model.navigation.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = model.session.projection.voiceBriefDefinitions.filter { brief in
             guard !query.isEmpty else { return true }
             return brief.title.localizedCaseInsensitiveContains(query) ||
-                model.projection.episodes(for: brief.id).contains { $0.matches(query) }
+                model.session.projection.episodes(for: brief.id).contains { $0.matches(query) }
         }
         return matching.sorted {
-            let leftCount = model.projection.episodes(for: $0.id).count
-            let rightCount = model.projection.episodes(for: $1.id).count
+            let leftCount = model.session.projection.episodes(for: $0.id).count
+            let rightCount = model.session.projection.episodes(for: $1.id).count
             return leftCount != rightCount
                 ? leftCount > rightCount
                 : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
@@ -71,21 +71,21 @@ struct MobileLibraryRows: View {
     }
 
     private var itemCollectionCount: Int {
-        1 + (model.query.isEmpty ? 1 : 0) + topics.count +
-            (model.query.isEmpty || !trashNotes.isEmpty ? 1 : 0)
+        1 + (model.navigation.query.isEmpty ? 1 : 0) + topics.count +
+            (model.navigation.query.isEmpty || !trashNotes.isEmpty ? 1 : 0)
     }
 
     private var entries: [LibraryEntry] {
-        let candidates = switch model.activeSection {
+        let candidates = switch model.navigation.activeSection {
         case .items:
-            model.filteredEntries
+            model.navigation.filteredEntries
         case .channels:
-            model.channelEntries(for: model.selectedChannelSource)
+            model.channels.channelEntries(for: model.navigation.selectedChannelSource)
         case .briefs:
-            model.projection.episodes(for: model.selectedVoiceBriefID)
+            model.session.projection.episodes(for: model.navigation.selectedVoiceBriefID)
         }
         return candidates
-            .filter { $0.matches(model.query) }
+            .filter { $0.matches(model.navigation.query) }
             .sorted {
                 ($0.createdAt ?? $0.updatedAt ?? "") <
                     ($1.createdAt ?? $1.updatedAt ?? "")
@@ -93,24 +93,24 @@ struct MobileLibraryRows: View {
     }
 
     private var emptyTitle: String {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
-            model.query.isEmpty
-                ? model.showingTrash
+            model.navigation.query.isEmpty
+                ? model.navigation.showingTrash
                     ? "Trash is empty"
-                    : model.selectedTopic == "All"
+                    : model.navigation.selectedTopic == "All"
                     ? "No documents yet"
-                    : "No documents in \(model.selectedTopic)"
+                    : "No documents in \(model.navigation.selectedTopic)"
                 : "No matching documents"
         case .channels:
-            model.query.isEmpty ? "No channel items" : "No matching channel items"
+            model.navigation.query.isEmpty ? "No channel items" : "No matching channel items"
         case .briefs:
-            model.query.isEmpty ? "No voice briefs" : "No matching voice briefs"
+            model.navigation.query.isEmpty ? "No voice briefs" : "No matching voice briefs"
         }
     }
 
     private var kind: MobileEntryKind {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items: .item
         case .channels: .channel
         case .briefs: .brief
@@ -118,35 +118,35 @@ struct MobileLibraryRows: View {
     }
 
     private var collectionTitle: String {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
-            model.showingTrash
+            model.navigation.showingTrash
                 ? "Trash"
-                : model.selectedTopic == "All" ? "Inbox" : model.selectedTopic
+                : model.navigation.selectedTopic == "All" ? "Inbox" : model.navigation.selectedTopic
         case .channels:
-            model.selectedChannel?.title ?? "Channel"
+            model.channels.selectedChannel?.title ?? "Channel"
         case .briefs:
-            model.selectedVoiceBrief?.title ?? "Voice Brief"
+            model.voiceBriefs.selectedVoiceBrief?.title ?? "Voice Brief"
         }
     }
 
     var body: some View {
         Group {
-            switch model.activeSection {
+            switch model.navigation.activeSection {
             case .items:
-                if model.selectedTopic.isEmpty && !model.showingTrash {
+                if model.navigation.selectedTopic.isEmpty && !model.navigation.showingTrash {
                     itemCollections
                 } else {
                     entryCollection
                 }
             case .channels:
-                if model.selectedChannelSource.isEmpty || model.selectedChannelSource == "new" {
+                if model.navigation.selectedChannelSource.isEmpty || model.navigation.selectedChannelSource == "new" {
                     channelCollections
                 } else {
                     entryCollection
                 }
             case .briefs:
-                if model.selectedVoiceBriefID.isEmpty || model.selectedVoiceBriefID == "new" {
+                if model.navigation.selectedVoiceBriefID.isEmpty || model.navigation.selectedVoiceBriefID == "new" {
                     briefCollections
                 } else {
                     entryCollection
@@ -184,18 +184,18 @@ struct MobileLibraryRows: View {
                 title: "Inbox",
                 subtitle: "\(notes.count) notes"
             ) {
-                Task { await model.showTopic("All") }
+                Task { await model.navigation.showTopic("All") }
             }
 
-            if model.query.isEmpty {
+            if model.navigation.query.isEmpty {
                 MobileCollectionCard(
                     key: "notes:highlights",
                     icon: "highlighter",
                     eyebrow: "LIBRARY",
                     title: "Highlights",
-                    subtitle: model.loadedHighlightCount.map { "\($0) highlights" } ?? "Open to load"
+                    subtitle: model.selection.loadedHighlightCount.map { "\($0) highlights" } ?? "Open to load"
                 ) {
-                    model.showHighlights()
+                    model.navigation.showHighlights()
                     onOpenDetail()
                 }
             }
@@ -208,19 +208,19 @@ struct MobileLibraryRows: View {
                     title: topic.name,
                     subtitle: "\(topic.count) notes"
                 ) {
-                    Task { await model.showTopic(topic.name) }
+                    Task { await model.navigation.showTopic(topic.name) }
                 }
             }
 
-            if model.query.isEmpty || !trashNotes.isEmpty {
+            if model.navigation.query.isEmpty || !trashNotes.isEmpty {
                 MobileCollectionCard(
                     key: "notes:trash",
                     icon: "trash",
                     eyebrow: "LIBRARY",
                     title: "Trash",
-                    subtitle: model.loadedTrashCount.map { "\($0) notes" } ?? "Open to load"
+                    subtitle: model.selection.loadedTrashCount.map { "\($0) notes" } ?? "Open to load"
                 ) {
-                    model.showTrash()
+                    model.navigation.showTrash()
                 }
             }
         }
@@ -231,7 +231,7 @@ struct MobileLibraryRows: View {
             if channels.isEmpty {
                 SidebarEmpty(
                     icon: "dot.radiowaves.left.and.right",
-                    title: model.query.isEmpty ? "No channels yet" : "No matching channels"
+                    title: model.navigation.query.isEmpty ? "No channels yet" : "No matching channels"
                 )
             } else {
                 ForEach(channels) { channel in
@@ -244,14 +244,14 @@ struct MobileLibraryRows: View {
                             : "dot.radiowaves.left.and.right",
                         eyebrow: channelDomain(channel.primarySource).uppercased(),
                         title: channel.title,
-                        subtitle: "\(model.channelEntries(for: channel.source).count) notes",
+                        subtitle: "\(model.channels.channelEntries(for: channel.source).count) notes",
                         settingsLabel: "Settings for \(channel.title)",
                         settingsAction: {
-                            model.showChannelSettings(channel.source)
+                            model.navigation.showChannelSettings(channel.source)
                             onOpenDetail()
                         }
                     ) {
-                        model.selectChannel(channel.source)
+                        model.navigation.selectChannel(channel.source)
                     }
                 }
             }
@@ -263,7 +263,7 @@ struct MobileLibraryRows: View {
             if briefs.isEmpty {
                 SidebarEmpty(
                     icon: "headphones",
-                    title: model.query.isEmpty ? "No voice briefs yet" : "No matching voice briefs"
+                    title: model.navigation.query.isEmpty ? "No voice briefs yet" : "No matching voice briefs"
                 )
             } else {
                 ForEach(briefs, id: \.id) { brief in
@@ -274,14 +274,14 @@ struct MobileLibraryRows: View {
                         icon: "headphones",
                         eyebrow: "VOICE BRIEF",
                         title: brief.title,
-                        subtitle: "\(model.projection.episodes(for: brief.id).count) episodes",
+                        subtitle: "\(model.session.projection.episodes(for: brief.id).count) episodes",
                         settingsLabel: "Settings for \(brief.title)",
                         settingsAction: {
-                            model.showVoiceBriefSettings(brief.id)
+                            model.navigation.showVoiceBriefSettings(brief.id)
                             onOpenDetail()
                         }
                     ) {
-                        model.selectVoiceBrief(brief.id)
+                        model.navigation.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -291,7 +291,7 @@ struct MobileLibraryRows: View {
     private var entryCollection: some View {
         VStack(spacing: 0) {
             MobileCollectionHeader(title: collectionTitle, count: entries.count) {
-                Task { await model.show(model.activeSection) }
+                Task { await model.navigation.show(model.navigation.activeSection) }
             }
 
             if entries.isEmpty {
@@ -326,10 +326,10 @@ struct MobileLibraryRows: View {
         MobileEntryCard(
             entry: entry,
             kind: kind,
-            selected: model.selectedIDs.contains(entry.id)
+            selected: model.selection.selectedIDs.contains(entry.id)
         ) {
             Task {
-                await model.select(entry.id)
+                await model.selection.select(entry.id)
                 onOpenDetail()
             }
         }

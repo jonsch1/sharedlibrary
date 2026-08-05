@@ -37,7 +37,7 @@ struct HighlightsDocument: View {
             Divider()
 
             GeometryReader { geometry in
-                if model.highlightsText.isEmpty {
+                if model.selection.highlightsText.isEmpty {
                     XEmptyState(
                         icon: "highlighter",
                         title: "No highlights yet",
@@ -45,7 +45,7 @@ struct HighlightsDocument: View {
                     )
                 } else {
                     ScrollView {
-                        MarkdownArticle(model.highlightsText)
+                        MarkdownArticle(model.selection.highlightsText)
                             .frame(maxWidth: 620, alignment: .leading)
                             .padding(.horizontal, 28)
                             .padding(.top, 34)

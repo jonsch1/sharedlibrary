@@ -28,9 +28,9 @@ struct ChannelConfiguration: View {
 
     var body: some View {
         ScrollView {
-            if model.selectedChannelSource == "new" {
+            if model.navigation.selectedChannelSource == "new" {
                 channelCreation
-            } else if let channel = model.selectedChannel {
+            } else if let channel = model.channels.selectedChannel {
                 #if os(macOS)
                 VStack(alignment: .leading, spacing: 30) {
                     HStack(alignment: .top, spacing: 18) {
@@ -58,27 +58,27 @@ struct ChannelConfiguration: View {
                         Spacer(minLength: 20)
 
                         Button {
-                            Task { await model.checkSelectedChannel() }
+                            Task { await model.channels.checkSelectedChannel() }
                         } label: {
-                            if model.isCheckingChannel {
+                            if model.channels.isCheckingChannel {
                                 ProgressView().controlSize(.small)
                             } else {
                                 Label("Fetch fresh", systemImage: "arrow.clockwise")
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isCheckingChannel)
+                        .disabled(model.channels.isCheckingChannel)
 
                         Menu {
                             Button {
-                                Task { await model.checkSelectedChannel(loadMore: true) }
+                                Task { await model.channels.checkSelectedChannel(loadMore: true) }
                             } label: {
                                 Label("Load more", systemImage: "arrow.down")
                             }
-                            .disabled(model.isCheckingChannel || !channel.canLoadMore)
+                            .disabled(model.channels.isCheckingChannel || !channel.canLoadMore)
                             Button {
-                                model.channelBrowserAddress = channel.primarySource
-                                model.channelBrowserStagesSource = false
+                                model.channels.channelBrowserAddress = channel.primarySource
+                                model.channels.channelBrowserStagesSource = false
                                 showsChannelBrowser = true
                             } label: {
                                 Label("Sign in", systemImage: "person.crop.circle")
@@ -108,7 +108,7 @@ struct ChannelConfiguration: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         GridRow {
-                            Text(model.channelEntries(for: channel.source).count.formatted())
+                            Text(model.channels.channelEntries(for: channel.source).count.formatted())
                             Text(channel.kind?.rawValue.capitalized ?? "Not checked")
                             Text(channel.lastCheckedAt ?? "Never")
                         }
@@ -158,15 +158,15 @@ struct ChannelConfiguration: View {
 
                     Divider()
                     HStack {
-                        Text("\(model.newChannelSources.count) " +
-                             (model.newChannelSources.count == 1 ? "source" : "sources"))
+                        Text("\(model.channels.newChannelSources.count) " +
+                             (model.channels.newChannelSources.count == 1 ? "source" : "sources"))
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Save changes", action: saveSettings)
                             .buttonStyle(.borderedProminent)
                             .controlSize(.large)
                             .disabled(
-                                model.newChannelSources.isEmpty ||
+                                model.channels.newChannelSources.isEmpty ||
                                     channelTitle.trimmingCharacters(
                                         in: .whitespacesAndNewlines
                                     ).isEmpty
@@ -189,7 +189,7 @@ struct ChannelConfiguration: View {
                         .onSubmit(saveSettings)
                     LabeledContent(
                         "Captured items",
-                        value: model.channelEntries(for: channel.source).count.formatted()
+                        value: model.channels.channelEntries(for: channel.source).count.formatted()
                     )
                     LabeledContent(
                         "Type",
@@ -221,9 +221,9 @@ struct ChannelConfiguration: View {
                     )
                     HStack {
                         Button {
-                            Task { await model.checkSelectedChannel() }
+                            Task { await model.channels.checkSelectedChannel() }
                         } label: {
-                            if model.isCheckingChannel {
+                            if model.channels.isCheckingChannel {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
@@ -231,25 +231,25 @@ struct ChannelConfiguration: View {
                             }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(model.isCheckingChannel)
+                        .disabled(model.channels.isCheckingChannel)
                         Button {
                             Task {
-                                await model.checkSelectedChannel(loadMore: true)
+                                await model.channels.checkSelectedChannel(loadMore: true)
                             }
                         } label: {
                             Label("Load more", systemImage: "arrow.down")
                         }
-                        .disabled(model.isCheckingChannel || !channel.canLoadMore)
+                        .disabled(model.channels.isCheckingChannel || !channel.canLoadMore)
                     }
                     HStack {
-                        Text("\(model.newChannelSources.count) " +
-                             (model.newChannelSources.count == 1 ? "source" : "sources"))
+                        Text("\(model.channels.newChannelSources.count) " +
+                             (model.channels.newChannelSources.count == 1 ? "source" : "sources"))
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Save changes", action: saveSettings)
                             .buttonStyle(.borderedProminent)
                             .disabled(
-                                model.newChannelSources.isEmpty ||
+                                model.channels.newChannelSources.isEmpty ||
                                     channelTitle.trimmingCharacters(
                                         in: .whitespacesAndNewlines
                                     ).isEmpty
@@ -277,14 +277,14 @@ struct ChannelConfiguration: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 12) {
                 Button {
-                    model.navigateBack()
+                    model.navigation.navigateBack()
                 } label: {
                     Image(systemName: "arrow.left")
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Text(model.selectedChannelSource == "new" ? "Add channel" : "Channel")
+                Text(model.navigation.selectedChannelSource == "new" ? "Add channel" : "Channel")
                     .font(.headline)
                 Spacer()
             }
@@ -296,25 +296,25 @@ struct ChannelConfiguration: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         #endif
-        .task(id: model.selectedChannelSource) {
+        .task(id: model.navigation.selectedChannelSource) {
             source = ""
-            retrievalCount = model.selectedChannel?.retrievalCount ?? 5
-            autoSummarize = model.selectedChannel?.autoSummarize ?? true
-            schedule = model.selectedChannel?.schedule ?? "manual"
-            channelTitle = model.selectedChannel?.title ?? ""
-            model.newChannelSources = model.selectedChannelSource == "new"
+            retrievalCount = model.channels.selectedChannel?.retrievalCount ?? 5
+            autoSummarize = model.channels.selectedChannel?.autoSummarize ?? true
+            schedule = model.channels.selectedChannel?.schedule ?? "manual"
+            channelTitle = model.channels.selectedChannel?.title ?? ""
+            model.channels.newChannelSources = model.navigation.selectedChannelSource == "new"
                 ? []
-                : model.selectedChannel?.sources ?? []
-            model.channelBrowserAddress = ""
-            model.channelBrowserStagesSource = model.selectedChannelSource == "new"
+                : model.channels.selectedChannel?.sources ?? []
+            model.channels.channelBrowserAddress = ""
+            model.channels.channelBrowserStagesSource = model.navigation.selectedChannelSource == "new"
         }
         .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
             Button("Delete Channel and Items", role: .destructive) {
-                Task { await model.removeSelectedChannel() }
+                Task { await model.channels.removeSelectedChannel() }
             }
         } message: {
-            let count = model.selectedChannel.map {
-                model.channelEntries(for: $0.source).count
+            let count = model.channels.selectedChannel.map {
+                model.channels.channelEntries(for: $0.source).count
             } ?? 0
             Text(
                 count == 1
@@ -345,22 +345,22 @@ struct ChannelConfiguration: View {
             Spacer(minLength: 38)
             Divider()
             HStack {
-                Text("\(model.newChannelSources.count) " +
-                     (model.newChannelSources.count == 1 ? "source" : "sources") + " added")
+                Text("\(model.channels.newChannelSources.count) " +
+                     (model.channels.newChannelSources.count == 1 ? "source" : "sources") + " added")
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") {
-                    model.newChannelSources = []
-                    model.navigateBack()
+                    model.channels.newChannelSources = []
+                    model.navigation.navigateBack()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 Button("Create channel") {
-                    Task { await model.createChannel() }
+                    Task { await model.channels.createChannel() }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(model.newChannelSources.isEmpty)
+                .disabled(model.channels.newChannelSources.isEmpty)
             }
             .padding(.top, 22)
         }
@@ -374,7 +374,7 @@ struct ChannelConfiguration: View {
     }
 
     private func addSource() {
-        model.stageChannelSource(source)
+        model.channels.stageChannelSource(source)
         source = ""
     }
 
@@ -408,8 +408,8 @@ struct ChannelConfiguration: View {
             HStack(spacing: 12) {
                 Spacer()
                 Button {
-                    model.channelBrowserAddress = ""
-                    model.channelBrowserStagesSource = true
+                    model.channels.channelBrowserAddress = ""
+                    model.channels.channelBrowserStagesSource = true
                     showsChannelBrowser = true
                 } label: {
                     Label("Open signed-in browser", systemImage: "globe")
@@ -427,7 +427,7 @@ struct ChannelConfiguration: View {
             .padding(.top, 4)
         }
 
-        if !model.newChannelSources.isEmpty {
+        if !model.channels.newChannelSources.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 Text(listTitle)
                     .font(.headline)
@@ -436,16 +436,16 @@ struct ChannelConfiguration: View {
                     alignment: .leading,
                     spacing: 12
                 ) {
-                    ForEach(model.newChannelSources, id: \.self) { source in
+                    ForEach(model.channels.newChannelSources, id: \.self) { source in
                         ChannelSourceCard(
                             source: source,
                             openInBrowser: allowsOpening ? {
-                                model.channelBrowserAddress = source
-                                model.channelBrowserStagesSource = false
+                                model.channels.channelBrowserAddress = source
+                                model.channels.channelBrowserStagesSource = false
                                 showsChannelBrowser = true
                             } : nil,
                             remove: {
-                                model.removeStagedChannelSource(source)
+                                model.channels.removeStagedChannelSource(source)
                             }
                         )
                     }
@@ -457,9 +457,9 @@ struct ChannelConfiguration: View {
 
     private func saveSettings() {
         Task {
-            await model.updateSelectedChannel(
+            await model.channels.updateSelectedChannel(
                 title: channelTitle,
-                sources: model.newChannelSources,
+                sources: model.channels.newChannelSources,
                 retrievalCount: retrievalCount,
                 autoSummarize: autoSummarize,
                 schedule: schedule

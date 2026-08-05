@@ -52,9 +52,9 @@ struct MacXSettingsWorkspace: View {
         .fileImporter(isPresented: $showsPDFImporter, allowedContentTypes: [.pdf]) { result in
             switch result {
             case .success(let url):
-                Task { await model.capturePDF(url) }
+                Task { await model.processing.capturePDF(url) }
             case .failure(let error):
-                model.errorMessage = error.localizedDescription
+                model.session.errorMessage = error.localizedDescription
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
@@ -75,8 +75,8 @@ struct MacXSettingsWorkspace: View {
             shortcutRegistered = notification.object as? Bool ?? false
         }
         .task {
-            await model.refreshAccount()
-            await model.loadSubscription()
+            await model.account.refreshAccount()
+            await model.account.loadSubscription()
         }
     }
 
@@ -198,14 +198,14 @@ struct MacXSettingsWorkspace: View {
         case .library:
             detailGroup("Library") {
                 valueRow(icon: "internaldrive", title: "Storage", value: "Local SQLite database")
-                valueRow(icon: "checkmark.circle", title: "Status", value: model.status)
+                valueRow(icon: "checkmark.circle", title: "Status", value: model.session.status)
                 actionRow(icon: "arrow.clockwise", title: "Refresh library", subtitle: "Reload all saved notes from local storage") {
-                    Task { await model.refreshLibrary() }
+                    Task { await model.lifecycle.refreshLibrary() }
                 }
-                actionRow(icon: "arrow.triangle.2.circlepath", title: model.isSyncing ? "Syncing…" : "Sync with iCloud", subtitle: "Push and pull the latest library changes") {
-                    Task { await model.sync() }
+                actionRow(icon: "arrow.triangle.2.circlepath", title: model.lifecycle.isSyncing ? "Syncing…" : "Sync with iCloud", subtitle: "Push and pull the latest library changes") {
+                    Task { await model.lifecycle.sync() }
                 }
-                .disabled(model.isSyncing)
+                .disabled(model.lifecycle.isSyncing)
             }
 
         case .capture:
@@ -216,13 +216,13 @@ struct MacXSettingsWorkspace: View {
                 }
                 actionRow(icon: "clipboard", title: "Capture clipboard", subtitle: "Save the current clipboard as a note") {
                     let text = NSPasteboard.general.string(forType: .string) ?? ""
-                    Task { await model.capture(text) }
+                    Task { await model.processing.capture(text) }
                 }
-                .disabled(!model.canEdit)
+                .disabled(!model.session.canEdit)
                 actionRow(icon: "doc.richtext", title: "Import PDF", subtitle: "Add and process a local PDF document") {
                     showsPDFImporter = true
                 }
-                .disabled(!model.canEdit)
+                .disabled(!model.session.canEdit)
                 actionRow(icon: "globe", title: "Signed-in browser", subtitle: "Capture pages that require a login") {
                     showsChannelBrowser = true
                 }
@@ -234,24 +234,24 @@ struct MacXSettingsWorkspace: View {
 
         case .account:
             detailGroup("Your account") {
-                valueRow(icon: "person.crop.circle", title: "Account", value: model.account.authenticated ? model.account.email ?? "Signed in" : "Signed out")
-                if model.account.authenticated {
-                    valueRow(icon: "checkmark.seal", title: "Membership", value: model.account.entitled == true ? "Active" : "Needs activation")
+                valueRow(icon: "person.crop.circle", title: "Account", value: model.account.account.authenticated ? model.account.account.email ?? "Signed in" : "Signed out")
+                if model.account.account.authenticated {
+                    valueRow(icon: "checkmark.seal", title: "Membership", value: model.account.account.entitled == true ? "Active" : "Needs activation")
                     actionRow(icon: "arrow.clockwise", title: "Refresh account", subtitle: "Check membership and subscription status") {
-                        Task { await model.refreshAccount(reportErrors: true) }
+                        Task { await model.account.refreshAccount(reportErrors: true) }
                     }
-                    if model.account.entitled == true {
+                    if model.account.account.entitled == true {
                         externalDetailRow(icon: "creditcard", title: "Manage App Store subscription", url: "https://apps.apple.com/account/subscriptions")
-                    } else if let product = model.subscriptionProduct {
+                    } else if let product = model.account.subscriptionProduct {
                         actionRow(icon: "sparkles", title: "Subscribe — \(product.displayPrice)/month", subtitle: "Unlock Briefly membership") {
-                            Task { await model.purchaseSubscription() }
+                            Task { await model.account.purchaseSubscription() }
                         }
                     }
                     actionRow(icon: "arrow.counterclockwise", title: "Restore purchases", subtitle: "Restore an existing App Store subscription") {
-                        Task { await model.restoreSubscription() }
+                        Task { await model.account.restoreSubscription() }
                     }
                     actionRow(icon: "rectangle.portrait.and.arrow.right", title: "Sign out", subtitle: "Remove this account from the Mac", destructive: true) {
-                        Task { await model.signOut() }
+                        Task { await model.account.signOut() }
                     }
                 } else {
                     SignInWithAppleButton(.signIn) { request in
@@ -264,7 +264,7 @@ struct MacXSettingsWorkspace: View {
                     } onCompletion: { result in
                         let nonce = appleSignInNonce
                         appleSignInNonce = ""
-                        Task { await model.signInWithApple(result, nonce: nonce) }
+                        Task { await model.account.signInWithApple(result, nonce: nonce) }
                     }
                     .signInWithAppleButtonStyle(.black)
                     .frame(width: 260, height: 42)
@@ -278,8 +278,8 @@ struct MacXSettingsWorkspace: View {
                 title: "Personalization",
                 description: "Context used when Prioritize for me is enabled.",
                 firstTitle: "About you",
-                firstText: $model.aboutYou,
-                save: model.savePersonalizationSettings
+                firstText: $model.settings.aboutYou,
+                save: model.settings.savePersonalizationSettings
             )
 
         case .topics:
@@ -288,7 +288,7 @@ struct MacXSettingsWorkspace: View {
                     Text("One reusable topic per line, written as “id: Title”.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    TextEditor(text: $model.topicsText)
+                    TextEditor(text: $model.settings.topicsText)
                         .font(.system(.body, design: .monospaced))
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 220)
@@ -297,7 +297,7 @@ struct MacXSettingsWorkspace: View {
                         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                     HStack {
                         Spacer()
-                        Button("Save topics") { Task { await model.saveTopics() } }
+                        Button("Save topics") { Task { await model.settings.saveTopics() } }
                             .buttonStyle(.borderedProminent)
                             .buttonBorderShape(.capsule)
                     }
@@ -308,14 +308,14 @@ struct MacXSettingsWorkspace: View {
         case .ai:
             detailGroup("AI processing") {
                 detailRow(icon: "sparkles", title: "Use Briefly AI", subtitle: "Managed processing with zero-data retention") {
-                    Toggle("", isOn: Binding(get: { model.usesManagedAI }, set: model.useManagedAI))
+                    Toggle("", isOn: Binding(get: { model.settings.usesManagedAI }, set: model.settings.useManagedAI))
                         .labelsHidden()
                 }
-                if !model.usesManagedAI {
+                if !model.settings.usesManagedAI {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Processing command")
                             .font(.callout.weight(.semibold))
-                        TextField("Command", text: $model.processingCommand, axis: .vertical)
+                        TextField("Command", text: $model.settings.processingCommand, axis: .vertical)
                             .textFieldStyle(.plain)
                             .padding(11)
                             .background(Color.primary.opacity(0.04))
@@ -327,7 +327,7 @@ struct MacXSettingsWorkspace: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Processing prompt")
                         .font(.callout.weight(.semibold))
-                    TextEditor(text: $model.processingPrompt)
+                    TextEditor(text: $model.settings.processingPrompt)
                         .font(.system(.caption, design: .monospaced))
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 230)
@@ -335,11 +335,11 @@ struct MacXSettingsWorkspace: View {
                         .background(Color.primary.opacity(0.04))
                         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                     HStack {
-                        Button("Restore default") { model.processingPrompt = defaultProcessingPrompt }
-                        Button("Test") { Task { await model.testProcessingCommand() } }
-                            .disabled(model.isTestingAI)
+                        Button("Restore default") { model.settings.processingPrompt = defaultProcessingPrompt }
+                        Button("Test") { Task { await model.settings.testProcessingCommand() } }
+                            .disabled(model.settings.isTestingAI)
                         Spacer()
-                        Button("Save") { model.saveProcessingSettings() }
+                        Button("Save") { model.settings.saveProcessingSettings() }
                             .buttonStyle(.borderedProminent)
                             .buttonBorderShape(.capsule)
                     }

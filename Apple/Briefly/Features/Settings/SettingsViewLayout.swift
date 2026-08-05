@@ -24,7 +24,7 @@ extension SettingsView {
                 Section("General settings") {
                     settingsRow(
                         .account,
-                        value: model.account.authenticated ? "Signed in" : "Signed out"
+                        value: model.account.account.authenticated ? "Signed in" : "Signed out"
                     )
                     settingsRow(
                         .general,
@@ -164,27 +164,27 @@ extension SettingsView {
                     case .library:
                 Section("Library") {
                     LabeledContent("Storage", value: "Local SQLite database")
-                    LabeledContent("Status", value: model.status)
-                    if model.isSyncing {
+                    LabeledContent("Status", value: model.session.status)
+                    if model.lifecycle.isSyncing {
                         SyncActivityView(model: model)
                             .padding(.vertical, 4)
                     }
-                    if model.canEdit {
+                    if model.session.canEdit {
                         Button {
-                            Task { await model.refreshLibrary() }
+                            Task { await model.lifecycle.refreshLibrary() }
                         } label: {
                             Label("Refresh library", systemImage: "arrow.clockwise")
                         }
                     }
                     Button {
-                        Task { await model.sync() }
+                        Task { await model.lifecycle.sync() }
                     } label: {
                         Label(
-                            model.isSyncing ? "Syncing…" : "Sync with iCloud",
+                            model.lifecycle.isSyncing ? "Syncing…" : "Sync with iCloud",
                             systemImage: "arrow.triangle.2.circlepath"
                         )
                     }
-                    .disabled(model.isSyncing)
+                    .disabled(model.lifecycle.isSyncing)
                 }
 
                     case .capture:
@@ -210,16 +210,16 @@ extension SettingsView {
 
                 Section("Capture tools") {
                     #if os(macOS)
-                    if model.canEdit {
+                    if model.session.canEdit {
                         Button {
                             let text = NSPasteboard.general.string(forType: .string) ?? ""
-                            Task { await model.capture(text) }
+                            Task { await model.processing.capture(text) }
                         } label: {
                             Label("Capture clipboard", systemImage: "clipboard")
                         }
                     }
                     #endif
-                    if model.canEdit {
+                    if model.session.canEdit {
                         Button {
                             showsPDFImporter = true
                         } label: {
@@ -243,55 +243,55 @@ extension SettingsView {
                 Section("Briefly account") {
                     LabeledContent(
                         "Status",
-                        value: model.account.authenticated
-                            ? model.account.email ?? "Signed in"
+                        value: model.account.account.authenticated
+                            ? model.account.account.email ?? "Signed in"
                             : "Signed out"
                     )
-                    if model.account.authenticated {
+                    if model.account.account.authenticated {
                         LabeledContent(
                             "Membership",
-                            value: model.account.entitled == true
+                            value: model.account.account.entitled == true
                                 ? "Active"
                                 : "Needs activation"
                         )
                     }
                     HStack {
-                        if model.account.authenticated {
+                        if model.account.account.authenticated {
                             Button("Sign out", role: .destructive) {
-                                Task { await model.signOut() }
+                                Task { await model.account.signOut() }
                             }
                         }
                         Spacer()
                         Button {
-                            Task { await model.refreshAccount(reportErrors: true) }
+                            Task { await model.account.refreshAccount(reportErrors: true) }
                         } label: {
-                            if model.isCheckingAccount {
+                            if model.account.isCheckingAccount {
                                 ProgressView()
                             } else {
                                 Label("Refresh", systemImage: "arrow.clockwise")
                             }
                         }
-                        .disabled(model.isCheckingAccount)
+                        .disabled(model.account.isCheckingAccount)
                     }
-                    if model.account.authenticated {
-                        if model.account.entitled == true {
+                    if model.account.account.authenticated {
+                        if model.account.account.entitled == true {
                             Link(
                                 "Manage App Store subscription",
                                 destination: URL(string: "https://apps.apple.com/account/subscriptions")!
                             )
-                        } else if let product = model.subscriptionProduct {
+                        } else if let product = model.account.subscriptionProduct {
                             Button("Subscribe — \(product.displayPrice)/month") {
-                                Task { await model.purchaseSubscription() }
+                                Task { await model.account.purchaseSubscription() }
                             }
-                            .disabled(model.isPurchasingSubscription)
+                            .disabled(model.account.isPurchasingSubscription)
                         } else {
                             Text("The subscription is not available from the App Store yet.")
                                 .foregroundStyle(.secondary)
                         }
                         Button("Restore purchases") {
-                            Task { await model.restoreSubscription() }
+                            Task { await model.account.restoreSubscription() }
                         }
-                        .disabled(model.isPurchasingSubscription)
+                        .disabled(model.account.isPurchasingSubscription)
                     } else {
                         SignInWithAppleButton(.signIn) { request in
                             let nonce = randomAppleNonce()
@@ -303,7 +303,7 @@ extension SettingsView {
                         } onCompletion: { result in
                             let nonce = appleSignInNonce
                             appleSignInNonce = ""
-                            Task { await model.signInWithApple(result, nonce: nonce) }
+                            Task { await model.account.signInWithApple(result, nonce: nonce) }
                         }
                         .signInWithAppleButtonStyle(.black)
                         .frame(maxWidth: 280, minHeight: 42, maxHeight: 42)
@@ -315,7 +315,7 @@ extension SettingsView {
                 Section("Personalization") {
                     TextField(
                         "About you",
-                        text: $model.aboutYou,
+                        text: $model.settings.aboutYou,
                         axis: .vertical
                     )
                     .lineLimit(3...8)
@@ -325,25 +325,25 @@ extension SettingsView {
                     HStack {
                         Spacer()
                         Button("Save") {
-                            model.savePersonalizationSettings()
+                            model.settings.savePersonalizationSettings()
                         }
                         .buttonStyle(.borderedProminent)
                     }
                 }
 
                     case .topics:
-                if model.canEdit {
+                if model.session.canEdit {
                     Section("Topics") {
                         Text("One reusable topic per line, written as “id: Title”.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        TextEditor(text: $model.topicsText)
+                        TextEditor(text: $model.settings.topicsText)
                             .font(.system(.body, design: .monospaced))
                             .frame(minHeight: 110)
                         HStack {
                             Spacer()
                             Button("Save topics") {
-                                Task { await model.saveTopics() }
+                                Task { await model.settings.saveTopics() }
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -362,32 +362,32 @@ extension SettingsView {
                     Toggle(
                         "Use Briefly AI",
                         isOn: Binding(
-                            get: { model.usesManagedAI },
-                            set: model.useManagedAI
+                            get: { model.settings.usesManagedAI },
+                            set: model.settings.useManagedAI
                         )
                     )
-                    if !model.usesManagedAI {
+                    if !model.settings.usesManagedAI {
                         Menu("Choose processing preset") {
                             Button("Codex") {
-                                model.processingCommand =
+                                model.settings.processingCommand =
                                     defaultProcessingCommand
                             }
                             Button("Claude") {
-                                model.processingCommand =
+                                model.settings.processingCommand =
                                     #"claude -p --tools "" --strict-mcp-config --no-session-persistence"#
                             }
                             Button("Pi") {
-                                model.processingCommand =
+                                model.settings.processingCommand =
                                     "pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills"
                             }
                             Button("OpenCode") {
-                                model.processingCommand =
+                                model.settings.processingCommand =
                                     #"opencode run --pure "$(cat)""#
                             }
                         }
                         TextField(
                             "Command",
-                            text: $model.processingCommand,
+                            text: $model.settings.processingCommand,
                             axis: .vertical
                         )
                         .lineLimit(2...5)
@@ -406,29 +406,29 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     #endif
-                    TextEditor(text: $model.processingPrompt)
+                    TextEditor(text: $model.settings.processingPrompt)
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 150)
                     HStack {
                         Button("Restore default prompt") {
-                            model.processingPrompt = defaultProcessingPrompt
+                            model.settings.processingPrompt = defaultProcessingPrompt
                         }
                         #if os(macOS)
                         Button {
-                            Task { await model.testProcessingCommand() }
+                            Task { await model.settings.testProcessingCommand() }
                         } label: {
-                            if model.isTestingAI {
+                            if model.settings.isTestingAI {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
                                 Text("Test command")
                             }
                         }
-                        .disabled(model.isTestingAI)
+                        .disabled(model.settings.isTestingAI)
                         #endif
                         Spacer()
                         Button("Save") {
-                            model.saveProcessingSettings()
+                            model.settings.saveProcessingSettings()
                         }
                         .buttonStyle(.borderedProminent)
                     }
@@ -478,19 +478,19 @@ extension SettingsView {
             switch result {
             case .success(let url):
                 Task {
-                    await model.capturePDF(url)
+                    await model.processing.capturePDF(url)
                     dismiss()
                 }
             case .failure(let error):
-                model.errorMessage = error.localizedDescription
+                model.session.errorMessage = error.localizedDescription
             }
         }
         .sheet(isPresented: $showsChannelBrowser) {
             ChannelLoginView()
         }
         .task {
-            await model.refreshAccount()
-            await model.loadSubscription()
+            await model.account.refreshAccount()
+            await model.account.loadSubscription()
         }
     }
 

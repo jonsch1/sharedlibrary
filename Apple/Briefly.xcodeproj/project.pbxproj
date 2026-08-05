@@ -37,7 +37,6 @@
 		100000000000000000000127 /* LibraryEntryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000127 /* LibraryEntryCard.swift */; };
 		100000000000000000000128 /* LibraryFeedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000128 /* LibraryFeedComponents.swift */; };
 		100000000000000000000129 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000129 /* LibraryModel.swift */; };
-		100000000000000000000130 /* LibraryModelActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000130 /* LibraryModelActions.swift */; };
 		100000000000000000000131 /* LibraryModelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000131 /* LibraryModelLifecycle.swift */; };
 		100000000000000000000132 /* LibraryModelNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000132 /* LibraryModelNavigation.swift */; };
 		100000000000000000000133 /* LibraryModelProcessingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000133 /* LibraryModelProcessingQueue.swift */; };
@@ -139,7 +138,6 @@
 		200000000000000000000127 /* LibraryEntryCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryEntryCard.swift; sourceTree = "<group>"; };
 		200000000000000000000128 /* LibraryFeedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryFeedComponents.swift; sourceTree = "<group>"; };
 		200000000000000000000129 /* LibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModel.swift; sourceTree = "<group>"; };
-		200000000000000000000130 /* LibraryModelActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelActions.swift; sourceTree = "<group>"; };
 		200000000000000000000131 /* LibraryModelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelLifecycle.swift; sourceTree = "<group>"; };
 		200000000000000000000132 /* LibraryModelNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelNavigation.swift; sourceTree = "<group>"; };
 		200000000000000000000133 /* LibraryModelProcessingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelProcessingQueue.swift; sourceTree = "<group>"; };
@@ -318,7 +316,6 @@
 				200000000000000000000127 /* LibraryEntryCard.swift */,
 				200000000000000000000128 /* LibraryFeedComponents.swift */,
 				200000000000000000000129 /* LibraryModel.swift */,
-				200000000000000000000130 /* LibraryModelActions.swift */,
 				200000000000000000000131 /* LibraryModelLifecycle.swift */,
 				200000000000000000000132 /* LibraryModelNavigation.swift */,
 				200000000000000000000133 /* LibraryModelProcessingQueue.swift */,
@@ -623,7 +620,6 @@
 				100000000000000000000127 /* LibraryEntryCard.swift in Sources */,
 				100000000000000000000128 /* LibraryFeedComponents.swift in Sources */,
 				100000000000000000000129 /* LibraryModel.swift in Sources */,
-				100000000000000000000130 /* LibraryModelActions.swift in Sources */,
 				100000000000000000000131 /* LibraryModelLifecycle.swift in Sources */,
 				100000000000000000000132 /* LibraryModelNavigation.swift in Sources */,
 				100000000000000000000133 /* LibraryModelProcessingQueue.swift in Sources */,

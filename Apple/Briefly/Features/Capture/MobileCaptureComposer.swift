@@ -27,7 +27,7 @@ struct MobileCaptureComposer: View {
 
     private var canCapture: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !model.isProcessing
+            !model.processing.isProcessing
     }
 
     var body: some View {
@@ -57,7 +57,7 @@ struct MobileCaptureComposer: View {
                     composerTool("doc.richtext", label: "Import PDF", action: openPDFImporter)
                     composerTool("globe", label: "Signed-in browser", action: openBrowser)
                     Spacer()
-                    if model.isProcessing { ProgressView().controlSize(.small) }
+                    if model.processing.isProcessing { ProgressView().controlSize(.small) }
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 58)
@@ -73,7 +73,7 @@ struct MobileCaptureComposer: View {
                     Button("Save") {
                         let value = draft
                         dismiss()
-                        Task { await model.capture(value) }
+                        Task { await model.processing.capture(value) }
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)

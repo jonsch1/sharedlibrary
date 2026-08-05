@@ -46,20 +46,20 @@ struct DocumentEditor: View {
     var body: some View {
         EditableDocumentTextView(
             text: $draft,
-            isEditable: model.canEdit && !model.showingTrash && isEditing,
+            isEditable: model.session.canEdit && !model.navigation.showingTrash && isEditing,
             highlightedPassages: highlightedPassages,
-            onHighlight: model.canEdit && !model.showingTrash ? { text in
-                Task { await model.addHighlight(text) }
+            onHighlight: model.session.canEdit && !model.navigation.showingTrash ? { text in
+                Task { await model.selection.addHighlight(text) }
             } : nil,
-            onRemoveHighlight: model.canEdit && !model.showingTrash ? { text in
-                Task { await model.removeHighlight(text) }
+            onRemoveHighlight: model.session.canEdit && !model.navigation.showingTrash ? { text in
+                Task { await model.selection.removeHighlight(text) }
             } : nil
         )
         .onChange(of: sourceText) { oldValue, newValue in
             if draft == oldValue { draft = newValue }
         }
         .onChange(of: draft) {
-            guard model.canEdit, !model.showingTrash, isEditing, draft != sourceText else {
+            guard model.session.canEdit, !model.navigation.showingTrash, isEditing, draft != sourceText else {
                 return
             }
             pendingSave?.cancel()
@@ -67,7 +67,7 @@ struct DocumentEditor: View {
             pendingSave = Task {
                 try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled else { return }
-                await model.saveText(text, entryID: entryID, variant: variant)
+                await model.selection.saveText(text, entryID: entryID, variant: variant)
             }
         }
     }

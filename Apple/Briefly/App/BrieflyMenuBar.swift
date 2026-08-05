@@ -23,17 +23,17 @@ struct BrieflyMenuBar: View {
             }
         }
 
-        if model.canEdit {
+        if model.session.canEdit {
             Button("Capture Clipboard") {
                 let text = NSPasteboard.general.string(forType: .string) ?? ""
-                Task { await model.capture(text) }
+                Task { await model.processing.capture(text) }
             }
         }
 
         Button("Sync Now") {
-            Task { await model.sync() }
+            Task { await model.lifecycle.sync() }
         }
-        .disabled(model.isSyncing)
+        .disabled(model.lifecycle.isSyncing)
 
         Divider()
 

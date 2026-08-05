@@ -27,7 +27,7 @@ struct MacCaptureComposer: View {
 
     private var canCapture: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !model.isProcessing
+            !model.processing.isProcessing
     }
 
     var body: some View {
@@ -45,7 +45,7 @@ struct MacCaptureComposer: View {
                 Button("Save") {
                     let value = draft
                     dismiss()
-                    Task { await model.capture(value) }
+                    Task { await model.processing.capture(value) }
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
@@ -95,7 +95,7 @@ struct MacCaptureComposer: View {
                     draft = NSPasteboard.general.string(forType: .string) ?? ""
                 }
                 Spacer()
-                if model.isProcessing {
+                if model.processing.isProcessing {
                     ProgressView().controlSize(.small)
                 }
             }

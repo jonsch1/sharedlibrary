@@ -22,8 +22,8 @@ struct BriefPreparationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if model.isRunningVoiceBrief,
-               let progress = model.voiceBriefGenerationProgress,
+            if model.voiceBriefs.isRunningVoiceBrief,
+               let progress = model.voiceBriefs.voiceBriefGenerationProgress,
                progress.voiceBriefID == brief.id {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
@@ -77,7 +77,7 @@ struct BriefPreparationPanel: View {
                 }
 
                 Button {
-                    Task { await model.runSelectedVoiceBrief() }
+                    Task { await model.voiceBriefs.runSelectedVoiceBrief() }
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "sparkles")
@@ -89,12 +89,12 @@ struct BriefPreparationPanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.white)
                 .background(Color.blue, in: Capsule())
-                .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
+                .disabled(model.voiceBriefs.isRunningVoiceBrief || brief.sources.isEmpty)
             }
         }
         .padding(14)
         .background(
-            model.isRunningVoiceBrief
+            model.voiceBriefs.isRunningVoiceBrief
                 ? Color.accentColor.opacity(0.10)
                 : Color.primary.opacity(0.045),
             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -102,13 +102,13 @@ struct BriefPreparationPanel: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(
-                    model.isRunningVoiceBrief
+                    model.voiceBriefs.isRunningVoiceBrief
                         ? Color.accentColor.opacity(0.28)
                         : Color.primary.opacity(0.08)
                 )
         }
-        .animation(.smooth(duration: 0.35), value: model.isRunningVoiceBrief)
-        .animation(.smooth(duration: 0.25), value: model.status)
+        .animation(.smooth(duration: 0.35), value: model.voiceBriefs.isRunningVoiceBrief)
+        .animation(.smooth(duration: 0.25), value: model.session.status)
     }
 
     enum StepState {

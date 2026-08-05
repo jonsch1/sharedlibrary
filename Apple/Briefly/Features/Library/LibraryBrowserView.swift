@@ -21,24 +21,24 @@ struct LibraryCardBrowser: View {
     @Bindable var model: LibraryModel
 
     private var channels: [LibraryChannel] {
-        model.filteredChannels.filter {
-            model.selectedChannelDomain == "All" ||
-                channelDomain($0.primarySource) == model.selectedChannelDomain
+        model.channels.filteredChannels.filter {
+            model.navigation.selectedChannelDomain == "All" ||
+                channelDomain($0.primarySource) == model.navigation.selectedChannelDomain
         }
     }
 
     private var channelEntries: [LibraryEntry] {
-        guard !model.selectedChannelSource.isEmpty else { return [] }
-        return model.channelEntries(for: model.selectedChannelSource).filter {
-            $0.matches(model.query)
+        guard !model.navigation.selectedChannelSource.isEmpty else { return [] }
+        return model.channels.channelEntries(for: model.navigation.selectedChannelSource).filter {
+            $0.matches(model.navigation.query)
         }
     }
 
     private var allChannelEntries: [LibraryEntry] {
         var seen = Set<String>()
         return channels
-            .flatMap { model.channelEntries(for: $0.source) }
-            .filter { seen.insert($0.id).inserted && $0.matches(model.query) }
+            .flatMap { model.channels.channelEntries(for: $0.source) }
+            .filter { seen.insert($0.id).inserted && $0.matches(model.navigation.query) }
             .sorted {
                 ($0.createdAt ?? $0.updatedAt ?? "") >
                     ($1.createdAt ?? $1.updatedAt ?? "")
@@ -46,11 +46,11 @@ struct LibraryCardBrowser: View {
     }
 
     private var voiceBriefEntries: [LibraryEntry] {
-        model.projection.entries.filter {
+        model.session.projection.entries.filter {
             $0.entryType == "voice_brief_episode" &&
-                (model.selectedVoiceBriefID.isEmpty ||
-                    $0.voiceBriefID == model.selectedVoiceBriefID) &&
-                $0.matches(model.query)
+                (model.navigation.selectedVoiceBriefID.isEmpty ||
+                    $0.voiceBriefID == model.navigation.selectedVoiceBriefID) &&
+                $0.matches(model.navigation.query)
         }
         .sorted {
             ($0.createdAt ?? $0.updatedAt ?? "") >
@@ -59,21 +59,21 @@ struct LibraryCardBrowser: View {
     }
 
     private var count: Int {
-        switch model.activeSection {
-        case .items: model.filteredEntries.count
+        switch model.navigation.activeSection {
+        case .items: model.navigation.filteredEntries.count
         case .channels:
-            model.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
+            model.navigation.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
         case .briefs:
             voiceBriefEntries.count
         }
     }
 
     private var feedEntries: [LibraryEntry]? {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
-            model.filteredEntries
+            model.navigation.filteredEntries
         case .channels:
-            model.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
+            model.navigation.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
         case .briefs:
             voiceBriefEntries
         }
@@ -156,7 +156,7 @@ struct LibraryCardBrowser: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                        Text("\(model.channelEntries(for: channel.source).count) saved notes")
+                        Text("\(model.channels.channelEntries(for: channel.source).count) saved notes")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -164,7 +164,7 @@ struct LibraryCardBrowser: View {
                     Spacer(minLength: 12)
 
                     Button {
-                        model.showChannelSettings(channel.source)
+                        model.navigation.showChannelSettings(channel.source)
                     } label: {
                         Image(systemName: "ellipsis")
                             .frame(width: 44, height: 44)
@@ -176,7 +176,7 @@ struct LibraryCardBrowser: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 13)
                 .contentShape(Rectangle())
-                .onTapGesture { model.selectChannel(channel.source) }
+                .onTapGesture { model.navigation.selectChannel(channel.source) }
                 .overlay(alignment: .bottom) { Divider().padding(.leading, 70) }
             }
         }
@@ -190,9 +190,9 @@ struct LibraryCardBrowser: View {
                 ForEach(entries) { entry in
                     let row = FeedEntryRow(
                         entry: entry,
-                        action: { Task { await model.select(entry.id) } }
+                        action: { Task { await model.selection.select(entry.id) } }
                     )
-                    if model.showingTrash {
+                    if model.navigation.showingTrash {
                         row
                     } else {
                         row.modifier(EntryContextMenu(model: model, entry: entry))
@@ -208,7 +208,7 @@ struct LibraryCardBrowser: View {
         VStack(alignment: .leading, spacing: 0) {
             feedTabs
 
-            if model.activeSection == .briefs, let brief = model.selectedVoiceBrief {
+            if model.navigation.activeSection == .briefs, let brief = model.voiceBriefs.selectedVoiceBrief {
                 briefRefreshPrompt(brief)
                     .padding(.horizontal, 14)
                     .padding(.top, 12)
@@ -226,7 +226,7 @@ struct LibraryCardBrowser: View {
         .background(.regularMaterial)
         #endif
         .overlay(alignment: .topTrailing) {
-            if model.activeSection != .items {
+            if model.navigation.activeSection != .items {
                 feedHeaderAction
                     .padding(.top, 12)
                     .padding(.trailing, 10)
@@ -236,12 +236,12 @@ struct LibraryCardBrowser: View {
 
     @ViewBuilder
     private var feedTabs: some View {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
             ScrollView(.horizontal) {
                 HStack(spacing: 20) {
                     topicTab("All")
-                    ForEach(Array(model.projection.documentTopics.prefix(7)), id: \.self) {
+                    ForEach(Array(model.session.projection.documentTopics.prefix(7)), id: \.self) {
                         topicTab($0)
                     }
                 }
@@ -258,13 +258,13 @@ struct LibraryCardBrowser: View {
 
     @ViewBuilder
     private var feedHeaderAction: some View {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
             EmptyView()
         case .channels:
-            if let channel = model.selectedChannel {
+            if let channel = model.channels.selectedChannel {
                 Button {
-                    model.showChannelSettings(channel.source)
+                    model.navigation.showChannelSettings(channel.source)
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 44, height: 44)
@@ -276,8 +276,8 @@ struct LibraryCardBrowser: View {
                 .accessibilityLabel("Settings for \(channel.title)")
             } else {
                 Button {
-                    model.query = ""
-                    model.showChannelSettings("new")
+                    model.navigation.query = ""
+                    model.navigation.showChannelSettings("new")
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 44, height: 44)
@@ -289,9 +289,9 @@ struct LibraryCardBrowser: View {
                 .accessibilityLabel("New channel")
             }
         case .briefs:
-            if let brief = model.selectedVoiceBrief {
+            if let brief = model.voiceBriefs.selectedVoiceBrief {
                 Button {
-                    model.showVoiceBriefSettings(brief.id)
+                    model.navigation.showVoiceBriefSettings(brief.id)
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 44, height: 44)
@@ -303,8 +303,8 @@ struct LibraryCardBrowser: View {
                 .accessibilityLabel("Settings for \(brief.title)")
             } else {
                 Button {
-                    model.query = ""
-                    model.showVoiceBriefSettings("new")
+                    model.navigation.query = ""
+                    model.navigation.showVoiceBriefSettings("new")
                 } label: {
                     Image(systemName: "plus")
                         .frame(width: 44, height: 44)
@@ -325,15 +325,15 @@ struct LibraryCardBrowser: View {
     private var channelTabs: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
-                selectionTab("All", selected: model.selectedChannelSource.isEmpty) {
-                    model.selectChannel("")
+                selectionTab("All", selected: model.navigation.selectedChannelSource.isEmpty) {
+                    model.navigation.selectChannel("")
                 }
                 ForEach(Array(channels.prefix(7))) { channel in
                     selectionTab(
                         compactLabel(channel.title),
-                        selected: model.selectedChannelSource == channel.source
+                        selected: model.navigation.selectedChannelSource == channel.source
                     ) {
-                        model.selectChannel(channel.source)
+                        model.navigation.selectChannel(channel.source)
                     }
                 }
             }
@@ -347,15 +347,15 @@ struct LibraryCardBrowser: View {
     private var briefTabs: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 20) {
-                selectionTab("All", selected: model.selectedVoiceBriefID.isEmpty) {
-                    model.selectVoiceBrief("")
+                selectionTab("All", selected: model.navigation.selectedVoiceBriefID.isEmpty) {
+                    model.navigation.selectVoiceBrief("")
                 }
-                ForEach(Array(model.projection.voiceBriefDefinitions.prefix(7)), id: \.id) { brief in
+                ForEach(Array(model.session.projection.voiceBriefDefinitions.prefix(7)), id: \.id) { brief in
                     selectionTab(
                         brief.title,
-                        selected: model.selectedVoiceBriefID == brief.id
+                        selected: model.navigation.selectedVoiceBriefID == brief.id
                     ) {
-                        model.selectVoiceBrief(brief.id)
+                        model.navigation.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -389,9 +389,9 @@ struct LibraryCardBrowser: View {
     }
 
     private func topicTab(_ topic: String) -> some View {
-        let selected = model.selectedTopic == topic
+        let selected = model.navigation.selectedTopic == topic
         return Button {
-            Task { await model.showTopic(topic) }
+            Task { await model.navigation.showTopic(topic) }
         } label: {
             VStack(spacing: 8) {
                 Text(topic)
@@ -418,7 +418,7 @@ struct LibraryCardBrowser: View {
             HStack(spacing: 9) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search your library", text: $model.query)
+                TextField("Search your library", text: $model.navigation.query)
                     .textFieldStyle(.plain)
             }
             .padding(.horizontal, 14)
@@ -428,9 +428,9 @@ struct LibraryCardBrowser: View {
             .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
 
             FeedRailCard(title: "Collections") {
-                ForEach(Array(model.projection.documentTopics.prefix(6)), id: \.self) { topic in
+                ForEach(Array(model.session.projection.documentTopics.prefix(6)), id: \.self) { topic in
                     Button {
-                        Task { await model.showTopic(topic) }
+                        Task { await model.navigation.showTopic(topic) }
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "folder")
@@ -452,37 +452,37 @@ struct LibraryCardBrowser: View {
     }
 
     private var feedTitle: String {
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
-            model.showingTrash ? "Trash" : model.selectedTopic == "All" ? "For you" : model.selectedTopic
+            model.navigation.showingTrash ? "Trash" : model.navigation.selectedTopic == "All" ? "For you" : model.navigation.selectedTopic
         case .channels:
-            model.selectedChannel?.title ?? "Channel"
+            model.channels.selectedChannel?.title ?? "Channel"
         case .briefs:
-            model.selectedVoiceBrief?.title ?? "Briefs"
+            model.voiceBriefs.selectedVoiceBrief?.title ?? "Briefs"
         }
     }
 
     @ViewBuilder
     private var desktopActions: some View {
-        if model.activeSection == .channels,
-            let channel = model.selectedChannel
+        if model.navigation.activeSection == .channels,
+            let channel = model.channels.selectedChannel
         {
             HStack {
                 Spacer()
                 Button {
-                    Task { await model.checkSelectedChannel() }
+                    Task { await model.channels.checkSelectedChannel() }
                 } label: {
-                    if model.isCheckingChannel {
+                    if model.channels.isCheckingChannel {
                         ProgressView().controlSize(.small)
                     } else {
                         Label("Fetch fresh", systemImage: "arrow.clockwise")
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.isCheckingChannel)
+                .disabled(model.channels.isCheckingChannel)
 
                 Button {
-                    model.showChannelSettings(channel.source)
+                    model.navigation.showChannelSettings(channel.source)
                 } label: {
                     Image(systemName: "gearshape")
                         .frame(width: 44, height: 44)
@@ -492,13 +492,13 @@ struct LibraryCardBrowser: View {
                 .accessibilityLabel("Settings for \(channel.title)")
                 .help("Settings for \(channel.title)")
             }
-        } else if model.activeSection == .briefs,
-            let brief = model.selectedVoiceBrief
+        } else if model.navigation.activeSection == .briefs,
+            let brief = model.voiceBriefs.selectedVoiceBrief
         {
             HStack {
                 Spacer()
                 Button {
-                    model.showVoiceBriefSettings(brief.id)
+                    model.navigation.showVoiceBriefSettings(brief.id)
                 } label: {
                     Image(systemName: "gearshape")
                         .frame(width: 44, height: 44)
@@ -521,9 +521,9 @@ struct LibraryCardBrowser: View {
             entry: entry,
             minimumHeight: minimumHeight,
             featured: featured,
-            action: { Task { await model.select(entry.id) } }
+            action: { Task { await model.selection.select(entry.id) } }
         )
-        if model.showingTrash {
+        if model.navigation.showingTrash {
             card
         } else {
             card.modifier(EntryContextMenu(model: model, entry: entry))
@@ -532,8 +532,8 @@ struct LibraryCardBrowser: View {
 
     private func channelCard(_ channel: LibraryChannel) -> some View {
         BrowserCard(
-            action: { model.selectChannel(channel.source) },
-            settingsAction: { model.showChannelSettings(channel.source) },
+            action: { model.navigation.selectChannel(channel.source) },
+            settingsAction: { model.navigation.showChannelSettings(channel.source) },
             settingsLabel: "Settings for \(channel.title)",
             palette: .channel,
             variationKey: channel.source
@@ -553,7 +553,7 @@ struct LibraryCardBrowser: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
             Label(
-                "\(model.channelEntries(for: channel.source).count) notes",
+                "\(model.channels.channelEntries(for: channel.source).count) notes",
                 systemImage: "doc.text"
             )
             .font(.caption)
@@ -562,37 +562,37 @@ struct LibraryCardBrowser: View {
     }
 
     private var emptyTitle: String {
-        if !model.query.isEmpty { return "No matches" }
-        return switch model.activeSection {
-        case .items: model.showingTrash ? "Trash is empty" : "No notes yet"
+        if !model.navigation.query.isEmpty { return "No matches" }
+        return switch model.navigation.activeSection {
+        case .items: model.navigation.showingTrash ? "Trash is empty" : "No notes yet"
         case .channels:
-            model.selectedChannelSource.isEmpty ? "No channels yet" : "No notes yet"
+            model.navigation.selectedChannelSource.isEmpty ? "No channels yet" : "No notes yet"
         case .briefs:
             "No briefs yet"
         }
     }
 
     private var emptyIcon: String {
-        switch model.activeSection {
-        case .items: model.showingTrash ? "trash" : "doc.text"
+        switch model.navigation.activeSection {
+        case .items: model.navigation.showingTrash ? "trash" : "doc.text"
         case .channels: "dot.radiowaves.left.and.right"
         case .briefs: "headphones"
         }
     }
 
     private var emptyDescription: String {
-        if !model.query.isEmpty { return "Try another search." }
-        return switch model.activeSection {
+        if !model.navigation.query.isEmpty { return "Try another search." }
+        return switch model.navigation.activeSection {
         case .items:
-            model.showingTrash
+            model.navigation.showingTrash
                 ? "Notes moved to Trash appear here."
                 : "Add a note to start your library."
         case .channels:
-            model.selectedChannelSource.isEmpty
+            model.navigation.selectedChannelSource.isEmpty
                 ? "Add a channel to follow its updates."
                 : "New notes from this channel appear here."
         case .briefs:
-            model.projection.voiceBriefDefinitions.isEmpty
+            model.session.projection.voiceBriefDefinitions.isEmpty
                 ? "Create a voice brief from your channels."
                 : "Generated briefs appear here."
         }

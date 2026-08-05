@@ -70,7 +70,7 @@ struct ShareDocumentView: View {
                         .stroke(Color.primary.opacity(0.10))
                 }
 
-                if !model.account.authenticated {
+                if !model.account.account.authenticated {
                     Label(
                         "Sign in to your Briefly account in Settings before publishing.",
                         systemImage: "person.crop.circle.badge.exclamationmark"
@@ -85,7 +85,7 @@ struct ShareDocumentView: View {
                     HStack {
                         Button("Copy link", systemImage: "doc.on.doc") {
                             copyShareURL(url)
-                            model.status = "Share link copied"
+                            model.session.status = "Share link copied"
                         }
                         ShareLink(item: url) {
                             Label("Share…", systemImage: "square.and.arrow.up")
@@ -142,11 +142,11 @@ struct ShareDocumentView: View {
     }
 
     private func load() async {
-        guard model.account.authenticated else { return }
+        guard model.account.account.authenticated else { return }
         isBusy = true
         defer { isBusy = false }
         do {
-            link = try await model.shareStatus(for: entry)
+            link = try await model.sharing.shareStatus(for: entry)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -157,10 +157,10 @@ struct ShareDocumentView: View {
         errorMessage = ""
         defer { isBusy = false }
         do {
-            link = try await model.publishShare(for: entry)
+            link = try await model.sharing.publishShare(for: entry)
             if let value = link?.url, let url = URL(string: value) {
                 copyShareURL(url)
-                model.status = "Share link copied. Publishing in the background…"
+                model.session.status = "Share link copied. Publishing in the background…"
                 dismiss()
             }
         } catch {
@@ -174,7 +174,7 @@ struct ShareDocumentView: View {
         errorMessage = ""
         defer { isBusy = false }
         do {
-            try await model.revokeShare(token)
+            try await model.sharing.revokeShare(token)
             link = BrieflyShareLinkStatus(
                 shared: false,
                 token: nil,

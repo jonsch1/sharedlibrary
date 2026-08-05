@@ -54,15 +54,15 @@ struct MobileLibraryNavigation: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField(
-                        homeSelected ? "Search recent items" : model.activeSection.searchPrompt,
-                        text: $model.query
+                        homeSelected ? "Search recent items" : model.navigation.activeSection.searchPrompt,
+                        text: $model.navigation.query
                     )
                         .textFieldStyle(.plain)
                         .focused($searchFocused)
                         .submitLabel(.search)
-                    if !model.query.isEmpty {
+                    if !model.navigation.query.isEmpty {
                         Button {
-                            model.query = ""
+                            model.navigation.query = ""
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.tertiary)
@@ -80,7 +80,7 @@ struct MobileLibraryNavigation: View {
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(spacing: 12) {
-                    if isItemDetail, let entry = model.selectedEntry {
+                    if isItemDetail, let entry = model.selection.selectedEntry {
                         ReadingDepthStrip(model: model, entry: entry)
                             .frame(height: 58)
                     } else {
@@ -90,7 +90,7 @@ struct MobileLibraryNavigation: View {
                     HStack(spacing: 0) {
                         Button {
                             showsSearch = false
-                            model.query = ""
+                            model.navigation.query = ""
                             withAnimation(.snappy(duration: 0.24)) {
                                 homeSelected = true
                                 preferredCompactColumn = .sidebar
@@ -113,19 +113,19 @@ struct MobileLibraryNavigation: View {
                                     homeSelected = false
                                     preferredCompactColumn = .sidebar
                                 }
-                                Task { await model.show(section) }
+                                Task { await model.navigation.show(section) }
                             } label: {
                                 tabLabel(
                                     icon: section.icon,
                                     title: section.title,
                                     selected: !homeSelected &&
-                                        model.activeSection == section
+                                        model.navigation.activeSection == section
                                 )
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(section.title)
                             .accessibilityAddTraits(
-                                !homeSelected && model.activeSection == section
+                                !homeSelected && model.navigation.activeSection == section
                                     ? .isSelected
                                     : []
                             )
@@ -135,13 +135,13 @@ struct MobileLibraryNavigation: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 64)
                     .mobileGlass(in: Capsule())
-                    .animation(.snappy(duration: 0.24), value: model.activeSection)
+                    .animation(.snappy(duration: 0.24), value: model.navigation.activeSection)
                 }
                 .frame(maxWidth: .infinity)
 
                 VStack(spacing: 12) {
                     Button(action: primaryAction) {
-                        if model.isGeneratingSpeech && isPlayableDetail {
+                        if model.audio.isGeneratingSpeech && isPlayableDetail {
                             ProgressView()
                                 .tint(.white)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -162,7 +162,7 @@ struct MobileLibraryNavigation: View {
 
                     Button {
                         if showsSearch {
-                            model.query = ""
+                            model.navigation.query = ""
                             showsSearch = false
                         } else {
                             preferredCompactColumn = .sidebar
@@ -210,7 +210,7 @@ struct MobileLibraryNavigation: View {
 
     private var createLabel: String {
         if homeSelected { return "Import PDF" }
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items: return "Import PDF"
         case .channels: return "New channel"
         case .briefs: return "New voice brief"
@@ -219,14 +219,14 @@ struct MobileLibraryNavigation: View {
 
     private var isVoiceBriefDetail: Bool {
         preferredCompactColumn == .detail &&
-            model.activeSection == .briefs &&
-            model.selectedEntry?.voiceBriefID != nil
+            model.navigation.activeSection == .briefs &&
+            model.selection.selectedEntry?.voiceBriefID != nil
     }
 
     private var isItemDetail: Bool {
         preferredCompactColumn == .detail &&
-            !model.showingHighlights &&
-            model.selectedEntry?.voiceBriefID == nil
+            !model.navigation.showingHighlights &&
+            model.selection.selectedEntry?.voiceBriefID == nil
     }
 
     private var isPlayableDetail: Bool {
@@ -234,13 +234,13 @@ struct MobileLibraryNavigation: View {
     }
 
     private var isChannelPage: Bool {
-        !homeSelected && model.activeSection == .channels &&
-            model.selectedChannel != nil && model.selectedID.isEmpty
+        !homeSelected && model.navigation.activeSection == .channels &&
+            model.channels.selectedChannel != nil && model.selection.selectedID.isEmpty
     }
 
     private var isVoiceBriefPage: Bool {
-        !homeSelected && model.activeSection == .briefs &&
-            model.selectedVoiceBrief != nil && model.selectedID.isEmpty
+        !homeSelected && model.navigation.activeSection == .briefs &&
+            model.voiceBriefs.selectedVoiceBrief != nil && model.selection.selectedID.isEmpty
     }
 
     private var primaryActionIcon: String {
@@ -259,19 +259,19 @@ struct MobileLibraryNavigation: View {
 
     private var primaryActionDisabled: Bool {
         (isPlayableDetail &&
-            (model.isGeneratingSpeech || model.isRunningVoiceBrief ||
-                model.selectedText.isEmpty)) ||
-            (isChannelPage && model.isCheckingChannel) ||
+            (model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
+                model.selection.selectedText.isEmpty)) ||
+            (isChannelPage && model.channels.isCheckingChannel) ||
             (isVoiceBriefPage &&
-                (model.isRunningVoiceBrief || model.selectedVoiceBrief?.sources.isEmpty != false))
+                (model.voiceBriefs.isRunningVoiceBrief || model.voiceBriefs.selectedVoiceBrief?.sources.isEmpty != false))
     }
 
     private func primaryAction() {
-        if isPlayableDetail, let entry = model.selectedEntry {
+        if isPlayableDetail, let entry = model.selection.selectedEntry {
             Task {
-                let variant = model.selectedVariant
-                let text = model.selectedText
-                let playbackID = model.audioPlaybackID(
+                let variant = model.selection.selectedVariant
+                let text = model.selection.selectedText
+                let playbackID = model.audio.audioPlaybackID(
                     for: entry,
                     variant: variant,
                     text: text
@@ -285,7 +285,7 @@ struct MobileLibraryNavigation: View {
                     )
                     if shouldGenerate {
                         var startedPlayback = false
-                        _ = await model.streamPlayableAudio(
+                        _ = await model.audio.streamPlayableAudio(
                             for: entry,
                             variant: variant,
                             text: text
@@ -302,16 +302,16 @@ struct MobileLibraryNavigation: View {
                         audioEntry = entry
                     }
                 } catch {
-                    model.errorMessage = error.localizedDescription
+                    model.session.errorMessage = error.localizedDescription
                     audioPlayer.stop()
                 }
             }
             return
         }
         if isChannelPage {
-            Task { await model.checkSelectedChannel() }
+            Task { await model.channels.checkSelectedChannel() }
         } else if isVoiceBriefPage {
-            Task { await model.runSelectedVoiceBrief() }
+            Task { await model.voiceBriefs.runSelectedVoiceBrief() }
         } else {
             create()
         }
@@ -319,21 +319,21 @@ struct MobileLibraryNavigation: View {
 
     private func create() {
         showsSearch = false
-        model.query = ""
-        model.selectedID = ""
-        model.selectedIDs = []
+        model.navigation.query = ""
+        model.selection.selectedID = ""
+        model.selection.selectedIDs = []
         if homeSelected {
             showsPDFImporter = true
             return
         }
-        switch model.activeSection {
+        switch model.navigation.activeSection {
         case .items:
             showsPDFImporter = true
         case .channels:
-            model.selectedChannelSource = "new"
+            model.navigation.selectedChannelSource = "new"
             preferredCompactColumn = .detail
         case .briefs:
-            model.selectedVoiceBriefID = "new"
+            model.navigation.selectedVoiceBriefID = "new"
             preferredCompactColumn = .detail
         }
     }
