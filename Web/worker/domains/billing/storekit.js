@@ -1,17 +1,11 @@
 import {
-	base64URLToBytes,
-	bytesToBase64URL,
-	decodeJWTPart,
 	json,
-	pemBytes,
 	requireSameOrigin
-} from './http-security.js';
-import {
-	accountPayload,
-	accountRecord,
-	authenticatedEmail,
-	ensureAccount
-} from './auth-accounts.js';
+} from '../../infrastructure/http-security.js';
+import { base64URLToBytes, bytesToBase64URL, decodeJWTPart, pemBytes } from '../../infrastructure/crypto.js';
+import { accountPayload } from '../auth/account-status.js';
+import { accountRecord, ensureAccount } from '../auth/account-operations.js';
+import { authenticatedEmail } from '../auth/session.js';
 
 function appStoreConfig(env) {
 	const issuerID = String(env.APP_STORE_ISSUER_ID || '').trim();

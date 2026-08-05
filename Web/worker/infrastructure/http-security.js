@@ -1,8 +1,5 @@
 const sessionCookieName = 'shared_library_session';
 const sessionLifetimeMilliseconds = 90 * 24 * 60 * 60 * 1000;
-const uuidPattern =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const emailAddressPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function json(value, init = {}) {
 	const headers = new Headers(init.headers);
@@ -37,56 +34,6 @@ function requireSameOrigin(request) {
 	return origin === expected;
 }
 
-function randomBase64URL(byteLength = 32) {
-	const bytes = new Uint8Array(byteLength);
-	crypto.getRandomValues(bytes);
-	return bytesToBase64URL(bytes);
-}
-
-function bytesToBase64URL(bytes) {
-	let binary = '';
-	for (const byte of bytes) binary += String.fromCharCode(byte);
-	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function base64URLToBytes(value) {
-	const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-	const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-	const binary = atob(padded);
-	return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-async function sha256Hex(value) {
-	const input =
-		typeof value === 'string'
-			? new TextEncoder().encode(value)
-			: value instanceof Uint8Array
-				? value
-				: new Uint8Array(value);
-	const digest = new Uint8Array(
-		await crypto.subtle.digest('SHA-256', input)
-	);
-	return [...digest].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function pemBytes(value) {
-	const encoded = value
-		.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '');
-	return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
-}
-
-function decodeJWTPart(value) {
-	return JSON.parse(new TextDecoder().decode(base64URLToBytes(value)));
-}
-
-function databaseChanges(result) {
-	return Number(result?.meta?.changes ?? result?.changes ?? 0);
-}
-
-function normalizedEmail(email) {
-	return String(email || '').trim().toLowerCase();
-}
-
 const contentSecurityPolicy = [
 	"default-src 'self'",
 	"script-src 'self'",
@@ -119,21 +66,11 @@ function secureResponse(response, requestID) {
 }
 
 export {
-	base64URLToBytes,
-	bytesToBase64URL,
 	contentSecurityPolicy,
-	databaseChanges,
-	decodeJWTPart,
-	emailAddressPattern,
 	json,
-	normalizedEmail,
-	pemBytes,
-	randomBase64URL,
 	requireSameOrigin,
 	secureResponse,
 	sessionCookie,
 	sessionLifetimeMilliseconds,
-	sessionTokenFromRequest,
-	sha256Hex,
-	uuidPattern
+	sessionTokenFromRequest
 };

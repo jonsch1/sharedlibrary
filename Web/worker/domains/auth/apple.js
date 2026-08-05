@@ -1,40 +1,16 @@
+import { json, requireSameOrigin } from '../../infrastructure/http-security.js';
 import {
 	base64URLToBytes,
 	bytesToBase64URL,
 	decodeJWTPart,
-	json,
-	normalizedEmail,
 	pemBytes,
 	randomBase64URL,
-	requireSameOrigin,
-	sessionCookie,
-	sessionLifetimeMilliseconds,
-	sessionTokenFromRequest,
 	sha256Hex
-} from './http-security.js';
+} from '../../infrastructure/crypto.js';
+import { accountPayload } from './account-status.js';
+import { createSession } from './session.js';
 
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
-const administratorEmails = new Set(['schauljonathan@gmail.com']);
-
-async function authenticatedEmail(request, env) {
-	const rawToken = sessionTokenFromRequest(request);
-	if (!rawToken || !env.DB) return null;
-	const tokenHash = await sha256Hex(rawToken);
-	const session = await env.DB.prepare(
-		'SELECT user_email, expires_at FROM app_sessions WHERE token_hash = ?'
-	)
-		.bind(tokenHash)
-		.first();
-	if (!session || Number(session.expires_at) <= Date.now()) {
-		if (session) {
-			await env.DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
-				.bind(tokenHash)
-				.run();
-		}
-		return null;
-	}
-	return session.user_email;
-}
 
 function appleAuthConfig(env) {
 	const clientID = String(env.APPLE_CLIENT_ID || '').trim();
@@ -94,25 +70,6 @@ async function authenticatedRedirect(request, env, email, returnTo, provider) {
 		status: 302,
 		headers: { Location: destination.toString(), 'Set-Cookie': cookie }
 	});
-}
-
-async function createSession(env, email) {
-	const sessionToken = randomBase64URL(32);
-	await env.DB.prepare(
-		'INSERT INTO app_sessions (token_hash, user_email, created_at, expires_at)\n' +
-			'VALUES (?, ?, ?, ?)'
-	)
-		.bind(
-			await sha256Hex(sessionToken),
-			email,
-			Date.now(),
-			Date.now() + sessionLifetimeMilliseconds
-		)
-		.run();
-	return {
-		token: sessionToken,
-		cookie: sessionCookie(sessionToken, Math.floor(sessionLifetimeMilliseconds / 1000))
-	};
 }
 
 async function appleClientSecret(config) {
@@ -314,123 +271,4 @@ function redirectWithProviderResult(request, provider, result, path = '/') {
 	return Response.redirect(destination.toString(), 302);
 }
 
-async function accountStatus(request, env) {
-	const email = await authenticatedEmail(request, env);
-	return json(email ? await accountPayload(env, email) : { authenticated: false });
-}
-
-function accountRecord(env, email) {
-	return env.DB.prepare('SELECT account_id, user_email FROM accounts WHERE user_email = ?')
-		.bind(email)
-		.first();
-}
-
-async function ensureAccount(env, email) {
-	const existing = await accountRecord(env, email);
-	if (existing) return existing;
-	const now = Date.now();
-	await env.DB.prepare(
-		'INSERT OR IGNORE INTO accounts (user_email, account_id, created_at, updated_at)\n' +
-			'VALUES (?, ?, ?, ?)'
-	)
-		.bind(email, crypto.randomUUID(), now, now)
-		.run();
-	return accountRecord(env, email);
-}
-
-async function activeAppStoreSubscription(env, accountID, now = Date.now()) {
-	if (!accountID) return null;
-	return env.DB.prepare(
-		'SELECT original_transaction_id, transaction_id, product_id, expires_at\n' +
-			'FROM app_store_subscriptions\n' +
-			'WHERE account_id = ? AND expires_at > ? AND revocation_date IS NULL\n' +
-			'ORDER BY expires_at DESC LIMIT 1'
-	)
-		.bind(accountID, now)
-		.first();
-}
-
-async function accountPayload(env, email) {
-	const account = await ensureAccount(env, email);
-	const subscription = await activeAppStoreSubscription(env, account.account_id);
-	return {
-		authenticated: true,
-		email,
-		accountID: account.account_id,
-		isAdmin: isAdministrator(email),
-		entitled: Boolean(subscription) || (await hasComplimentaryPlusAccess(env, email)),
-		subscription: subscription
-			? { productID: subscription.product_id, expiresAt: subscription.expires_at }
-			: null
-	};
-}
-
-function isAdministrator(email) {
-	return administratorEmails.has(normalizedEmail(email));
-}
-
-async function hasComplimentaryPlusAccess(env, email) {
-	const normalized = normalizedEmail(email);
-	if (!normalized) return false;
-	if (isAdministrator(normalized)) return true;
-	return Boolean(
-		await env.DB.prepare(
-			'SELECT user_email FROM complimentary_access WHERE user_email = ?'
-		)
-			.bind(normalized)
-			.first()
-	);
-}
-
-async function paidAccessResponse(request, env) {
-	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return json(
-			{ error: 'Sign in before using Briefly.', code: 'authentication_required' },
-			{ status: 401 }
-		);
-	}
-	if (await hasComplimentaryPlusAccess(env, email)) return null;
-	const record = await accountRecord(env, email);
-	if (await activeAppStoreSubscription(env, record?.account_id)) return null;
-	return json(
-		{
-			error: 'An active Briefly membership is required for synchronization and sharing.',
-			code: 'subscription_required'
-		},
-		{ status: 402 }
-	);
-}
-
-async function signOut(request, env) {
-	if (!requireSameOrigin(request)) return json({ error: 'Invalid request origin.' }, { status: 403 });
-	const rawToken = sessionTokenFromRequest(request);
-	if (rawToken) {
-		await env.DB.prepare('DELETE FROM app_sessions WHERE token_hash = ?')
-			.bind(await sha256Hex(rawToken))
-			.run();
-	}
-	return new Response(JSON.stringify({ authenticated: false }), {
-		headers: {
-			'Content-Type': 'application/json',
-			'Cache-Control': 'no-store',
-			'Set-Cookie': sessionCookie('', 0)
-		}
-	});
-}
-
-export {
-	accountPayload,
-	accountRecord,
-	accountStatus,
-	activeAppStoreSubscription,
-	authenticatedEmail,
-	ensureAccount,
-	finishAppleLogin,
-	finishNativeAppleLogin,
-	hasComplimentaryPlusAccess,
-	isAdministrator,
-	paidAccessResponse,
-	signOut,
-	startAppleLogin
-};
+export { finishAppleLogin, finishNativeAppleLogin, startAppleLogin };

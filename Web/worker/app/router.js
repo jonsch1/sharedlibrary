@@ -1,37 +1,20 @@
-import {
-	accountStatus,
-	finishAppleLogin,
-	finishNativeAppleLogin,
-	paidAccessResponse,
-	signOut,
-	startAppleLogin
-} from './auth-accounts.js';
-import {
-	appStoreNotification,
-	syncAppStoreTransaction
-} from './billing.js';
-import {
-	adminComplimentaryAccess,
-	adminContentReports,
-	adminUsage,
-	createFeedback,
-	feedbackBoard,
-	setFeedbackUpvote
-} from './admin-feedback.js';
-import {
-	cleanServiceUsage,
-	processWithManagedAI,
-	scrapeWithFirecrawl,
-	serviceUsage
-} from './ai-service-usage.js';
-import {
-	ownerShareLinkStatus,
-	publishShareLink,
-	publicContentReport,
-	publicShareDocument,
-	revokeShareLink
-} from './sharing.js';
-import { json } from './http-security.js';
+import { accountStatus } from '../domains/auth/account-status.js';
+import { startAppleLogin } from '../domains/auth/apple.js';
+import { finishAppleLogin as finishAppleLoginHandler } from '../domains/auth/apple.js';
+import { finishNativeAppleLogin as finishNativeAppleLoginHandler } from '../domains/auth/apple.js';
+import { signOut } from '../domains/auth/session.js';
+import { paidAccessResponse } from '../domains/auth/entitlements.js';
+import { appStoreNotification, syncAppStoreTransaction } from '../domains/billing/storekit.js';
+import { adminComplimentaryAccess } from '../domains/admin/access.js';
+import { adminContentReports } from '../domains/admin/content-reports.js';
+import { adminUsage } from '../domains/admin/usage.js';
+import { createFeedback, feedbackBoard, setFeedbackUpvote } from '../domains/feedback/feedback.js';
+import { processWithManagedAI } from '../domains/ai/managed.js';
+import { scrapeWithFirecrawl } from '../domains/ai/extraction.js';
+import { cleanServiceUsage, serviceUsage } from '../domains/ai/usage.js';
+import { ownerShareLinkStatus, publishShareLink, revokeShareLink } from '../domains/sharing/owner.js';
+import { publicContentReport, publicShareDocument } from '../domains/sharing/public.js';
+import { json } from '../infrastructure/http-security.js';
 
 const routeWorker = {
 	async fetch(request, env, context) {
@@ -59,10 +42,10 @@ const routeWorker = {
 			return startAppleLogin(request, env);
 		}
 		if (url.pathname === '/api/auth/apple/callback' && request.method === 'POST') {
-			return finishAppleLogin(request, env);
+			return finishAppleLoginHandler(request, env);
 		}
 		if (url.pathname === '/api/auth/apple/native' && request.method === 'POST') {
-			return finishNativeAppleLogin(request, env);
+			return finishNativeAppleLoginHandler(request, env);
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
