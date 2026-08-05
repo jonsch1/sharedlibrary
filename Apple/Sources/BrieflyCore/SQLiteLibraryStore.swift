@@ -27,6 +27,7 @@ public let defaultProcessingCommand =
     "--skip-git-repo-check --color never -"
 public let defaultProcessingPrompt = """
 Summarize one captured source for a private knowledge library.
+Always write both summaries in English, regardless of the language of the source.
 Return only valid JSON matching the required schema.
 summaries.detailed: Provide a clear, thorough summary that preserves the source’s most important information and nuance. Include names, dates, and figures only when they are important for understanding.
 summaries.concise: Condense the detailed summary into its essential ideas without introducing new information.
@@ -1103,6 +1104,18 @@ public actor SQLiteLibraryStore {
         try writeChannelState(state)
     }
 
+    public func cancelVoiceBriefRun(id: String) throws {
+        guard try readVoiceBriefs().contains(where: { $0.id == id }) else {
+            throw LibraryError.missingVoiceBrief
+        }
+        var state = readChannelState()
+        var run = state.voiceBriefs[id] ?? .init()
+        run.status = "cancelled"
+        run.message = "Preparation cancelled."
+        state.voiceBriefs[id] = run
+        try writeChannelState(state)
+    }
+
     public func pendingVoiceBriefIDs() throws -> [String] {
         let active = Set(["queued", "generating"])
         return readChannelState().voiceBriefs.compactMap { id, run in
@@ -1199,6 +1212,11 @@ public actor SQLiteLibraryStore {
         else {
             throw LibraryError.invalidProcessingPrompt
         }
+        let englishInstruction =
+            "Always write both summaries in English, regardless of the language of the source."
+        let enforcedTemplate = normalized.contains(englishInstruction)
+            ? normalized
+            : englishInstruction + "\n" + normalized
         let document = try database().getDocument(entryID)
         var source: [String: Any] = [
             "title": document.title,
@@ -1210,7 +1228,7 @@ public actor SQLiteLibraryStore {
         let topics = try database().topicDefinitions().map(\.title).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         }
-        return normalized
+        return enforcedTemplate
             .replacingOccurrences(
                 of: "{{topics}}",
                 with: try json(topics)

@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 import AppKit
 import Carbon.HIToolbox
 #elseif os(iOS)
+import BackgroundTasks
 import MediaPlayer
 import UIKit
 #endif
@@ -54,6 +55,28 @@ struct BrieflyActivity: Identifiable {
     let detail: String
 }
 
+enum VoiceBriefGenerationPhase: Equatable {
+    case retrieving
+    case summarizing
+    case assembling
+}
+
+struct VoiceBriefGenerationProgress {
+    let voiceBriefID: String
+    var phase = VoiceBriefGenerationPhase.retrieving
+    var checkedChannelCount = 0
+    var totalChannelCount = 0
+    var retrievedItemCount = 0
+    var summarizedItemCount = 0
+    var failedItemCount = 0
+}
+
+private struct ProcessingJobResult: Sendable {
+    let entryID: String
+    let selectedID: String?
+    let succeeded: Bool
+}
+
 @MainActor
 @Observable
 final class LibraryModel {
@@ -73,6 +96,14 @@ final class LibraryModel {
     private var hasLoadedTrash = false
     private var pendingSync: Task<Void, Never>?
     private var localSpeechPreparation: Task<Void, Never>?
+    #if os(iOS)
+    private static let continuedVoiceBriefTaskPrefix =
+        "fyi.readbriefly.BrieflyNative.voice-brief"
+    @ObservationIgnored
+    private var continuedVoiceBriefTask: AnyObject?
+    @ObservationIgnored
+    private var continuedVoiceBriefWork: Task<Void, Never>?
+    #endif
 
     var isReady = false
     var projection = LibraryProjection.empty
@@ -103,6 +134,7 @@ final class LibraryModel {
     var isProcessing = false
     var isCheckingChannel = false
     var isRunningVoiceBrief = false
+    var voiceBriefGenerationProgress: VoiceBriefGenerationProgress?
     var isGeneratingSpeech = false
     var isPreparingSpeech = false
     var isLocalSpeechReady = false
@@ -819,6 +851,11 @@ final class LibraryModel {
             errorMessage = error.localizedDescription
             return
         }
+        #if os(iOS)
+        if #available(iOS 26.0, *), submitContinuedVoiceBrief(brief) {
+            return
+        }
+        #endif
         await generateVoiceBrief(brief, selectEpisode: true, reportErrors: true)
     }
 
@@ -879,14 +916,29 @@ final class LibraryModel {
         if !newEntryIDs.isEmpty { requestSync() }
     }
 
+    @discardableResult
     private func generateVoiceBrief(
         _ brief: LibraryVoiceBrief,
         selectEpisode: Bool,
-        reportErrors: Bool
-    ) async {
-        guard let library, !isRunningVoiceBrief else { return }
-        isRunningVoiceBrief = true
-        defer { isRunningVoiceBrief = false }
+        reportErrors: Bool,
+        runAlreadyClaimed: Bool = false
+    ) async -> Bool {
+        guard let library else { return false }
+        if runAlreadyClaimed {
+            guard isRunningVoiceBrief else { return false }
+        } else {
+            guard !isRunningVoiceBrief else { return false }
+            isRunningVoiceBrief = true
+        }
+        voiceBriefGenerationProgress = VoiceBriefGenerationProgress(
+            voiceBriefID: brief.id,
+            totalChannelCount: brief.sources.count
+        )
+        updateContinuedVoiceBriefProgress()
+        defer {
+            isRunningVoiceBrief = false
+            voiceBriefGenerationProgress = nil
+        }
         do {
             status = "Fetching channels for \(brief.title)…"
             var newEntryIDs = [String]()
@@ -897,12 +949,24 @@ final class LibraryModel {
                         source: source
                     ).newEntryIDs
                 } catch {
-                    continue
+                    // A failed channel should not hide progress from the channels that succeeded.
                 }
+                if Task.isCancelled { throw CancellationError() }
+                voiceBriefGenerationProgress?.checkedChannelCount += 1
+                voiceBriefGenerationProgress?.retrievedItemCount = newEntryIDs.count
+                updateContinuedVoiceBriefProgress()
             }
             projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
-            await enqueueProcessing(newEntryIDs)
+            voiceBriefGenerationProgress?.phase = .summarizing
+            updateContinuedVoiceBriefProgress()
+            await enqueueProcessing(
+                newEntryIDs,
+                trackingVoiceBriefEntries: Set(newEntryIDs)
+            )
+            try Task.checkCancellation()
+            voiceBriefGenerationProgress?.phase = .assembling
+            updateContinuedVoiceBriefProgress()
             status = "Assembling short and detailed versions of \(brief.title)…"
             let episode = try await library.runVoiceBrief(id: brief.id)
             projection = try await library.loadLibraryIndex()
@@ -912,14 +976,137 @@ final class LibraryModel {
                 await select(episode.entryID)
             }
             status = "Brief ready"
+            completeContinuedVoiceBriefProgress()
             requestSync()
+            return true
+        } catch is CancellationError {
+            status = "Brief preparation will resume when you try again"
+            return false
         } catch {
             if reportErrors {
                 errorMessage = error.localizedDescription
             } else {
                 status = "\(brief.title): \(error.localizedDescription)"
             }
+            return false
         }
+    }
+
+    #if os(iOS)
+    @available(iOS 26.0, *)
+    private func submitContinuedVoiceBrief(_ brief: LibraryVoiceBrief) -> Bool {
+        let identifier = Self.continuedVoiceBriefTaskPrefix + "." + UUID().uuidString
+        let scheduler = BGTaskScheduler.shared
+        let registered = scheduler.register(
+            forTaskWithIdentifier: identifier,
+            using: nil
+        ) { [weak self] task in
+            guard let task = task as? BGContinuedProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.startContinuedVoiceBrief(task, brief: brief)
+            }
+        }
+        guard registered else { return false }
+
+        let request = BGContinuedProcessingTaskRequest(
+            identifier: identifier,
+            title: "Preparing \(brief.title)",
+            subtitle: "Waiting to gather channel items"
+        )
+        request.strategy = .queue
+        do {
+            isRunningVoiceBrief = true
+            voiceBriefGenerationProgress = VoiceBriefGenerationProgress(
+                voiceBriefID: brief.id,
+                totalChannelCount: brief.sources.count
+            )
+            status = "Waiting to prepare \(brief.title)…"
+            try scheduler.submit(request)
+            return true
+        } catch {
+            isRunningVoiceBrief = false
+            voiceBriefGenerationProgress = nil
+            return false
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func startContinuedVoiceBrief(
+        _ task: BGContinuedProcessingTask,
+        brief: LibraryVoiceBrief
+    ) {
+        continuedVoiceBriefTask = task
+        task.progress.totalUnitCount = 1_000
+        task.progress.completedUnitCount = 0
+        updateContinuedVoiceBriefProgress()
+        task.expirationHandler = { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await self?.library?.cancelVoiceBriefRun(id: brief.id)
+                self?.continuedVoiceBriefWork?.cancel()
+            }
+        }
+
+        continuedVoiceBriefWork = Task { @MainActor [weak self] in
+            guard let self else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            let succeeded = await generateVoiceBrief(
+                brief,
+                selectEpisode: true,
+                reportErrors: true,
+                runAlreadyClaimed: true
+            )
+            task.setTaskCompleted(success: succeeded)
+            continuedVoiceBriefTask = nil
+            continuedVoiceBriefWork = nil
+        }
+    }
+    #endif
+
+    private func updateContinuedVoiceBriefProgress() {
+        #if os(iOS)
+        guard #available(iOS 26.0, *),
+              let task = continuedVoiceBriefTask as? BGContinuedProcessingTask,
+              let progress = voiceBriefGenerationProgress
+        else { return }
+
+        let completed: Int64
+        let subtitle: String
+        switch progress.phase {
+        case .retrieving:
+            let total = max(1, progress.totalChannelCount)
+            completed = Int64(200 * progress.checkedChannelCount / total)
+            subtitle = "Checked \(progress.checkedChannelCount) of " +
+                "\(progress.totalChannelCount) channels · " +
+                "\(progress.retrievedItemCount) new items"
+        case .summarizing:
+            let processed = progress.summarizedItemCount + progress.failedItemCount
+            let total = max(1, progress.retrievedItemCount)
+            completed = 200 + Int64(600 * processed / total)
+            subtitle = progress.retrievedItemCount == 0
+                ? "No new items to summarize"
+                : "Summarized \(processed) of \(progress.retrievedItemCount) items"
+        case .assembling:
+            completed = 850
+            subtitle = "Writing short and detailed versions"
+        }
+        task.progress.completedUnitCount = completed
+        task.updateTitle("Preparing your brief", subtitle: subtitle)
+        #endif
+    }
+
+    private func completeContinuedVoiceBriefProgress() {
+        #if os(iOS)
+        guard #available(iOS 26.0, *),
+              let task = continuedVoiceBriefTask as? BGContinuedProcessingTask
+        else { return }
+        task.progress.completedUnitCount = task.progress.totalUnitCount
+        task.updateTitle("Brief ready", subtitle: "Short and detailed versions are ready")
+        #endif
     }
 
     func processSelected() async {
@@ -1603,7 +1790,8 @@ final class LibraryModel {
 
     private func enqueueProcessing(
         _ entryIDs: [String],
-        selectWhenFinished: Bool = false
+        selectWhenFinished: Bool = false,
+        trackingVoiceBriefEntries: Set<String> = []
     ) async {
         guard let library else { return }
         do {
@@ -1613,18 +1801,20 @@ final class LibraryModel {
                     selectWhenFinished: selectWhenFinished
                 )
             }
-            await drainProcessingQueue()
+            await drainProcessingQueue(trackingVoiceBriefEntries: trackingVoiceBriefEntries)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    private func drainProcessingQueue() async {
+    private func drainProcessingQueue(
+        trackingVoiceBriefEntries: Set<String> = []
+    ) async {
         guard let library, !isProcessing else { return }
         isProcessing = true
         status = "Preparing summaries…"
         var selectedProcessedID: String?
-        await withTaskGroup(of: String?.self) { group in
+        await withTaskGroup(of: ProcessingJobResult.self) { group in
             var activeTasks = 0
 
             for _ in 0..<3 {
@@ -1634,11 +1824,23 @@ final class LibraryModel {
             }
 
             while activeTasks > 0 {
-                if let processedID = await group.next() ?? nil {
-                    selectedProcessedID = processedID
+                if Task.isCancelled { group.cancelAll() }
+                if let result = await group.next() {
+                    if let processedID = result.selectedID {
+                        selectedProcessedID = processedID
+                    }
+                    if trackingVoiceBriefEntries.contains(result.entryID) {
+                        if result.succeeded {
+                            voiceBriefGenerationProgress?.summarizedItemCount += 1
+                        } else {
+                            voiceBriefGenerationProgress?.failedItemCount += 1
+                        }
+                        updateContinuedVoiceBriefProgress()
+                    }
                 }
                 activeTasks -= 1
-                if let job = try? await library.claimNextProcessingJob() {
+                if !Task.isCancelled,
+                   let job = try? await library.claimNextProcessingJob() {
                     activeTasks += 1
                     group.addTask { await self.process(job) }
                 }
@@ -1778,8 +1980,14 @@ final class LibraryModel {
         })
     }
 
-    private func process(_ job: SQLiteProcessingJob) async -> String? {
-        guard let library else { return nil }
+    private func process(_ job: SQLiteProcessingJob) async -> ProcessingJobResult {
+        guard let library else {
+            return ProcessingJobResult(
+                entryID: job.documentID,
+                selectedID: nil,
+                succeeded: false
+            )
+        }
         let entryID = job.documentID
         do {
             let prompt = try await library.processingPrompt(
@@ -1808,7 +2016,21 @@ final class LibraryModel {
                 suggestion: suggestion
             )
             try await library.completeProcessingJob(entryID: entryID)
-            return job.selectWhenFinished ? processedID : nil
+            return ProcessingJobResult(
+                entryID: entryID,
+                selectedID: job.selectWhenFinished ? processedID : nil,
+                succeeded: true
+            )
+        } catch is CancellationError {
+            try? await library.enqueueProcessingJob(
+                entryID: entryID,
+                selectWhenFinished: job.selectWhenFinished
+            )
+            return ProcessingJobResult(
+                entryID: entryID,
+                selectedID: nil,
+                succeeded: false
+            )
         } catch {
             try? await library.failProcessingJob(
                 entryID: entryID,
@@ -1816,7 +2038,11 @@ final class LibraryModel {
             )
             errorMessage = error.localizedDescription
             status = "The capture is saved without summaries"
-            return nil
+            return ProcessingJobResult(
+                entryID: entryID,
+                selectedID: nil,
+                succeeded: false
+            )
         }
     }
 
@@ -2452,7 +2678,6 @@ struct ContentView: View {
     @State private var windowControlsVisible = true
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
-    @State private var showsActivityDetails = false
 
     var body: some View {
         Group {
@@ -2694,23 +2919,6 @@ struct ContentView: View {
                 .padding(.bottom, 48)
                 .accessibilityElement(children: .combine)
             }
-        }
-        #else
-        .overlay(alignment: .bottomLeading) {
-            if !model.activeActivities.isEmpty {
-                MobileActivityCapsule(model: model) {
-                    showsActivityDetails = true
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 88)
-                .padding(.bottom, 62)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .sheet(isPresented: $showsActivityDetails) {
-            MobileActivityDetails(model: model)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
         }
         #endif
         .animation(.snappy(duration: 0.24), value: model.isSyncing)
@@ -3555,14 +3763,28 @@ private struct MobileXFeedScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             if entries.isEmpty {
-                XEmptyState(
-                    icon: emptyIcon,
-                    title: emptyTitle,
-                    message: emptyMessage
-                )
-                .frame(maxWidth: 720, maxHeight: .infinity)
-                .frame(maxWidth: .infinity)
-                .padding(.top, floatingHeaderHeight)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: floatingHeaderHeight)
+
+                        if tab == .briefs, let brief = model.selectedVoiceBrief {
+                            BriefPreparationPanel(model: model, brief: brief)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                        }
+
+                        XEmptyState(
+                            icon: emptyIcon,
+                            title: emptyTitle,
+                            message: emptyMessage
+                        )
+                        .frame(maxWidth: 720, minHeight: 420)
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .refreshable { await refresh() }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -5197,86 +5419,6 @@ private struct SyncActivityView: View {
         )
     }
 }
-
-#if os(iOS)
-private struct MobileActivityCapsule: View {
-    @Bindable var model: LibraryModel
-    let showDetails: () -> Void
-
-    var body: some View {
-        Button(action: showDetails) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(Color.accentColor)
-                Text(model.activeActivities.first?.title ?? "Working")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-            .background(.regularMaterial, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
-        .accessibilityLabel("Show current activity")
-        .accessibilityValue(model.activeActivities.first?.detail ?? "")
-    }
-}
-
-private struct MobileActivityDetails: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var model: LibraryModel
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if model.activeActivities.isEmpty {
-                    ContentUnavailableView(
-                        "All done",
-                        systemImage: "checkmark.circle",
-                        description: Text("There are no background tasks running.")
-                    )
-                } else {
-                    List(model.activeActivities) { activity in
-                        HStack(alignment: .top, spacing: 13) {
-                            Image(systemName: activity.icon)
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 34, height: 34)
-                                .background(Color.accentColor.opacity(0.12), in: Circle())
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(activity.title)
-                                    .font(.body.weight(.semibold))
-                                Text(activity.detail)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 8)
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        .padding(.vertical, 6)
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            .navigationTitle("Activity")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}
-#endif
 
 private struct LibrarySidebar: View {
     @Bindable var model: LibraryModel
@@ -7754,41 +7896,75 @@ private struct BriefPreparationPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.isRunningVoiceBrief ? "Preparing your brief" : "Prepare a new brief")
-                    .font(.callout.weight(.semibold))
-                Text(
-                    model.isRunningVoiceBrief
-                        ? model.status
-                        : "Fetch the channels and assemble short and detailed versions."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .contentTransition(.opacity)
-            }
-
-            Button {
-                Task { await model.runSelectedVoiceBrief() }
-            } label: {
-                HStack(spacing: 10) {
-                    if model.isRunningVoiceBrief {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
-                    } else {
-                        Image(systemName: "sparkles")
+            if model.isRunningVoiceBrief,
+               let progress = model.voiceBriefGenerationProgress,
+               progress.voiceBriefID == brief.id {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text("Preparing your brief")
+                            .font(.callout.weight(.semibold))
+                        Spacer()
+                        if progress.phase == .summarizing, progress.retrievedItemCount > 0 {
+                            Text(
+                                "\(progress.summarizedItemCount + progress.failedItemCount)" +
+                                    "/\(progress.retrievedItemCount)"
+                            )
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .foregroundStyle(.secondary)
+                        }
                     }
-                    Text(model.isRunningVoiceBrief ? "Preparing…" : "Prepare new brief")
-                        .font(.callout.weight(.semibold))
-                        .contentTransition(.opacity)
+                    Text(brief.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    preparationStep(
+                        title: "Gathering channel items",
+                        detail: retrievalDetail(progress),
+                        state: progress.phase == .retrieving ? .active : .complete
+                    )
+                    Divider().padding(.leading, 32)
+                    preparationStep(
+                        title: "Preparing summaries",
+                        detail: summaryDetail(progress),
+                        state: summaryState(progress)
+                    )
+                    Divider().padding(.leading, 32)
+                    preparationStep(
+                        title: "Writing your brief",
+                        detail: "Creating short and detailed versions",
+                        state: progress.phase == .assembling ? .active : .waiting
+                    )
+                }
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Prepare a new brief")
+                        .font(.callout.weight(.semibold))
+                    Text("Fetch the channels and assemble short and detailed versions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Button {
+                    Task { await model.runSelectedVoiceBrief() }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                        Text("Prepare new brief")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.white)
+                .background(Color.blue, in: Capsule())
+                .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.white)
-            .background(Color.blue, in: Capsule())
-            .disabled(model.isRunningVoiceBrief || brief.sources.isEmpty)
         }
         .padding(14)
         .background(
@@ -7807,6 +7983,81 @@ private struct BriefPreparationPanel: View {
         }
         .animation(.smooth(duration: 0.35), value: model.isRunningVoiceBrief)
         .animation(.smooth(duration: 0.25), value: model.status)
+    }
+
+    private enum StepState {
+        case waiting
+        case active
+        case complete
+    }
+
+    private func summaryState(_ progress: VoiceBriefGenerationProgress) -> StepState {
+        switch progress.phase {
+        case .retrieving: .waiting
+        case .summarizing: .active
+        case .assembling: .complete
+        }
+    }
+
+    private func retrievalDetail(_ progress: VoiceBriefGenerationProgress) -> String {
+        let channelLabel = progress.totalChannelCount == 1 ? "channel" : "channels"
+        let itemLabel = progress.retrievedItemCount == 1 ? "item" : "items"
+        if progress.phase == .retrieving {
+            return "Checked \(progress.checkedChannelCount) of \(progress.totalChannelCount) " +
+                "\(channelLabel) · \(progress.retrievedItemCount) new \(itemLabel)"
+        }
+        return "Retrieved \(progress.retrievedItemCount) new \(itemLabel) from " +
+            "\(progress.totalChannelCount) \(channelLabel)"
+    }
+
+    private func summaryDetail(_ progress: VoiceBriefGenerationProgress) -> String {
+        guard progress.phase != .retrieving else { return "Waiting for new items" }
+        guard progress.retrievedItemCount > 0 else { return "No new items to summarize" }
+        if progress.failedItemCount > 0 {
+            return "\(progress.summarizedItemCount) summarized · " +
+                "\(progress.failedItemCount) unavailable"
+        }
+        return "\(progress.summarizedItemCount) of \(progress.retrievedItemCount) summarized"
+    }
+
+    @ViewBuilder
+    private func preparationStep(
+        title: String,
+        detail: String,
+        state: StepState
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Group {
+                switch state {
+                case .waiting:
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.35), lineWidth: 1.5)
+                        .frame(width: 16, height: 16)
+                case .active:
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
+                case .complete:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 16))
+                }
+            }
+            .frame(width: 16, height: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption.weight(state == .active ? .semibold : .medium))
+                    .foregroundStyle(state == .waiting ? .secondary : .primary)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
     }
 }
 
