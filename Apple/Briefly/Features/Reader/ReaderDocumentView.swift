@@ -24,22 +24,6 @@ struct LibraryDocument: View {
                 .contentShape(Circle())
 
                 Spacer()
-                Menu {
-                    Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                        Task { await model.workflows.processSelected() }
-                    }
-                    .disabled(model.processing.isProcessing)
-                    Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                        Task { await model.workflows.trashSelected() }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
             }
             .padding(.horizontal, 14)
             .frame(height: 56)
@@ -74,73 +58,24 @@ struct LibraryDocument: View {
                 .id("\(entry.id):\(model.selection.selectedVariant.rawValue)")
             }
 
-            HStack(alignment: .bottom, spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
                 if entry.texts.count > 1 {
-                    HStack(spacing: 0) {
-                        ForEach(entry.texts.map(\.variant), id: \.self) { variant in
-                            Button {
-                                Task { await model.workflows.selectVariant(variant) }
-                            } label: {
-                                ReadingDepthIcon(variant: variant)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(
-                                model.selection.selectedVariant == variant
-                                    ? Color.accentColor
-                                    : Color.primary
-                            )
-                            .background(
-                                model.selection.selectedVariant == variant
-                                    ? Color.accentColor.opacity(0.12)
-                                    : Color.clear
-                            )
-                            .accessibilityLabel(
-                                variant == .source ? "Original" : variant.title
-                            )
-                            .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
-                            .accessibilityAddTraits(
-                                model.selection.selectedVariant == variant ? .isSelected : []
-                            )
-                            .help(variant == .source ? "Original" : variant.title)
-                        }
-                    }
-                    #if os(iOS)
-                    .padding(4)
-                    .mobileGlass(in: Capsule())
-                    #endif
+                    ReadingDepthStrip(model: model, entry: entry)
+                        .frame(height: 44)
                 }
 
                 #if os(iOS)
                 Spacer()
                 #else
-                Spacer(minLength: 12)
+                if entry.texts.count > 1 {
+                    Divider()
+                        .frame(height: 20)
+                        .padding(.horizontal, 8)
+                }
                 #endif
 
                 HStack(spacing: 0) {
                     #if os(macOS)
-                    if model.session.canEdit && !model.navigation.showingTrash {
-                        Button {
-                            isEditing.toggle()
-                        } label: {
-                            Image(systemName: isEditing ? "checkmark" : "pencil")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(isEditing ? Color.accentColor : Color.primary)
-                        .background(
-                            isEditing ? Color.accentColor.opacity(0.12) : Color.clear
-                        )
-                        .accessibilityLabel(
-                            isEditing ? "Finish editing" : "Edit document"
-                        )
-                        .help(isEditing ? "Finish editing" : "Edit document")
-
-                    }
-                    #endif
-
                     if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
                             Task {
@@ -187,15 +122,19 @@ struct LibraryDocument: View {
                         } label: {
                             if model.audio.isGeneratingSpeech {
                                 ProgressView()
-                                    .tint(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.accentColor, in: Circle())
+                                    .tint(.primary)
+                                    .frame(
+                                        width: ReaderActionBarMetrics.buttonSize,
+                                        height: ReaderActionBarMetrics.buttonSize
+                                    )
                             } else {
                                 Image(systemName: "play.fill")
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color.accentColor, in: Circle())
+                                    .font(ReaderActionBarMetrics.iconFont)
+                                    .foregroundStyle(.primary)
+                                    .frame(
+                                        width: ReaderActionBarMetrics.buttonSize,
+                                        height: ReaderActionBarMetrics.buttonSize
+                                    )
                                     .contentShape(Circle())
                             }
                         }
@@ -208,30 +147,53 @@ struct LibraryDocument: View {
                         )
                     }
 
-                    if !usesMobileVoiceBriefControls && !usesMobileItemControls,
-                       let source = entry.sourceURL, let url = URL(string: source) {
-                        Link(destination: url) {
-                            Image(systemName: "arrow.up.right")
-                                .frame(width: 44, height: 44)
+                    Menu {
+                        if model.session.canEdit && !model.navigation.showingTrash {
+                            Button {
+                                isEditing.toggle()
+                            } label: {
+                                Label(
+                                    isEditing ? "Finish editing" : "Edit document",
+                                    systemImage: isEditing ? "checkmark" : "pencil"
+                                )
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open original source")
-                    }
-
-                    if !model.navigation.showingTrash &&
-                        entry.origin != .shared &&
-                        !usesMobileVoiceBriefControls &&
-                        !usesMobileItemControls
-                    {
-                        Button {
-                            showsSharing = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .frame(width: 44, height: 44)
+                        if let source = entry.sourceURL, let url = URL(string: source) {
+                            Link(destination: url) {
+                                Label("Open original source", systemImage: "arrow.up.right")
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Share document")
+                        if !model.navigation.showingTrash && entry.origin != .shared {
+                            Button {
+                                showsSharing = true
+                            } label: {
+                                Label("Share document", systemImage: "square.and.arrow.up")
+                            }
+                        }
+                        if model.session.canEdit && !model.navigation.showingTrash {
+                            Divider()
+                            Button("Regenerate summaries", systemImage: "arrow.clockwise") {
+                                Task { await model.workflows.processSelected() }
+                            }
+                            .disabled(model.processing.isProcessing)
+                            Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                                Task { await model.workflows.trashSelected() }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(ReaderActionBarMetrics.iconFont)
+                            .frame(
+                                width: ReaderActionBarMetrics.buttonSize,
+                                height: ReaderActionBarMetrics.buttonSize
+                            )
+                            .contentShape(Circle())
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("Document actions")
+                    #endif
                 }
                 #if os(iOS)
                 .background(readerBackground)
@@ -255,11 +217,10 @@ struct LibraryDocument: View {
             .padding(.bottom, 8)
             #endif
             #if os(macOS)
+            .padding(4)
+            .actionBarGlass()
             .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity)
-            .frame(height: 58)
-            .background(.regularMaterial)
-            .frame(maxWidth: .infinity, alignment: .bottom)
+            .padding(.bottom, 10)
             #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

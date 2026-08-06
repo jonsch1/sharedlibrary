@@ -249,6 +249,34 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertTrue(value.content.contains("Spoken words"))
     }
 
+    func testPodcastInputIncludesTranscriptionFailureInFallbackContent() async throws {
+        let media = URL(string: "https://traffic.libsyn.com/atpfm/atp300.mp3")!
+        let value = try await router.ingest(
+            .init(
+                source: .url(itemTestURL(.podcast)),
+                hints: .init(
+                    preferredInput: .podcast,
+                    title: "Behind the Scenes",
+                    content: "Episode description.",
+                    mediaURL: media
+                )
+            ),
+            context: .init(http: fixtureHTTP([:]), transcribe: { _ in
+                throw NativeInputError.requestFailed(429)
+            })
+        )
+
+        XCTAssertFalse(value.transcriptAvailable)
+        XCTAssertEqual(value.transcriptError, "The input returned HTTP 429.")
+        XCTAssertTrue(value.content.contains("Transcript unavailable for this podcast episode."))
+        XCTAssertTrue(
+            value.content.contains(
+                "Automatic transcription could not be completed: The input returned HTTP 429."
+            )
+        )
+        XCTAssertTrue(value.content.contains("Episode description."))
+    }
+
     func testPodcastInputDiscoversFeedAndParsesPreferredVTTTranscript() async throws {
         let page = """
             <html><head>

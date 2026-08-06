@@ -6,7 +6,7 @@
 	active="terms"
 	title="Terms of service"
 	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
-	updated="3 August 2026"
+	updated="6 August 2026"
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -148,8 +148,8 @@
 		<h3>Fair-use limits</h3>
 		<p>
 			The membership includes high but finite processing and storage allowances so one account
-			cannot exhaust shared infrastructure. Current limits include 8 hours of transcription per
-			day and 50 hours per month; 250,000 voice-generation characters per day and 2 million per
+			cannot exhaust shared infrastructure. Current limits include 24 hours of transcription per
+			day and 200 hours per month; 250,000 voice-generation characters per day and 2 million per
 			month; up to 100 active public links and 100 MB of public share text; and a conservative
 			Firecrawl extraction allowance. Individual transcription
 			inputs must be no larger than 250 MB or four hours, and individual voice requests no

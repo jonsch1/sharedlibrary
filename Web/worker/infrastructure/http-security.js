@@ -65,12 +65,14 @@ const contentSecurityPolicy = [
 
 function secureResponse(response, requestID) {
 	const headers = new Headers(response.headers);
+	const isHTML = headers.get('Content-Type')?.toLowerCase().startsWith('text/html');
 	headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
 	headers.set('X-Content-Type-Options', 'nosniff');
 	headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
 	headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
 	headers.set('X-Frame-Options', 'DENY');
-	headers.set('Content-Security-Policy', contentSecurityPolicy);
+	if (isHTML) headers.delete('Content-Security-Policy');
+	else headers.set('Content-Security-Policy', contentSecurityPolicy);
 	headers.set('X-Request-ID', requestID);
 	return new Response(response.body, {
 		status: response.status,

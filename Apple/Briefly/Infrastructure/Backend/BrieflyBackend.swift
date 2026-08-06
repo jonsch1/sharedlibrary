@@ -302,6 +302,7 @@ final class BrieflyBackend {
             throw BrieflyBackendError.message(
                 value?["error"] as? String ??
                     value?["message"] as? String ??
+                    value?["detail"] as? String ??
                     fallback
             )
         }

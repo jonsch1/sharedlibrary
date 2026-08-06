@@ -2,29 +2,31 @@ import Foundation
 import SwiftUI
 import BrieflyCore
 
+enum ReaderActionBarMetrics {
+    static let buttonSize: CGFloat = 36
+    static let iconSize: CGFloat = 15
+    static let iconSlot: CGFloat = 18
+    static let iconFont = Font.system(size: iconSize, weight: .medium)
+}
+
 struct ReadingDepthIcon: View {
     let variant: LibraryVariant
 
-    private var lineWidths: [CGFloat] {
+    private var systemImage: String {
         switch variant {
-        case .concise: [18, 12]
-        case .detailed: [18, 18, 12]
-        case .source: []
+        case .concise: "text.alignleft"
+        case .detailed: "text.justify"
+        case .source: "doc.text"
         }
     }
 
     var body: some View {
-        if variant == .source {
-            Image(systemName: "doc.text")
-                .font(.system(size: 17, weight: .medium))
-        } else {
-            VStack(alignment: .leading, spacing: 2.5) {
-                ForEach(Array(lineWidths.enumerated()), id: \.offset) { _, width in
-                    Capsule()
-                        .frame(width: width, height: 2)
-                }
-            }
-            .frame(width: 18, height: 21, alignment: .center)
-        }
+        Image(systemName: systemImage)
+            .font(ReaderActionBarMetrics.iconFont)
+            .symbolRenderingMode(.monochrome)
+            .frame(
+                width: ReaderActionBarMetrics.iconSlot,
+                height: ReaderActionBarMetrics.iconSlot
+            )
     }
 }

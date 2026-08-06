@@ -84,10 +84,23 @@ func ingestPodcast(
             transcriptError = error.localizedDescription
         }
     }
-    let content = transcript.map { "Transcript:\n\($0.text)" } ?? [
-        "Transcript unavailable for this podcast episode.",
-        episode.description.map { "\nDescription:\n\($0)" }
-    ].compactMap { $0 }.joined(separator: "\n")
+    let content: String
+    if let transcript {
+        content = "Transcript:\n\(transcript.text)"
+    } else {
+        let reason = transcriptError?
+            .split(whereSeparator: \.isNewline)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = reason.map {
+            "Automatic transcription could not be completed: \($0)"
+        } ?? "Automatic transcription was not available for this episode."
+        content = [
+            "Transcript unavailable for this podcast episode.",
+            status,
+            episode.description.map { "\nDescription:\n\($0)" }
+        ].compactMap { $0 }.joined(separator: "\n")
+    }
     return ItemDraft(
         inputID: .podcast,
         title: episode.title ?? showTitle ?? pageMetadata?.title ?? "Podcast episode",

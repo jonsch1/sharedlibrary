@@ -9,8 +9,8 @@ import {
 
 const serviceUsageLimits = {
 	transcription: {
-		dailyUnits: 8 * 60 * 60,
-		monthlyUnits: 50 * 60 * 60,
+		dailyUnits: 24 * 60 * 60,
+		monthlyUnits: 200 * 60 * 60,
 		concurrency: 2,
 		leaseMilliseconds: 35 * 60 * 1000
 	},

@@ -58,6 +58,21 @@ test('unknown web routes remain unavailable', async () => {
 	assert.equal(response.status, 404);
 });
 
+test('static HTML keeps its page-specific CSP instead of receiving the API policy', async () => {
+	const response = await worker.fetch(new Request('https://library.example/admin'), {
+		...environment(),
+		ASSETS: {
+			fetch: async () =>
+				new Response('<meta http-equiv="content-security-policy" content="script-src self">', {
+					headers: { 'Content-Type': 'text/html' }
+				})
+		}
+	});
+	assert.equal(response.status, 200);
+	assert.equal(response.headers.get('content-security-policy'), null);
+	assert.equal(response.headers.get('x-frame-options'), 'DENY');
+});
+
 test('native services fail closed without an App Store entitlement', async () => {
 	const unavailable = await worker.fetch(
 		authenticatedRequest('/api/ai/process', {
