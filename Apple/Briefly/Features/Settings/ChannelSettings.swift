@@ -78,7 +78,7 @@ struct ChannelConfiguration: View {
 
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
 
-                    channelReviewDeck(for: channel)
+                    channelReviewReader(for: channel)
 
                     Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
                         GridRow {
@@ -178,7 +178,7 @@ struct ChannelConfiguration: View {
                             .textSelection(.enabled)
                     }
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
-                    channelReviewDeck(for: channel)
+                    channelReviewReader(for: channel)
                     ScheduleEditor(schedule: $schedule)
                     Text("Review window")
                         .font(.headline)
@@ -344,8 +344,8 @@ struct ChannelConfiguration: View {
         source = ""
     }
 
-    private func channelReviewDeck(for channel: LibraryChannel) -> some View {
-        ChannelReviewDeck(
+    private func channelReviewReader(for channel: LibraryChannel) -> some View {
+        ChannelReviewReader(
             model: model.channels,
             channelID: channel.source,
             fallbackChannel: channel,

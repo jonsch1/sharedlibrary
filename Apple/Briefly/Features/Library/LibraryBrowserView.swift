@@ -82,7 +82,7 @@ struct LibraryCardBrowser: View {
                         .buttonStyle(.borderedProminent)
                         .disabled(model.channels.isCheckingChannel)
                     }
-                    ChannelReviewDeck(
+                    ChannelReviewReader(
                         model: model.channels,
                         channelID: channel.source,
                         fallbackChannel: channel,

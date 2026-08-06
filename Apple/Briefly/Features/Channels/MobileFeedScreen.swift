@@ -97,7 +97,7 @@ struct MobileXFeedScreen: View {
                     .frame(height: floatingHeaderHeight)
 
                 if let channel = selectedChannel {
-                    ChannelReviewDeck(
+                    ChannelReviewReader(
                         model: model.channels,
                         channelID: channel.source,
                         fallbackChannel: channel,

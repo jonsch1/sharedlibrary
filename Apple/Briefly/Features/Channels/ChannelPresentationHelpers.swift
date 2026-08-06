@@ -68,7 +68,7 @@ struct SidebarEmpty: View {
     }
 }
 
-struct ChannelReviewDeck: View {
+struct ChannelReviewReader: View {
     private enum Decision: Equatable {
         case accept
         case reject
@@ -79,8 +79,7 @@ struct ChannelReviewDeck: View {
     let fallbackChannel: LibraryChannel
     let requestSummary: ChannelReviewSummaryRequester?
     @Environment(\.openURL) private var openURL
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDeciding = false
+    @State private var deciding: Decision?
 
     private var currentChannel: LibraryChannel {
         model.selectedChannel(for: channelID) ?? fallbackChannel
@@ -91,205 +90,201 @@ struct ChannelReviewDeck: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 0) {
+            reviewHeader
+
+            if let current = candidates.first {
+                candidateDocument(current)
+            } else {
+                emptyReviewState
+            }
+        }
+        .background(readerBackground)
+        .animation(.easeOut(duration: 0.2), value: candidates.map(\.id))
+    }
+
+    private var reviewHeader: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("REVIEW QUEUE")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .tracking(1.1)
-                    Text("Choose what belongs in your library")
+                    Text("Read before you save")
                         .font(.title3.weight(.bold))
-                    Text("Swipe right to accept, left to reject, or use the buttons.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 16)
-                Text("\(candidates.count)/\(model.reviewWindow(for: currentChannel))")
+                Text("\(candidates.count) pending")
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("\(candidates.count) candidates waiting")
             }
-
-            if let current = candidates.first {
-                ZStack {
-                    if let next = candidates.dropFirst().first {
-                        reviewCard(next)
-                            .scaleEffect(0.96)
-                            .offset(y: 12)
-                            .opacity(0.72)
-                            .allowsHitTesting(false)
-                    }
-                    reviewCard(current)
-                        .offset(x: dragOffset)
-                        .rotationEffect(.degrees(Double(dragOffset / 28)))
-                        .overlay(alignment: .topLeading) {
-                            decisionBadge("REJECT", color: .orange, visible: dragOffset < -24)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            decisionBadge("ACCEPT", color: .green, visible: dragOffset > 24)
-                        }
-                        .gesture(
-                            DragGesture(minimumDistance: 12)
-                                .onChanged { value in
-                                    guard !isDeciding else { return }
-                                    dragOffset = value.translation.width
-                                }
-                                .onEnded { value in
-                                    guard !isDeciding else { return }
-                                    let threshold: CGFloat = 96
-                                    guard abs(value.translation.width) >= threshold else {
-                                        withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
-                                            dragOffset = 0
-                                        }
-                                        return
-                                    }
-                                    decide(
-                                        value.translation.width > 0 ? .accept : .reject,
-                                        current
-                                    )
-                                }
-                        )
-                }
-                .frame(maxWidth: .infinity, minHeight: 330, maxHeight: 430)
-
-                HStack(spacing: 12) {
-                    Button {
-                        decide(.reject, current)
-                    } label: {
-                        Label("Reject", systemImage: "xmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                    .disabled(isDeciding || model.isAcceptingReviewCandidate)
-
-                    Button {
-                        decide(.accept, current)
-                    } label: {
-                        Label("Accept", systemImage: "checkmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.green)
-                    .disabled(isDeciding || model.isAcceptingReviewCandidate)
-                }
-            } else {
-                VStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.green)
-                    Text("Nothing waiting for review")
-                        .font(.headline)
-                    Text("Fetch fresh candidates when you are ready. Accepted documents stay in your library.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity, minHeight: 170)
-                .padding(.horizontal, 24)
-                .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 18))
-            }
+            Text("Review each source in full, then choose what belongs in your library.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        .padding(18)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(.primary.opacity(0.11))
-        }
-        .animation(.easeOut(duration: 0.2), value: candidates.map(\.id))
+        .padding(.horizontal, 24)
+        .padding(.top, 26)
+        .padding(.bottom, 18)
     }
 
-    private func reviewCard(_ item: LibraryChannelReviewItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: currentChannel.kind == .podcast ? "waveform" : "doc.text")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 38, height: 38)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.host)
-                        .font(.caption.weight(.semibold))
+    private func candidateDocument(_ item: LibraryChannelReviewItem) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: currentChannel.kind == .podcast ? "waveform" : "doc.text")
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 32, height: 32)
+                        .background(Color.accentColor.opacity(0.12), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(currentChannel.title)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(item.host)
+                            if let date = formattedPublishedDate(item.item.publishedAt) {
+                                Text("·")
+                                Text(date)
+                            }
+                        }
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    if let publishedAt = item.item.publishedAt, !publishedAt.isEmpty {
-                        Text(publishedAt)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if let url = item.url {
+                        Button {
+                            openURL(url)
+                        } label: {
+                            Image(systemName: "arrow.up.right")
+                                .frame(width: 36, height: 36)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(.primary.opacity(0.06), in: Circle())
+                        .accessibilityLabel("Open source")
                     }
                 }
-                Spacer(minLength: 8)
-                if let url = item.url {
-                    Button {
-                        openURL(url)
-                    } label: {
-                        Image(systemName: "arrow.up.right")
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Open source")
-                }
-            }
 
-            Text(item.item.title)
-                .font(.title2.weight(.bold))
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("PREVIEW")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.8)
-                Text(item.previewText.isEmpty ? "Open the source to preview this candidate." : item.previewText)
-                    .font(.callout)
-                    .foregroundStyle(item.previewText.isEmpty ? .secondary : .primary)
-                    .lineLimit(7)
+                Text(item.item.title.isEmpty ? "Untitled candidate" : item.item.title)
+                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Text(currentChannel.kind?.rawValue.capitalized ?? "Candidate")
+                    Text("·")
+                    Text("Pending review")
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+
+            Divider()
+                .padding(.horizontal, 24)
+
+            if item.previewText.isEmpty {
+                Text("This source did not provide a preview. Open the original source above to read it before deciding.")
+                    .font(.system(size: 19, weight: .regular, design: .serif))
+                    .lineSpacing(7)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 28)
+            } else {
+                MarkdownArticle(item.previewText)
+                    .frame(maxWidth: 780, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 28)
             }
 
-            Spacer(minLength: 0)
+            decisionActions(for: item)
+        }
+        .frame(maxWidth: 780, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private func decisionActions(for item: LibraryChannelReviewItem) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Divider()
 
             Label(
-                "Accepting saves this document and queues its summaries.",
+                "Accepting saves one ordinary library document and queues its summaries.",
                 systemImage: "sparkles"
             )
             .font(.caption)
             .foregroundStyle(.secondary)
-            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                decide(.accept, item)
+            } label: {
+                HStack {
+                    if deciding == .accept {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Label("Accept", systemImage: "checkmark")
+                }
+                .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .disabled(deciding != nil || model.isAcceptingReviewCandidate)
+
+            Button {
+                decide(.reject, item)
+            } label: {
+                HStack {
+                    if deciding == .reject {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Label("Reject", systemImage: "xmark")
+                }
+                .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.bordered)
+            .tint(.orange)
+            .disabled(deciding != nil || model.isAcceptingReviewCandidate)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, minHeight: 310, alignment: .topLeading)
-        .background(.background.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(.primary.opacity(0.11))
-        }
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
+        .padding(.horizontal, 24)
+        .padding(.top, 30)
+        .padding(.bottom, 34)
     }
 
-    @ViewBuilder
-    private func decisionBadge(_ title: String, color: Color, visible: Bool) -> some View {
-        if visible {
-            Text(title)
-                .font(.caption.weight(.heavy))
-                .foregroundStyle(color)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.background.opacity(0.9), in: Capsule())
-                .overlay { Capsule().stroke(color, lineWidth: 2) }
-                .padding(18)
+    private var emptyReviewState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 30))
+                .foregroundStyle(.green)
+            Text("Nothing waiting for review")
+                .font(.headline)
+            Text("Fetch fresh candidates when you are ready. Accepted documents stay in your library.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity, minHeight: 220)
+        .padding(.horizontal, 24)
+    }
+
+    private func formattedPublishedDate(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        guard let date = try? Date(value, strategy: .iso8601) else { return value }
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
 
     private func decide(_ decision: Decision, _ item: LibraryChannelReviewItem) {
-        guard !isDeciding else { return }
-        isDeciding = true
-        withAnimation(.easeIn(duration: 0.18)) {
-            dragOffset = decision == .accept ? 520 : -520
-        }
+        guard deciding == nil, !model.isAcceptingReviewCandidate else { return }
+        deciding = decision
         Task {
             switch decision {
             case .accept:
@@ -297,10 +292,7 @@ struct ChannelReviewDeck: View {
             case .reject:
                 _ = await model.rejectCandidate(item)
             }
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
-                dragOffset = 0
-            }
-            isDeciding = false
+            deciding = nil
         }
     }
 }
