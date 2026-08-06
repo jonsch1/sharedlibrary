@@ -1,3 +1,4 @@
+import BrieflyCore
 import Foundation
 import SwiftUI
 
@@ -6,8 +7,7 @@ struct ChannelConfiguration: View {
     @Binding var showsChannelBrowser: Bool
     @State private var source = ""
     @State private var channelTitle = ""
-    @State private var retrievalCount = 5
-    @State private var autoSummarize = true
+    @State private var reviewWindow = defaultChannelReviewLimit
     @State private var schedule = "manual"
     @State private var confirmsRemoval = false
 
@@ -56,12 +56,6 @@ struct ChannelConfiguration: View {
 
                         Menu {
                             Button {
-                                Task { await model.workflows.checkSelectedChannel(loadMore: true) }
-                            } label: {
-                                Label("Load more", systemImage: "arrow.down")
-                            }
-                            .disabled(model.channels.isCheckingChannel || !channel.canLoadMore)
-                            Button {
                                 model.channels.channelBrowserAddress = channel.primarySource
                                 model.channels.channelBrowserStagesSource = false
                                 showsChannelBrowser = true
@@ -83,6 +77,8 @@ struct ChannelConfiguration: View {
                     Divider()
 
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
+
+                    channelReviewDeck(for: channel)
 
                     Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
                         GridRow {
@@ -112,34 +108,25 @@ struct ChannelConfiguration: View {
 
                     ScheduleEditor(schedule: $schedule)
 
-                    Toggle("Summarize new items automatically", isOn: $autoSummarize)
-                    Text("Off by default. You can summarize any captured item on demand.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Refresh depth")
+                            Text("Review window")
                                 .font(.headline)
-                            Text("How many recent items Briefly gathers on each check.")
+                            Text("How many pending candidates Briefly keeps available to review.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Stepper(
-                            "Items per check: \(retrievalCount)",
-                            value: $retrievalCount,
-                            in: 1...100
+                            "Candidates: \(reviewWindow)",
+                            value: $reviewWindow,
+                            in: channelReviewLimitRange
                         )
                         .fixedSize()
                     }
-
-                    if !channel.briefTitles.isEmpty {
-                        LabeledContent(
-                            "Voice briefs",
-                            value: channel.briefTitles.joined(separator: ", ")
-                        )
-                    }
+                    Text("Briefly discovers candidates without saving them. Summaries start only after you accept an item.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     Divider()
                     HStack {
@@ -167,7 +154,7 @@ struct ChannelConfiguration: View {
                 ConfigurationCard(
                     eyebrow: "CHANNEL",
                     title: "Channel settings",
-                    description: "Edit this channel's name, sources, and refresh settings."
+                    description: "Edit this channel's name, sources, and review settings."
                 ) {
                     TextField("Channel name", text: $channelTitle)
                         .font(.system(size: 28, weight: .bold))
@@ -184,12 +171,6 @@ struct ChannelConfiguration: View {
                         "Last checked",
                         value: channel.lastCheckedAt ?? "Never"
                     )
-                    if !channel.briefTitles.isEmpty {
-                        LabeledContent(
-                            "Voice briefs",
-                            value: channel.briefTitles.joined(separator: ", ")
-                        )
-                    }
                     if let error = channel.error {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.callout)
@@ -197,13 +178,18 @@ struct ChannelConfiguration: View {
                             .textSelection(.enabled)
                     }
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
+                    channelReviewDeck(for: channel)
                     ScheduleEditor(schedule: $schedule)
-                    Toggle("Summarize new items automatically", isOn: $autoSummarize)
+                    Text("Review window")
+                        .font(.headline)
                     Stepper(
-                        "Items per check: \(retrievalCount)",
-                        value: $retrievalCount,
-                        in: 1...100
+                        "Candidates: \(reviewWindow)",
+                        value: $reviewWindow,
+                        in: channelReviewLimitRange
                     )
+                    Text("Briefly discovers candidates without saving them. Summaries start only after you accept an item.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     HStack {
                         Button {
                             Task { await model.workflows.checkSelectedChannel() }
@@ -217,14 +203,6 @@ struct ChannelConfiguration: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.channels.isCheckingChannel)
-                        Button {
-                            Task {
-                                await model.workflows.checkSelectedChannel(loadMore: true)
-                            }
-                        } label: {
-                            Label("Load more", systemImage: "arrow.down")
-                        }
-                        .disabled(model.channels.isCheckingChannel || !channel.canLoadMore)
                     }
                     HStack {
                         Text("\(model.channels.newChannelSources.count) " +
@@ -284,8 +262,10 @@ struct ChannelConfiguration: View {
         .task(id: model.navigation.selectedChannelSource) {
             source = ""
             let selectedChannel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
-            retrievalCount = selectedChannel?.retrievalCount ?? 5
-            autoSummarize = selectedChannel?.autoSummarize ?? true
+            reviewWindow = min(
+                channelReviewLimitRange.upperBound,
+                max(channelReviewLimitRange.lowerBound, selectedChannel?.reviewLimit ?? defaultChannelReviewLimit)
+            )
             schedule = selectedChannel?.schedule ?? "manual"
             channelTitle = selectedChannel?.title ?? ""
             model.channels.newChannelSources = model.navigation.selectedChannelSource == "new"
@@ -295,17 +275,17 @@ struct ChannelConfiguration: View {
             model.channels.channelBrowserStagesSource = model.navigation.selectedChannelSource == "new"
         }
         .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
-            Button("Delete Channel and Items", role: .destructive) {
+            Button("Remove channel and pending candidates", role: .destructive) {
                 Task { await model.workflows.removeSelectedChannel() }
             }
         } message: {
             let count = model.channels.selectedChannel(for: model.navigation.selectedChannelSource).map {
-                model.channels.channelEntries(for: $0.source).count
+                model.channels.reviewCandidateCount(for: $0)
             } ?? 0
             Text(
                 count == 1
-                    ? "The channel and its 1 downloaded item will be moved to Trash."
-                    : "The channel and its \(count) downloaded items will be moved to Trash."
+                    ? "The channel and its 1 pending candidate will be removed. Accepted documents stay in your library."
+                    : "The channel and its \(count) pending candidates will be removed. Accepted documents stay in your library."
             )
         }
     }
@@ -362,6 +342,21 @@ struct ChannelConfiguration: View {
     private func addSource() {
         model.channels.stageChannelSource(source)
         source = ""
+    }
+
+    private func channelReviewDeck(for channel: LibraryChannel) -> some View {
+        ChannelReviewDeck(
+            model: model.channels,
+            channelID: channel.source,
+            fallbackChannel: channel,
+            requestSummary: { entryIDs in
+                _ = await model.processing.drainProcessingQueue(
+                    configuration: model.settings.processingConfiguration
+                )
+                await model.workflows.refreshLibrary(selecting: entryIDs.last)
+                model.workflows.requestSync()
+            }
+        )
     }
 
     @ViewBuilder
@@ -446,8 +441,7 @@ struct ChannelConfiguration: View {
             await model.workflows.updateSelectedChannel(
                 title: channelTitle,
                 sources: model.channels.newChannelSources,
-                retrievalCount: retrievalCount,
-                autoSummarize: autoSummarize,
+                reviewWindow: reviewWindow,
                 schedule: schedule
             )
         }
