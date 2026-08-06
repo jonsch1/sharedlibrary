@@ -218,6 +218,65 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertTrue(entry.isMainLibraryEntry)
     }
 
+    func testPreReviewChannelLinksReturnToPendingWithoutTouchingUnlinkedDocuments() async throws {
+        let (root, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let databaseURL = root.appending(path: "library.sqlite3")
+        let source = "https://example.com/feed"
+        let historicalID: String
+        let preservedID: String
+        do {
+            let database = try SQLiteLibrary(databaseURL: databaseURL)
+            historicalID = try database.createDocument(
+                title: "Historical channel item",
+                body: "Keep this as a review candidate.",
+                type: "link",
+                sourceURL: "https://example.com/story"
+            ).id
+            preservedID = try database.createDocument(
+                title: "Personal document",
+                body: "A genuinely captured document.",
+                type: "link",
+                sourceURL: "https://personal.example/document"
+            ).id
+            try database.saveChannelRecords([SQLiteChannelRecord(
+                source: source,
+                title: "Example feed",
+                kind: .feed,
+                reviewLimit: 1,
+                canLoadMore: false,
+                seen: ["story"],
+                items: [LibraryChannelItem(
+                    id: "story",
+                    title: "Historical channel item",
+                    url: "https://example.com/story",
+                    entryID: historicalID,
+                    ingestedAt: Date().iso8601
+                )]
+            )])
+            // Simulate a library written by the durable-review refactor before the
+            // acceptance marker existed.
+            try database.run("UPDATE channel_items SET accepted_at = NULL")
+            try database.execute("ALTER TABLE channel_items DROP COLUMN accepted_at")
+            try database.run(
+                "DELETE FROM sync_state WHERE key = 'briefly-channel-review-acceptance-v1'"
+            )
+        }
+
+        let store = SQLiteLibraryStore(databaseURL: databaseURL)
+        let projection = try await store.loadProjection()
+        XCTAssertTrue(projection.entries.contains { $0.id == preservedID })
+        XCTAssertFalse(projection.entries.contains { $0.id == historicalID })
+        let historical = try await store.getDocument(historicalID, includeDeleted: true)
+        XCTAssertTrue(historical.deleted)
+
+        let channels = try await store.loadChannels()
+        let channel = try XCTUnwrap(channels.first { $0.source == source })
+        let candidate = try XCTUnwrap(channel.items.first)
+        XCTAssertTrue(candidate.isPending)
+        XCTAssertEqual(candidate.content, "Keep this as a review candidate.")
+    }
+
     func testCloudAttachmentCanArriveBeforeItsDocument() throws {
         let (root, _) = makeStore()
         defer { try? FileManager.default.removeItem(at: root) }

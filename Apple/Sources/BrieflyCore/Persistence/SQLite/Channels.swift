@@ -7,7 +7,8 @@ extension SQLiteLibrary {
             try query(
                 "SELECT DISTINCT c.source_url FROM channel_items ci " +
                     "JOIN channels c ON c.id = ci.channel_id " +
-                    "WHERE ci.entry_id = ? AND c.deleted_at IS NULL ORDER BY c.source_url",
+                    "WHERE ci.entry_id = ? AND ci.accepted_at IS NOT NULL " +
+                    "AND c.deleted_at IS NULL ORDER BY c.source_url",
                 bindings: [.text(documentID)],
                 transform: { columnText($0, 0) }
             )
@@ -30,15 +31,17 @@ extension SQLiteLibrary {
                     try run(
                         """
                         INSERT INTO channel_items(
-                          channel_id, item_id, title, url, entry_id, ingested_at
-                        ) VALUES(?, ?, ?, ?, ?, ?)
+                          channel_id, item_id, title, url, entry_id, accepted_at, ingested_at
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(channel_id, item_id) DO UPDATE SET
                           title = excluded.title, url = excluded.url,
-                          entry_id = excluded.entry_id, ingested_at = excluded.ingested_at
+                          entry_id = excluded.entry_id, accepted_at = excluded.accepted_at,
+                          ingested_at = excluded.ingested_at
                         """,
                         bindings: [
                             .text(source), .text(documentID), .text(document.title),
                             .text(document.sourceURL ?? source), .text(documentID),
+                            .double(document.createdAt.timeIntervalSince1970),
                             .double(document.createdAt.timeIntervalSince1970)
                         ]
                     )
@@ -79,7 +82,7 @@ extension SQLiteLibrary {
                     """
                     SELECT item_id, title, url, published_at, content, linked_url,
                            preferred_input, media_url, transcript_url, transcript_type,
-                           transcript_language, entry_id, ingested_at
+                           transcript_language, entry_id, accepted_at, ingested_at
                     FROM channel_items
                     WHERE channel_id = ? ORDER BY ingested_at DESC, item_id
                     """,
@@ -95,7 +98,8 @@ extension SQLiteLibrary {
                         transcriptType: columnOptionalText($0, 9),
                         transcriptLanguage: columnOptionalText($0, 10),
                         entryID: columnOptionalText($0, 11) ?? "",
-                        ingestedAt: columnOptionalDate($0, 12) ?? Date().iso8601
+                        acceptedAt: columnOptionalDate($0, 12),
+                        ingestedAt: columnOptionalDate($0, 13) ?? Date().iso8601
                     )
                 }
                 let seen = try query(
@@ -127,6 +131,7 @@ extension SQLiteLibrary {
                 SELECT ci.entry_id, c.source_url
                 FROM channel_items ci JOIN channels c ON c.id = ci.channel_id
                 WHERE ci.entry_id IS NOT NULL AND ci.entry_id != ''
+                  AND ci.accepted_at IS NOT NULL
                   AND c.deleted_at IS NULL
                 ORDER BY ci.entry_id, c.source_url
                 """
@@ -196,8 +201,9 @@ extension SQLiteLibrary {
                             INSERT INTO channel_items(
                               channel_id, item_id, title, url, published_at, content,
                               linked_url, preferred_input, media_url, transcript_url,
-                              transcript_type, transcript_language, entry_id, ingested_at
-                            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              transcript_type, transcript_language, entry_id, accepted_at,
+                              ingested_at
+                            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             bindings: [
                                 .text(record.source), .text(item.id), .text(item.title), .text(item.url),
@@ -206,6 +212,8 @@ extension SQLiteLibrary {
                                 .optionalText(item.mediaURL), .optionalText(item.transcriptURL),
                                 .optionalText(item.transcriptType), .optionalText(item.transcriptLanguage),
                                 .optionalText(item.entryID.nilIfEmpty),
+                                .optionalDouble(timestamp(item.entryID.isEmpty
+                                    ? nil : (item.acceptedAt ?? item.ingestedAt))),
                                 .optionalDouble(timestamp(item.ingestedAt))
                             ]
                         )
@@ -262,7 +270,7 @@ extension SQLiteLibrary {
                 """
                 SELECT item_id, title, url, published_at, content, linked_url,
                        preferred_input, media_url, transcript_url, transcript_type,
-                       transcript_language, entry_id, ingested_at
+                       transcript_language, entry_id, accepted_at, ingested_at
                 FROM channel_items ci JOIN channels c ON c.id = ci.channel_id
                 WHERE c.source_url = ? AND c.deleted_at IS NULL AND ci.item_id = ?
                 """,
@@ -278,7 +286,8 @@ extension SQLiteLibrary {
                         transcriptType: columnOptionalText(statement, 9),
                         transcriptLanguage: columnOptionalText(statement, 10),
                         entryID: columnOptionalText(statement, 11) ?? "",
-                        ingestedAt: columnOptionalDate(statement, 12) ?? Date().iso8601
+                        acceptedAt: columnOptionalDate(statement, 12),
+                        ingestedAt: columnOptionalDate(statement, 13) ?? Date().iso8601
                     )
                 }
             ).first
@@ -295,10 +304,13 @@ extension SQLiteLibrary {
                     bindings: [.text(source), .text(itemID)]
                 ) == 1 else { throw SQLiteLibraryError.invalidDocument }
                 try run(
-                    "UPDATE channel_items SET entry_id = ? WHERE channel_id = " +
+                    "UPDATE channel_items SET entry_id = ?, accepted_at = ? WHERE channel_id = " +
                         "(SELECT id FROM channels WHERE source_url = ? AND deleted_at IS NULL) " +
                         "AND item_id = ? AND (entry_id IS NULL OR entry_id = '')",
-                    bindings: [.text(entryID), .text(source), .text(itemID)]
+                    bindings: [
+                        .text(entryID), .double(Date().timeIntervalSince1970),
+                        .text(source), .text(itemID)
+                    ]
                 )
             }
         }

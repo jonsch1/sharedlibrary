@@ -122,6 +122,7 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
     public let transcriptType: String?
     public let transcriptLanguage: String?
     public let entryID: String
+    public let acceptedAt: String?
     public let ingestedAt: String
 
     public init(
@@ -137,6 +138,7 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
         transcriptType: String? = nil,
         transcriptLanguage: String? = nil,
         entryID: String,
+        acceptedAt: String? = nil,
         ingestedAt: String
     ) {
         self.id = id
@@ -151,6 +153,7 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
         self.transcriptType = transcriptType
         self.transcriptLanguage = transcriptLanguage
         self.entryID = entryID
+        self.acceptedAt = acceptedAt
         self.ingestedAt = ingestedAt
     }
 

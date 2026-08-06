@@ -118,7 +118,8 @@ extension SQLiteLibrary {
                     """
                     SELECT DISTINCT d.id, d.revision
                     FROM documents d JOIN channel_items ci ON ci.entry_id = d.id
-                    WHERE d.deleted = 0
+                    WHERE ci.accepted_at IS NOT NULL
+                      AND d.deleted = 0
                     """
                 ) { (columnText($0, 0), sqlite3_column_int64($0, 1)) }
                 for (id, revision) in documents {

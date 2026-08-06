@@ -105,6 +105,7 @@ struct LibraryChannelStateRepository {
                         transcriptType: item.transcriptType,
                         transcriptLanguage: item.transcriptLanguage,
                         entryID: item.entryID,
+                        acceptedAt: item.acceptedAt,
                         ingestedAt: item.ingestedAt
                     )
                 }
