@@ -78,8 +78,6 @@ struct ChannelConfiguration: View {
 
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
 
-                    channelReviewReader(for: channel)
-
                     Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
                         GridRow {
                             Text("CAPTURED ITEMS")
@@ -178,7 +176,6 @@ struct ChannelConfiguration: View {
                             .textSelection(.enabled)
                     }
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
-                    channelReviewReader(for: channel)
                     ScheduleEditor(schedule: $schedule)
                     Text("Review window")
                         .font(.headline)
@@ -342,17 +339,6 @@ struct ChannelConfiguration: View {
     private func addSource() {
         model.channels.stageChannelSource(source)
         source = ""
-    }
-
-    private func channelReviewReader(for channel: LibraryChannel) -> some View {
-        ChannelReviewReader(
-            model: model.channels,
-            channelID: channel.source,
-            fallbackChannel: channel,
-            requestSummary: { entryIDs in
-                await model.workflows.finishAcceptedChannelItems(entryIDs)
-            }
-        )
     }
 
     @ViewBuilder

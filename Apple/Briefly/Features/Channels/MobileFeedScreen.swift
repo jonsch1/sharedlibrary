@@ -8,6 +8,7 @@ struct MobileXFeedScreen: View {
     let tab: MobilePrimaryTab
     @Binding var showsSettings: Bool
     let openEntry: (LibraryEntry) -> Void
+    let openChannel: (LibraryChannel) -> Void
     let openConfiguration: () -> Void
     let create: () -> Void
     @State private var showsSearch = false
@@ -96,17 +97,7 @@ struct MobileXFeedScreen: View {
                 Color.clear
                     .frame(height: floatingHeaderHeight)
 
-                if let channel = selectedChannel {
-                    ChannelReviewReader(
-                        model: model.channels,
-                        channelID: channel.source,
-                        fallbackChannel: channel,
-                        requestSummary: { entryIDs in
-                            await model.workflows.finishAcceptedChannelItems(entryIDs)
-                        }
-                    )
-                    .padding(.horizontal, 16)
-                } else if filteredChannels.isEmpty {
+                if filteredChannels.isEmpty {
                     XEmptyState(
                         icon: emptyIcon,
                         title: emptyTitle,
@@ -117,7 +108,7 @@ struct MobileXFeedScreen: View {
                 } else {
                     ForEach(filteredChannels) { channel in
                         Button {
-                            model.workflows.selectChannel(channel.source)
+                            openChannel(channel)
                         } label: {
                             HStack(spacing: 14) {
                                 Image(
@@ -236,7 +227,7 @@ struct MobileXFeedScreen: View {
                             channel.title,
                             selected: model.navigation.selectedChannelSource == channel.source
                         ) {
-                            model.workflows.selectChannel(channel.source)
+                            openChannel(channel)
                         }
                     }
                 case .library:

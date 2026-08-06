@@ -62,35 +62,7 @@ struct LibraryCardBrowser: View {
         case .channels:
             VStack(spacing: 16) {
                 feedHeader
-                if let channel = model.channels.selectedChannel(
-                    for: model.navigation.selectedChannelSource
-                ) {
-                    HStack {
-                        Text("\(channel.items.count) pending")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button {
-                            Task { await model.workflows.checkSelectedChannel() }
-                        } label: {
-                            if model.channels.isCheckingChannel {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Label("Fetch fresh", systemImage: "arrow.clockwise")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.channels.isCheckingChannel)
-                    }
-                    ChannelReviewReader(
-                        model: model.channels,
-                        channelID: channel.source,
-                        fallbackChannel: channel,
-                        requestSummary: { entryIDs in
-                            await model.workflows.finishAcceptedChannelItems(entryIDs)
-                        }
-                    )
-                } else if channels.isEmpty {
+                if channels.isEmpty {
                     XEmptyState(
                         icon: emptyIcon,
                         title: emptyTitle,

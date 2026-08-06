@@ -26,6 +26,16 @@ struct LibraryDetail: View {
                     model: model,
                     showsChannelBrowser: $showsChannelBrowser
                 )
+            } else if model.navigation.activeSection == .channels,
+                let channel = model.channels.selectedChannel(
+                    for: model.navigation.selectedChannelSource
+                )
+            {
+                ChannelCandidateDocument(
+                    model: model,
+                    channelID: channel.source,
+                    fallbackChannel: channel
+                )
             } else {
                 LibraryCardBrowser(model: model)
             }
@@ -39,10 +49,28 @@ struct LibraryDetail: View {
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
-            } else if model.navigation.activeSection == .channels {
+            } else if model.navigation.activeSection == .channels &&
+                model.navigation.showingChannelSettings
+            {
                 ChannelConfiguration(
                     model: model,
                     showsChannelBrowser: $showsChannelBrowser
+                )
+            } else if model.navigation.activeSection == .channels,
+                let channel = model.channels.selectedChannel(
+                    for: model.navigation.selectedChannelSource
+                )
+            {
+                ChannelCandidateDocument(
+                    model: model,
+                    channelID: channel.source,
+                    fallbackChannel: channel
+                )
+            } else if model.navigation.activeSection == .channels {
+                ContentUnavailableView(
+                    "No channel selected",
+                    systemImage: "dot.radiowaves.left.and.right",
+                    description: Text("Choose a channel to review its candidates.")
                 )
             } else if model.navigation.activeSection == .items &&
                 model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).isEmpty {

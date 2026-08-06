@@ -111,6 +111,10 @@ struct MobileXAppShell: View {
                 tab: tab,
                 showsSettings: $showsSettings,
                 openEntry: openEntry,
+                openChannel: { channel in
+                    model.workflows.selectChannel(channel.source)
+                    showsDetail = true
+                },
                 openConfiguration: {
                     showsDetail = true
                 },
