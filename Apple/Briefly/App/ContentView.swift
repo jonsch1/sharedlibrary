@@ -225,32 +225,6 @@ struct ContentView: View {
             }
         }
         #endif
-        #if os(macOS)
-        .overlay(alignment: .bottomTrailing) {
-            if model.lifecycle.isSyncing {
-                SyncActivityView(model: model)
-                    .padding(.horizontal, 18)
-                    .padding(.bottom, 66)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            } else if model.processing.isProcessing || model.audio.isGeneratingSpeech ||
-                model.audio.isPreparingSpeech
-            {
-                HStack(spacing: 9) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(model.activityStatus)
-                        .font(.callout)
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 40)
-                .macLiquidGlass(in: Capsule())
-                .padding(18)
-                .padding(.bottom, 48)
-                .accessibilityElement(children: .combine)
-            }
-        }
-        #endif
-        .animation(.snappy(duration: 0.24), value: model.lifecycle.isSyncing)
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
                 text: model.selection.selectedID == entry.id && !model.selection.selectedText.isEmpty

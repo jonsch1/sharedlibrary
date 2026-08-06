@@ -78,43 +78,81 @@ struct ChannelCandidateDocument: View {
 
     @Bindable var model: LibraryModel
     let channelID: String
-    let fallbackChannel: LibraryChannel
+    let fallbackChannel: LibraryChannel?
+    let showsNavigationHeader: Bool
     @State private var deciding: Decision?
     @State private var skippedItemIDs = Set<String>()
+    @State private var resolvedPreviewText = [String: String]()
 
-    private var currentChannel: LibraryChannel {
-        model.channels.selectedChannel(for: channelID) ?? fallbackChannel
+    init(
+        model: LibraryModel,
+        channelID: String,
+        fallbackChannel: LibraryChannel? = nil,
+        showsNavigationHeader: Bool = true
+    ) {
+        self.model = model
+        self.channelID = channelID
+        self.fallbackChannel = fallbackChannel
+        self.showsNavigationHeader = showsNavigationHeader
+    }
+
+    private var isAllChannels: Bool {
+        channelID.isEmpty
+    }
+
+    private var currentChannel: LibraryChannel? {
+        guard let current = candidates.first else {
+            return model.channels.selectedChannel(for: channelID) ?? fallbackChannel
+        }
+        return model.channels.selectedChannel(for: current.channelID)
     }
 
     private var candidates: [LibraryChannelReviewItem] {
-        model.channels.reviewCandidates(for: currentChannel)
-            .filter { !skippedItemIDs.contains($0.id) }
+        let items: [LibraryChannelReviewItem]
+        if isAllChannels {
+            items = model.channels.reviewCandidatesAcrossChannels()
+        } else if let channel = model.channels.selectedChannel(for: channelID) ?? fallbackChannel {
+            items = model.channels.reviewCandidates(for: channel)
+        } else {
+            items = []
+        }
+        return items.filter { !skippedItemIDs.contains($0.reviewKey) }
+    }
+
+    private var canLoadMore: Bool {
+        if isAllChannels {
+            return model.channels.channels.contains(where: \.canLoadMore)
+        }
+        return currentChannel?.canLoadMore == true
     }
 
     var body: some View {
         VStack(spacing: 0) {
             #if os(macOS)
-            HStack(spacing: 12) {
-                Button {
-                    model.workflows.navigateBack()
-                } label: {
-                    Image(systemName: "arrow.left")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contentShape(Circle())
+            if showsNavigationHeader {
+                HStack(spacing: 12) {
+                    Button {
+                        model.workflows.navigateBack()
+                    } label: {
+                        Image(systemName: "arrow.left")
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Circle())
 
-                Spacer()
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 56)
+                .background(.regularMaterial)
             }
-            .padding(.horizontal, 14)
-            .frame(height: 56)
-            .background(.regularMaterial)
             #endif
 
             ZStack(alignment: .bottom) {
                 if let current = candidates.first {
-                    if current.previewText.isEmpty {
+                    let previewText = resolvedPreviewText[current.reviewKey] ?? current.previewText
+                    if previewText.isEmpty {
                         XEmptyState(
                             icon: "doc.text.magnifyingglass",
                             title: "Preview unavailable",
@@ -122,7 +160,7 @@ struct ChannelCandidateDocument: View {
                         )
                     } else {
                         EditableDocumentTextView(
-                            text: .constant(current.previewText),
+                            text: .constant(previewText),
                             isEditable: false,
                             highlightedPassages: [],
                             onHighlight: nil,
@@ -130,14 +168,16 @@ struct ChannelCandidateDocument: View {
                         )
                         .accessibilityIdentifier("channel.review.editor")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .id(current.id)
+                        .id(current.reviewKey)
                     }
                 } else {
                     XEmptyState(
                         icon: "checkmark.circle",
                         title: "Nothing waiting for review",
                         message: skippedItemIDs.isEmpty
-                            ? "Check this channel for more candidates."
+                            ? isAllChannels
+                                ? "Check your channels for more candidates."
+                                : "Check this channel for more candidates."
                             : "You have reached the end of the unskipped candidates."
                     )
                 }
@@ -155,6 +195,14 @@ struct ChannelCandidateDocument: View {
         #endif
         .onChange(of: channelID) {
             skippedItemIDs = []
+            resolvedPreviewText = [:]
+        }
+        .task(id: candidates.first?.reviewKey) {
+            guard let current = candidates.first,
+                  resolvedPreviewText[current.reviewKey] == nil,
+                  let preview = await model.channels.resolvedPreview(for: current)
+            else { return }
+            resolvedPreviewText[current.reviewKey] = preview
         }
         #if os(iOS)
         .toolbar {
@@ -166,8 +214,11 @@ struct ChannelCandidateDocument: View {
                         }
                     }
                     Button("Channel settings", systemImage: "gearshape") {
-                        model.workflows.showChannelSettings(channelID)
+                        if let currentChannel {
+                            model.workflows.showChannelSettings(currentChannel.source)
+                        }
                     }
+                    .disabled(currentChannel == nil)
                 } label: {
                     Image(systemName: "ellipsis")
                 }
@@ -189,9 +240,9 @@ struct ChannelCandidateDocument: View {
                 }
                 Divider().frame(height: 20).padding(.horizontal, 4)
                 actionButton("Skip", systemImage: "forward", progress: false) {
-                    skippedItemIDs.insert(current.id)
+                    skippedItemIDs.insert(current.reviewKey)
                 }
-            } else if currentChannel.canLoadMore {
+            } else if canLoadMore {
                 actionButton(
                     "Load more",
                     systemImage: "arrow.down.circle",
@@ -291,7 +342,11 @@ struct ChannelCandidateDocument: View {
         guard deciding == nil else { return }
         deciding = .loadMore
         Task {
-            await model.workflows.checkSelectedChannel(loadMore: true)
+            if isAllChannels {
+                await model.workflows.checkAllChannels(loadMore: true)
+            } else {
+                await model.workflows.checkSelectedChannel(loadMore: true)
+            }
             deciding = nil
         }
     }
@@ -300,7 +355,11 @@ struct ChannelCandidateDocument: View {
         guard deciding == nil else { return }
         deciding = .refresh
         Task {
-            await model.workflows.checkSelectedChannel()
+            if isAllChannels {
+                await model.workflows.checkAllChannels()
+            } else {
+                await model.workflows.checkSelectedChannel()
+            }
             deciding = nil
         }
     }

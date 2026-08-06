@@ -22,32 +22,39 @@ struct LibraryCardBrowser: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if model.navigation.activeSection == .channels {
-                    browserContent
-                } else if count == 0 {
-                    VStack(spacing: 0) {
-                        feedHeader
-                        XEmptyState(
-                            icon: emptyIcon,
-                            title: emptyTitle,
-                            message: emptyDescription
-                        )
-                        .frame(minHeight: 360)
-                    }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                } else {
-                    browserContent
+        Group {
+            if model.navigation.activeSection == .channels {
+                VStack(spacing: 0) {
+                    feedHeader
+                        .frame(maxWidth: 680)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                    ChannelCandidateDocument(
+                        model: model,
+                        channelID: "",
+                        showsNavigationHeader: false
+                    )
                 }
+            } else {
+                ScrollView {
+                    if count == 0 {
+                        VStack(spacing: 0) {
+                            feedHeader
+                            XEmptyState(
+                                icon: emptyIcon,
+                                title: emptyTitle,
+                                message: emptyDescription
+                            )
+                            .frame(minHeight: 360)
+                        }
+                        .frame(maxWidth: 680)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                    } else {
+                        browserContent
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
-            .padding(.horizontal, 0)
-            .padding(.top, 0)
-            .padding(.bottom, 80)
-            .frame(maxWidth: .infinity)
         }
-        .scrollIndicators(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial.opacity(0.24))
     }
@@ -60,89 +67,8 @@ struct LibraryCardBrowser: View {
                 .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity, alignment: .top)
         case .channels:
-            VStack(spacing: 16) {
-                feedHeader
-                if channels.isEmpty {
-                    XEmptyState(
-                        icon: emptyIcon,
-                        title: emptyTitle,
-                        message: emptyDescription
-                    )
-                    .frame(minHeight: 360)
-                } else {
-                    channelIndex
-                }
-            }
-            .frame(maxWidth: 680)
-            .frame(maxWidth: .infinity, alignment: .top)
+            EmptyView()
         }
-    }
-
-    private var channelIndex: some View {
-        LazyVStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Channels")
-                        .font(.title2.weight(.bold))
-                    Text("Sources you follow")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text("\(channels.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(18)
-            .background(.regularMaterial)
-
-            Divider()
-
-            ForEach(channels) { channel in
-                HStack(spacing: 13) {
-                    Image(
-                        systemName: channel.kind == .podcast
-                            ? "waveform"
-                            : "dot.radiowaves.left.and.right"
-                    )
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 42, height: 42)
-                    .background(Color.primary.opacity(0.06), in: Circle())
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(channel.title)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(1)
-                        Text(channelDomain(channel.primarySource))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        Text("\(channel.items.count) pending review")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    Button {
-                        model.workflows.showChannelSettings(channel.source)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Settings for \(channel.title)")
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-                .contentShape(Rectangle())
-                .onTapGesture { model.workflows.selectChannel(channel.source) }
-                .overlay(alignment: .bottom) { Divider().padding(.leading, 70) }
-            }
-        }
-        .background(.ultraThinMaterial.opacity(0.64))
-        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
     }
 
     private func feedColumn(_ entries: [LibraryEntry]) -> some View {

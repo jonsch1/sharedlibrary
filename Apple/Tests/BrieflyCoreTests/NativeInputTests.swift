@@ -389,9 +389,10 @@ final class NativeItemInputTests: XCTestCase {
         let longText = String(repeating: "x", count: 100)
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.x))),
-            context: .init(http: fixtureHTTP(["api.fxtwitter.com/jack/status/20": .json([
-                "tweet": [
-                    "raw_text": longText, "created_at": "today", "likes": 1234,
+            context: .init(http: fixtureHTTP(["api.fxtwitter.com/2/status/20": .json([
+                "status": [
+                    "id": "20", "raw_text": longText, "created_at": "today",
+                    "likes": 1234, "reposts": 23,
                     "author": ["name": "Briefly", "screen_name": "briefly"],
                     "quote": ["text": "Quoted post", "author": ["screen_name": "quoted"]],
                     "twitter_card": ["url": "https://example.com/card"]
@@ -404,6 +405,7 @@ final class NativeItemInputTests: XCTestCase {
             "Post by Briefly (@briefly): \(String(longText.prefix(89)))…"
         )
         XCTAssertTrue(value.content.contains("1,234 likes"))
+        XCTAssertTrue(value.content.contains("23 reposts"))
         XCTAssertTrue(value.content.contains("> @quoted: Quoted post"))
         XCTAssertTrue(value.content.contains("Link: https://example.com/card"))
     }
@@ -457,7 +459,9 @@ final class NativeItemInputTests: XCTestCase {
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.x))),
             context: .init(http: fixtureHTTP([
-                "api.fxtwitter.com/jack/status/20": .json(["tweet": ["article": article]])
+                "api.fxtwitter.com/2/status/20": .json(["status": [
+                    "id": "20", "article": article
+                ]])
             ]))
         )
 
@@ -920,22 +924,29 @@ final class NativeChannelInputTests: XCTestCase {
     }
 
     func testXProfileChannelInput() async throws {
-        let context = ChannelInputContext(http: fixtureHTTP([:]), render: { url, _ in
-            .init(inputID: .x, title: "Briefly on X", kind: .page, items: [
-                .init(
-                    id: "123456",
-                    title: "Native X post",
-                    url: itemTestURL(.x),
-                    hints: .init(preferredInput: .x, title: "Native X post", content: "Post body")
-                )
+        let fullText = "A complete long X post that continues beyond the text shown on the profile page."
+        let context = ChannelInputContext(http: fixtureHTTP([
+            "api.fxtwitter.com/2/profile/openai/statuses": .json([
+                "results": [[
+                    "type": "status",
+                    "id": "123456",
+                    "text": fullText,
+                    "raw_text": ["text": fullText],
+                    "created_at": "Fri Aug 01 12:00:00 +0000 2026",
+                    "likes": 42,
+                    "author": ["name": "OpenAI", "screen_name": "openai"]
+                ]]
             ])
-        })
+        ]))
         let batch = try await router.enumerate(
             source: channelTestURL(.x).absoluteString,
             context: context
         )
         XCTAssertEqual(batch.inputID, .x)
         XCTAssertEqual(batch.items.first?.id, "123456")
+        XCTAssertEqual(batch.items.first?.hints.preferredInput, .x)
+        XCTAssertTrue(batch.items.first?.hints.content?.contains(fullText) == true)
+        XCTAssertFalse(batch.items.first?.hints.content?.contains("Show more") == true)
     }
 
     func testArxivChannelInput() async throws {

@@ -20,6 +20,8 @@ struct LibraryChannelReviewItem: Hashable, Identifiable, Sendable {
 
     var id: String { item.id }
 
+    var reviewKey: String { "\(channelID)\u{1F}\(item.id)" }
+
     var url: URL? { URL(string: item.url) }
 
     var host: String {
@@ -88,8 +90,32 @@ final class LibraryChannelModel {
             .map { LibraryChannelReviewItem(channelID: channel.source, item: $0) }
     }
 
+    func reviewCandidatesAcrossChannels() -> [LibraryChannelReviewItem] {
+        channels
+            .flatMap(reviewCandidates)
+            .sorted { $0.item.ingestedAt > $1.item.ingestedAt }
+    }
+
     func reviewCandidateCount(for channel: LibraryChannel) -> Int {
         reviewCandidates(for: channel).count
+    }
+
+    func resolvedPreview(for item: LibraryChannelReviewItem) async -> String? {
+        guard let url = item.url else { return nil }
+        let host = url.host?.lowercased() ?? ""
+        guard host == "x.com" || host.hasSuffix(".x.com") ||
+                host == "twitter.com" || host.hasSuffix(".twitter.com")
+        else { return nil }
+        let candidate = item.candidate
+        let hints = ItemInputHints(
+            preferredInput: .x,
+            title: candidate.title,
+            content: candidate.content
+        )
+        return try? await NativeItemInputRouter().ingest(
+            ItemInputRequest(source: .url(url), hints: hints),
+            context: inputService.itemInputContext()
+        ).content
     }
 
     func filteredChannels(query: String) -> [LibraryChannel] {
@@ -294,6 +320,19 @@ final class LibraryChannelModel {
             session.errorMessage = error.localizedDescription
             session.status = "Could not find more candidates."
             return nil
+        }
+    }
+
+    func checkAllChannels(loadMore: Bool = false) async {
+        let channelIDs = channels.compactMap { channel in
+            loadMore && !channel.canLoadMore ? nil : channel.source
+        }
+        for channelID in channelIDs {
+            if loadMore {
+                _ = await loadMoreChannel(source: channelID)
+            } else {
+                _ = await checkChannel(source: channelID)
+            }
         }
     }
 

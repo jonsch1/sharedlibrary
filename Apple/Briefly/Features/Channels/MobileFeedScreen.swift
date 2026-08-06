@@ -13,14 +13,6 @@ struct MobileXFeedScreen: View {
     let create: () -> Void
     @State private var showsSearch = false
 
-    private var filteredChannels: [LibraryChannel] {
-        model.channels.filteredChannels(query: model.navigation.query)
-    }
-
-    private var selectedChannel: LibraryChannel? {
-        model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
-    }
-
     private var entries: [LibraryEntry] {
         let candidates: [LibraryEntry]
         switch tab {
@@ -92,65 +84,16 @@ struct MobileXFeedScreen: View {
     }
 
     private var channelContent: some View {
-        ScrollView {
-            LazyVStack(spacing: 14) {
-                Color.clear
-                    .frame(height: floatingHeaderHeight)
-
-                if filteredChannels.isEmpty {
-                    XEmptyState(
-                        icon: emptyIcon,
-                        title: emptyTitle,
-                        message: emptyMessage
-                    )
-                    .frame(maxWidth: 720, minHeight: 420)
-                    .frame(maxWidth: .infinity)
-                } else {
-                    ForEach(filteredChannels) { channel in
-                        Button {
-                            openChannel(channel)
-                        } label: {
-                            HStack(spacing: 14) {
-                                Image(
-                                    systemName: channel.kind == .podcast
-                                        ? "waveform"
-                                        : "dot.radiowaves.left.and.right"
-                                )
-                                .font(.system(size: 18, weight: .semibold))
-                                .frame(width: 44, height: 44)
-                                .background(Color.primary.opacity(0.07), in: Circle())
-
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(channel.title)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                    Text("\(channel.items.count) pending review")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(16)
-                            .background(
-                                .regularMaterial,
-                                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                    }
-                }
-            }
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 96)
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: floatingHeaderHeight)
+            ChannelCandidateDocument(
+                model: model,
+                channelID: "",
+                showsNavigationHeader: false
+            )
         }
-        .scrollIndicators(.hidden)
-        .refreshable { await refresh() }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func closeSearch() {

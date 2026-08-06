@@ -358,6 +358,10 @@ final class LibraryWorkflowCoordinator {
         }
     }
 
+    func checkAllChannels(loadMore: Bool = false) async {
+        await channels.checkAllChannels(loadMore: loadMore)
+    }
+
     func createChannel() async {
         guard let added = await channels.createChannel() else { return }
         navigation.selectedChannelSource = added.source

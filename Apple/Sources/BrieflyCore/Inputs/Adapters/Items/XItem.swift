@@ -6,29 +6,39 @@ func ingestX(
 ) async throws -> ItemDraft {
     let url = try requestURL(request)
     guard let status = xStatus(url) else { throw NativeInputError.unsupportedInput }
-    let actor = status.actor.addingPercentEncoding(
-        withAllowedCharacters: .urlPathAllowed
-    ) ?? status.actor
-    let endpoint = URL(string:
-        "https://api.fxtwitter.com/\(actor)/status/\(status.id)"
-    )!
+    let endpoint = URL(string: "https://api.fxtwitter.com/2/status/\(status.id)")!
     let response = try await http.get(endpoint, headers: [
         "Accept": "application/json", "User-Agent": "Briefly/1.0"
     ])
     guard
         let object = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-        let tweet = object["tweet"] as? [String: Any]
+        let tweet = object["status"] as? [String: Any]
     else { throw NativeInputError.unreadableContent }
+    return try xDraft(from: tweet, sourceURL: url)
+}
+
+func xDraft(from tweet: [String: Any], sourceURL url: URL) throws -> ItemDraft {
+    let status = xStatus(url)
+    let author = tweet["author"] as? [String: Any]
+    let screenName = cleanXArticleText(author?["screen_name"] as? String)
+    let actor = status?.actor ?? screenName ?? "x"
+    let statusID = status?.id ?? xStringValue(tweet["id"]) ?? ""
+    let canonicalURL = statusID.isEmpty
+        ? url
+        : URL(string: "https://x.com/\(actor)/status/\(statusID)")
+
     if let article = tweet["article"] as? [String: Any] {
         let title = cleanXArticleText(article["title"] as? String) ?? "X article"
-        let content = renderXArticle(article)
-        guard !content.isEmpty else { throw NativeInputError.unreadableContent }
+        let rendered = renderXArticle(article)
+        let content = rendered.nativeNilIfEmpty ??
+            cleanXArticleText(article["preview_text"] as? String)
+        guard let content else { throw NativeInputError.unreadableContent }
         return ItemDraft(
             inputID: .x,
             title: title,
             content: content,
             sourceURL: url,
-            canonicalURL: URL(string: "https://x.com/\(actor)/status/\(status.id)"),
+            canonicalURL: canonicalURL,
             faviconURL: URL(string: "https://x.com/favicon.ico")
         )
     }
@@ -37,14 +47,12 @@ func ingestX(
         (tweet["text"] as? String)
     let cleanedText = cleanXArticleText(rawText)
     let text = cleanedText ?? "[Media post]"
-    let author = tweet["author"] as? [String: Any]
     let name = cleanXArticleText(author?["name"] as? String)
-    let screenName = cleanXArticleText(author?["screen_name"] as? String)
     let authorLine = name.flatMap { name in screenName.map { "\(name) (@\($0))" } } ??
         name ?? screenName.map { "@\($0)" } ?? "X user"
     let stats = [
         xCountLabel(tweet["replies"], "reply", "replies"),
-        xCountLabel(tweet["retweets"], "repost", "reposts"),
+        xCountLabel(tweet["reposts"] ?? tweet["retweets"], "repost", "reposts"),
         xCountLabel(tweet["likes"], "like", "likes"),
         xCountLabel(tweet["bookmarks"], "bookmark", "bookmarks"),
         xCountLabel(tweet["views"], "view", "views")
@@ -71,7 +79,11 @@ func ingestX(
         "",
         text
     ]
-    if let replyingTo = cleanXArticleText(tweet["replying_to"] as? String) {
+    let replyingTo = cleanXArticleText(tweet["replying_to"] as? String) ??
+        cleanXArticleText(
+            (tweet["replying_to"] as? [String: Any])?["screen_name"] as? String
+        )
+    if let replyingTo {
         contentLines.append("Replying to @\(replyingTo)")
     }
     if let quotedText {
@@ -91,7 +103,7 @@ func ingestX(
         title: "Post by \(authorLine)\(titleSuffix)",
         content: contentLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines),
         sourceURL: url,
-        canonicalURL: URL(string: "https://x.com/\(actor)/status/\(status.id)"),
+        canonicalURL: canonicalURL,
         faviconURL: URL(string: "https://x.com/favicon.ico")
     )
 }

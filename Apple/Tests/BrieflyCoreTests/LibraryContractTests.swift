@@ -45,10 +45,39 @@ final class LibraryContractTests: XCTestCase {
         let documents = try await store.documentDatabase().allDocuments()
         XCTAssertTrue(documents.isEmpty)
 
+        let corrected = try await store.checkChannelInput(source, maximumItems: 1) { _ in
+            ChannelInputBatch(
+                inputID: .podcast,
+                title: "Example feed",
+                kind: .podcast,
+                items: [ChannelItemReference(
+                    id: "episode-1",
+                    title: "Episode one",
+                    url: URL(string: "https://example.com/episode-1")!,
+                    hints: ItemInputHints(
+                        preferredInput: .podcast,
+                        content: "The corrected complete transcript."
+                    )
+                )]
+            )
+        }
+        XCTAssertTrue(corrected.newItemIDs.isEmpty)
+        let correctedChannels = try await store.loadChannels()
+        let correctedChannel = try XCTUnwrap(
+            correctedChannels.first { $0.source == source }
+        )
+        XCTAssertEqual(
+            correctedChannel.items.first?.candidate().content,
+            "The corrected complete transcript."
+        )
+
         let reopened = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
         let reopenedChannels = try await reopened.loadChannels()
         let persisted = try XCTUnwrap(reopenedChannels.first { $0.source == source })
-        XCTAssertEqual(persisted.items.first?.candidate(), item.candidate())
+        XCTAssertEqual(
+            persisted.items.first?.candidate().content,
+            "The corrected complete transcript."
+        )
     }
 
     func testGroupedChannelsUseTheConfiguredRollingReviewWindow() async throws {

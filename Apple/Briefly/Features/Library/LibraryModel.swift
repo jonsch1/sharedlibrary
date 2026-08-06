@@ -30,13 +30,6 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
-struct BrieflyActivity: Identifiable {
-    let id = UUID()
-    let icon: String
-    let title: String
-    let detail: String
-}
-
 struct ProcessingJobResult: Sendable {
     let entryID: String
     let selectedID: String?
@@ -160,45 +153,4 @@ final class LibraryModel {
         return "doc.text"
     }
 
-    var activeActivities: [BrieflyActivity] {
-        var activities = [BrieflyActivity]()
-        if audio.isGeneratingSpeech {
-            activities.append(.init(icon: "waveform", title: "Creating audio", detail: session.status))
-        }
-        if audio.isPreparingSpeech {
-            activities.append(.init(
-                icon: "waveform",
-                title: "Preparing voice",
-                detail: audio.speechPreparationStatus
-            ))
-        }
-        if processing.isProcessing {
-            activities.append(.init(
-                icon: "sparkles",
-                title: "Preparing summaries",
-                detail: session.status
-            ))
-        }
-        if processing.isIngesting || channels.isCheckingChannel {
-            activities.append(.init(
-                icon: "square.and.arrow.down",
-                title: "Gathering items",
-                detail: session.status
-            ))
-        }
-        if lifecycle.isSyncing {
-            let detail = lifecycle.syncTotal > 0
-                ? "Uploading \(lifecycle.syncCompleted) of \(lifecycle.syncTotal) changes"
-                : session.status
-            activities.append(.init(icon: "icloud", title: "Syncing", detail: detail))
-        }
-        if settings.isTestingAI {
-            activities.append(.init(
-                icon: "checkmark.bubble",
-                title: "Testing AI",
-                detail: session.status
-            ))
-        }
-        return activities
-    }
 }

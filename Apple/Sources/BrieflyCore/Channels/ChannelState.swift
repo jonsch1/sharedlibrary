@@ -33,7 +33,29 @@ struct LibraryChannelStateRepository {
                 return existing.id == item.id ? nil : existing.id
             })
             let isKnown = seen.contains(item.id) && replacementIDs.isEmpty
-            guard !isKnown else { continue }
+            if isKnown {
+                if let index = current.items.firstIndex(where: {
+                    $0.isPending && $0.id == item.id
+                }) {
+                    let existing = current.items[index]
+                    current.items[index] = LibraryChannelItem(
+                        id: item.id,
+                        title: item.title,
+                        url: item.url,
+                        publishedAt: item.publishedAt,
+                        content: item.content,
+                        linkedURL: item.linkedURL,
+                        preferredInput: item.preferredInput,
+                        mediaURL: item.mediaURL,
+                        transcriptURL: item.transcriptURL,
+                        transcriptType: item.transcriptType,
+                        transcriptLanguage: item.transcriptLanguage,
+                        entryID: "",
+                        ingestedAt: existing.ingestedAt
+                    )
+                }
+                continue
+            }
 
             current.items.removeAll { existing in
                 existing.id == item.id || replacementIDs.contains(existing.id)
