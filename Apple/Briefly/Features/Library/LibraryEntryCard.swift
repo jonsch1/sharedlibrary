@@ -11,7 +11,7 @@ struct GrainyEntryCard: View {
     let action: () -> Void
 
     private var palette: GrainyGradientPalette {
-        paletteOverride ?? (entry.voiceBriefID == nil ? .item : .brief)
+        paletteOverride ?? .item
     }
 
     init(

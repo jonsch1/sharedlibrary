@@ -92,12 +92,6 @@ final class LibrarySelectionModel {
         clear()
         return .items
         #else
-        if session.projection.voiceBriefDefinitions.contains(where: {
-            !session.projection.episodes(for: $0.id).isEmpty
-        }) {
-            clear()
-            return .briefs
-        }
         selectedID = session.projection.entries.first(where: \.isMainLibraryEntry)?.id ?? ""
         selectedIDs = selectedID.isEmpty ? [] : [selectedID]
         selectedVariant = selectedEntry?.preferredVariant ?? .concise

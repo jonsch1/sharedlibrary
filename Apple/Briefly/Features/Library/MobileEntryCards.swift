@@ -12,22 +12,13 @@ struct MobileHomeEntryCard: View {
     }
 
     private var inferredKind: MobileEntryKind {
-        entry.voiceBriefID == nil ? .item : .brief
+        .item
     }
 }
 
 enum MobileEntryKind {
     case item
     case channel
-    case brief
-
-    var palette: GrainyGradientPalette {
-        switch self {
-        case .item: .item
-        case .channel: .channel
-        case .brief: .brief
-        }
-    }
 }
 
 struct MobileEntryCard: View {
@@ -56,14 +47,11 @@ struct MobileEntryRow: View {
         switch kind {
         case .item: Color(red: 0.60, green: 0.34, blue: 0.96)
         case .channel: Color(red: 0.93, green: 0.39, blue: 0.25)
-        case .brief: Color(red: 0.08, green: 0.70, blue: 0.62)
         }
     }
 
     private var icon: String {
         switch kind {
-        case .brief:
-            return entry.hasAudio == true ? "waveform" : "headphones"
         case .channel:
             return "dot.radiowaves.left.and.right"
         case .item:

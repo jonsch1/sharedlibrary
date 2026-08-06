@@ -18,10 +18,6 @@ struct MobileXDetail: View {
         )
         .background(readerBackground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(
-            model.navigation.showingVoiceBriefSettings ? .hidden : .visible,
-            for: .navigationBar
-        )
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {

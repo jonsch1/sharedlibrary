@@ -94,30 +94,6 @@ struct MacSidebarFilters: View {
                     }
                 }
 
-            case .briefs:
-                SidebarRow(
-                    icon: "headphones",
-                    title: "All",
-                    count: model.session.projection.entries.count {
-                        $0.entryType == "voice_brief_episode"
-                    },
-                    selected: model.navigation.selectedVoiceBriefID.isEmpty
-                ) {
-                    model.workflows.selectVoiceBrief("")
-                }
-                if !model.session.projection.voiceBriefDefinitions.isEmpty {
-                    SidebarSectionHeader("Voice Briefs")
-                    ForEach(model.session.projection.voiceBriefDefinitions, id: \.id) { brief in
-                        SidebarRow(
-                            icon: "headphones",
-                            title: brief.title,
-                            count: model.session.projection.episodes(for: brief.id).count,
-                            selected: model.navigation.selectedVoiceBriefID == brief.id
-                        ) {
-                            model.workflows.selectVoiceBrief(brief.id)
-                        }
-                    }
-                }
             }
         }
         .padding(.horizontal, 8)

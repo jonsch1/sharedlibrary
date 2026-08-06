@@ -7,8 +7,8 @@ enum LocalVoicePreparation: Sendable {
     case ready
 }
 
-actor LocalVoiceBriefSynthesizer {
-    static let shared = LocalVoiceBriefSynthesizer()
+actor LocalSpeechSynthesizer {
+    static let shared = LocalSpeechSynthesizer()
 
     private static let preferredChunkLength = 300
     private static let maximumPhonemeLength = 500
@@ -256,9 +256,9 @@ private enum LocalVoiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .audioTooLarge:
-            "The local voice brief is too large to save as a WAV file."
+            "The local speech is too large to save as a WAV file."
         case .emptyText:
-            "The voice brief does not contain text to speak."
+            "The document does not contain text to speak."
         case .inconsistentSampleRate:
             "The local voice returned incompatible audio chunks."
         case .modelUnavailable:
@@ -266,7 +266,7 @@ private enum LocalVoiceError: LocalizedError {
         case .noAudio:
             "The local voice did not create any audio."
         case .textCannotBeChunked:
-            "Part of the voice brief is too long for the local voice model."
+            "Part of the document is too long for the local voice model."
         case .unsafeOperatingSystem:
             "This OS version has a known Neural Engine speech crash."
         case .unsupportedEnvironment:

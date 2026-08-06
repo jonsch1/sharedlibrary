@@ -28,7 +28,7 @@ final class LibraryInputService {
             ItemInputRequest(source: .url(url), hints: hints),
             context: itemInputContext()
         )
-        return try await library.captureItem(draft, asVoiceBriefSource: true)
+        return try await library.captureItem(draft)
     }
 
     func ingestPDF(_ url: URL) async throws -> ItemDraft {

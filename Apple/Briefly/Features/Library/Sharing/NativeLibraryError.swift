@@ -15,7 +15,7 @@ enum NativeLibraryError: LocalizedError {
         case .audioPlaybackFailed:
             "Briefly could not start audio playback."
         case .emptySpeech:
-            "The voice brief does not contain text to speak."
+            "The document does not contain text to speak."
         case .iCloudUnavailable:
             "Sign in to iCloud and enable iCloud Drive for Briefly."
         case .unexpectedAIResponse:

@@ -5,7 +5,6 @@ import Observation
 enum LibrarySection: String, CaseIterable, Identifiable {
     case items
     case channels
-    case briefs
 
     var id: Self { self }
 
@@ -13,7 +12,6 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         switch self {
         case .items: "Home"
         case .channels: "Channels"
-        case .briefs: "Briefs"
         }
     }
 
@@ -21,7 +19,6 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         switch self {
         case .items: "house"
         case .channels: "dot.radiowaves.left.and.right"
-        case .briefs: "headphones"
         }
     }
 
@@ -29,7 +26,6 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         switch self {
         case .items: "Search items"
         case .channels: "Search channels"
-        case .briefs: "Search voice briefs"
         }
     }
 }
@@ -39,22 +35,6 @@ struct BrieflyActivity: Identifiable {
     let icon: String
     let title: String
     let detail: String
-}
-
-enum VoiceBriefGenerationPhase: Equatable {
-    case retrieving
-    case summarizing
-    case assembling
-}
-
-struct VoiceBriefGenerationProgress {
-    let voiceBriefID: String
-    var phase = VoiceBriefGenerationPhase.retrieving
-    var checkedChannelCount = 0
-    var totalChannelCount = 0
-    var retrievedItemCount = 0
-    var summarizedItemCount = 0
-    var failedItemCount = 0
 }
 
 struct ProcessingJobResult: Sendable {
@@ -102,7 +82,6 @@ final class LibraryModel {
     let processing: LibraryProcessingModel
     let account: LibraryAccountModel
     var settings: LibrarySettingsModel
-    let voiceBriefs: LibraryVoiceBriefModel
     let audio: LibraryAudioModel
     let sharing: LibrarySharingModel
     let lifecycle: LibraryLifecycleModel
@@ -117,7 +96,6 @@ final class LibraryModel {
         let processing = LibraryProcessingModel(session: session, inputService: inputService)
         let channels = LibraryChannelModel(session: session, inputService: inputService)
         let account = LibraryAccountModel(session: session)
-        let voiceBriefs = LibraryVoiceBriefModel(session: session)
         let audio = LibraryAudioModel(session: session)
         let sharing = LibrarySharingModel(session: session)
         let lifecycle = LibraryLifecycleModel(session: session)
@@ -129,7 +107,6 @@ final class LibraryModel {
             processing: processing,
             account: account,
             settings: settings,
-            voiceBriefs: voiceBriefs,
             audio: audio,
             lifecycle: lifecycle
         )
@@ -141,7 +118,6 @@ final class LibraryModel {
         self.processing = processing
         self.account = account
         self.settings = settings
-        self.voiceBriefs = voiceBriefs
         self.audio = audio
         self.sharing = sharing
         self.lifecycle = lifecycle
@@ -150,7 +126,7 @@ final class LibraryModel {
 
     var isWorking: Bool {
         processing.isIngesting || channels.isCheckingChannel || processing.isProcessing ||
-            voiceBriefs.isRunningVoiceBrief || audio.isGeneratingSpeech ||
+            audio.isGeneratingSpeech ||
             audio.isPreparingSpeech || lifecycle.isSyncing || settings.isTestingAI
     }
 
@@ -159,7 +135,6 @@ final class LibraryModel {
     }
 
     var menuBarActivity: String? {
-        if voiceBriefs.isRunningVoiceBrief { return "Creating brief" }
         if audio.isGeneratingSpeech { return "Creating audio" }
         if audio.isPreparingSpeech { return "Preparing voice" }
         if processing.isProcessing { return "Processing" }
@@ -174,7 +149,7 @@ final class LibraryModel {
     }
 
     var menuBarIcon: String {
-        if voiceBriefs.isRunningVoiceBrief || audio.isGeneratingSpeech || audio.isPreparingSpeech {
+        if audio.isGeneratingSpeech || audio.isPreparingSpeech {
             return "waveform"
         }
         if processing.isProcessing || settings.isTestingAI { return "sparkles" }
@@ -187,9 +162,6 @@ final class LibraryModel {
 
     var activeActivities: [BrieflyActivity] {
         var activities = [BrieflyActivity]()
-        if voiceBriefs.isRunningVoiceBrief {
-            activities.append(.init(icon: "sparkles", title: "Creating brief", detail: session.status))
-        }
         if audio.isGeneratingSpeech {
             activities.append(.init(icon: "waveform", title: "Creating audio", detail: session.status))
         }

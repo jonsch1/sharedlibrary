@@ -4,7 +4,6 @@ import SwiftUI
 enum GrainyGradientPalette {
     case item
     case channel
-    case brief
 }
 
 struct GrainyCard<Content: View>: View {

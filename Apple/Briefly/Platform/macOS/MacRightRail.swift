@@ -133,14 +133,6 @@ struct MacXRightRail: View {
                     }
                 }
             }
-        case .briefs:
-            FeedRailCard(title: "Main briefs") {
-                ForEach(Array(model.session.projection.voiceBriefDefinitions.prefix(6)), id: \.id) { brief in
-                    railButton(brief.title, icon: "headphones") {
-                        model.workflows.selectVoiceBrief(brief.id)
-                    }
-                }
-            }
         }
     }
 

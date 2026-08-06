@@ -31,26 +31,11 @@ struct LibraryCardBrowser: View {
             }
     }
 
-    private var voiceBriefEntries: [LibraryEntry] {
-        model.session.projection.entries.filter {
-            $0.entryType == "voice_brief_episode" &&
-                (model.navigation.selectedVoiceBriefID.isEmpty ||
-                    $0.voiceBriefID == model.navigation.selectedVoiceBriefID) &&
-                $0.matches(model.navigation.query)
-        }
-        .sorted {
-            ($0.createdAt ?? $0.updatedAt ?? "") >
-                ($1.createdAt ?? $1.updatedAt ?? "")
-        }
-    }
-
     private var count: Int {
         switch model.navigation.activeSection {
         case .items: model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).count
         case .channels:
             model.navigation.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
-        case .briefs:
-            voiceBriefEntries.count
         }
     }
 
@@ -60,8 +45,6 @@ struct LibraryCardBrowser: View {
             model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
         case .channels:
             model.navigation.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
-        case .briefs:
-            voiceBriefEntries
         }
     }
 
@@ -194,13 +177,6 @@ struct LibraryCardBrowser: View {
         VStack(alignment: .leading, spacing: 0) {
             feedTabs
 
-            if model.navigation.activeSection == .briefs,
-               let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
-                briefRefreshPrompt(brief)
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-            }
-
             Color.clear
                 .frame(height: 1)
                 .padding(.top, 12)
@@ -238,8 +214,6 @@ struct LibraryCardBrowser: View {
             .scrollIndicators(.hidden)
         case .channels:
             channelTabs
-        case .briefs:
-            briefTabs
         }
     }
 
@@ -275,33 +249,6 @@ struct LibraryCardBrowser: View {
                 .help("New channel")
                 .accessibilityLabel("New channel")
             }
-        case .briefs:
-            if let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
-                Button {
-                    model.workflows.showVoiceBriefSettings(brief.id)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .background(opaqueHeaderActionBackground, in: Circle())
-                .help("Settings for \(brief.title)")
-                .accessibilityLabel("Settings for \(brief.title)")
-            } else {
-                Button {
-                    model.navigation.query = ""
-                    model.workflows.showVoiceBriefSettings("new")
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .background(opaqueHeaderActionBackground, in: Circle())
-                .help("New brief")
-                .accessibilityLabel("New brief")
-            }
         }
     }
 
@@ -321,28 +268,6 @@ struct LibraryCardBrowser: View {
                         selected: model.navigation.selectedChannelSource == channel.source
                     ) {
                         model.workflows.selectChannel(channel.source)
-                    }
-                }
-            }
-            .padding(.horizontal, 18)
-            .padding(.trailing, 62)
-            .padding(.top, 24)
-        }
-        .scrollIndicators(.hidden)
-    }
-
-    private var briefTabs: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 20) {
-                selectionTab("All", selected: model.navigation.selectedVoiceBriefID.isEmpty) {
-                    model.workflows.selectVoiceBrief("")
-                }
-                ForEach(Array(model.session.projection.voiceBriefDefinitions.prefix(7)), id: \.id) { brief in
-                    selectionTab(
-                        brief.title,
-                        selected: model.navigation.selectedVoiceBriefID == brief.id
-                    ) {
-                        model.workflows.selectVoiceBrief(brief.id)
                     }
                 }
             }
@@ -396,10 +321,6 @@ struct LibraryCardBrowser: View {
         .buttonStyle(.plain)
     }
 
-    private func briefRefreshPrompt(_ brief: LibraryVoiceBrief) -> some View {
-        BriefPreparationPanel(model: model, brief: brief)
-    }
-
     private var feedRail: some View {
         VStack(spacing: 14) {
             HStack(spacing: 9) {
@@ -444,8 +365,6 @@ struct LibraryCardBrowser: View {
             model.navigation.showingTrash ? "Trash" : model.navigation.selectedTopic == "All" ? "For you" : model.navigation.selectedTopic
         case .channels:
             model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.title ?? "Channel"
-        case .briefs:
-            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.title ?? "Briefs"
         }
     }
 
@@ -478,22 +397,6 @@ struct LibraryCardBrowser: View {
                 .buttonStyle(.bordered)
                 .accessibilityLabel("Settings for \(channel.title)")
                 .help("Settings for \(channel.title)")
-            }
-        } else if model.navigation.activeSection == .briefs,
-            let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)
-        {
-            HStack {
-                Spacer()
-                Button {
-                    model.workflows.showVoiceBriefSettings(brief.id)
-                } label: {
-                    Image(systemName: "gearshape")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Settings for \(brief.title)")
-                .help("Settings for \(brief.title)")
             }
         }
     }
@@ -554,8 +457,6 @@ struct LibraryCardBrowser: View {
         case .items: model.navigation.showingTrash ? "Trash is empty" : "No notes yet"
         case .channels:
             model.navigation.selectedChannelSource.isEmpty ? "No channels yet" : "No notes yet"
-        case .briefs:
-            "No briefs yet"
         }
     }
 
@@ -563,7 +464,6 @@ struct LibraryCardBrowser: View {
         switch model.navigation.activeSection {
         case .items: model.navigation.showingTrash ? "trash" : "doc.text"
         case .channels: "dot.radiowaves.left.and.right"
-        case .briefs: "headphones"
         }
     }
 
@@ -578,10 +478,6 @@ struct LibraryCardBrowser: View {
             model.navigation.selectedChannelSource.isEmpty
                 ? "Add a channel to follow its updates."
                 : "New notes from this channel appear here."
-        case .briefs:
-            model.session.projection.voiceBriefDefinitions.isEmpty
-                ? "Create a voice brief from your channels."
-                : "Generated briefs appear here."
         }
     }
 }

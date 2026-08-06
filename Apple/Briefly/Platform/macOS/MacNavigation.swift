@@ -61,9 +61,6 @@ struct MacXNavigation: View {
                 case .channels:
                     model.navigation.query = ""
                     model.workflows.showChannelSettings("new")
-                case .briefs:
-                    model.navigation.query = ""
-                    model.workflows.showVoiceBriefSettings("new")
                 }
             } label: {
                 Label(primaryActionTitle, systemImage: "plus")
@@ -98,7 +95,6 @@ struct MacXNavigation: View {
         switch model.navigation.activeSection {
         case .items: "Capture"
         case .channels: "New channel"
-        case .briefs: "New brief"
         }
     }
 

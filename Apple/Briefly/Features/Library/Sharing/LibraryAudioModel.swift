@@ -38,7 +38,7 @@ final class LibraryAudioModel {
             localSpeechPreparation = nil
         }
         do {
-            try await LocalVoiceBriefSynthesizer.shared.prepare { [weak self] stage in
+            try await LocalSpeechSynthesizer.shared.prepare { [weak self] stage in
                 Task { @MainActor in
                     guard let self else { return }
                     switch stage {
@@ -130,7 +130,7 @@ final class LibraryAudioModel {
                     continue
                 }
 
-                try await LocalVoiceBriefSynthesizer.shared.synthesize(text, to: localURL)
+                try await LocalSpeechSynthesizer.shared.synthesize(text, to: localURL)
                 try segmentReady(localURL)
             }
             session.status = "Audio ready (on-device voice)"
@@ -147,7 +147,7 @@ final class LibraryAudioModel {
 
         func finishParagraph() {
             guard !lines.isEmpty else { return }
-            let paragraph = spokenVoiceBriefText(lines.joined(separator: "\n"))
+            let paragraph = spokenText(lines.joined(separator: "\n"))
             if !paragraph.isEmpty { paragraphs.append(paragraph) }
             lines.removeAll(keepingCapacity: true)
         }
@@ -160,7 +160,7 @@ final class LibraryAudioModel {
             }
         }
         finishParagraph()
-        return paragraphs.flatMap { LocalVoiceBriefSynthesizer.segments(for: $0) }
+        return paragraphs.flatMap { LocalSpeechSynthesizer.segments(for: $0) }
     }
 
     private func speechCacheURL(

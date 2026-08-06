@@ -6,10 +6,8 @@ import Observation
 final class LibraryNavigationModel {
     let session: LibrarySession
 
-    var activeSection = LibrarySection.briefs
-    var selectedVoiceBriefID = ""
+    var activeSection = LibrarySection.items
     var selectedChannelSource = ""
-    var showingVoiceBriefSettings = false
     var showingChannelSettings = false
     var showingHighlights = false
     var showingTrash = false
@@ -49,17 +47,7 @@ final class LibraryNavigationModel {
             selectedChannelDomain = "All"
             selectedChannelSource = ""
             showingChannelSettings = false
-        case .briefs:
-            selectedVoiceBriefID = ""
-            showingVoiceBriefSettings = false
         }
-    }
-
-    func selectVoiceBrief(_ id: String) {
-        showingHighlights = false
-        showingTrash = false
-        showingVoiceBriefSettings = false
-        selectedVoiceBriefID = id
     }
 
     func selectChannel(_ source: String) {
@@ -67,11 +55,6 @@ final class LibraryNavigationModel {
         showingTrash = false
         showingChannelSettings = false
         selectedChannelSource = source
-    }
-
-    func showVoiceBriefSettings(_ id: String) {
-        selectVoiceBrief(id)
-        showingVoiceBriefSettings = true
     }
 
     func showChannelSettings(_ source: String) {
@@ -118,13 +101,6 @@ final class LibraryNavigationModel {
         if activeSection == .channels {
             selectedChannelSource = ""
             showingChannelSettings = false
-        } else if activeSection == .briefs {
-            if showingVoiceBriefSettings {
-                showingVoiceBriefSettings = false
-                if selectedVoiceBriefID == "new" { selectedVoiceBriefID = "" }
-            } else {
-                selectedVoiceBriefID = ""
-            }
         }
     }
 

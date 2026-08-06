@@ -19,10 +19,6 @@ struct LibraryDetail: View {
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
-            } else if model.navigation.activeSection == .briefs &&
-                model.navigation.showingVoiceBriefSettings
-            {
-                VoiceBriefConfiguration(model: model)
             } else if model.navigation.activeSection == .channels &&
                 model.navigation.showingChannelSettings
             {
@@ -43,8 +39,6 @@ struct LibraryDetail: View {
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
-            } else if model.navigation.activeSection == .briefs {
-                VoiceBriefConfiguration(model: model)
             } else if model.navigation.activeSection == .channels {
                 ChannelConfiguration(
                     model: model,

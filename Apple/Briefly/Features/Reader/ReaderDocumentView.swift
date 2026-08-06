@@ -76,7 +76,6 @@ struct LibraryDocument: View {
 
                 HStack(spacing: 0) {
                     #if os(macOS)
-                    if !usesMobileVoiceBriefControls && !usesMobileItemControls {
                         Button {
                             Task {
                                 let variant = model.selection.selectedVariant
@@ -142,10 +141,8 @@ struct LibraryDocument: View {
                         .accessibilityLabel("Play audio")
                         .help("Play audio")
                         .disabled(
-                            model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
-                                model.selection.selectedText.isEmpty
+                            model.audio.isGeneratingSpeech || model.selection.selectedText.isEmpty
                         )
-                    }
 
                     Menu {
                         if model.session.canEdit && !model.navigation.showingTrash {
@@ -252,7 +249,6 @@ struct LibraryDocument: View {
         }
         #if os(iOS)
         .toolbar {
-            if usesMobileVoiceBriefControls || usesMobileItemControls {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         if let source = entry.sourceURL, let url = URL(string: source) {
@@ -265,9 +261,7 @@ struct LibraryDocument: View {
                                 showsSharing = true
                             } label: {
                                 Label(
-                                    usesMobileVoiceBriefControls
-                                        ? "Share voice brief"
-                                        : "Share document",
+                                    "Share document",
                                     systemImage: "square.and.arrow.up"
                                 )
                             }
@@ -287,24 +281,8 @@ struct LibraryDocument: View {
                     }
                     .accessibilityLabel("Document settings")
                 }
-            }
         }
         #endif
     }
 
-    private var usesMobileVoiceBriefControls: Bool {
-        #if os(iOS)
-        entry.voiceBriefID != nil
-        #else
-        false
-        #endif
-    }
-
-    private var usesMobileItemControls: Bool {
-        #if os(iOS)
-        entry.voiceBriefID == nil
-        #else
-        false
-        #endif
-    }
 }

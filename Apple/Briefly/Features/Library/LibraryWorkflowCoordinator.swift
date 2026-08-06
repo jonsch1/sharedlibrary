@@ -50,10 +50,8 @@ final class LibraryWorkflowCoordinator {
     let processing: LibraryProcessingModel
     let account: LibraryAccountModel
     let settings: LibrarySettingsModel
-    let voiceBriefs: LibraryVoiceBriefModel
     let audio: LibraryAudioModel
     let lifecycle: LibraryLifecycleModel
-    let voiceBriefWorkflow: LibraryVoiceBriefWorkflow
 
     private let syncScheduler: LibrarySyncScheduler
 
@@ -65,7 +63,6 @@ final class LibraryWorkflowCoordinator {
         processing: LibraryProcessingModel,
         account: LibraryAccountModel,
         settings: LibrarySettingsModel,
-        voiceBriefs: LibraryVoiceBriefModel,
         audio: LibraryAudioModel,
         lifecycle: LibraryLifecycleModel
     ) {
@@ -77,22 +74,9 @@ final class LibraryWorkflowCoordinator {
         self.processing = processing
         self.account = account
         self.settings = settings
-        self.voiceBriefs = voiceBriefs
         self.audio = audio
         self.lifecycle = lifecycle
         self.syncScheduler = syncScheduler
-        self.voiceBriefWorkflow = LibraryVoiceBriefWorkflow(
-            session: session,
-            navigation: navigation,
-            selection: selection,
-            channels: channels,
-            processing: processing,
-            settings: settings,
-            voiceBriefs: voiceBriefs,
-            audio: audio,
-            lifecycle: lifecycle,
-            syncScheduler: syncScheduler
-        )
         syncScheduler.setOperation { [weak self] request in
             switch request {
             case .lifecycle:
@@ -147,9 +131,7 @@ final class LibraryWorkflowCoordinator {
             _ = await processing.drainProcessingQueue(
                 configuration: settings.processingConfiguration
             )
-            await voiceBriefWorkflow.resumePendingVoiceBriefs()
             await runDueChannelChecks()
-            await voiceBriefWorkflow.runDueVoiceBriefs()
         } else {
             _ = await (selectedText, accountRefresh)
         }
@@ -215,34 +197,20 @@ final class LibraryWorkflowCoordinator {
 
     func select(_ id: String, extending: Bool = false) async {
         navigation.showingHighlights = false
-        let entry = await selection.select(
+        _ = await selection.select(
             id,
             extending: extending,
             includeDeleted: navigation.showingTrash
         )
-        if let voiceBriefID = entry?.voiceBriefID, !navigation.selectedVoiceBriefID.isEmpty {
-            navigation.selectedVoiceBriefID = voiceBriefID
-        }
     }
 
     func selectVariant(_ variant: LibraryVariant) async {
         await selection.selectVariant(variant, includeDeleted: navigation.showingTrash)
     }
 
-    func selectVoiceBrief(_ id: String) {
-        navigation.selectVoiceBrief(id)
-        selection.clear()
-    }
-
     func selectChannel(_ source: String) {
         navigation.selectChannel(source)
         selection.clear()
-    }
-
-    func showVoiceBriefSettings(_ id: String) {
-        selectVoiceBrief(id)
-        navigation.showingVoiceBriefSettings = true
-        Task { await channels.loadChannels() }
     }
 
     func showChannelSettings(_ source: String) {
@@ -321,22 +289,13 @@ final class LibraryWorkflowCoordinator {
 
     func enqueueProcessing(
         _ entryIDs: [String],
-        selectWhenFinished: Bool = false,
-        trackingVoiceBriefEntries: Set<String> = []
+        selectWhenFinished: Bool = false
     ) async {
         let results = await processing.enqueueProcessing(
             entryIDs,
             selectWhenFinished: selectWhenFinished,
             configuration: settings.processingConfiguration
         )
-        for result in results where trackingVoiceBriefEntries.contains(result.entryID) {
-            if result.succeeded {
-                voiceBriefs.voiceBriefGenerationProgress?.summarizedItemCount += 1
-            } else {
-                voiceBriefs.voiceBriefGenerationProgress?.failedItemCount += 1
-            }
-            voiceBriefWorkflow.updateContinuedVoiceBriefProgress()
-        }
         let selectedID = results.compactMap(\.selectedID).last
         await refreshLibrary(selecting: selectedID)
         if !results.isEmpty { requestSync() }
@@ -378,7 +337,6 @@ final class LibraryWorkflowCoordinator {
         text: String,
         segmentReady: (URL) throws -> Void
     ) async -> Bool {
-        guard !voiceBriefs.isRunningVoiceBrief else { return false }
         return await audio.streamPlayableAudio(
             for: entry,
             variant: variant,
@@ -391,14 +349,10 @@ final class LibraryWorkflowCoordinator {
 
     func checkSelectedChannel(loadMore: Bool = false) async {
         guard !navigation.selectedChannelSource.isEmpty else { return }
-        guard let result = await channels.checkChannel(
-            source: navigation.selectedChannelSource,
-            loadMore: loadMore
-        ) else { return }
-        if result.autoSummarize {
-            await enqueueProcessing(result.newEntryIDs)
-        } else if !result.newEntryIDs.isEmpty {
-            requestSync()
+        if loadMore {
+            _ = await channels.loadMoreChannel(source: navigation.selectedChannelSource)
+        } else {
+            _ = await channels.checkChannel(source: navigation.selectedChannelSource)
         }
     }
 
@@ -413,8 +367,7 @@ final class LibraryWorkflowCoordinator {
     func updateSelectedChannel(
         title: String,
         sources: [String],
-        retrievalCount: Int,
-        autoSummarize: Bool,
+        reviewWindow: Int,
         schedule: String
     ) async {
         guard !navigation.selectedChannelSource.isEmpty else { return }
@@ -422,8 +375,7 @@ final class LibraryWorkflowCoordinator {
             source: navigation.selectedChannelSource,
             title: title,
             sources: sources,
-            retrievalCount: retrievalCount,
-            autoSummarize: autoSummarize,
+            reviewWindow: reviewWindow,
             schedule: schedule
         ) {
             requestSync()
@@ -440,14 +392,7 @@ final class LibraryWorkflowCoordinator {
     }
 
     func runDueChannelChecks() async {
-        guard !voiceBriefs.isRunningVoiceBrief else { return }
-        let result = await channels.runDueChannelChecks()
-        let entryIDs = result.newEntryIDs.filter(result.autoSummarizeIDs.contains)
-        if !entryIDs.isEmpty {
-            await enqueueProcessing(entryIDs)
-        } else if !result.newEntryIDs.isEmpty {
-            requestSync()
-        }
+        _ = await channels.runDueChannelChecks()
     }
 
     // MARK: Settings
@@ -473,32 +418,6 @@ final class LibraryWorkflowCoordinator {
         requestSync()
     }
 
-    // MARK: Voice briefs
-
-    func checkSelectedVoiceBriefChannels() async {
-        await voiceBriefWorkflow.checkSelectedVoiceBriefChannels()
-    }
-
-    func runSelectedVoiceBrief() async {
-        await voiceBriefWorkflow.runSelectedVoiceBrief()
-    }
-
-    func resumePendingVoiceBriefs() async {
-        await voiceBriefWorkflow.resumePendingVoiceBriefs()
-    }
-
-    func runDueVoiceBriefs() async {
-        await voiceBriefWorkflow.runDueVoiceBriefs()
-    }
-
-    func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) async -> String? {
-        await voiceBriefWorkflow.saveVoiceBrief(draft)
-    }
-
-    func trashSelectedVoiceBrief() async {
-        await voiceBriefWorkflow.trashSelectedVoiceBrief()
-    }
-
     private func refreshFeatureCaches(from library: SQLiteLibraryStore) async throws {
         if selection.hasLoadedTrash { try await selection.refreshTrash(from: library) }
         if channels.hasLoadedChannels { try await channels.refreshChannels(from: library) }
@@ -514,11 +433,6 @@ final class LibraryWorkflowCoordinator {
         let entryID = preferredEntryID ?? selection.selectedID
         if (session.projection.entries + selection.trashEntries).contains(where: { $0.id == entryID }) {
             await selection.select(entryID, includeDeleted: navigation.showingTrash)
-            if let voiceBriefID = selection.selectedEntry?.voiceBriefID,
-               !navigation.selectedVoiceBriefID.isEmpty
-            {
-                navigation.selectedVoiceBriefID = voiceBriefID
-            }
             return
         }
 
@@ -531,12 +445,6 @@ final class LibraryWorkflowCoordinator {
             navigation.selectedChannelSource = ""
             navigation.showingChannelSettings = false
         }
-        if navigation.selectedVoiceBriefID != "new",
-           voiceBriefs.voiceBrief(for: navigation.selectedVoiceBriefID) == nil
-        {
-            navigation.selectedVoiceBriefID = ""
-            navigation.showingVoiceBriefSettings = false
-        }
         #else
         switch navigation.activeSection {
         case .items:
@@ -547,13 +455,6 @@ final class LibraryWorkflowCoordinator {
             }
             if navigation.selectedChannelSource != "new", !hasSelectedChannel {
                 navigation.selectedChannelSource = channels.channels.first?.source ?? ""
-            }
-        case .briefs:
-            if navigation.selectedVoiceBriefID != "new",
-               let first = session.projection.voiceBriefDefinitions.first,
-               voiceBriefs.voiceBrief(for: navigation.selectedVoiceBriefID) == nil
-            {
-                navigation.selectedVoiceBriefID = first.id
             }
         }
         #endif

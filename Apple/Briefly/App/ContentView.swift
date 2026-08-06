@@ -102,18 +102,14 @@ struct ContentView: View {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
                 if model.session.canEdit { await model.workflows.sync() }
-                await model.workflows.resumePendingVoiceBriefs()
                 await model.workflows.runDueChannelChecks()
-                await model.workflows.runDueVoiceBriefs()
             }
         }
         .onChange(of: scenePhase) {
             if scenePhase == .active, model.lifecycle.runsScheduledWork {
                 Task {
                     if model.session.canEdit { await model.workflows.sync() }
-                    await model.workflows.resumePendingVoiceBriefs()
                     await model.workflows.runDueChannelChecks()
-                    await model.workflows.runDueVoiceBriefs()
                 }
             }
         }

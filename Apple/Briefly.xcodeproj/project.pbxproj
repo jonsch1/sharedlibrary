@@ -78,11 +78,7 @@
 		100000000000000000000166 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000166 /* SettingsView.swift */; };
 		100000000000000000000167 /* SettingsViewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000167 /* SettingsViewLayout.swift */; };
 		100000000000000000000168 /* SettingsViewNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000168 /* SettingsViewNavigation.swift */; };
-		100000000000000000000169 /* VoiceBriefSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000169 /* VoiceBriefSettings.swift */; };
-		100000000000000000000170 /* BriefPreparationPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000170 /* BriefPreparationPanel.swift */; };
-		100000000000000000000171 /* LibraryVoiceBriefModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000171 /* LibraryVoiceBriefModel.swift */; };
-		100000000000000000000188 /* LibraryVoiceBriefWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */; };
-		100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */; };
+		100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalSpeechSynthesizer.swift */; };
 		100000000000000000000173 /* NativeLibraryError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000173 /* NativeLibraryError.swift */; };
 		100000000000000000000175 /* BrieflyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000175 /* BrieflyBackend.swift */; };
 		100000000000000000000176 /* BrieflyBackendModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000176 /* BrieflyBackendModels.swift */; };
@@ -183,11 +179,7 @@
 		200000000000000000000166 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		200000000000000000000167 /* SettingsViewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewLayout.swift; sourceTree = "<group>"; };
 		200000000000000000000168 /* SettingsViewNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewNavigation.swift; sourceTree = "<group>"; };
-		200000000000000000000169 /* VoiceBriefSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBriefSettings.swift; sourceTree = "<group>"; };
-		200000000000000000000170 /* BriefPreparationPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BriefPreparationPanel.swift; sourceTree = "<group>"; };
-		200000000000000000000171 /* LibraryVoiceBriefModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryVoiceBriefModel.swift; sourceTree = "<group>"; };
-		200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryVoiceBriefWorkflow.swift; sourceTree = "<group>"; };
-		200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceBriefSynthesizer.swift; sourceTree = "<group>"; };
+		200000000000000000000172 /* LocalSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechSynthesizer.swift; sourceTree = "<group>"; };
 		200000000000000000000173 /* NativeLibraryError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryError.swift; sourceTree = "<group>"; };
 		200000000000000000000175 /* BrieflyBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackend.swift; sourceTree = "<group>"; };
 		200000000000000000000176 /* BrieflyBackendModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackendModels.swift; sourceTree = "<group>"; };
@@ -281,7 +273,6 @@
 				400000000000000000000105 /* Library */,
 				400000000000000000000107 /* Reader */,
 				400000000000000000000109 /* Settings */,
-				400000000000000000000110 /* VoiceBrief */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -345,6 +336,8 @@
 			children = (
 				200000000000000000000143 /* LibrarySharingModel.swift */,
 				200000000000000000000189 /* LibraryAudioModel.swift */,
+				200000000000000000000172 /* LocalSpeechSynthesizer.swift */,
+				200000000000000000000173 /* NativeLibraryError.swift */,
 				200000000000000000000144 /* ShareDocumentView.swift */,
 			);
 			path = Sharing;
@@ -393,21 +386,8 @@
 				200000000000000000000166 /* SettingsView.swift */,
 				200000000000000000000167 /* SettingsViewLayout.swift */,
 				200000000000000000000168 /* SettingsViewNavigation.swift */,
-				200000000000000000000169 /* VoiceBriefSettings.swift */,
 			);
 			path = Settings;
-			sourceTree = "<group>";
-		};
-		400000000000000000000110 /* VoiceBrief */ = {
-			isa = PBXGroup;
-			children = (
-				200000000000000000000170 /* BriefPreparationPanel.swift */,
-				200000000000000000000171 /* LibraryVoiceBriefModel.swift */,
-				200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */,
-				200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */,
-				200000000000000000000173 /* NativeLibraryError.swift */,
-			);
-			path = VoiceBrief;
 			sourceTree = "<group>";
 		};
 		400000000000000000000111 /* Infrastructure */ = {
@@ -670,11 +650,7 @@
 				100000000000000000000166 /* SettingsView.swift in Sources */,
 				100000000000000000000167 /* SettingsViewLayout.swift in Sources */,
 				100000000000000000000168 /* SettingsViewNavigation.swift in Sources */,
-				100000000000000000000169 /* VoiceBriefSettings.swift in Sources */,
-				100000000000000000000170 /* BriefPreparationPanel.swift in Sources */,
-				100000000000000000000171 /* LibraryVoiceBriefModel.swift in Sources */,
-				100000000000000000000188 /* LibraryVoiceBriefWorkflow.swift in Sources */,
-				100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */,
+				100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */,
 				100000000000000000000173 /* NativeLibraryError.swift in Sources */,
 				100000000000000000000175 /* BrieflyBackend.swift in Sources */,
 				100000000000000000000176 /* BrieflyBackendModels.swift in Sources */,

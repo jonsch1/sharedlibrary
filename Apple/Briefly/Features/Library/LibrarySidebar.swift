@@ -115,14 +115,10 @@ struct LibrarySidebar: View {
             if model.navigation.activeSection != .items {
                 Button {
                     model.navigation.query = ""
-                    if model.navigation.activeSection == .channels {
-                        model.workflows.showChannelSettings("new")
-                    } else {
-                        model.workflows.showVoiceBriefSettings("new")
-                    }
+                    model.workflows.showChannelSettings("new")
                 } label: {
                     Label(
-                        model.navigation.activeSection == .channels ? "New channel" : "New brief",
+                        "New channel",
                         systemImage: "plus"
                     )
                     .font(.headline)

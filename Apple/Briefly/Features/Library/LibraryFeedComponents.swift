@@ -17,7 +17,7 @@ struct FeedEntryRow: View {
         if let host = sourceURL?.host {
             return host.replacingOccurrences(of: "www.", with: "")
         }
-        return entry.entryType == "voice_brief_episode" ? "Voice Brief" : "Briefly"
+        return "Briefly"
     }
 
     private var relativeDate: String? {

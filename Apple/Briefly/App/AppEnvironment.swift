@@ -95,20 +95,6 @@ struct AppEnvironment {
             createdAt: createdAt.addingTimeInterval(60),
             addToOutbox: false
         )
-        let channelArticle = try database.createDocument(
-            title: "A Feed Story About Boundaries",
-            body: "# A Feed Story About Boundaries\n\nA channel story used by the application tour.",
-            texts: [
-                .source: "# A Feed Story About Boundaries\n\nA channel story used by the application tour.",
-                .concise: "# Feed boundaries\n\nA channel item remains linked to its source."
-            ],
-            type: "voice_brief_source",
-            sourceURL: "https://fixture.example/feed-story",
-            id: "fixture:channel-article",
-            captureID: "FIXTURE-CHANNEL-ARTICLE",
-            createdAt: createdAt.addingTimeInterval(90),
-            addToOutbox: false
-        )
         try database.saveChannelRecords([
             SQLiteChannelRecord(
                 source: channelSource,
@@ -116,45 +102,12 @@ struct AppEnvironment {
                 kind: .feed,
                 schedule: "manual",
                 lastCheckedAt: ISO8601DateFormatter().string(from: createdAt),
-                retrievalCount: 5,
+                reviewLimit: defaultChannelReviewLimit,
                 canLoadMore: false,
-                seen: ["fixture-item"],
-                items: [
-                    LibraryChannelItem(
-                        id: "fixture-item",
-                        title: channelArticle.title,
-                        url: "https://fixture.example/feed-story",
-                        publishedAt: ISO8601DateFormatter().string(from: createdAt),
-                        entryID: channelArticle.id,
-                        ingestedAt: ISO8601DateFormatter().string(from: createdAt)
-                    )
-                ]
+                seen: [],
+                items: []
             )
         ])
-        _ = try database.saveVoiceBrief(LibraryVoiceBriefDraft(
-            id: "fixture:brief",
-            title: "Fixture Daily Brief",
-            schedule: "manual",
-            length: LibraryVariant.concise.rawValue,
-            sources: [channelSource],
-            prioritizeForMe: false
-        ))
-        _ = try database.createDocument(
-            title: "Fixture Daily Brief — Architecture",
-            body: "# Fixture Daily Brief\n\nClear boundaries make systems easier to change.",
-            texts: [
-                .concise: "# Fixture Daily Brief\n\nClear boundaries make systems easier to change.",
-                .detailed: "# Fixture Daily Brief\n\nThe saved stories emphasize narrow interfaces and durable journey tests."
-            ],
-            type: "voice_brief_episode",
-            voiceBriefID: "fixture:brief",
-            sourceIDs: [channelArticle.id],
-            sourceURLs: ["https://fixture.example/feed-story"],
-            id: "fixture:brief-episode",
-            captureID: "FIXTURE-BRIEF-EPISODE",
-            createdAt: createdAt.addingTimeInterval(120),
-            addToOutbox: false
-        )
     }
 
     private static func sanitizedScenario(_ value: String) -> String {

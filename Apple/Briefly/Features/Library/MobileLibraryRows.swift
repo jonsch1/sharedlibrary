@@ -40,22 +40,6 @@ struct MobileLibraryRows: View {
         }
     }
 
-    private var briefs: [LibraryVoiceBrief] {
-        let query = model.navigation.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matching = model.session.projection.voiceBriefDefinitions.filter { brief in
-            guard !query.isEmpty else { return true }
-            return brief.title.localizedCaseInsensitiveContains(query) ||
-                model.session.projection.episodes(for: brief.id).contains { $0.matches(query) }
-        }
-        return matching.sorted {
-            let leftCount = model.session.projection.episodes(for: $0.id).count
-            let rightCount = model.session.projection.episodes(for: $1.id).count
-            return leftCount != rightCount
-                ? leftCount > rightCount
-                : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-        }
-    }
-
     private var itemCollectionCount: Int {
         1 + (model.navigation.query.isEmpty ? 1 : 0) + topics.count +
             (model.navigation.query.isEmpty || !trashNotes.isEmpty ? 1 : 0)
@@ -67,8 +51,6 @@ struct MobileLibraryRows: View {
             model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
         case .channels:
             model.channels.channelEntries(for: model.navigation.selectedChannelSource)
-        case .briefs:
-            model.session.projection.episodes(for: model.navigation.selectedVoiceBriefID)
         }
         return candidates
             .filter { $0.matches(model.navigation.query) }
@@ -90,8 +72,6 @@ struct MobileLibraryRows: View {
                 : "No matching documents"
         case .channels:
             model.navigation.query.isEmpty ? "No channel items" : "No matching channel items"
-        case .briefs:
-            model.navigation.query.isEmpty ? "No voice briefs" : "No matching voice briefs"
         }
     }
 
@@ -99,7 +79,6 @@ struct MobileLibraryRows: View {
         switch model.navigation.activeSection {
         case .items: .item
         case .channels: .channel
-        case .briefs: .brief
         }
     }
 
@@ -111,8 +90,6 @@ struct MobileLibraryRows: View {
                 : model.navigation.selectedTopic == "All" ? "Inbox" : model.navigation.selectedTopic
         case .channels:
             model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.title ?? "Channel"
-        case .briefs:
-            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.title ?? "Voice Brief"
         }
     }
 
@@ -128,12 +105,6 @@ struct MobileLibraryRows: View {
             case .channels:
                 if model.navigation.selectedChannelSource.isEmpty || model.navigation.selectedChannelSource == "new" {
                     channelCollections
-                } else {
-                    entryCollection
-                }
-            case .briefs:
-                if model.navigation.selectedVoiceBriefID.isEmpty || model.navigation.selectedVoiceBriefID == "new" {
-                    briefCollections
                 } else {
                     entryCollection
                 }
@@ -238,36 +209,6 @@ struct MobileLibraryRows: View {
                         }
                     ) {
                         model.workflows.selectChannel(channel.source)
-                    }
-                }
-            }
-        }
-    }
-
-    private var briefCollections: some View {
-        collectionScroll { height in
-            if briefs.isEmpty {
-                SidebarEmpty(
-                    icon: "headphones",
-                    title: model.navigation.query.isEmpty ? "No voice briefs yet" : "No matching voice briefs"
-                )
-            } else {
-                ForEach(briefs, id: \.id) { brief in
-                    MobileCollectionCard(
-                        key: "brief:\(brief.id)",
-                        palette: .brief,
-                        minimumHeight: briefs.count == 1 ? height : nil,
-                        icon: "headphones",
-                        eyebrow: "VOICE BRIEF",
-                        title: brief.title,
-                        subtitle: "\(model.session.projection.episodes(for: brief.id).count) episodes",
-                        settingsLabel: "Settings for \(brief.title)",
-                        settingsAction: {
-                            model.workflows.showVoiceBriefSettings(brief.id)
-                            onOpenDetail()
-                        }
-                    ) {
-                        model.workflows.selectVoiceBrief(brief.id)
                     }
                 }
             }

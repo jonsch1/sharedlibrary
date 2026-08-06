@@ -25,14 +25,6 @@ struct MobileXFeedScreen: View {
             } else {
                 candidates = model.channels.channelEntries(for: model.navigation.selectedChannelSource)
             }
-        case .briefs:
-            if model.navigation.selectedVoiceBriefID.isEmpty {
-                candidates = model.session.projection.voiceBriefDefinitions.flatMap {
-                    model.session.projection.episodes(for: $0.id)
-                }
-            } else {
-                candidates = model.session.projection.episodes(for: model.navigation.selectedVoiceBriefID)
-            }
         case .library:
             candidates = []
         }
@@ -52,13 +44,6 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        if tab == .briefs,
-                           let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
-                            BriefPreparationPanel(model: model, brief: brief)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                        }
-
                         XEmptyState(
                             icon: emptyIcon,
                             title: emptyTitle,
@@ -75,14 +60,6 @@ struct MobileXFeedScreen: View {
                     LazyVStack(spacing: 0) {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
-
-                        if tab == .briefs,
-                           let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) {
-                            BriefPreparationPanel(model: model, brief: brief)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
 
                         ForEach(entries) { entry in
                             FeedEntryRow(entry: entry) {
@@ -102,7 +79,6 @@ struct MobileXFeedScreen: View {
         .overlay(alignment: .top) { floatingHeader }
         .background(readerBackground.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
-        .animation(.smooth(duration: 0.3), value: model.navigation.selectedVoiceBriefID)
         .animation(.snappy(duration: 0.24), value: showsSearch)
         .onDisappear {
             showsSearch = false
@@ -167,7 +143,6 @@ struct MobileXFeedScreen: View {
                     switch tab {
                     case .home: Task { await model.workflows.showTopic("All") }
                     case .channels: model.navigation.selectedChannelSource = ""
-                    case .briefs: model.navigation.selectedVoiceBriefID = ""
                     case .library: break
                     }
                 }
@@ -186,15 +161,6 @@ struct MobileXFeedScreen: View {
                             selected: model.navigation.selectedChannelSource == channel.source
                         ) {
                             model.workflows.selectChannel(channel.source)
-                        }
-                    }
-                case .briefs:
-                    ForEach(model.session.projection.voiceBriefDefinitions, id: \.id) { brief in
-                        choiceButton(
-                            brief.title,
-                            selected: model.navigation.selectedVoiceBriefID == brief.id
-                        ) {
-                            model.workflows.selectVoiceBrief(brief.id)
                         }
                     }
                 case .library:
@@ -234,12 +200,6 @@ struct MobileXFeedScreen: View {
                 model.workflows.showChannelSettings(channel.source)
                 openConfiguration()
             }
-        case .briefs:
-            guard let brief = model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) else { return nil }
-            return MobileXHeaderAction(icon: "ellipsis", label: "Brief settings") {
-                model.workflows.showVoiceBriefSettings(brief.id)
-                openConfiguration()
-            }
         default:
             return nil
         }
@@ -254,12 +214,6 @@ struct MobileXFeedScreen: View {
             } else {
                 await model.workflows.runDueChannelChecks()
             }
-        case .briefs:
-            if model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil {
-                await model.workflows.runSelectedVoiceBrief()
-            } else {
-                await model.workflows.runDueVoiceBriefs()
-            }
         case .library: break
         }
     }
@@ -268,7 +222,6 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Home"
         case .channels: "Channels"
-        case .briefs: "Briefs"
         case .library: "Library"
         }
     }
@@ -277,7 +230,6 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Search Home"
         case .channels: "Search Channels"
-        case .briefs: "Search Briefs"
         case .library: "Search Library"
         }
     }
@@ -286,7 +238,6 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Capture"
         case .channels: "New channel"
-        case .briefs: "New brief"
         case .library: "Capture"
         }
     }
@@ -295,7 +246,6 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: model.navigation.selectedTopic == "All" || model.navigation.selectedTopic.isEmpty
         case .channels: model.navigation.selectedChannelSource.isEmpty
-        case .briefs: model.navigation.selectedVoiceBriefID.isEmpty
         case .library: false
         }
     }
@@ -305,7 +255,6 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "tray"
         case .channels: "dot.radiowaves.left.and.right"
-        case .briefs: "headphones"
         case .library: "bookmark"
         }
     }
@@ -315,7 +264,6 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "Nothing here yet"
         case .channels: "No channel updates"
-        case .briefs: "No generated briefs"
         case .library: "Library is empty"
         }
     }
@@ -325,7 +273,6 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "Capture a link or note to start your feed."
         case .channels: "Add a channel, then pull to fetch its latest updates."
-        case .briefs: "Create a brief from your channels, then generate an episode."
         case .library: "Highlights and recently deleted notes appear here."
         }
     }

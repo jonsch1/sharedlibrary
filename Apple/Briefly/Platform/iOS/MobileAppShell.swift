@@ -23,10 +23,6 @@ struct MobileXAppShell: View {
                 .tabItem { Label("Channels", systemImage: "dot.radiowaves.left.and.right") }
                 .tag(MobilePrimaryTab.channels)
 
-            mobileStack(.briefs)
-                .tabItem { Label("Briefs", systemImage: "headphones") }
-                .tag(MobilePrimaryTab.briefs)
-
             NavigationStack {
                 MobileXLibraryScreen(
                     model: model,
@@ -96,8 +92,7 @@ struct MobileXAppShell: View {
                 .padding(.bottom, 58)
                 .accessibilityLabel("Play audio")
                 .disabled(
-                    model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
-                        model.selection.selectedText.isEmpty
+                    model.audio.isGeneratingSpeech || model.selection.selectedText.isEmpty
                 )
             }
         }
@@ -134,10 +129,7 @@ struct MobileXAppShell: View {
 
     private func openEntry(_ entry: LibraryEntry) {
         Task {
-            if entry.voiceBriefID != nil {
-                model.navigation.activeSection = .briefs
-                model.navigation.selectedVoiceBriefID = entry.voiceBriefID ?? ""
-            } else if selectedTab == .home {
+            if selectedTab == .home {
                 model.navigation.activeSection = .items
             }
             await model.workflows.select(entry.id)
@@ -149,7 +141,6 @@ struct MobileXAppShell: View {
         switch tab {
         case .home: await model.workflows.show(.items)
         case .channels: await model.workflows.show(.channels)
-        case .briefs: await model.workflows.show(.briefs)
         case .library: break
         }
     }
@@ -223,9 +214,6 @@ struct MobileXAppShell: View {
             showsCaptureComposer = true
         case .channels:
             model.workflows.showChannelSettings("new")
-            showsDetail = true
-        case .briefs:
-            model.workflows.showVoiceBriefSettings("new")
             showsDetail = true
         }
     }

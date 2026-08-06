@@ -199,24 +199,17 @@ struct MobileLibraryNavigation: View {
         switch model.navigation.activeSection {
         case .items: return "Import PDF"
         case .channels: return "New channel"
-        case .briefs: return "New voice brief"
         }
-    }
-
-    private var isVoiceBriefDetail: Bool {
-        preferredCompactColumn == .detail &&
-            model.navigation.activeSection == .briefs &&
-            model.selection.selectedEntry?.voiceBriefID != nil
     }
 
     private var isItemDetail: Bool {
         preferredCompactColumn == .detail &&
             !model.navigation.showingHighlights &&
-            model.selection.selectedEntry?.voiceBriefID == nil
+            model.selection.selectedEntry != nil
     }
 
     private var isPlayableDetail: Bool {
-        isVoiceBriefDetail || isItemDetail
+        isItemDetail
     }
 
     private var isChannelPage: Bool {
@@ -224,33 +217,22 @@ struct MobileLibraryNavigation: View {
             model.channels.selectedChannel(for: model.navigation.selectedChannelSource) != nil && model.selection.selectedID.isEmpty
     }
 
-    private var isVoiceBriefPage: Bool {
-        !homeSelected && model.navigation.activeSection == .briefs &&
-            model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID) != nil && model.selection.selectedID.isEmpty
-    }
-
     private var primaryActionIcon: String {
         if isPlayableDetail { return "play.fill" }
         if isChannelPage { return "arrow.clockwise" }
-        if isVoiceBriefPage { return "sparkles" }
         return "plus"
     }
 
     private var primaryActionLabel: String {
         if isPlayableDetail { return "Play audio" }
         if isChannelPage { return "Fetch fresh channel items" }
-        if isVoiceBriefPage { return "Generate fresh voice brief" }
         return createLabel
     }
 
     private var primaryActionDisabled: Bool {
         (isPlayableDetail &&
-            (model.audio.isGeneratingSpeech || model.voiceBriefs.isRunningVoiceBrief ||
-                model.selection.selectedText.isEmpty)) ||
-            (isChannelPage && model.channels.isCheckingChannel) ||
-            (isVoiceBriefPage &&
-                (model.voiceBriefs.isRunningVoiceBrief ||
-                    model.voiceBriefs.voiceBrief(for: model.navigation.selectedVoiceBriefID)?.sources.isEmpty != false))
+            (model.audio.isGeneratingSpeech || model.selection.selectedText.isEmpty)) ||
+            (isChannelPage && model.channels.isCheckingChannel)
     }
 
     private func primaryAction() {
@@ -297,8 +279,6 @@ struct MobileLibraryNavigation: View {
         }
         if isChannelPage {
             Task { await model.workflows.checkSelectedChannel() }
-        } else if isVoiceBriefPage {
-            Task { await model.workflows.runSelectedVoiceBrief() }
         } else {
             create()
         }
@@ -318,9 +298,6 @@ struct MobileLibraryNavigation: View {
             showsPDFImporter = true
         case .channels:
             model.navigation.selectedChannelSource = "new"
-            preferredCompactColumn = .detail
-        case .briefs:
-            model.navigation.selectedVoiceBriefID = "new"
             preferredCompactColumn = .detail
         }
     }

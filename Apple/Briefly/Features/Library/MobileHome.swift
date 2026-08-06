@@ -46,7 +46,7 @@ struct MobileHome: View {
                     systemImage: model.navigation.query.isEmpty ? "tray" : "magnifyingglass",
                     description: Text(
                         model.navigation.query.isEmpty
-                            ? "New items and voice briefs will appear here."
+                            ? "New items will appear here."
                             : "Try another search."
                     )
                 )
@@ -59,10 +59,7 @@ struct MobileHome: View {
                                 entry: entry
                             ) {
                                 Task {
-                                    model.navigation.activeSection = entry.voiceBriefID == nil
-                                        ? .items
-                                        : .briefs
-                                    model.navigation.selectedVoiceBriefID = entry.voiceBriefID ?? ""
+                                    model.navigation.activeSection = .items
                                     await model.workflows.select(entry.id)
                                     onOpenDetail()
                                 }

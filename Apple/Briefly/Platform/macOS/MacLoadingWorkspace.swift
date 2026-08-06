@@ -13,7 +13,6 @@ struct MacXLoadingWorkspace: View {
                 ForEach([
                     ("house", "Home"),
                     ("dot.radiowaves.left.and.right", "Channels"),
-                    ("headphones", "Briefs"),
                     ("highlighter", "Highlights"),
                     ("trash", "Trash")
                 ], id: \.1) { icon, title in
