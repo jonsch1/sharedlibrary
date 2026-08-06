@@ -44,7 +44,6 @@ struct LibraryDocument: View {
             .padding(.horizontal, 14)
             .frame(height: 56)
             .background(.regularMaterial)
-            Divider()
             #endif
 
             ZStack(alignment: .bottom) {
@@ -260,7 +259,6 @@ struct LibraryDocument: View {
             .frame(maxWidth: .infinity)
             .frame(height: 58)
             .background(.regularMaterial)
-            .overlay(alignment: .top) { Divider() }
             .frame(maxWidth: .infinity, alignment: .bottom)
             #endif
             }
@@ -270,7 +268,6 @@ struct LibraryDocument: View {
         .frame(maxWidth: 680)
         .frame(maxWidth: .infinity, alignment: .top)
         .background(.ultraThinMaterial.opacity(0.64))
-        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
         #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #endif

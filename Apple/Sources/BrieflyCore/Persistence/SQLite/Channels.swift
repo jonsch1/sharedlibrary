@@ -2,6 +2,61 @@ import Foundation
 import SQLite3
 
 extension SQLiteLibrary {
+    public func channelSources(documentID: String) throws -> [String] {
+        try locked {
+            try query(
+                "SELECT DISTINCT c.source_url FROM channel_items ci " +
+                    "JOIN channels c ON c.id = ci.channel_id " +
+                    "WHERE ci.entry_id = ? AND c.deleted_at IS NULL ORDER BY c.source_url",
+                bindings: [.text(documentID)],
+                transform: { columnText($0, 0) }
+            )
+        }
+    }
+
+    /// Rebuilds the local channel relationship carried by a cloud document. The full
+    /// document is already synced separately, so only lightweight item metadata is
+    /// needed here to make the entry visible in its channel on this device.
+    public func restoreCloudChannelSources(_ sources: [String], for documentID: String) throws {
+        try locked {
+            guard let document = try readDocument(documentID), !document.deleted else { return }
+            try transaction {
+                for source in Set(sources) {
+                    try run(
+                        "INSERT OR IGNORE INTO channels(id, source_url) VALUES(?, ?)",
+                        bindings: [.text(source), .text(source)]
+                    )
+                    let alreadyLinked = try query(
+                        "SELECT 1 FROM channel_items WHERE channel_id = ? AND entry_id = ? LIMIT 1",
+                        bindings: [.text(source), .text(documentID)],
+                        transform: { _ in true }
+                    ).first == true
+                    guard !alreadyLinked else { continue }
+                    try run(
+                        """
+                        INSERT INTO channel_items(
+                          channel_id, item_id, title, url, entry_id, ingested_at
+                        ) VALUES(?, ?, ?, ?, ?, ?)
+                        """,
+                        bindings: [
+                            .text(source), .text(documentID), .text(document.title),
+                            .text(document.sourceURL ?? source), .text(documentID),
+                            .double(document.createdAt.timeIntervalSince1970)
+                        ]
+                    )
+                    try run(
+                        "INSERT OR IGNORE INTO channel_seen(channel_id, item_id, seen_at) " +
+                            "VALUES(?, ?, ?)",
+                        bindings: [
+                            .text(source), .text(documentID),
+                            .double(document.createdAt.timeIntervalSince1970)
+                        ]
+                    )
+                }
+            }
+        }
+    }
+
     public func channelRecords() throws -> [SQLiteChannelRecord] {
         try locked {
             let rows = try query(

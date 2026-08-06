@@ -11,7 +11,7 @@ enum NativeLibraryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .audioGenerationFailed:
-            "The system voice could not create an audio file."
+            "Briefly could not create an audio file."
         case .audioPlaybackFailed:
             "Briefly could not start audio playback."
         case .emptySpeech:

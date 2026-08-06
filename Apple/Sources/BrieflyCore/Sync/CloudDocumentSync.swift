@@ -19,6 +19,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         let tags: [String]
         let sourceIDs: [String]
         let sourceURLs: [String]
+        let channelSources: [String]?
         let texts: [LibraryVariant: String]
     }
 
@@ -76,6 +77,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             engine.state.remove(pendingRecordZoneChanges: recoveredChanges)
             try store.markInitialCloudUploadPrepared()
         }
+        try store.prepareChannelProvenanceUploadIfNeeded()
         engine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
 
         do {
@@ -306,6 +308,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             tags: document.tags,
             sourceIDs: document.sourceIDs,
             sourceURLs: document.sourceURLs,
+            channelSources: try store.channelSources(documentID: document.id),
             texts: document.texts
         ))
         try FileManager.default.createDirectory(
@@ -383,6 +386,10 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             texts: payload.texts,
             cloudRecordData: try archived(record)
         ))
+        try store.restoreCloudChannelSources(
+            payload.channelSources ?? [],
+            for: localID
+        )
     }
 
     private func applyAttachment(_ record: CKRecord) throws {

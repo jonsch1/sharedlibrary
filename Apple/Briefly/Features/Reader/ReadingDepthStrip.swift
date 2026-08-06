@@ -6,39 +6,32 @@ struct ReadingDepthStrip: View {
     @Bindable var model: LibraryModel
     let entry: LibraryEntry
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(entry.texts.map(\.variant), id: \.self) { variant in
-                    Button {
-                        Task { await model.workflows.selectVariant(variant) }
-                    } label: {
-                        ReadingDepthIcon(variant: variant)
-                            .frame(width: 44, height: 32)
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .background(
-                        model.selection.selectedVariant == variant
-                            ? Color.accentColor
-                            : Color.primary.opacity(0.055)
-                    )
-                    .foregroundStyle(
-                        model.selection.selectedVariant == variant ? Color.white : Color.primary
-                    )
-                    .clipShape(Capsule())
-                    .accessibilityLabel(
-                        variant == .source ? "Original" : variant.title
-                    )
-                    .accessibilityAddTraits(
-                        model.selection.selectedVariant == variant ? .isSelected : []
-                    )
-                }
+    private var variants: [LibraryVariant] {
+        let availableVariants = Set(entry.texts.map(\.variant))
+        return LibraryVariant.allCases.filter(availableVariants.contains)
+    }
+
+    private var selectedVariant: Binding<LibraryVariant> {
+        Binding(
+            get: { model.selection.selectedVariant },
+            set: { variant in
+                guard variant != model.selection.selectedVariant else { return }
+                Task { await model.workflows.selectVariant(variant) }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+        )
+    }
+
+    var body: some View {
+        Picker("Reading depth", selection: selectedVariant) {
+            ForEach(variants, id: \.self) { variant in
+                ReadingDepthIcon(variant: variant)
+                    .accessibilityLabel(variant == .source ? "Original" : variant.title)
+                    .tag(variant)
+            }
         }
-        .mobileGlass(in: Capsule())
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .accessibilityIdentifier("reader.depth.selector")
     }
 }
 #endif

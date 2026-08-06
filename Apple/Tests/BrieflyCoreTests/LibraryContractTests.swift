@@ -183,6 +183,70 @@ final class LibraryContractTests: XCTestCase {
         })
     }
 
+    func testCloudChannelProvenanceMakesDerivedDocumentVisibleOnReceivingDevice() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try SQLiteLibrary(
+            databaseURL: root.appending(path: "source.sqlite3")
+        )
+        let document = try source.createDocument(
+            title: "Channel story",
+            body: "A story discovered by the channel.",
+            type: "voice_brief_source",
+            sourceURL: "https://example.com/story"
+        )
+        try source.saveChannelRecords([SQLiteChannelRecord(
+            source: "https://example.com/feed",
+            title: "Example feed",
+            kind: .feed,
+            schedule: "manual",
+            lastCheckedAt: nil,
+            error: nil,
+            retrievalCount: 5,
+            canLoadMore: false,
+            seen: ["story"],
+            items: [LibraryChannelItem(
+                id: "story",
+                title: document.title,
+                url: document.sourceURL!,
+                entryID: document.id,
+                ingestedAt: document.createdAt.iso8601
+            )]
+        )])
+
+        try source.acknowledgeOutbox(
+            documentID: document.id,
+            revision: document.revision
+        )
+        try source.prepareChannelProvenanceUploadIfNeeded()
+        XCTAssertTrue(try source.outbox().contains {
+            $0.recordType == "document" && $0.documentID == document.id
+        })
+        try source.acknowledgeOutbox(
+            documentID: document.id,
+            revision: document.revision
+        )
+        try source.prepareChannelProvenanceUploadIfNeeded()
+        XCTAssertFalse(try source.outbox().contains {
+            $0.recordType == "document" && $0.documentID == document.id
+        })
+
+        let receivedURL = root.appending(path: "received.sqlite3")
+        let received = try SQLiteLibrary(databaseURL: receivedURL)
+        try received.applyRemote(document)
+        try received.restoreCloudChannelSources(
+            try source.channelSources(documentID: document.id),
+            for: document.id
+        )
+
+        let projection = try await SQLiteLibraryStore(databaseURL: receivedURL).loadProjection()
+        let receivedEntry = try XCTUnwrap(projection.entries.first { $0.id == document.id })
+        XCTAssertEqual(receivedEntry.channelSources, ["https://example.com/feed"])
+        XCTAssertFalse(receivedEntry.isMainLibraryEntry)
+        XCTAssertEqual(try received.channelRecords().first?.items.first?.entryID, document.id)
+    }
+
     func testCanonicalCaptureAndMediaPersistence() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

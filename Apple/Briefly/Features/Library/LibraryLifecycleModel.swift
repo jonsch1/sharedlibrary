@@ -13,6 +13,9 @@ final class LibraryLifecycleModel {
     var syncCompleted = 0
     var syncTotal = 0
 
+    @ObservationIgnored
+    private var syncRequested = false
+
     init(session: LibrarySession) {
         self.session = session
     }
@@ -55,15 +58,26 @@ final class LibraryLifecycleModel {
     }
 
     func sync() async {
-        guard !isSyncing else { return }
+        guard !isSyncing else {
+            syncRequested = true
+            return
+        }
         isSyncing = true
-        syncCompleted = 0
-        syncTotal = 0
         defer {
             isSyncing = false
             syncCompleted = 0
             syncTotal = 0
         }
+
+        repeat {
+            syncRequested = false
+            syncCompleted = 0
+            syncTotal = 0
+            await synchronizeOnce()
+        } while syncRequested
+    }
+
+    private func synchronizeOnce() async {
         do {
             guard let library = session.library else { return }
             guard let cloud = session.cloud else {

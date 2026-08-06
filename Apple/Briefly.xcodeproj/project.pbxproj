@@ -84,7 +84,6 @@
 		100000000000000000000188 /* LibraryVoiceBriefWorkflow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */; };
 		100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */; };
 		100000000000000000000173 /* NativeLibraryError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000173 /* NativeLibraryError.swift */; };
-		100000000000000000000174 /* NativeVoiceSynthesis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000174 /* NativeVoiceSynthesis.swift */; };
 		100000000000000000000175 /* BrieflyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000175 /* BrieflyBackend.swift */; };
 		100000000000000000000176 /* BrieflyBackendModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000176 /* BrieflyBackendModels.swift */; };
 		100000000000000000000177 /* MobileAppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000177 /* MobileAppShell.swift */; };
@@ -190,7 +189,6 @@
 		200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryVoiceBriefWorkflow.swift; sourceTree = "<group>"; };
 		200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalVoiceBriefSynthesizer.swift; sourceTree = "<group>"; };
 		200000000000000000000173 /* NativeLibraryError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryError.swift; sourceTree = "<group>"; };
-		200000000000000000000174 /* NativeVoiceSynthesis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceSynthesis.swift; sourceTree = "<group>"; };
 		200000000000000000000175 /* BrieflyBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackend.swift; sourceTree = "<group>"; };
 		200000000000000000000176 /* BrieflyBackendModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackendModels.swift; sourceTree = "<group>"; };
 		200000000000000000000177 /* MobileAppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAppShell.swift; sourceTree = "<group>"; };
@@ -408,7 +406,6 @@
 				200000000000000000000188 /* LibraryVoiceBriefWorkflow.swift */,
 				200000000000000000000172 /* LocalVoiceBriefSynthesizer.swift */,
 				200000000000000000000173 /* NativeLibraryError.swift */,
-				200000000000000000000174 /* NativeVoiceSynthesis.swift */,
 			);
 			path = VoiceBrief;
 			sourceTree = "<group>";
@@ -679,7 +676,6 @@
 				100000000000000000000188 /* LibraryVoiceBriefWorkflow.swift in Sources */,
 				100000000000000000000172 /* LocalVoiceBriefSynthesizer.swift in Sources */,
 				100000000000000000000173 /* NativeLibraryError.swift in Sources */,
-				100000000000000000000174 /* NativeVoiceSynthesis.swift in Sources */,
 				100000000000000000000175 /* BrieflyBackend.swift in Sources */,
 				100000000000000000000176 /* BrieflyBackendModels.swift in Sources */,
 				100000000000000000000177 /* MobileAppShell.swift in Sources */,

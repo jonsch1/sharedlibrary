@@ -1,6 +1,6 @@
-import AVFoundation
 import BrieflyCore
 import CryptoKit
+import Foundation
 import Observation
 
 @MainActor
@@ -56,7 +56,7 @@ final class LibraryAudioModel {
             speechPreparationStatus = "Local voice ready"
         } catch {
             isLocalSpeechReady = false
-            speechPreparationStatus = "System voice will be used"
+            speechPreparationStatus = "Local voice unavailable"
         }
     }
 
@@ -111,7 +111,10 @@ final class LibraryAudioModel {
         let description = variant == .source
             ? "document"
             : "\(variant.title.lowercased()) summary"
-        var useSystemVoice = !isLocalSpeechReady
+        guard isLocalSpeechReady else {
+            session.errorMessage = "The on-device voice is unavailable. Try again after it finishes loading."
+            return false
+        }
 
         do {
             for (index, text) in segments.enumerated() {
@@ -127,32 +130,10 @@ final class LibraryAudioModel {
                     continue
                 }
 
-                if !useSystemVoice {
-                    do {
-                        try await LocalVoiceBriefSynthesizer.shared.synthesize(text, to: localURL)
-                        try segmentReady(localURL)
-                        continue
-                    } catch {
-                        useSystemVoice = true
-                    }
-                }
-
-                let systemURL = try speechCacheURL(
-                    entryID: entry.id,
-                    variant: variant,
-                    text: text,
-                    engine: "system-v1"
-                )
-                if !usableCachedAudio(at: systemURL) {
-                    try? FileManager.default.removeItem(at: systemURL)
-                    session.status = "Local voice unavailable; using system voice…"
-                    try await synthesizeSystemVoiceBriefAudio(text, to: systemURL)
-                }
-                try segmentReady(systemURL)
+                try await LocalVoiceBriefSynthesizer.shared.synthesize(text, to: localURL)
+                try segmentReady(localURL)
             }
-            session.status = useSystemVoice
-                ? "Audio ready (system voice)"
-                : "Audio ready (on-device voice)"
+            session.status = "Audio ready (on-device voice)"
             return true
         } catch {
             session.errorMessage = error.localizedDescription

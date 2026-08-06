@@ -104,6 +104,36 @@ extension SQLiteLibrary {
         }
     }
 
+    /// Re-uploads channel-derived documents once so older libraries gain the channel
+    /// provenance added to the cloud document payload.
+    public func prepareChannelProvenanceUploadIfNeeded() throws {
+        try locked {
+            let key = "briefly-channel-provenance-upload-v1"
+            let prepared = try query(
+                "SELECT 1 FROM sync_state WHERE key = ? LIMIT 1",
+                bindings: [.text(key)],
+                transform: { _ in true }
+            ).first == true
+            guard !prepared else { return }
+            try transaction {
+                let documents = try query(
+                    """
+                    SELECT DISTINCT d.id, d.revision
+                    FROM documents d JOIN channel_items ci ON ci.entry_id = d.id
+                    WHERE d.deleted = 0
+                    """
+                ) { (columnText($0, 0), sqlite3_column_int64($0, 1)) }
+                for (id, revision) in documents {
+                    try enqueue(id: id, revision: revision, operation: "save")
+                }
+                try run(
+                    "INSERT INTO sync_state(key, value) VALUES(?, ?)",
+                    bindings: [.text(key), .blob(Data([1]))]
+                )
+            }
+        }
+    }
+
     public func cloudRecordData(recordType: String, id: String) throws -> Data? {
         try locked {
             let table: String
