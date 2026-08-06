@@ -1,127 +1,97 @@
 import Foundation
 
-struct VoiceBriefWatcherState: Codable {
-    struct Source: Codable {
-        var groupID: String? = nil
-        var groupTitle: String? = nil
-        var title: String? = nil
-        var kind: LibraryChannelKind? = nil
-        var schedule: String? = nil
-        var lastCheckedAt: String? = nil
-        var error: String? = nil
-        var retrievalCount: Int? = nil
-        var autoSummarize: Bool? = nil
-        var canLoadMore: Bool? = nil
-        var seen = [String]()
-        var items = [LibraryChannelItem]()
-    }
-
-    struct Run: Codable {
-        var lastRunAt: String? = nil
-        var lastAttemptAt: String? = nil
-        var status: String? = nil
-        var message: String? = nil
-        var consumed = [String]()
-        var pendingEpisodeID: String? = nil
-    }
-
-    var schemaVersion: Int
-    var sources: [String: Source]
-    var voiceBriefs: [String: Run]
-
-    static let empty = Self(schemaVersion: 1, sources: [:], voiceBriefs: [:])
-}
-
-/// Durable channel and voice-brief state. This repository translates between
-/// normalized SQLite records and the workflow state used by channel services.
+/// The persisted channel definition plus its durable review queue. Accepted
+/// items stay in `items` for channel provenance, while the public channel
+/// projection exposes only items whose `entryID` is empty.
 struct LibraryChannelStateRepository {
-    let documents: SQLiteDocumentRepository
-    let voiceBriefRepository: SQLiteVoiceBriefRepository
     let channels: SQLiteChannelRepository
 
-    func channelStateURL(for root: URL) -> URL {
-        root
-            .appending(path: ".shared-library", directoryHint: .isDirectory)
-            .appending(path: "voice-brief-state.json")
+    func records() throws -> [SQLiteChannelRecord] {
+        try channels.records()
     }
 
-    func voiceBriefs() throws -> [LibraryVoiceBrief] {
-        try voiceBriefRepository.all()
-    }
-
-    func saveVoiceBriefEpisode(
-        brief: LibraryVoiceBrief,
-        scripts: [LibraryVariant: String],
-        sources: [LibraryChannelItem]
-    ) throws -> String {
-        let captureID = UUID().uuidString.uppercased()
-        let title = scripts[.concise].flatMap(firstHeading) ??
-            scripts[.detailed].flatMap(firstHeading) ??
-            "\(brief.title) — \(Date().formatted(date: .abbreviated, time: .omitted))"
-        let sourceIDs = Array(Set(sources.map(\.entryID)))
-        let sourceURLs = Array(Set(sources.map(\.url)))
-        let sourceList = sources.map { "- [\($0.title)](\($0.url))" }.joined(separator: "\n")
-        let texts = scripts.mapValues { script in
-            """
-            \(script.trimmingCharacters(in: .whitespacesAndNewlines))
-
-            ## Sources
-
-            \(sourceList)
-            """
-        }
-        return try documents.create(
-            title: title,
-            body: texts[.concise] ?? texts[.detailed] ?? "",
-            texts: texts,
-            type: "voice_brief_episode",
-            voiceBriefID: brief.id,
-            sourceIDs: sourceIDs,
-            sourceURLs: sourceURLs,
-            id: "personal:\(captureID)",
-            captureID: captureID
-        ).id
+    func write(_ records: [SQLiteChannelRecord]) throws {
+        try channels.saveRecords(records)
     }
 
     func merge(
         _ discovered: DiscoveredChannel,
-        into current: inout VoiceBriefWatcherState.Source,
-        limit: Int,
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
-    ) async throws -> [String] {
-        if current.kind == .page, discovered.kind != .page {
-            current.items.removeAll()
-            current.seen.removeAll()
-        }
+        into current: inout SQLiteChannelRecord,
+        limit: Int
+    ) -> [String] {
         var seen = Set(current.seen)
-        var newEntryIDs = [String]()
-        var ingestionError: Error?
-        for item in discovered.items.prefix(limit).reversed() where !seen.contains(item.id) {
-            guard httpURL(item.url) != nil else { continue }
-            let content = item.content?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let candidate = LibraryChannelCandidate(
-                id: item.id,
-                title: item.title,
-                url: item.url,
-                publishedAt: item.publishedAt,
-                content: content ?? "",
-                linkedURL: item.linkedURL,
-                preferredInput: item.preferredInput,
-                mediaURL: item.mediaURL,
-                transcriptURL: item.transcriptURL,
-                transcriptType: item.transcriptType,
-                transcriptLanguage: item.transcriptLanguage
+        var newItemIDs = [String]()
+
+        for item in discovered.items.prefix(limit).reversed() {
+            guard !item.id.isEmpty, httpURL(item.url) != nil else { continue }
+            let identity = canonicalItemIdentity(URL(string: item.url))
+            let replacementIDs: Set<String> = Set(current.items.compactMap { existing in
+                guard existing.isPending,
+                      let identity,
+                      canonicalItemIdentity(URL(string: existing.url)) == identity
+                else { return nil }
+                return existing.id == item.id ? nil : existing.id
+            })
+            let isKnown = seen.contains(item.id) && replacementIDs.isEmpty
+            guard !isKnown else { continue }
+
+            current.items.removeAll { existing in
+                existing.id == item.id || replacementIDs.contains(existing.id)
+            }
+            current.items.insert(
+                LibraryChannelItem(
+                    id: item.id,
+                    title: item.title,
+                    url: item.url,
+                    publishedAt: item.publishedAt,
+                    content: item.content,
+                    linkedURL: item.linkedURL,
+                    preferredInput: item.preferredInput,
+                    mediaURL: item.mediaURL,
+                    transcriptURL: item.transcriptURL,
+                    transcriptType: item.transcriptType,
+                    transcriptLanguage: item.transcriptLanguage,
+                    entryID: "",
+                    ingestedAt: Date().iso8601
+                ),
+                at: 0
             )
-            do {
-                let entryID = try await ingest(candidate)
-                let identity = canonicalItemIdentity(URL(string: item.url))
-                let replacedIDs = Set(current.items.filter {
-                    identity != nil && canonicalItemIdentity(URL(string: $0.url)) == identity
-                }.map(\.id))
-                current.items.removeAll {
-                    identity != nil && canonicalItemIdentity(URL(string: $0.url)) == identity
+            current.seen.removeAll { $0 == item.id || replacementIDs.contains($0) }
+            current.seen.insert(item.id, at: 0)
+            seen.insert(item.id)
+            newItemIDs.append(item.id)
+        }
+
+        current.title = discovered.title
+        current.kind = discovered.kind
+        current.canLoadMore = discovered.items.count >= limit && limit < 50
+        return newItemIDs
+    }
+
+    func repair(_ record: inout SQLiteChannelRecord) {
+        record.reviewLimit = normalizedReviewLimit(record.reviewLimit)
+        record.seen = orderedUnique(record.seen)
+        record.items = record.items.filter { item in
+            !item.id.isEmpty && httpURL(item.url) != nil
+        }
+    }
+
+    func buildChannels(from records: [SQLiteChannelRecord]) -> [LibraryChannel] {
+        let groups = Dictionary(grouping: records) { $0.groupID }
+        return groups.compactMap { groupID, values in
+            guard let primary = values.sorted(by: { $0.source < $1.source }).first else {
+                return nil
+            }
+            let sources = values.map(\.source).sorted()
+            let items = values
+                .flatMap { record in
+                    record.items
+                        .filter(\.isPending)
+                        .map { (record.source, $0) }
                 }
-                current.items.insert(
+                .sorted { $0.1.ingestedAt > $1.1.ingestedAt }
+                .prefix(normalizedReviewLimit(primary.reviewLimit))
+                .map { source, item in
                     LibraryChannelItem(
                         id: item.id,
                         title: item.title,
@@ -129,138 +99,38 @@ struct LibraryChannelStateRepository {
                         publishedAt: item.publishedAt,
                         content: item.content,
                         linkedURL: item.linkedURL,
-                        entryID: entryID,
-                        ingestedAt: Date().iso8601
-                    ),
-                    at: 0
-                )
-                current.seen.removeAll { $0 == item.id || replacedIDs.contains($0) }
-                current.seen.insert(item.id, at: 0)
-                seen.insert(item.id)
-                newEntryIDs.append(entryID)
-            } catch {
-                ingestionError = error
-            }
-        }
-        current.items = Array(current.items.prefix(100))
-        current.seen = Array(NSOrderedSet(array: current.seen).array
-            .compactMap { $0 as? String }
-            .prefix(100))
-        current.title = discovered.title
-        current.kind = discovered.kind
-        current.error = ingestionError?.localizedDescription
-        current.canLoadMore = discovered.items.count >= limit && limit < 100
-        return newEntryIDs
-    }
-
-    func repair(_ current: inout VoiceBriefWatcherState.Source) throws {
-        let missing = Set(current.items.compactMap { item in
-            (try? documents.get(item.entryID)) == nil ? item.id : nil
-        })
-        guard !missing.isEmpty else { return }
-        current.items.removeAll { missing.contains($0.id) }
-        current.seen.removeAll { missing.contains($0) }
-    }
-
-    func read() -> VoiceBriefWatcherState {
-        let sources = (try? channels.records()) ?? []
-        let runs = (try? voiceBriefRepository.runStates()) ?? []
-        return VoiceBriefWatcherState(
-            schemaVersion: 1,
-            sources: Dictionary(uniqueKeysWithValues: sources.map { record in
-                (record.source, VoiceBriefWatcherState.Source(
-                    groupID: record.groupID,
-                    groupTitle: record.groupTitle,
-                    title: record.title,
-                    kind: record.kind,
-                    schedule: record.schedule,
-                    lastCheckedAt: record.lastCheckedAt,
-                    error: record.error,
-                    retrievalCount: record.retrievalCount,
-                    autoSummarize: record.autoSummarize,
-                    canLoadMore: record.canLoadMore,
-                    seen: record.seen,
-                    items: record.items
-                ))
-            }),
-            voiceBriefs: Dictionary(uniqueKeysWithValues: runs.map { run in
-                (run.voiceBriefID, VoiceBriefWatcherState.Run(
-                    lastRunAt: run.lastRunAt,
-                    lastAttemptAt: run.lastAttemptAt,
-                    status: run.status,
-                    message: run.message,
-                    consumed: run.consumed,
-                    pendingEpisodeID: run.pendingEpisodeID
-                ))
-            })
-        )
-    }
-
-    func write(_ state: VoiceBriefWatcherState) throws {
-        try channels.saveRecords(state.sources.map { source, value in
-            SQLiteChannelRecord(
-                source: source,
-                groupID: value.groupID ?? source,
-                groupTitle: value.groupTitle,
-                title: value.title,
-                kind: value.kind,
-                schedule: value.schedule ?? "manual",
-                lastCheckedAt: value.lastCheckedAt,
-                error: value.error,
-                retrievalCount: value.retrievalCount ?? 5,
-                autoSummarize: value.autoSummarize ?? true,
-                canLoadMore: value.canLoadMore ?? true,
-                seen: value.seen,
-                items: value.items
-            )
-        })
-        try voiceBriefRepository.saveRunStates(state.voiceBriefs.map { id, value in
-            SQLiteVoiceBriefRunState(
-                voiceBriefID: id,
-                lastRunAt: value.lastRunAt,
-                lastAttemptAt: value.lastAttemptAt,
-                status: value.status,
-                message: value.message,
-                consumed: value.consumed,
-                pendingEpisodeID: value.pendingEpisodeID
-            )
-        })
-    }
-
-    func buildChannels(from state: VoiceBriefWatcherState) throws -> [LibraryChannel] {
-        let definitions = try voiceBriefs()
-        var allSources = state.sources
-        for source in Set(definitions.flatMap(\.sources)) where allSources[source] == nil {
-            allSources[source] = .init(groupID: source)
-        }
-        let groups = Dictionary(grouping: allSources.keys) { source in
-            allSources[source]?.groupID ?? source
-        }
-        return groups.map { groupID, unorderedSources in
-            let sources = unorderedSources.sorted()
-            let values = sources.compactMap { allSources[$0] }
-            let primary = values.first
-            let owners = definitions.filter { !Set($0.sources).isDisjoint(with: sources) }
-            let items = Dictionary(
-                values.flatMap(\.items).map { ($0.entryID.isEmpty ? $0.id : $0.entryID, $0) },
-                uniquingKeysWith: { first, _ in first }
-            ).values.sorted { $0.ingestedAt > $1.ingestedAt }
+                        preferredInput: item.preferredInput,
+                        mediaURL: item.mediaURL,
+                        transcriptURL: item.transcriptURL,
+                        transcriptType: item.transcriptType,
+                        transcriptLanguage: item.transcriptLanguage,
+                        entryID: item.entryID,
+                        ingestedAt: item.ingestedAt
+                    )
+                }
             return LibraryChannel(
                 source: groupID,
                 sources: sources,
-                title: primary?.groupTitle ?? primary?.title ?? channelDisplayTitle(sources[0]),
-                kind: Set(values.compactMap(\.kind)).count == 1 ? primary?.kind : nil,
-                schedule: primary?.schedule ?? "manual",
+                title: primary.groupTitle ?? primary.title ?? channelDisplayTitle(primary.source),
+                kind: Set(values.compactMap(\.kind)).count == 1 ? primary.kind : nil,
+                schedule: primary.schedule,
                 lastCheckedAt: values.compactMap(\.lastCheckedAt).max(),
                 error: values.compactMap(\.error).first,
-                retrievalCount: primary?.retrievalCount ?? 5,
-                autoSummarize: primary?.autoSummarize ?? true,
-                canLoadMore: values.contains { $0.canLoadMore ?? true },
-                items: items,
-                briefIDs: owners.map(\.id),
-                briefTitles: owners.map(\.title)
+                reviewLimit: normalizedReviewLimit(primary.reviewLimit),
+                canLoadMore: values.contains { $0.canLoadMore },
+                items: items
             )
         }
-        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        .sorted {
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+        }
+    }
+
+    private func normalizedReviewLimit(_ value: Int) -> Int {
+        min(channelReviewLimitRange.upperBound, max(channelReviewLimitRange.lowerBound, value))
+    }
+
+    private func orderedUnique(_ values: [String]) -> [String] {
+        Array(NSOrderedSet(array: values).array.compactMap { $0 as? String })
     }
 }

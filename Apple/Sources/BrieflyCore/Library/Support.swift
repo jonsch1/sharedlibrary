@@ -87,6 +87,18 @@ func libraryExcerpt(_ text: String) -> String {
     return result.count > 240 ? "\(result.prefix(237).trimmingCharacters(in: .whitespaces))…" : result
 }
 
+func normalizedDocumentType(_ type: String) -> String {
+    switch type {
+    case "voice_brief_episode": "document"
+    case "voice_brief_source": "link"
+    default: type
+    }
+}
+
+func normalizedDocumentTags(_ tags: [String]) -> [String] {
+    tags.filter { $0.lowercased() != "voice-brief" }
+}
+
 func slug(_ value: String) -> String {
     let folded = value.folding(
         options: [.diacriticInsensitive, .caseInsensitive],

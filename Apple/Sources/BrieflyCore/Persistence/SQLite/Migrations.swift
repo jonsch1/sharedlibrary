@@ -6,90 +6,129 @@ enum SQLiteLibraryMigrator {
             "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"
         )
         try library.execute(SQLiteLibrarySchema.sql)
-        let columns = try library.query("PRAGMA table_info(documents)") { columnText($0, 1) }
+        try migrateDocuments(library)
+        try migrateChannels(library)
+        try migrateChannelItems(library)
+        try migrateAttachments(library)
+        try library.execute("UPDATE processing_jobs SET state = 'queued' WHERE state = 'running'")
+        try removeRetiredGeneratedSchema(from: library)
+    }
+
+    private static func migrateDocuments(_ library: SQLiteLibrary) throws {
+        var columns = try library.query("PRAGMA table_info(documents)") { columnText($0, 1) }
         if !columns.contains("media_url") {
             try library.execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
+            columns.append("media_url")
         }
         if !columns.contains("excerpt") {
             try library.transaction {
                 try library.execute("ALTER TABLE documents ADD COLUMN excerpt TEXT NOT NULL DEFAULT ''")
                 try library.backfillExcerpts()
             }
+            columns.append("excerpt")
         }
-        let channelColumns = try library.query("PRAGMA table_info(channels)") { columnText($0, 1) }
-        if !channelColumns.contains("schedule") {
+        // Preserve old content as ordinary library entries before dropping the
+        // retired generated-content discriminator. The type cleanup also handles
+        // partially migrated libraries where the old column is already gone.
+        try library.transaction {
+            try library.run(
+                "UPDATE documents SET type = 'document' WHERE type = 'voice_brief_episode'"
+            )
+            try library.run(
+                "UPDATE documents SET type = 'link' WHERE type = 'voice_brief_source'"
+            )
+            try library.run("DELETE FROM document_tags WHERE lower(tag) = 'voice-brief'")
+            if columns.contains("voice_brief_id") {
+                try library.execute("ALTER TABLE documents DROP COLUMN voice_brief_id")
+            }
+        }
+    }
+
+    private static func migrateChannels(_ library: SQLiteLibrary) throws {
+        let columns = try library.query("PRAGMA table_info(channels)") { columnText($0, 1) }
+        if !columns.contains("schedule") {
             try library.execute("ALTER TABLE channels ADD COLUMN schedule TEXT NOT NULL DEFAULT 'manual'")
         }
-        if !channelColumns.contains("group_id") {
+        if !columns.contains("group_id") {
             try library.execute("ALTER TABLE channels ADD COLUMN group_id TEXT")
             try library.execute("UPDATE channels SET group_id = source_url WHERE group_id IS NULL")
         }
-        if !channelColumns.contains("group_title") {
+        if !columns.contains("group_title") {
             try library.execute("ALTER TABLE channels ADD COLUMN group_title TEXT")
         }
-        if !channelColumns.contains("auto_summarize") {
+        if !columns.contains("review_limit") {
             try library.execute(
-                "ALTER TABLE channels ADD COLUMN auto_summarize INTEGER NOT NULL DEFAULT 1"
+                "ALTER TABLE channels ADD COLUMN review_limit INTEGER NOT NULL DEFAULT 50 " +
+                    "CHECK(review_limit BETWEEN 1 AND 50)"
             )
+            if columns.contains("retrieval_count") {
+                try library.execute(
+                    "UPDATE channels SET review_limit = MIN(50, MAX(1, retrieval_count))"
+                )
+            }
         }
-        let voiceBriefColumns = try library.query(
-            "PRAGMA table_info(voice_briefs)"
-        ) { columnText($0, 1) }
-        if voiceBriefColumns.contains("prompt") {
-            try library.execute("ALTER TABLE voice_briefs DROP COLUMN prompt")
+        let refreshedColumns = try library.query("PRAGMA table_info(channels)") { columnText($0, 1) }
+        if refreshedColumns.contains("retrieval_count") {
+            try library.execute("ALTER TABLE channels DROP COLUMN retrieval_count")
         }
-        let voiceBriefStateColumns = try library.query(
-            "PRAGMA table_info(voice_brief_state)"
-        ) { columnText($0, 1) }
-        if !voiceBriefStateColumns.contains("pending_episode_id") {
-            try library.execute("ALTER TABLE voice_brief_state ADD COLUMN pending_episode_id TEXT")
+        if refreshedColumns.contains("auto_summarize") {
+            try library.execute("ALTER TABLE channels DROP COLUMN auto_summarize")
         }
-        try library.execute("UPDATE processing_jobs SET state = 'queued' WHERE state = 'running'")
+        try library.run(
+            "UPDATE channels SET review_limit = MIN(50, MAX(1, COALESCE(review_limit, 50)))"
+        )
+    }
+
+    private static func migrateChannelItems(_ library: SQLiteLibrary) throws {
+        let columns = try library.query("PRAGMA table_info(channel_items)") { columnText($0, 1) }
+        let additions = [
+            ("preferred_input", "TEXT"),
+            ("media_url", "TEXT"),
+            ("transcript_url", "TEXT"),
+            ("transcript_type", "TEXT"),
+            ("transcript_language", "TEXT")
+        ]
+        for (name, type) in additions where !columns.contains(name) {
+            try library.execute("ALTER TABLE channel_items ADD COLUMN \(name) \(type)")
+        }
+        try library.run("UPDATE channel_items SET entry_id = NULL WHERE entry_id = ''")
+    }
+
+    private static func migrateAttachments(_ library: SQLiteLibrary) throws {
         let attachmentParents = try library.query("PRAGMA foreign_key_list(attachments)") {
             columnText($0, 2)
         }
-        if attachmentParents.contains("documents") {
-            try library.transaction {
-                try library.execute(
-                    """
-                    ALTER TABLE attachments RENAME TO attachments_with_document_fk;
-                    CREATE TABLE attachments(
-                      id TEXT PRIMARY KEY,
-                      document_id TEXT NOT NULL,
-                      kind TEXT NOT NULL,
-                      mime_type TEXT NOT NULL,
-                      data BLOB NOT NULL,
-                      revision INTEGER NOT NULL DEFAULT 1,
-                      deleted_at REAL,
-                      cloud_record BLOB
-                    );
-                    INSERT INTO attachments
-                    SELECT * FROM attachments_with_document_fk;
-                    DROP TABLE attachments_with_document_fk;
-                    """
-                )
-            }
+        guard attachmentParents.contains("documents") else { return }
+        try library.transaction {
+            try library.execute(
+                """
+                ALTER TABLE attachments RENAME TO attachments_with_document_fk;
+                CREATE TABLE attachments(
+                  id TEXT PRIMARY KEY,
+                  document_id TEXT NOT NULL,
+                  kind TEXT NOT NULL,
+                  mime_type TEXT NOT NULL,
+                  data BLOB NOT NULL,
+                  revision INTEGER NOT NULL DEFAULT 1,
+                  deleted_at REAL,
+                  cloud_record BLOB
+                );
+                INSERT INTO attachments
+                SELECT * FROM attachments_with_document_fk;
+                DROP TABLE attachments_with_document_fk;
+                """
+            )
         }
-        try removeLegacyReadmeVoiceBrief(from: library)
     }
 
-    private static func removeLegacyReadmeVoiceBrief(from library: SQLiteLibrary) throws {
-        let ids = try library.query(
-            "SELECT id FROM voice_briefs WHERE deleted_at IS NULL AND lower(id) = 'file:readme.md'"
-        ) { columnText($0, 0) }
-        for id in ids {
-            try library.transaction {
-                try library.run(
-                    "UPDATE voice_briefs SET deleted_at = ?, revision = revision + 1 WHERE id = ?",
-                    bindings: [.double(Date().timeIntervalSince1970), .text(id)]
-                )
-                let revision = try library.scalarInt(
-                    "SELECT revision FROM voice_briefs WHERE id = \(library.sqlLiteral(id))"
-                )
-                try library.enqueue(
-                    recordType: "voice_brief", id: id, revision: revision, operation: "delete"
-                )
-            }
+    private static func removeRetiredGeneratedSchema(from library: SQLiteLibrary) throws {
+        try library.transaction {
+            try library.execute("DROP TABLE IF EXISTS voice_brief_consumed_items")
+            try library.execute("DROP TABLE IF EXISTS voice_brief_sources")
+            try library.execute("DROP TABLE IF EXISTS voice_brief_runs")
+            try library.execute("DROP TABLE IF EXISTS voice_brief_state")
+            try library.execute("DROP TABLE IF EXISTS voice_briefs")
+            try library.run("DELETE FROM cloud_outbox WHERE record_type = 'voice_brief'")
         }
     }
 }
@@ -100,7 +139,6 @@ private enum SQLiteLibrarySchema {
       id TEXT PRIMARY KEY,
       capture_id TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL,
-      voice_brief_id TEXT,
       title TEXT NOT NULL,
       source_url TEXT,
       media_url TEXT,
@@ -152,8 +190,7 @@ private enum SQLiteLibrarySchema {
       title TEXT,
       kind TEXT,
       schedule TEXT NOT NULL DEFAULT 'manual',
-      retrieval_count INTEGER NOT NULL DEFAULT 5,
-      auto_summarize INTEGER NOT NULL DEFAULT 1,
+      review_limit INTEGER NOT NULL DEFAULT 50 CHECK(review_limit BETWEEN 1 AND 50),
       revision INTEGER NOT NULL DEFAULT 1,
       deleted_at REAL,
       cloud_record BLOB
@@ -173,6 +210,11 @@ private enum SQLiteLibrarySchema {
       published_at REAL,
       content TEXT,
       linked_url TEXT,
+      preferred_input TEXT,
+      media_url TEXT,
+      transcript_url TEXT,
+      transcript_type TEXT,
+      transcript_language TEXT,
       entry_id TEXT REFERENCES documents(id),
       seen_at REAL,
       ingested_at REAL,
@@ -192,47 +234,6 @@ private enum SQLiteLibrarySchema {
       last_error TEXT,
       created_at REAL NOT NULL,
       updated_at REAL NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS voice_briefs(
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      prioritize_for_me INTEGER NOT NULL DEFAULT 0,
-      schedule TEXT NOT NULL DEFAULT 'manual',
-      length TEXT NOT NULL DEFAULT '',
-      revision INTEGER NOT NULL DEFAULT 1,
-      deleted_at REAL,
-      cloud_record BLOB
-    );
-    CREATE TABLE IF NOT EXISTS voice_brief_sources(
-      voice_brief_id TEXT NOT NULL REFERENCES voice_briefs(id) ON DELETE CASCADE,
-      channel_id TEXT NOT NULL REFERENCES channels(id),
-      PRIMARY KEY(voice_brief_id, channel_id)
-    );
-    CREATE TABLE IF NOT EXISTS voice_brief_runs(
-      id TEXT PRIMARY KEY,
-      voice_brief_id TEXT NOT NULL REFERENCES voice_briefs(id) ON DELETE CASCADE,
-      started_at REAL NOT NULL,
-      completed_at REAL,
-      status TEXT NOT NULL,
-      message TEXT,
-      episode_document_id TEXT REFERENCES documents(id)
-    );
-    CREATE TABLE IF NOT EXISTS voice_brief_state(
-      voice_brief_id TEXT PRIMARY KEY REFERENCES voice_briefs(id) ON DELETE CASCADE,
-      last_run_at REAL,
-      last_attempt_at REAL,
-      status TEXT,
-      message TEXT,
-      consumed TEXT NOT NULL DEFAULT '[]',
-      pending_episode_id TEXT
-    );
-    CREATE TABLE IF NOT EXISTS voice_brief_consumed_items(
-      voice_brief_id TEXT NOT NULL REFERENCES voice_briefs(id) ON DELETE CASCADE,
-      channel_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      consumed_at REAL NOT NULL,
-      PRIMARY KEY(voice_brief_id, channel_id, item_id),
-      FOREIGN KEY(channel_id, item_id) REFERENCES channel_items(channel_id, item_id)
     );
     CREATE TABLE IF NOT EXISTS attachments(
       id TEXT PRIMARY KEY,

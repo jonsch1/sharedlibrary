@@ -4,7 +4,7 @@ import Foundation
 import Darwin
 #endif
 
-public func spokenVoiceBriefText(_ markdown: String) -> String {
+public func spokenText(_ markdown: String) -> String {
     var text = markdown
     for (pattern, replacement) in [
         (#"!\[[^\]]*\]\([^)]+\)"#, ""),

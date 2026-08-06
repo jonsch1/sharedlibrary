@@ -14,29 +14,27 @@ extension SQLiteLibrary {
         }
     }
 
-    /// Rebuilds the local channel relationship carried by a cloud document. The full
-    /// document is already synced separately, so only lightweight item metadata is
-    /// needed here to make the entry visible in its channel on this device.
+    /// Rebuilds only the accepted-item relationship carried by a cloud
+    /// document. The document itself is synced separately.
     public func restoreCloudChannelSources(_ sources: [String], for documentID: String) throws {
         try locked {
             guard let document = try readDocument(documentID), !document.deleted else { return }
             try transaction {
                 for source in Set(sources) {
                     try run(
-                        "INSERT OR IGNORE INTO channels(id, source_url) VALUES(?, ?)",
-                        bindings: [.text(source), .text(source)]
+                        "INSERT OR IGNORE INTO channels(id, source_url, review_limit) VALUES(?, ?, ?)",
+                        bindings: [
+                            .text(source), .text(source), .int(Int64(defaultChannelReviewLimit))
+                        ]
                     )
-                    let alreadyLinked = try query(
-                        "SELECT 1 FROM channel_items WHERE channel_id = ? AND entry_id = ? LIMIT 1",
-                        bindings: [.text(source), .text(documentID)],
-                        transform: { _ in true }
-                    ).first == true
-                    guard !alreadyLinked else { continue }
                     try run(
                         """
                         INSERT INTO channel_items(
                           channel_id, item_id, title, url, entry_id, ingested_at
                         ) VALUES(?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(channel_id, item_id) DO UPDATE SET
+                          title = excluded.title, url = excluded.url,
+                          entry_id = excluded.entry_id, ingested_at = excluded.ingested_at
                         """,
                         bindings: [
                             .text(source), .text(documentID), .text(document.title),
@@ -45,8 +43,7 @@ extension SQLiteLibrary {
                         ]
                     )
                     try run(
-                        "INSERT OR IGNORE INTO channel_seen(channel_id, item_id, seen_at) " +
-                            "VALUES(?, ?, ?)",
+                        "INSERT OR IGNORE INTO channel_seen(channel_id, item_id, seen_at) VALUES(?, ?, ?)",
                         bindings: [
                             .text(source), .text(documentID),
                             .double(document.createdAt.timeIntervalSince1970)
@@ -63,7 +60,7 @@ extension SQLiteLibrary {
                 """
                 SELECT c.source_url, COALESCE(c.group_id, c.source_url), c.group_title,
                        c.title, c.kind, c.schedule, s.last_checked_at,
-                       s.last_error, c.retrieval_count, c.auto_summarize, s.can_load_more
+                       s.last_error, c.review_limit, s.can_load_more
                 FROM channels c LEFT JOIN channel_state s ON s.channel_id = c.id
                 WHERE c.deleted_at IS NULL ORDER BY c.source_url
                 """
@@ -73,16 +70,18 @@ extension SQLiteLibrary {
                     columnOptionalText(statement, 2), columnOptionalText(statement, 3),
                     columnOptionalText(statement, 4), columnText(statement, 5),
                     columnOptionalDate(statement, 6), columnOptionalText(statement, 7),
-                    Int(sqlite3_column_int(statement, 8)), sqlite3_column_int(statement, 9) != 0,
-                    sqlite3_column_int(statement, 10) != 0
+                    Int(sqlite3_column_int(statement, 8)), sqlite3_column_int(statement, 9) != 0
                 )
             }
-            return try rows.map { source, groupID, groupTitle, title, kind, schedule, checked, error, count, autoSummarize, more in
+            return try rows.map {
+                source, groupID, groupTitle, title, kind, schedule, checked, error, reviewLimit, more in
                 let items = try query(
                     """
                     SELECT item_id, title, url, published_at, content, linked_url,
-                           entry_id, ingested_at FROM channel_items
-                    WHERE channel_id = ? ORDER BY ingested_at DESC
+                           preferred_input, media_url, transcript_url, transcript_type,
+                           transcript_language, entry_id, ingested_at
+                    FROM channel_items
+                    WHERE channel_id = ? ORDER BY ingested_at DESC, item_id
                     """,
                     bindings: [.text(source)]
                 ) {
@@ -90,9 +89,13 @@ extension SQLiteLibrary {
                         id: columnText($0, 0), title: columnText($0, 1),
                         url: columnText($0, 2), publishedAt: columnOptionalDate($0, 3),
                         content: columnOptionalText($0, 4), linkedURL: columnOptionalText($0, 5),
-                        entryID: columnOptionalText($0, 6) ?? "",
-                        ingestedAt: columnOptionalDate($0, 7) ??
-                            ISO8601DateFormatter().string(from: Date())
+                        preferredInput: columnOptionalText($0, 6).flatMap(ItemInputID.init(rawValue:)),
+                        mediaURL: columnOptionalText($0, 7),
+                        transcriptURL: columnOptionalText($0, 8),
+                        transcriptType: columnOptionalText($0, 9),
+                        transcriptLanguage: columnOptionalText($0, 10),
+                        entryID: columnOptionalText($0, 11) ?? "",
+                        ingestedAt: columnOptionalDate($0, 12) ?? Date().iso8601
                     )
                 }
                 let seen = try query(
@@ -100,12 +103,18 @@ extension SQLiteLibrary {
                     bindings: [.text(source)], transform: { columnText($0, 0) }
                 )
                 return SQLiteChannelRecord(
-                    source: source, groupID: groupID, groupTitle: groupTitle, title: title,
+                    source: source,
+                    groupID: groupID,
+                    groupTitle: groupTitle,
+                    title: title,
                     kind: kind.flatMap(LibraryChannelKind.init(rawValue:)),
                     schedule: schedule,
-                    lastCheckedAt: checked, error: error, retrievalCount: count,
-                    autoSummarize: autoSummarize,
-                    canLoadMore: more, seen: seen, items: items
+                    lastCheckedAt: checked,
+                    error: error,
+                    reviewLimit: reviewLimit,
+                    canLoadMore: more,
+                    seen: seen,
+                    items: items
                 )
             }
         }
@@ -118,69 +127,14 @@ extension SQLiteLibrary {
                 SELECT ci.entry_id, c.source_url
                 FROM channel_items ci JOIN channels c ON c.id = ci.channel_id
                 WHERE ci.entry_id IS NOT NULL AND ci.entry_id != ''
+                  AND c.deleted_at IS NULL
                 ORDER BY ci.entry_id, c.source_url
                 """
             ) { (columnText($0, 0), columnText($0, 1)) }
-            var sources = Dictionary(grouping: rows) { $0.0 }.mapValues { values in
-                Array(Set(values.map { $0.1 })).sorted()
+            return Dictionary(grouping: rows) { $0.0 }.mapValues { values in
+                Array(Set(values.map(\.1))).sorted()
             }
-            let unlinked = try query(
-                """
-                SELECT d.id, d.type, d.source_url, d.created_at
-                FROM documents d
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM channel_items ci WHERE ci.entry_id = d.id
-                )
-                """
-            ) {
-                (
-                    columnText($0, 0), columnText($0, 1),
-                    columnOptionalText($0, 2), sqlite3_column_double($0, 3)
-                )
-            }
-            let legacyMarkers = unlinked.compactMap { row -> (String, Double)? in
-                guard row.1 == "voice_brief_source", let host = legacyChannelHost(row.2) else {
-                    return nil
-                }
-                return (host, row.3)
-            }
-            for row in unlinked where sources[row.0] == nil {
-                guard let host = legacyChannelHost(row.2), row.1 != "voice_brief_source" else {
-                    continue
-                }
-                if legacyMarkers.contains(where: { $0.0 == host && abs($0.1 - row.3) <= 1 }) {
-                    sources[row.0] = ["legacy-channel:\(host)"]
-                }
-            }
-            return sources
         }
-    }
-
-    @discardableResult
-    public func trashDocumentsFromDeletedChannels() throws -> Int {
-        let ids = try locked {
-            try query(
-                """
-                SELECT DISTINCT ci.entry_id
-                FROM channel_items ci
-                JOIN channels c ON c.id = ci.channel_id
-                JOIN documents d ON d.id = ci.entry_id
-                WHERE c.deleted_at IS NOT NULL AND d.deleted = 0
-                UNION
-                SELECT d.id
-                FROM documents d
-                WHERE d.deleted = 0 AND d.type = 'voice_brief_source'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM channel_items ci WHERE ci.entry_id = d.id
-                  )
-                """
-            ) { columnText($0, 0) }
-        }
-        let documents = try ids.map { try getDocument($0) }
-        try batch(documents.map {
-            SQLiteDocumentCommit(id: $0.id, baseRevision: $0.revision, deleted: true)
-        })
-        return documents.count
     }
 
     public func saveChannelRecords(_ records: [SQLiteChannelRecord]) throws {
@@ -188,39 +142,37 @@ extension SQLiteLibrary {
             try transaction {
                 for record in records {
                     let existing = try query(
-                        "SELECT group_id, group_title, title, kind, schedule, retrieval_count, " +
-                            "auto_summarize, revision " +
+                        "SELECT group_id, group_title, title, kind, schedule, review_limit, revision " +
                             "FROM channels WHERE id = ?",
                         bindings: [.text(record.source)]
-                    ) { (columnOptionalText($0, 0), columnOptionalText($0, 1),
-                         columnOptionalText($0, 2), columnOptionalText($0, 3),
-                         columnText($0, 4), Int(sqlite3_column_int($0, 5)),
-                         sqlite3_column_int($0, 6) != 0, sqlite3_column_int64($0, 7)) }.first
+                    ) {
+                        (
+                            columnOptionalText($0, 0), columnOptionalText($0, 1),
+                            columnOptionalText($0, 2), columnOptionalText($0, 3),
+                            columnText($0, 4), Int(sqlite3_column_int($0, 5)),
+                            sqlite3_column_int64($0, 6)
+                        )
+                    }.first
                     let changed = existing?.0 != record.groupID || existing?.1 != record.groupTitle ||
                         existing?.2 != record.title || existing?.3 != record.kind?.rawValue ||
-                        existing?.4 != record.schedule || existing?.5 != record.retrievalCount ||
-                        existing?.6 != record.autoSummarize
-                    let revision = (existing?.7 ?? 0) + (changed ? 1 : 0)
+                        existing?.4 != record.schedule || existing?.5 != record.reviewLimit
+                    let revision = (existing?.6 ?? 0) + (changed ? 1 : 0)
                     try run(
                         """
                         INSERT INTO channels(
                           id, source_url, group_id, group_title, title, kind,
-                          schedule, retrieval_count, auto_summarize, revision
-                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+                          schedule, review_limit, revision
+                        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
                           group_id = excluded.group_id, group_title = excluded.group_title,
                           title = excluded.title, kind = excluded.kind,
-                          schedule = excluded.schedule,
-                          retrieval_count = excluded.retrieval_count,
-                          auto_summarize = excluded.auto_summarize,
+                          schedule = excluded.schedule, review_limit = excluded.review_limit,
                           revision = excluded.revision, deleted_at = NULL
                         """,
                         bindings: [
                             .text(record.source), .text(record.source), .text(record.groupID),
-                            .optionalText(record.groupTitle),
-                            .optionalText(record.title), .optionalText(record.kind?.rawValue),
-                            .text(record.schedule), .int(Int64(record.retrievalCount)),
-                            .int(record.autoSummarize ? 1 : 0),
-                            .int(max(1, revision))
+                            .optionalText(record.groupTitle), .optionalText(record.title),
+                            .optionalText(record.kind?.rawValue), .text(record.schedule),
+                            .int(Int64(record.reviewLimit)), .int(max(1, revision))
                         ]
                     )
                     try run(
@@ -243,13 +195,17 @@ extension SQLiteLibrary {
                             """
                             INSERT INTO channel_items(
                               channel_id, item_id, title, url, published_at, content,
-                              linked_url, entry_id, ingested_at
-                            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              linked_url, preferred_input, media_url, transcript_url,
+                              transcript_type, transcript_language, entry_id, ingested_at
+                            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                             bindings: [
                                 .text(record.source), .text(item.id), .text(item.title), .text(item.url),
                                 .optionalDouble(timestamp(item.publishedAt)), .optionalText(item.content),
-                                .optionalText(item.linkedURL), .optionalText(item.entryID),
+                                .optionalText(item.linkedURL), .optionalText(item.preferredInput?.rawValue),
+                                .optionalText(item.mediaURL), .optionalText(item.transcriptURL),
+                                .optionalText(item.transcriptType), .optionalText(item.transcriptLanguage),
+                                .optionalText(item.entryID.nilIfEmpty),
                                 .optionalDouble(timestamp(item.ingestedAt))
                             ]
                         )
@@ -275,9 +231,18 @@ extension SQLiteLibrary {
         }
     }
 
-    public func deleteChannel(_ source: String) throws {
+    @discardableResult
+    public func deleteChannel(_ source: String) throws -> Int {
         try locked {
+            let pending = try scalarInt(
+                "SELECT count(*) FROM channel_items WHERE channel_id = ? " +
+                    "AND (entry_id IS NULL OR entry_id = '')",
+                bindings: [.text(source)]
+            )
             try transaction {
+                try run("DELETE FROM channel_items WHERE channel_id = ?", bindings: [.text(source)])
+                try run("DELETE FROM channel_seen WHERE channel_id = ?", bindings: [.text(source)])
+                try run("DELETE FROM channel_state WHERE channel_id = ?", bindings: [.text(source)])
                 try run(
                     "UPDATE channels SET deleted_at = ?, revision = revision + 1 WHERE id = ?",
                     bindings: [.double(Date().timeIntervalSince1970), .text(source)]
@@ -286,6 +251,74 @@ extension SQLiteLibrary {
                     "SELECT revision FROM channels WHERE id = \(sqlLiteral(source))"
                 )
                 try enqueue(recordType: "channel", id: source, revision: revision, operation: "delete")
+            }
+            return Int(pending)
+        }
+    }
+
+    public func channelItem(source: String, itemID: String) throws -> LibraryChannelItem? {
+        try locked {
+            try query(
+                """
+                SELECT item_id, title, url, published_at, content, linked_url,
+                       preferred_input, media_url, transcript_url, transcript_type,
+                       transcript_language, entry_id, ingested_at
+                FROM channel_items ci JOIN channels c ON c.id = ci.channel_id
+                WHERE c.source_url = ? AND c.deleted_at IS NULL AND ci.item_id = ?
+                """,
+                bindings: [.text(source), .text(itemID)],
+                transform: { statement in
+                    LibraryChannelItem(
+                        id: columnText(statement, 0), title: columnText(statement, 1),
+                        url: columnText(statement, 2), publishedAt: columnOptionalDate(statement, 3),
+                        content: columnOptionalText(statement, 4), linkedURL: columnOptionalText(statement, 5),
+                        preferredInput: columnOptionalText(statement, 6).flatMap(ItemInputID.init(rawValue:)),
+                        mediaURL: columnOptionalText(statement, 7),
+                        transcriptURL: columnOptionalText(statement, 8),
+                        transcriptType: columnOptionalText(statement, 9),
+                        transcriptLanguage: columnOptionalText(statement, 10),
+                        entryID: columnOptionalText(statement, 11) ?? "",
+                        ingestedAt: columnOptionalDate(statement, 12) ?? Date().iso8601
+                    )
+                }
+            ).first
+        }
+    }
+
+    public func acceptChannelItem(source: String, itemID: String, entryID: String) throws {
+        try locked {
+            try transaction {
+                guard try scalarInt(
+                    "SELECT count(*) FROM channel_items ci JOIN channels c ON c.id = ci.channel_id " +
+                        "WHERE c.source_url = ? AND c.deleted_at IS NULL AND ci.item_id = ? " +
+                        "AND (ci.entry_id IS NULL OR ci.entry_id = '')",
+                    bindings: [.text(source), .text(itemID)]
+                ) == 1 else { throw SQLiteLibraryError.invalidDocument }
+                try run(
+                    "UPDATE channel_items SET entry_id = ? WHERE channel_id = " +
+                        "(SELECT id FROM channels WHERE source_url = ? AND deleted_at IS NULL) " +
+                        "AND item_id = ? AND (entry_id IS NULL OR entry_id = '')",
+                    bindings: [.text(entryID), .text(source), .text(itemID)]
+                )
+            }
+        }
+    }
+
+    public func rejectChannelItem(source: String, itemID: String) throws {
+        try locked {
+            try transaction {
+                guard try scalarInt(
+                    "SELECT count(*) FROM channel_items ci JOIN channels c ON c.id = ci.channel_id " +
+                        "WHERE c.source_url = ? AND c.deleted_at IS NULL AND ci.item_id = ? " +
+                        "AND (ci.entry_id IS NULL OR ci.entry_id = '')",
+                    bindings: [.text(source), .text(itemID)]
+                ) == 1 else { throw SQLiteLibraryError.invalidDocument }
+                try run(
+                    "DELETE FROM channel_items WHERE channel_id = " +
+                        "(SELECT id FROM channels WHERE source_url = ? AND deleted_at IS NULL) " +
+                        "AND item_id = ? AND (entry_id IS NULL OR entry_id = '')",
+                    bindings: [.text(source), .text(itemID)]
+                )
             }
         }
     }
@@ -310,8 +343,7 @@ extension SQLiteLibrary {
                 """,
                 bindings: [
                     .text(documentID), .int(selectWhenFinished ? 1 : 0),
-                    .double(Date().timeIntervalSince1970),
-                    .double(Date().timeIntervalSince1970)
+                    .double(Date().timeIntervalSince1970), .double(Date().timeIntervalSince1970)
                 ]
             )
         }
@@ -327,8 +359,10 @@ extension SQLiteLibrary {
                     FROM processing_jobs WHERE state = 'queued'
                     ORDER BY created_at, document_id LIMIT 1
                     """,
-                    transform: { (columnText($0, 0), sqlite3_column_int($0, 1) != 0,
-                                  Int(sqlite3_column_int($0, 2))) }
+                    transform: {
+                        (columnText($0, 0), sqlite3_column_int($0, 1) != 0,
+                         Int(sqlite3_column_int($0, 2)))
+                    }
                 ).first else { return }
                 try run(
                     """
@@ -365,57 +399,6 @@ extension SQLiteLibrary {
                     .double(Date().timeIntervalSince1970), .text(documentID)
                 ]
             )
-        }
-    }
-
-    public func voiceBriefRunStates() throws -> [SQLiteVoiceBriefRunState] {
-        try locked {
-            try query(
-                "SELECT voice_brief_id, last_run_at, last_attempt_at, status, message, consumed, " +
-                    "pending_episode_id " +
-                    "FROM voice_brief_state"
-            ) {
-                SQLiteVoiceBriefRunState(
-                    voiceBriefID: columnText($0, 0),
-                    lastRunAt: columnOptionalDate($0, 1),
-                    lastAttemptAt: columnOptionalDate($0, 2),
-                    status: columnOptionalText($0, 3),
-                    message: columnOptionalText($0, 4),
-                    consumed: decodeStrings(columnText($0, 5)),
-                    pendingEpisodeID: columnOptionalText($0, 6)
-                )
-            }
-        }
-    }
-
-    public func saveVoiceBriefRunStates(_ states: [SQLiteVoiceBriefRunState]) throws {
-        try locked {
-            try transaction {
-                for state in states {
-                    guard try scalarInt(
-                        "SELECT count(*) FROM voice_briefs WHERE id = \(sqlLiteral(state.voiceBriefID))"
-                    ) > 0 else { continue }
-                    try run(
-                        """
-                        INSERT INTO voice_brief_state(
-                          voice_brief_id, last_run_at, last_attempt_at, status, message,
-                          consumed, pending_episode_id
-                        ) VALUES(?, ?, ?, ?, ?, ?, ?) ON CONFLICT(voice_brief_id) DO UPDATE SET
-                          last_run_at = excluded.last_run_at,
-                          last_attempt_at = excluded.last_attempt_at,
-                          status = excluded.status, message = excluded.message,
-                          consumed = excluded.consumed,
-                          pending_episode_id = excluded.pending_episode_id
-                        """,
-                        bindings: [
-                            .text(state.voiceBriefID), .optionalDouble(timestamp(state.lastRunAt)),
-                            .optionalDouble(timestamp(state.lastAttemptAt)), .optionalText(state.status),
-                            .optionalText(state.message), .text(jsonStrings(state.consumed)),
-                            .optionalText(state.pendingEpisodeID)
-                        ]
-                    )
-                }
-            }
         }
     }
 }

@@ -5,7 +5,6 @@ import Foundation
 struct LibraryContentCoordinator {
     let documents: SQLiteDocumentRepository
     let topics: SQLiteTopicRepository
-    let channelState: LibraryChannelStateRepository
     let projection: LibraryProjectionService
 
     func loadHighlights() throws -> String {
@@ -132,24 +131,6 @@ struct LibraryContentCoordinator {
             baseRevision: document.revision,
             deleted: true
         ))
-        var state = channelState.read()
-        var removedKeys = Set<String>()
-        for source in Array(state.sources.keys) {
-            guard var current = state.sources[source] else { continue }
-            let removed = current.items.filter { $0.entryID == entryID }
-            guard !removed.isEmpty else { continue }
-            removedKeys.formUnion(removed.map { voiceBriefItemKey(source, $0.id) })
-            let ids = Set(removed.map(\.id))
-            current.items.removeAll { ids.contains($0.id) }
-            current.seen.removeAll { ids.contains($0) }
-            state.sources[source] = current
-        }
-        if !removedKeys.isEmpty {
-            for id in Array(state.voiceBriefs.keys) {
-                state.voiceBriefs[id]?.consumed.removeAll { removedKeys.contains($0) }
-            }
-            try channelState.write(state)
-        }
     }
 
     private func saveHighlights(_ text: String) throws {

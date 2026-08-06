@@ -35,7 +35,7 @@ func normalizedChannelSource(_ value: String) throws -> String {
     return source
 }
 
-func voiceBriefItemKey(_ source: String, _ itemID: String) -> String {
+func channelItemKey(_ source: String, _ itemID: String) -> String {
     "\(source)\n\(itemID)"
 }
 

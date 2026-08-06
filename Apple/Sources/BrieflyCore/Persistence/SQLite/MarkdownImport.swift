@@ -36,15 +36,14 @@ extension SQLiteLibrary {
                         try insert(SQLiteDocument(
                             id: id,
                             captureID: captureID,
-                            type: parsed.scalar("type") ?? "document",
-                            voiceBriefID: parsed.scalar("voice_brief_id"),
+                            type: normalizedDocumentType(parsed.scalar("type") ?? "document"),
                             title: parsed.scalar("title") ?? firstHeading(parsed.body) ??
                                 url.deletingPathExtension().lastPathComponent,
                             sourceURL: parsed.scalar("source_url"),
                             createdAt: createdAt,
                             updatedAt: parsed.scalar("updated_at").flatMap(Self.date) ?? createdAt,
                             topicIDs: parsed.array("topics"),
-                            tags: parsed.array("tags"),
+                            tags: normalizedDocumentTags(parsed.array("tags")),
                             sourceIDs: parsed.array("source_ids"),
                             sourceURLs: parsed.array("source_urls"),
                             texts: texts

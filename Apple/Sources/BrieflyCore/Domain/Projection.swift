@@ -5,7 +5,6 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
     public let generatedAt: String
     public let files: [LibraryFile]
     public let entries: [LibraryEntry]
-    public let voiceBriefs: [LibraryVoiceBrief]?
 
     public static func decode(_ data: Data) throws -> LibraryProjection {
         let projection: LibraryProjection
@@ -33,8 +32,7 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
         schemaVersion: 1,
         generatedAt: "",
         files: [],
-        entries: [],
-        voiceBriefs: []
+        entries: []
     )
 
     public var topics: [String] {
@@ -49,18 +47,10 @@ public struct LibraryProjection: Codable, Hashable, Sendable {
         }
     }
 
-    public var voiceBriefDefinitions: [LibraryVoiceBrief] { voiceBriefs ?? [] }
-
     public var channelSources: [String] {
-        Array(Set(voiceBriefDefinitions.flatMap(\.sources))).sorted {
+        Array(Set(entries.flatMap { $0.channelSources ?? [] })).sorted {
             $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
         }
-    }
-
-    public func episodes(for voiceBriefID: String) -> [LibraryEntry] {
-        entries.filter {
-            $0.entryType == "voice_brief_episode" && $0.voiceBriefID == voiceBriefID
-        }.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
     }
 
     public func entries(forChannel source: String) -> [LibraryEntry] {

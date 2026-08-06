@@ -2,9 +2,7 @@ import Foundation
 
 struct LibraryMarkdownImportService {
     let topics: SQLiteTopicRepository
-    let voiceBriefs: SQLiteVoiceBriefRepository
     let markdown: SQLiteMarkdownRepository
-    let channelState: LibraryChannelStateRepository
     let fileManager: FileManager
 
     func ingest(from root: URL) throws -> Int {
@@ -12,37 +10,7 @@ struct LibraryMarkdownImportService {
             LibraryTopicDefinition(id: $0.key, title: $0.value)
         }
         if !topics.isEmpty { try self.topics.replace(topics) }
-        let imported = try markdown.ingest(from: root)
-        let voiceBriefDirectory = root.appending(path: "voice-briefs", directoryHint: .isDirectory)
-        if let urls = try? fileManager.contentsOfDirectory(
-            at: voiceBriefDirectory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) {
-            for url in urls where
-                url.pathExtension.lowercased() == "md" &&
-                url.deletingPathExtension().lastPathComponent.lowercased() != "readme"
-            {
-                let parsed = parseMarkdown(try String(contentsOf: url, encoding: .utf8))
-                _ = try voiceBriefs.save(LibraryVoiceBriefDraft(
-                    id: parsed.scalar("id") ?? "file:\(url.lastPathComponent)",
-                    title: parsed.scalar("name") ?? parsed.scalar("title") ??
-                        url.deletingPathExtension().lastPathComponent,
-                    schedule: parsed.scalar("schedule") ?? "manual",
-                    length: parsed.scalar("length") ?? "",
-                    sources: parsed.array("sources"),
-                    prioritizeForMe: parsed.scalar("prioritize_for_me")?.lowercased() == "true"
-                ))
-            }
-        }
-        if
-            let data = try? Data(contentsOf: channelState.channelStateURL(for: root)),
-            let state = try? JSONDecoder().decode(VoiceBriefWatcherState.self, from: data),
-            state.schemaVersion == 1
-        {
-            try channelState.write(state)
-        }
-        return imported
+        return try markdown.ingest(from: root)
     }
 
     private func readTopics(from root: URL) throws -> [String: String] {
@@ -177,8 +145,6 @@ private func serializeMetadata(_ metadata: [String: [String]]) -> String {
         "source_url",
         "media_url",
         "audio_path",
-        "voice_brief_id",
-        "voice_brief_title",
         "source_ids",
         "source_urls"
     ]

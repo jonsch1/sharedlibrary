@@ -3,20 +3,17 @@ import Foundation
 struct LibraryProjectionService {
     let documents: SQLiteDocumentRepository
     let topics: SQLiteTopicRepository
-    let voiceBriefs: SQLiteVoiceBriefRepository
     let channels: SQLiteChannelRepository
     let attachments: SQLiteAttachmentRepository
 
     init(
         documents: SQLiteDocumentRepository,
         topics: SQLiteTopicRepository,
-        voiceBriefs: SQLiteVoiceBriefRepository,
         channels: SQLiteChannelRepository,
         attachments: SQLiteAttachmentRepository
     ) {
         self.documents = documents
         self.topics = topics
-        self.voiceBriefs = voiceBriefs
         self.channels = channels
         self.attachments = attachments
     }
@@ -34,8 +31,7 @@ struct LibraryProjectionService {
             schemaVersion: librarySchemaVersion,
             generatedAt: Date().iso8601,
             files: [],
-            entries: entries,
-            voiceBriefs: try voiceBriefs.all()
+            entries: entries
         )
     }
 
@@ -52,8 +48,7 @@ struct LibraryProjectionService {
             schemaVersion: librarySchemaVersion,
             generatedAt: Date().iso8601,
             files: [],
-            entries: entries,
-            voiceBriefs: try voiceBriefs.all()
+            entries: entries
         )
     }
 
@@ -155,7 +150,6 @@ struct LibraryProjectionService {
             id: document.id,
             captureID: document.captureID,
             entryType: document.type,
-            voiceBriefID: document.voiceBriefID,
             title: document.title,
             excerpt: excerptText,
             topicIDs: document.topicIDs,

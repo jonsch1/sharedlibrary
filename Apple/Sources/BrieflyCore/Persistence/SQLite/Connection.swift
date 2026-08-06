@@ -5,7 +5,6 @@ extension SQLiteLibrary {
     func documentBindings(_ document: SQLiteDocument) -> [Binding] {
         [
             .text(document.id), .text(document.captureID), .text(document.type),
-            .optionalText(document.voiceBriefID),
             .text(document.title), .optionalText(document.sourceURL), .optionalText(document.mediaURL),
             .double(document.createdAt.timeIntervalSince1970),
             .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
@@ -46,6 +45,10 @@ extension SQLiteLibrary {
 
     func scalarInt(_ sql: String) throws -> Int64 {
         try query(sql) { sqlite3_column_int64($0, 0) }.first ?? 0
+    }
+
+    func scalarInt(_ sql: String, bindings: [Binding]) throws -> Int64 {
+        try query(sql, bindings: bindings) { sqlite3_column_int64($0, 0) }.first ?? 0
     }
 
     func query<T>(
@@ -94,7 +97,6 @@ extension SQLiteLibrary {
         switch recordType {
         case "topic": "topics"
         case "channel": "channels"
-        case "voice_brief": "voice_briefs"
         default: throw SQLiteLibraryError.invalidDocument
         }
     }

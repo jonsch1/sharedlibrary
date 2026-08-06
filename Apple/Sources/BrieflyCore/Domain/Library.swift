@@ -1,6 +1,9 @@
 import Foundation
 
-public let librarySchemaVersion = 5
+public let librarySchemaVersion = 6
+
+public let defaultChannelReviewLimit = 50
+public let channelReviewLimitRange = 1...50
 
 public enum LibraryVariant: String, Codable, CaseIterable, Sendable {
     case concise
@@ -100,78 +103,6 @@ public struct LibrarySyncUploadResult: Sendable {
     }
 }
 
-public struct LibraryVoiceBrief: Codable, Hashable, Sendable {
-    public let id: String
-    public let filename: String
-    public let title: String
-    public let schedule: String
-    public let length: String
-    public let sources: [String]
-    public let prioritizeForMe: Bool?
-
-    public init(
-        id: String,
-        filename: String,
-        title: String,
-        schedule: String,
-        length: String,
-        sources: [String],
-        prioritizeForMe: Bool? = nil
-    ) {
-        self.id = id
-        self.filename = filename
-        self.title = title
-        self.schedule = schedule
-        self.length = length
-        self.sources = sources
-        self.prioritizeForMe = prioritizeForMe
-    }
-
-    public func matches(_ query: String) -> Bool {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return true }
-        return ([title, schedule, length] + sources)
-            .joined(separator: " ")
-            .lowercased()
-            .contains(needle)
-    }
-}
-
-public struct LibraryVoiceBriefDraft: Hashable, Sendable {
-    public let id: String?
-    public let title: String
-    public let schedule: String
-    public let length: String
-    public let sources: [String]
-    public let prioritizeForMe: Bool
-
-    public init(
-        id: String? = nil,
-        title: String,
-        schedule: String,
-        length: String,
-        sources: [String],
-        prioritizeForMe: Bool
-    ) {
-        self.id = id
-        self.title = title
-        self.schedule = schedule
-        self.length = length
-        self.sources = sources
-        self.prioritizeForMe = prioritizeForMe
-    }
-}
-
-public struct LibraryVoiceBriefEpisodeResult: Hashable, Sendable {
-    public let entryID: String
-    public let script: String
-
-    public init(entryID: String, script: String) {
-        self.entryID = entryID
-        self.script = script
-    }
-}
-
 public enum LibraryChannelKind: String, Codable, Hashable, Sendable {
     case feed
     case podcast
@@ -185,6 +116,11 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
     public let publishedAt: String?
     public let content: String?
     public let linkedURL: String?
+    public let preferredInput: ItemInputID?
+    public let mediaURL: String?
+    public let transcriptURL: String?
+    public let transcriptType: String?
+    public let transcriptLanguage: String?
     public let entryID: String
     public let ingestedAt: String
 
@@ -195,6 +131,11 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
         publishedAt: String? = nil,
         content: String? = nil,
         linkedURL: String? = nil,
+        preferredInput: ItemInputID? = nil,
+        mediaURL: String? = nil,
+        transcriptURL: String? = nil,
+        transcriptType: String? = nil,
+        transcriptLanguage: String? = nil,
         entryID: String,
         ingestedAt: String
     ) {
@@ -204,8 +145,31 @@ public struct LibraryChannelItem: Codable, Hashable, Identifiable, Sendable {
         self.publishedAt = publishedAt
         self.content = content
         self.linkedURL = linkedURL
+        self.preferredInput = preferredInput
+        self.mediaURL = mediaURL
+        self.transcriptURL = transcriptURL
+        self.transcriptType = transcriptType
+        self.transcriptLanguage = transcriptLanguage
         self.entryID = entryID
         self.ingestedAt = ingestedAt
+    }
+
+    public var isPending: Bool { entryID.isEmpty }
+
+    public func candidate() -> LibraryChannelCandidate {
+        LibraryChannelCandidate(
+            id: id,
+            title: title,
+            url: url,
+            publishedAt: publishedAt,
+            content: content ?? "",
+            linkedURL: linkedURL,
+            preferredInput: preferredInput,
+            mediaURL: mediaURL,
+            transcriptURL: transcriptURL,
+            transcriptType: transcriptType,
+            transcriptLanguage: transcriptLanguage
+        )
     }
 }
 
@@ -219,12 +183,9 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
     public let schedule: String
     public let lastCheckedAt: String?
     public let error: String?
-    public let retrievalCount: Int
-    public let autoSummarize: Bool
+    public let reviewLimit: Int
     public let canLoadMore: Bool
     public let items: [LibraryChannelItem]
-    public let briefIDs: [String]
-    public let briefTitles: [String]
 
     public init(
         source: String,
@@ -234,12 +195,9 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         schedule: String = "manual",
         lastCheckedAt: String? = nil,
         error: String? = nil,
-        retrievalCount: Int = 5,
-        autoSummarize: Bool = true,
+        reviewLimit: Int = defaultChannelReviewLimit,
         canLoadMore: Bool = true,
-        items: [LibraryChannelItem] = [],
-        briefIDs: [String] = [],
-        briefTitles: [String] = []
+        items: [LibraryChannelItem] = []
     ) {
         self.source = source
         self.sources = sources ?? [source]
@@ -248,12 +206,9 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
         self.schedule = schedule
         self.lastCheckedAt = lastCheckedAt
         self.error = error
-        self.retrievalCount = retrievalCount
-        self.autoSummarize = autoSummarize
+        self.reviewLimit = reviewLimit
         self.canLoadMore = canLoadMore
-        self.items = items
-        self.briefIDs = briefIDs
-        self.briefTitles = briefTitles
+        self.items = items.filter(\.isPending)
     }
 
     public var id: String { source }
@@ -271,11 +226,11 @@ public struct LibraryChannel: Hashable, Identifiable, Sendable {
 
 public struct LibraryChannelRefresh: Hashable, Sendable {
     public let channel: LibraryChannel
-    public let newEntryIDs: [String]
+    public let newItemIDs: [String]
 
-    public init(channel: LibraryChannel, newEntryIDs: [String]) {
+    public init(channel: LibraryChannel, newItemIDs: [String]) {
         self.channel = channel
-        self.newEntryIDs = newEntryIDs
+        self.newItemIDs = newItemIDs
     }
 }
 
@@ -357,7 +312,6 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     public let id: String
     public let captureID: String?
     public let entryType: String?
-    public let voiceBriefID: String?
     public let title: String
     public let excerpt: String
     public let topicIDs: [String]
@@ -386,10 +340,7 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     }
 
     public var isMainLibraryEntry: Bool {
-        entryType != "voice_brief_episode" &&
-            entryType != "voice_brief_source" &&
-            entryType != "highlights" &&
-            (channelSources?.isEmpty ?? true)
+        entryType != "highlights"
     }
 
     public var preferredVariant: LibraryVariant {

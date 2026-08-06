@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ItemInputID: String, CaseIterable, Codable, Sendable {
+public enum ItemInputID: String, CaseIterable, Codable, Hashable, Sendable {
     case text
     case pdf
     case arxiv

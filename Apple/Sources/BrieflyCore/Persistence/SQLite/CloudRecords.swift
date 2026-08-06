@@ -34,7 +34,6 @@ extension SQLiteLibrary {
                 UNION ALL SELECT 1 FROM attachments WHERE cloud_record IS NOT NULL
                 UNION ALL SELECT 1 FROM topics WHERE cloud_record IS NOT NULL
                 UNION ALL SELECT 1 FROM channels WHERE cloud_record IS NOT NULL
-                UNION ALL SELECT 1 FROM voice_briefs WHERE cloud_record IS NOT NULL
                 LIMIT 1
                 """
             ) { _ in true }.first == true
@@ -56,8 +55,7 @@ extension SQLiteLibrary {
 
                 let logicalTables = [
                     ("topic", "topics"),
-                    ("channel", "channels"),
-                    ("voice_brief", "voice_briefs")
+                    ("channel", "channels")
                 ]
                 for (recordType, table) in logicalTables {
                     let records = try query(
@@ -142,7 +140,6 @@ extension SQLiteLibrary {
             case "attachment": table = "attachments"
             case "topic": table = "topics"
             case "channel": table = "channels"
-            case "voice_brief": table = "voice_briefs"
             default: throw SQLiteLibraryError.invalidDocument
             }
             return try query(
@@ -172,51 +169,27 @@ extension SQLiteLibrary {
             case "channel":
                 guard let row = try query(
                     "SELECT source_url, group_id, group_title, title, kind, schedule, " +
-                        "retrieval_count, auto_summarize, revision, deleted_at, " +
+                        "review_limit, revision, deleted_at, " +
                         "cloud_record FROM channels WHERE id = ?",
                     bindings: [.text(id)],
                     transform: { (columnText($0, 0), columnOptionalText($0, 1),
                         columnOptionalText($0, 2), columnOptionalText($0, 3),
                         columnOptionalText($0, 4), columnText($0, 5),
-                        Int(sqlite3_column_int($0, 6)), sqlite3_column_int($0, 7) != 0,
-                        sqlite3_column_int64($0, 8),
-                        sqlite3_column_type($0, 9) != SQLITE_NULL, columnOptionalBlob($0, 10)) }
+                        Int(sqlite3_column_int($0, 6)), sqlite3_column_int64($0, 7),
+                        sqlite3_column_type($0, 8) != SQLITE_NULL, columnOptionalBlob($0, 9)) }
                 ).first
                 else { throw SQLiteLibraryError.invalidDocument }
                 var payload: [String: Any] = [
                     "sourceURL": row.0, "groupID": row.1 ?? row.0,
-                    "schedule": row.5, "retrievalCount": row.6,
-                    "autoSummarize": row.7
+                    "schedule": row.5, "reviewLimit": row.6
                 ]
                 if let groupTitle = row.2 { payload["groupTitle"] = groupTitle }
                 if let title = row.3 { payload["title"] = title }
                 if let kind = row.4 { payload["kind"] = kind }
                 return SQLiteLogicalRecord(
-                    id: id, revision: row.8, deleted: row.9,
+                    id: id, revision: row.7, deleted: row.8,
                     payload: try JSONSerialization.data(withJSONObject: payload),
-                    cloudRecordData: row.10
-                )
-            case "voice_brief":
-                guard let row = try query(
-                    "SELECT title, prioritize_for_me, schedule, length, revision, " +
-                        "deleted_at, cloud_record FROM voice_briefs WHERE id = ?",
-                    bindings: [.text(id)],
-                    transform: { (columnText($0, 0),
-                        sqlite3_column_int($0, 1) != 0, columnText($0, 2), columnText($0, 3),
-                        sqlite3_column_int64($0, 4), sqlite3_column_type($0, 5) != SQLITE_NULL,
-                        columnOptionalBlob($0, 6)) }
-                ).first
-                else { throw SQLiteLibraryError.invalidDocument }
-                let sources = try query(
-                    "SELECT channel_id FROM voice_brief_sources WHERE voice_brief_id = ? ORDER BY channel_id",
-                    bindings: [.text(id)], transform: { columnText($0, 0) }
-                )
-                return SQLiteLogicalRecord(
-                    id: id, revision: row.4, deleted: row.5,
-                    payload: try JSONSerialization.data(withJSONObject: [
-                        "title": row.0, "prioritizeForMe": row.1,
-                        "schedule": row.2, "length": row.3, "sources": sources
-                    ]), cloudRecordData: row.6
+                    cloudRecordData: row.9
                 )
             default:
                 throw SQLiteLibraryError.invalidDocument
@@ -280,13 +253,12 @@ extension SQLiteLibrary {
                     }
                     try run(
                         "INSERT INTO channels(id,source_url,group_id,group_title,title,kind,schedule," +
-                            "retrieval_count,auto_summarize,revision,deleted_at,cloud_record) " +
-                            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?) " +
+                            "review_limit,revision,deleted_at,cloud_record) " +
+                            "VALUES(?,?,?,?,?,?,?,?,?,?,?) " +
                             "ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url," +
                             "group_id=excluded.group_id,group_title=excluded.group_title," +
                             "title=excluded.title,kind=excluded.kind," +
-                            "schedule=excluded.schedule,retrieval_count=excluded.retrieval_count," +
-                            "auto_summarize=excluded.auto_summarize," +
+                            "schedule=excluded.schedule,review_limit=excluded.review_limit," +
                             "revision=excluded.revision," +
                             "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
                         bindings: [
@@ -296,44 +268,11 @@ extension SQLiteLibrary {
                             .optionalText(object["title"] as? String),
                             .optionalText(object["kind"] as? String),
                             .text(object["schedule"] as? String ?? "manual"),
-                            .int(Int64(object["retrievalCount"] as? Int ?? 5)),
-                            .int(object["autoSummarize"] as? Bool == true ? 1 : 0), .int(revision),
+                            .int(Int64(min(50, max(1, object["reviewLimit"] as? Int ?? 50)))),
+                            .int(revision),
                             deletedAt, .blob(cloudRecordData)
                         ]
                     )
-                case "voice_brief":
-                    guard let title = object["title"] as? String,
-                          let schedule = object["schedule"] as? String,
-                          let length = object["length"] as? String
-                    else { throw SQLiteLibraryError.invalidDocument }
-                    try run(
-                        "INSERT INTO voice_briefs(id,title,prioritize_for_me,schedule,length," +
-                            "revision,deleted_at,cloud_record) VALUES(?,?,?,?,?,?,?,?) " +
-                            "ON CONFLICT(id) DO UPDATE SET title=excluded.title," +
-                            "prioritize_for_me=excluded.prioritize_for_me,schedule=excluded.schedule," +
-                            "length=excluded.length,revision=excluded.revision," +
-                            "deleted_at=excluded.deleted_at,cloud_record=excluded.cloud_record",
-                        bindings: [
-                            .text(id), .text(title),
-                            .int((object["prioritizeForMe"] as? Bool ?? false) ? 1 : 0),
-                            .text(schedule), .text(length), .int(revision), deletedAt,
-                            .blob(cloudRecordData)
-                        ]
-                    )
-                    try run(
-                        "DELETE FROM voice_brief_sources WHERE voice_brief_id = ?",
-                        bindings: [.text(id)]
-                    )
-                    for source in object["sources"] as? [String] ?? [] {
-                        try run(
-                            "INSERT OR IGNORE INTO channels(id,source_url) VALUES(?,?)",
-                            bindings: [.text(source), .text(source)]
-                        )
-                        try run(
-                            "INSERT OR IGNORE INTO voice_brief_sources(voice_brief_id,channel_id) VALUES(?,?)",
-                            bindings: [.text(id), .text(source)]
-                        )
-                    }
                 default:
                     throw SQLiteLibraryError.invalidDocument
                 }
@@ -498,7 +437,10 @@ extension SQLiteLibrary {
     }
 
     /// Applies a CloudKit record only when it is newer. Remote changes never enter the outbox.
-    public func applyRemote(_ document: SQLiteDocument) throws {
+    public func applyRemote(_ value: SQLiteDocument) throws {
+        var document = value
+        document.type = normalizedDocumentType(document.type)
+        document.tags = normalizedDocumentTags(document.tags)
         try locked {
             try transaction {
                 if let current = try readDocument(document.id) {

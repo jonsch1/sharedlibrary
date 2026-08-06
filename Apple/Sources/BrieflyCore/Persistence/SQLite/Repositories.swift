@@ -14,7 +14,6 @@ struct SQLiteDocumentRepository {
         mediaURL: String? = nil,
         topicIDs: [String] = [],
         tags: [String] = [],
-        voiceBriefID: String? = nil,
         sourceIDs: [String] = [],
         sourceURLs: [String] = [],
         id: String? = nil,
@@ -30,7 +29,6 @@ struct SQLiteDocumentRepository {
             mediaURL: mediaURL,
             topicIDs: topicIDs,
             tags: tags,
-            voiceBriefID: voiceBriefID,
             sourceIDs: sourceIDs,
             sourceURLs: sourceURLs,
             id: id,
@@ -83,29 +81,8 @@ struct SQLiteTopicRepository {
     }
 }
 
-/// Persistence access for voice-brief definitions and durable run state.
-struct SQLiteVoiceBriefRepository {
-    let database: SQLiteLibrary
-
-    func all() throws -> [LibraryVoiceBrief] { try database.voiceBriefs() }
-
-    func save(_ draft: LibraryVoiceBriefDraft) throws -> String {
-        try database.saveVoiceBrief(draft)
-    }
-
-    func delete(_ id: String) throws { try database.deleteVoiceBrief(id) }
-
-    func runStates() throws -> [SQLiteVoiceBriefRunState] {
-        try database.voiceBriefRunStates()
-    }
-
-    func saveRunStates(_ states: [SQLiteVoiceBriefRunState]) throws {
-        try database.saveVoiceBriefRunStates(states)
-    }
-}
-
-/// Persistence access for channel definitions, items, and channel-derived
-/// document relationships.
+/// Persistence access for channel definitions, durable review items, and
+/// channel-derived document relationships.
 struct SQLiteChannelRepository {
     let database: SQLiteLibrary
 
@@ -119,11 +96,19 @@ struct SQLiteChannelRepository {
         try database.saveChannelRecords(records)
     }
 
-    func delete(_ source: String) throws { try database.deleteChannel(source) }
-
     @discardableResult
-    func removeItemsFromDeletedChannels() throws -> Int {
-        try database.trashDocumentsFromDeletedChannels()
+    func delete(_ source: String) throws -> Int { try database.deleteChannel(source) }
+
+    func item(source: String, itemID: String) throws -> LibraryChannelItem? {
+        try database.channelItem(source: source, itemID: itemID)
+    }
+
+    func acceptItem(source: String, itemID: String, entryID: String) throws {
+        try database.acceptChannelItem(source: source, itemID: itemID, entryID: entryID)
+    }
+
+    func rejectItem(source: String, itemID: String) throws {
+        try database.rejectChannelItem(source: source, itemID: itemID)
     }
 }
 

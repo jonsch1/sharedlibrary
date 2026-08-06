@@ -15,7 +15,6 @@ extension SQLiteLibrary {
         mediaURL: String? = nil,
         topicIDs: [String] = [],
         tags: [String] = [],
-        voiceBriefID: String? = nil,
         sourceIDs: [String] = [],
         sourceURLs: [String] = [],
         id requestedID: String? = nil,
@@ -40,7 +39,6 @@ extension SQLiteLibrary {
             id: id,
             captureID: captureID,
             type: type,
-            voiceBriefID: voiceBriefID,
             title: normalizedTitle,
             sourceURL: sourceURL,
             mediaURL: mediaURL,
@@ -154,97 +152,6 @@ extension SQLiteLibrary {
         }
     }
 
-    public func voiceBriefs() throws -> [LibraryVoiceBrief] {
-        try locked {
-            let rows = try query(
-                """
-                SELECT id, title, prioritize_for_me, schedule, length
-                FROM voice_briefs WHERE deleted_at IS NULL ORDER BY title COLLATE NOCASE
-                """
-            ) { statement in
-                (
-                    columnText(statement, 0), columnText(statement, 1),
-                    sqlite3_column_int(statement, 2) != 0,
-                    columnText(statement, 3), columnText(statement, 4)
-                )
-            }
-            return try rows.map { id, title, prioritize, schedule, length in
-                let sources = try query(
-                    "SELECT channel_id FROM voice_brief_sources WHERE voice_brief_id = ? " +
-                        "ORDER BY channel_id",
-                    bindings: [.text(id)], transform: { columnText($0, 0) }
-                )
-                return LibraryVoiceBrief(
-                    id: id,
-                    filename: id,
-                    title: title,
-                    schedule: schedule,
-                    length: length,
-                    sources: sources,
-                    prioritizeForMe: prioritize
-                )
-            }
-        }
-    }
-
-    @discardableResult
-    public func saveVoiceBrief(_ draft: LibraryVoiceBriefDraft) throws -> String {
-        try locked {
-            let id = draft.id ?? UUID().uuidString.uppercased()
-            try transaction {
-                let revision = (try query(
-                    "SELECT revision FROM voice_briefs WHERE id = ?",
-                    bindings: [.text(id)], transform: { sqlite3_column_int64($0, 0) }
-                ).first ?? 0) + 1
-                try run(
-                    """
-                    INSERT INTO voice_briefs(
-                      id, title, prioritize_for_me, schedule, length, revision
-                    ) VALUES(?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
-                      title = excluded.title,
-                      prioritize_for_me = excluded.prioritize_for_me,
-                      schedule = excluded.schedule, length = excluded.length,
-                      revision = excluded.revision, deleted_at = NULL
-                    """,
-                    bindings: [
-                        .text(id), .text(draft.title),
-                        .int(draft.prioritizeForMe ? 1 : 0), .text(draft.schedule),
-                        .text(draft.length), .int(revision)
-                    ]
-                )
-                try run("DELETE FROM voice_brief_sources WHERE voice_brief_id = ?", bindings: [.text(id)])
-                for source in Set(draft.sources) {
-                    try run(
-                        "INSERT OR IGNORE INTO channels(id, source_url) VALUES(?, ?)",
-                        bindings: [.text(source), .text(source)]
-                    )
-                    try run(
-                        "INSERT INTO voice_brief_sources(voice_brief_id, channel_id) VALUES(?, ?)",
-                        bindings: [.text(id), .text(source)]
-                    )
-                }
-                try enqueue(recordType: "voice_brief", id: id, revision: revision, operation: "save")
-            }
-            return id
-        }
-    }
-
-    public func deleteVoiceBrief(_ id: String) throws {
-        try locked {
-            try transaction {
-                try run(
-                    "UPDATE voice_briefs SET deleted_at = ?, revision = revision + 1 WHERE id = ?",
-                    bindings: [.double(Date().timeIntervalSince1970), .text(id)]
-                )
-                let revision = try scalarInt(
-                    "SELECT revision FROM voice_briefs WHERE id = \(sqlLiteral(id))"
-                )
-                try enqueue(recordType: "voice_brief", id: id, revision: revision, operation: "delete")
-            }
-        }
-    }
-
-
     public func commitDocument(_ commit: SQLiteDocumentCommit) throws -> SQLiteDocument {
         try batch([commit]).first!
     }
@@ -267,7 +174,6 @@ extension SQLiteLibrary {
                         current.title = title
                     }
                     if let type = commit.type { current.type = type }
-                    if let voiceBriefID = commit.voiceBriefID { current.voiceBriefID = voiceBriefID }
                     if let sourceURL = commit.sourceURL { current.sourceURL = sourceURL }
                     if let mediaURL = commit.mediaURL { current.mediaURL = mediaURL }
                     if let topicIDs = commit.topicIDs { current.topicIDs = topicIDs }
@@ -295,9 +201,9 @@ extension SQLiteLibrary {
         try run(
             """
             INSERT INTO documents(
-                id, capture_id, type, voice_brief_id, title, source_url, media_url,
+                id, capture_id, type, title, source_url, media_url,
                 created_at, updated_at, revision, deleted, cloud_record
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             bindings: documentBindings(document)
         )
@@ -312,11 +218,11 @@ extension SQLiteLibrary {
     func update(_ document: SQLiteDocument) throws {
         try run(
             """
-            UPDATE documents SET type = ?, voice_brief_id = ?, title = ?, source_url = ?,
+            UPDATE documents SET type = ?, title = ?, source_url = ?,
                 media_url = ?, updated_at = ?, revision = ?, deleted = ?, cloud_record = ? WHERE id = ?
             """,
             bindings: [
-                .text(document.type), .optionalText(document.voiceBriefID), .text(document.title),
+                .text(document.type), .text(document.title),
                 .optionalText(document.sourceURL), .optionalText(document.mediaURL),
                 .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
                 .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData),
@@ -334,7 +240,7 @@ extension SQLiteLibrary {
     func readDocument(_ id: String) throws -> SQLiteDocument? {
         let documents = try query(
             """
-            SELECT id, capture_id, type, voice_brief_id, title, source_url, created_at, updated_at,
+            SELECT id, capture_id, type, title, source_url, created_at, updated_at,
                    media_url, revision, deleted, cloud_record FROM documents WHERE id = ?
             """,
             bindings: [.text(id)]
@@ -427,7 +333,7 @@ extension SQLiteLibrary {
 
     func documentMetadata(where predicate: String?) throws -> [SQLiteDocument] {
         let documentSQL =
-            "SELECT id, capture_id, type, voice_brief_id, title, source_url, " +
+            "SELECT id, capture_id, type, title, source_url, " +
             "created_at, updated_at, media_url, revision, deleted, cloud_record " +
             "FROM documents" +
             (predicate.map { " WHERE \($0)" } ?? "") +
@@ -512,20 +418,19 @@ extension SQLiteLibrary {
             id: columnText(statement, 0),
             captureID: columnText(statement, 1),
             type: columnText(statement, 2),
-            voiceBriefID: columnOptionalText(statement, 3),
-            title: columnText(statement, 4),
-            sourceURL: columnOptionalText(statement, 5),
-            mediaURL: columnOptionalText(statement, 8),
-            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
-            updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 7)),
-            revision: sqlite3_column_int64(statement, 9),
-            deleted: sqlite3_column_int(statement, 10) != 0,
+            title: columnText(statement, 3),
+            sourceURL: columnOptionalText(statement, 4),
+            mediaURL: columnOptionalText(statement, 7),
+            createdAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5)),
+            updatedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
+            revision: sqlite3_column_int64(statement, 8),
+            deleted: sqlite3_column_int(statement, 9) != 0,
             topicIDs: [],
             tags: [],
             sourceIDs: [],
             sourceURLs: [],
             texts: [:],
-            cloudRecordData: columnOptionalBlob(statement, 11)
+            cloudRecordData: columnOptionalBlob(statement, 10)
         )
     }
 

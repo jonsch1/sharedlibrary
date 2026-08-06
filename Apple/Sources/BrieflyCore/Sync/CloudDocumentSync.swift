@@ -300,7 +300,6 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         record["createdAt"] = document.createdAt as CKRecordValue
         record["updatedAt"] = document.updatedAt as CKRecordValue
         record["deleted"] = document.deleted as CKRecordValue
-        record["voiceBriefID"] = document.voiceBriefID as CKRecordValue?
         record["sourceURL"] = document.sourceURL as CKRecordValue?
         record["mediaURL"] = document.mediaURL as CKRecordValue?
         let payload = try JSONEncoder().encode(Payload(
@@ -371,7 +370,6 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             id: localID,
             captureID: captureID,
             type: type,
-            voiceBriefID: record["voiceBriefID"] as? String,
             title: title,
             sourceURL: record["sourceURL"] as? String,
             mediaURL: record["mediaURL"] as? String,
@@ -439,7 +437,6 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         switch type {
         case "topic": "BrieflyTopic"
         case "channel": "BrieflyChannel"
-        case "voice_brief": "BrieflyVoiceBrief"
         default: "BrieflyDocument"
         }
     }
@@ -448,7 +445,6 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         switch cloudType {
         case "BrieflyTopic": "topic"
         case "BrieflyChannel": "channel"
-        case "BrieflyVoiceBrief": "voice_brief"
         default: nil
         }
     }

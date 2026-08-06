@@ -8,12 +8,12 @@ public enum LibraryError: LocalizedError {
     case invalidAudio
     case missingEntry
     case missingChannel
+    case missingChannelItem
     case channelAlreadyExists
     case missingVariant
-    case missingVoiceBrief
     case invalidChannel
     case invalidChannelTitle
-    case invalidChannelRetrievalCount
+    case invalidChannelReviewLimit
     case invalidChannelSchedule
     case channelFailed(String)
     case invalidProcessingOutput
@@ -25,12 +25,7 @@ public enum LibraryError: LocalizedError {
     case processingOutputTooLarge
     case processingTimedOut
     case processingUnavailable
-    case invalidVoiceBriefLength
-    case invalidVoiceBriefSchedule
-    case invalidVoiceBriefScript
-    case invalidVoiceBriefTitle
     case invalidSynchronizedFile(String)
-    case noVoiceBriefItems
 
     public var errorDescription: String? {
         switch self {
@@ -41,12 +36,12 @@ public enum LibraryError: LocalizedError {
         case .invalidAudio: "Briefly could not save the generated audio."
         case .missingEntry: "The selected library item no longer exists."
         case .missingChannel: "The selected channel no longer exists."
+        case .missingChannelItem: "That channel item is no longer pending."
         case .channelAlreadyExists: "One of these sources is already in a channel."
         case .missingVariant: "That document version is not available."
-        case .missingVoiceBrief: "The selected voice brief no longer exists."
         case .invalidChannel: "Channels must be HTTP(S) URLs or arXiv queries."
         case .invalidChannelTitle: "Channel names must contain 1–120 characters."
-        case .invalidChannelRetrievalCount: "Items per check must be between 1 and 100."
+        case .invalidChannelReviewLimit: "The channel review window must contain between 1 and 50 items."
         case .invalidChannelSchedule:
             "Schedule must be manual, daily HH:MM, or weekly MON HH:MM."
         case .channelFailed(let message): message
@@ -61,13 +56,7 @@ public enum LibraryError: LocalizedError {
         case .processingOutputTooLarge: "The AI command returned more than 10 MB of output."
         case .processingTimedOut: "AI processing timed out after 5 minutes."
         case .processingUnavailable: "Local AI commands are only available in the macOS app."
-        case .invalidVoiceBriefLength: "The length instruction must be 120 characters or fewer."
-        case .invalidVoiceBriefSchedule:
-            "Schedule must be manual, hourly :MM, daily HH:MM, or weekly MON HH:MM."
-        case .invalidVoiceBriefScript: "AI processing returned an empty voice brief."
-        case .invalidVoiceBriefTitle: "Voice brief titles must contain 1–120 characters."
         case .invalidSynchronizedFile(let path): "The synchronized copy of \(path) is invalid."
-        case .noVoiceBriefItems: "No new channel items are ready for this voice brief."
         }
     }
 }
@@ -88,7 +77,6 @@ public actor SQLiteLibraryStore {
     func database() throws -> SQLiteLibrary {
         if let sqliteLibrary { return sqliteLibrary }
         let database = try SQLiteLibrary(databaseURL: databaseURL)
-        _ = try SQLiteChannelRepository(database: database).removeItemsFromDeletedChannels()
         sqliteLibrary = database
         return database
     }
@@ -111,7 +99,6 @@ public actor SQLiteLibraryStore {
         title: String,
         content: String,
         sourceURL: URL,
-        asVoiceBriefSource: Bool = false,
         faviconData: Data? = nil,
         faviconFileExtension: String? = nil
     ) throws -> String {
@@ -119,7 +106,6 @@ public actor SQLiteLibraryStore {
             title: title,
             content: content,
             sourceURL: sourceURL,
-            asVoiceBriefSource: asVoiceBriefSource,
             faviconData: faviconData,
             faviconFileExtension: faviconFileExtension
         )
@@ -131,8 +117,8 @@ public actor SQLiteLibraryStore {
     }
 
     @discardableResult
-    public func captureItem(_ draft: ItemDraft, asVoiceBriefSource: Bool = false) throws -> String {
-        try services().capture.captureItem(draft, asVoiceBriefSource: asVoiceBriefSource)
+    public func captureItem(_ draft: ItemDraft) throws -> String {
+        try services().capture.captureItem(draft)
     }
 
     public func loadChannels() throws -> [LibraryChannel] {
@@ -151,12 +137,12 @@ public actor SQLiteLibraryStore {
 
     public func updateChannel(
         _ value: String,
-        retrievalCount: Int,
+        reviewLimit: Int,
         schedule: String
     ) throws {
         try services().channels.updateChannel(
             value,
-            retrievalCount: retrievalCount,
+            reviewLimit: reviewLimit,
             schedule: schedule
         )
     }
@@ -165,16 +151,14 @@ public actor SQLiteLibraryStore {
         _ groupID: String,
         title: String,
         sources: [String],
-        retrievalCount: Int,
-        autoSummarize: Bool,
+        reviewLimit: Int,
         schedule: String
     ) throws {
         try services().channels.updateChannelGroup(
             groupID,
             title: title,
             sources: sources,
-            retrievalCount: retrievalCount,
-            autoSummarize: autoSummarize,
+            reviewLimit: reviewLimit,
             schedule: schedule
         )
     }
@@ -191,81 +175,51 @@ public actor SQLiteLibraryStore {
 
     public func checkChannel(
         _ value: String,
-        maximumItems: Int? = nil,
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+        maximumItems: Int? = nil
     ) async throws -> LibraryChannelRefresh {
-        try await services().channels.checkChannel(value, maximumItems: maximumItems, ingest: ingest)
+        try await services().channels.checkChannel(value, maximumItems: maximumItems)
     }
 
     public func checkChannelInput(
         _ value: String,
         maximumItems: Int? = nil,
-        discover: @Sendable (Int) async throws -> ChannelInputBatch,
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+        discover: @Sendable (Int) async throws -> ChannelInputBatch
     ) async throws -> LibraryChannelRefresh {
         try await services().channels.checkChannelInput(
             value,
             maximumItems: maximumItems,
-            discover: discover,
-            ingest: ingest
+            discover: discover
         )
     }
 
     public func captureSignedInChannelPage(
         source: String,
         title: String,
-        content: String,
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+        content: String
     ) async throws -> LibraryChannelRefresh {
         try await services().channels.captureSignedInChannelPage(
-            source: source, title: title, content: content, ingest: ingest
+            source: source, title: title, content: content
         )
     }
 
     public func captureSignedInChannelItems(
         source: String,
         title: String,
-        items: [LibraryChannelCandidate],
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+        items: [LibraryChannelCandidate]
     ) async throws -> LibraryChannelRefresh {
         try await services().channels.captureSignedInChannelItems(
-            source: source, title: title, items: items, ingest: ingest
+            source: source, title: title, items: items
         )
     }
 
     public func loadMoreChannel(
-        _ value: String,
-        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+        _ value: String
     ) async throws -> LibraryChannelRefresh {
-        try await services().channels.loadMoreChannel(value, ingest: ingest)
-    }
-
-    public func runVoiceBrief(id: String) async throws -> LibraryVoiceBriefEpisodeResult {
-        try await services().voiceBriefs.run(id: id)
-    }
-
-    public func queueVoiceBriefRun(id: String) throws {
-        try services().voiceBriefs.queue(id: id)
-    }
-
-    public func cancelVoiceBriefRun(id: String) throws {
-        try services().voiceBriefs.cancel(id: id)
-    }
-
-    public func pendingVoiceBriefIDs() throws -> [String] {
-        try services().voiceBriefs.pendingIDs()
-    }
-
-    public func dueVoiceBriefIDs(at date: Date = Date()) throws -> [String] {
-        try services().voiceBriefs.dueIDs(at: date)
+        try await services().channels.loadMoreChannel(value)
     }
 
     public func dueChannelSources(at date: Date = Date()) throws -> [String] {
-        try services().voiceBriefs.dueChannelSources(at: date)
-    }
-
-    public func markVoiceBriefAttempt(id: String, at date: Date = Date()) throws {
-        try services().voiceBriefs.markAttempt(id: id, at: date)
+        try services().channels.dueChannelSources(at: date)
     }
 
     public func loadHighlights() throws -> String {
@@ -281,13 +235,18 @@ public actor SQLiteLibraryStore {
         try services().content.removeHighlight(text)
     }
 
-    @discardableResult
-    public func saveVoiceBrief(_ value: LibraryVoiceBriefDraft) throws -> String {
-        try services().channels.saveVoiceBrief(value)
+    public func acceptChannelItem(
+        channelID: String,
+        itemID: String,
+        ingest: @Sendable (LibraryChannelCandidate) async throws -> String
+    ) async throws -> String {
+        try await services().channels.acceptChannelItem(
+            channelID: channelID, itemID: itemID, ingest: ingest
+        )
     }
 
-    public func moveVoiceBriefToTrash(id: String) throws {
-        try services().voiceBriefs.moveToTrash(id: id)
+    public func rejectChannelItem(channelID: String, itemID: String) throws {
+        try services().channels.rejectChannelItem(channelID: channelID, itemID: itemID)
     }
 
     public func moveToTrash(entryID: String) throws {

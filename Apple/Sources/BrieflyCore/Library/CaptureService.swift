@@ -25,7 +25,6 @@ struct LibraryCaptureService {
         title: String,
         content: String,
         sourceURL: URL,
-        asVoiceBriefSource: Bool,
         faviconData: Data?,
         faviconFileExtension: String?
     ) throws -> String {
@@ -40,7 +39,7 @@ struct LibraryCaptureService {
                 : title,
             content: text,
             sourceURL: sourceURL,
-            entryType: asVoiceBriefSource ? "voice_brief_source" : "link",
+            entryType: "link",
             faviconData: faviconData,
             faviconFileExtension: faviconFileExtension
         )
@@ -58,26 +57,21 @@ struct LibraryCaptureService {
         )
     }
 
-    func captureItem(_ draft: ItemDraft, asVoiceBriefSource: Bool) throws -> String {
+    func captureItem(_ draft: ItemDraft) throws -> String {
         let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { throw LibraryError.emptyCapture }
         if let key = draft.canonicalKey,
            let existing = try documents.all().first(where: {
-               $0.type != "voice_brief_episode" &&
-                   canonicalItemIdentity($0.sourceURL.flatMap(URL.init(string:))) == key
+               canonicalItemIdentity($0.sourceURL.flatMap(URL.init(string:))) == key
            }) {
             let sourceURL = (draft.canonicalURL ?? draft.sourceURL)?.absoluteString
             let mediaURL = draft.mediaURL?.absoluteString
             if existing.texts[.source] != content ||
                 (existing.mediaURL == nil && mediaURL != nil) ||
-                (existing.sourceURL == nil && sourceURL != nil) ||
-                (existing.type == "voice_brief_source" && !asVoiceBriefSource) {
+                (existing.sourceURL == nil && sourceURL != nil) {
                 _ = try documents.commit(SQLiteDocumentCommit(
                     id: existing.id,
                     baseRevision: existing.revision,
-                    type: existing.type == "voice_brief_source" && !asVoiceBriefSource
-                        ? "link"
-                        : nil,
                     sourceURL: existing.sourceURL == nil ? sourceURL : nil,
                     mediaURL: existing.mediaURL == nil ? mediaURL : nil,
                     texts: existing.texts[.source] == content ? [:] : [.source: content]
@@ -86,10 +80,9 @@ struct LibraryCaptureService {
             try saveDraftAttachments(draft, documentID: existing.id)
             return existing.id
         }
-        let entryType: String = switch (asVoiceBriefSource, draft.inputID) {
-        case (true, _): "voice_brief_source"
-        case (_, .text): "text"
-        case (_, .pdf): "pdf"
+        let entryType: String = switch draft.inputID {
+        case .text: "text"
+        case .pdf: "pdf"
         default: "link"
         }
         return try saveCapture(

@@ -4,7 +4,6 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
     public var id: String
     public var captureID: String
     public var type: String
-    public var voiceBriefID: String?
     public var title: String
     public var sourceURL: String?
     public var mediaURL: String?
@@ -23,7 +22,6 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         id: String,
         captureID: String,
         type: String = "document",
-        voiceBriefID: String? = nil,
         title: String,
         sourceURL: String? = nil,
         mediaURL: String? = nil,
@@ -41,7 +39,6 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         self.id = id
         self.captureID = captureID
         self.type = type
-        self.voiceBriefID = voiceBriefID
         self.title = title
         self.sourceURL = sourceURL
         self.mediaURL = mediaURL
@@ -77,7 +74,6 @@ public struct SQLiteDocumentCommit: Sendable {
     public let baseRevision: Int64
     public let title: String?
     public let type: String?
-    public let voiceBriefID: String?
     public let sourceURL: String?
     public let mediaURL: String?
     public let topicIDs: [String]?
@@ -90,7 +86,6 @@ public struct SQLiteDocumentCommit: Sendable {
         baseRevision: Int64,
         title: String? = nil,
         type: String? = nil,
-        voiceBriefID: String? = nil,
         sourceURL: String? = nil,
         mediaURL: String? = nil,
         topicIDs: [String]? = nil,
@@ -102,7 +97,6 @@ public struct SQLiteDocumentCommit: Sendable {
         self.baseRevision = baseRevision
         self.title = title
         self.type = type
-        self.voiceBriefID = voiceBriefID
         self.sourceURL = sourceURL
         self.mediaURL = mediaURL
         self.topicIDs = topicIDs
@@ -152,8 +146,7 @@ public struct SQLiteChannelRecord: Sendable {
     public var schedule: String
     public var lastCheckedAt: String?
     public var error: String?
-    public var retrievalCount: Int
-    public var autoSummarize: Bool
+    public var reviewLimit: Int
     public var canLoadMore: Bool
     public var seen: [String]
     public var items: [LibraryChannelItem]
@@ -167,8 +160,7 @@ public struct SQLiteChannelRecord: Sendable {
         schedule: String = "manual",
         lastCheckedAt: String? = nil,
         error: String? = nil,
-        retrievalCount: Int = 5,
-        autoSummarize: Bool = true,
+        reviewLimit: Int = defaultChannelReviewLimit,
         canLoadMore: Bool = true,
         seen: [String] = [],
         items: [LibraryChannelItem] = []
@@ -181,22 +173,11 @@ public struct SQLiteChannelRecord: Sendable {
         self.schedule = schedule
         self.lastCheckedAt = lastCheckedAt
         self.error = error
-        self.retrievalCount = retrievalCount
-        self.autoSummarize = autoSummarize
+        self.reviewLimit = reviewLimit
         self.canLoadMore = canLoadMore
         self.seen = seen
         self.items = items
     }
-}
-
-public struct SQLiteVoiceBriefRunState: Sendable {
-    public var voiceBriefID: String
-    public var lastRunAt: String?
-    public var lastAttemptAt: String?
-    public var status: String?
-    public var message: String?
-    public var consumed: [String]
-    public var pendingEpisodeID: String?
 }
 
 public struct SQLiteProcessingJob: Sendable {

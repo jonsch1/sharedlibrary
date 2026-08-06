@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "generatedAt": "2026-07-31T08:00:00Z",
   "files": [],
   "entries": [
@@ -17,11 +17,11 @@
       "texts": [
         {
           "variant": "concise",
-          "text": "## Core idea\n\nBiological network inference is not a single algorithmic step. It combines **well-designed perturbations**, a transparent prior network, and validation against held-out observations.\n\n- Use perturbations that distinguish competing causal explanations.\n- Keep prior knowledge inspectable and versioned.\n- Separate model selection from final validation.\n- Report uncertainty instead of presenting one graph as definitive."
+          "text": "## Core idea\n\nBiological network inference combines well-designed perturbations, a transparent prior network, and validation against held-out observations."
         },
         {
           "variant": "source",
-          "text": "This sample document illustrates the format exported by Briefly. Your real snapshot includes the original source text and every available summary level."
+          "text": "This sample document illustrates the format exported by Briefly."
         }
       ]
     },
@@ -38,7 +38,7 @@
       "texts": [
         {
           "variant": "concise",
-          "text": "## Reliable pipeline principles\n\n1. Make every transformation explicit and deterministic.\n2. Record inputs, versions, parameters, and checksums.\n3. Fail loudly at the boundary where invalid data first appears.\n4. Keep intermediate outputs disposable and rebuildable."
+          "text": "## Reliable pipeline principles\n\nMake transformations explicit and deterministic, record inputs and versions, and fail loudly at the boundary where invalid data first appears."
         },
         {
           "variant": "source",
@@ -60,130 +60,13 @@
       "texts": [
         {
           "variant": "concise",
-          "text": "## Interpreting communication scores\n\nMost workflows combine expression thresholds, a ligand–receptor resource, and an aggregation rule. Results change substantially with each choice.\n\nUse several complementary methods and validate important predictions with spatial context or perturbation data."
+          "text": "## Interpreting communication scores\n\nMost workflows combine expression thresholds, a ligand–receptor resource, and an aggregation rule. Results change substantially with each choice."
         },
         {
           "variant": "source",
           "text": "This item demonstrates how a document shared with you appears beside personal library content."
         }
       ]
-    },
-    {
-      "id": "demo:hacker-news-2026-07-17",
-      "captureID": "hacker-news-2026-07-17",
-      "entryType": "voice_brief_episode",
-      "voiceBriefID": "hacker-news",
-      "title": "Hacker News Morning Update for July 17, 2026",
-      "excerpt": "A concise morning overview of the technology stories drawing the most thoughtful discussion.",
-      "topicIDs": [],
-      "topicNames": [],
-      "tags": ["voice-brief"],
-      "sourceIDs": ["demo:hn-source"],
-      "sourceURLs": ["https://news.ycombinator.com"],
-      "hasAudio": true,
-      "createdAt": "2026-07-17T07:00:00Z",
-      "origin": "personal",
-      "texts": [
-        {
-          "variant": "concise",
-          "text": "# Hacker News Morning Update for July 17, 2026\n\nGood morning. Today’s discussion is unusually focused on the practical limits of software infrastructure: how teams keep systems understandable as they scale, where AI coding tools genuinely save time, and why smaller components often outperform ambitious platforms.\n\nThe strongest thread connects reliability with simplicity. Several engineers describe incidents where the final repair was not another service or abstraction, but the removal of one. The useful lesson is less about minimalism as a style and more about reducing the number of states an operator must understand during a failure.\n\nA second cluster looks at local-first tools. Developers are comparing synchronization strategies that preserve a useful offline experience without pretending conflicts never happen. The consensus is pragmatic: make local work immediate, record enough history to merge safely, and surface the rare ambiguous decision to a person.\n\nFinally, there is sustained interest in scientific software. The most productive comments emphasize reproducible inputs and observable transformations over elaborate workflow engines. That echoes the broader theme this morning: systems earn trust when their behavior remains inspectable."
-        }
-      ]
-    },
-    {
-      "id": "demo:reddit-2026-07-16",
-      "captureID": "reddit-2026-07-16",
-      "entryType": "voice_brief_episode",
-      "voiceBriefID": "reddit",
-      "title": "Reddit Highlights for July 16, 2026",
-      "excerpt": "Selected practical discussions from subscribed communities.",
-      "topicIDs": [],
-      "topicNames": [],
-      "tags": ["voice-brief"],
-      "sourceURLs": ["https://www.reddit.com"],
-      "hasAudio": true,
-      "createdAt": "2026-07-16T17:00:00Z",
-      "origin": "personal",
-      "texts": [
-        {
-          "variant": "concise",
-          "text": "# Reddit Highlights for July 16, 2026\n\nToday’s useful conversations center on reproducible research, maintaining small software products, and choosing tools that remain understandable after the initial excitement fades.\n\nAcross the threads, practitioners consistently favor clear files, portable formats, and workflows that can be inspected without a specialized service."
-        }
-      ]
-    },
-    {
-      "id": "demo:x-2026-07-15",
-      "captureID": "x-2026-07-15",
-      "entryType": "voice_brief_episode",
-      "voiceBriefID": "x",
-      "title": "X Daily Brief for July 15, 2026",
-      "excerpt": "A private synthesis of selected accounts and topics.",
-      "topicIDs": [],
-      "topicNames": [],
-      "tags": ["voice-brief"],
-      "sourceURLs": ["https://x.com"],
-      "hasAudio": true,
-      "createdAt": "2026-07-15T18:00:00Z",
-      "origin": "personal",
-      "texts": [
-        {
-          "variant": "concise",
-          "text": "# X Daily Brief for July 15, 2026\n\nThe day’s selected posts focus on native application design, local data ownership, and techniques for keeping AI-assisted workflows verifiable.\n\nThe recurring practical advice is to preserve the source material, make generated output replaceable, and keep account credentials inside the platform security boundary."
-        }
-      ]
-    },
-    {
-      "id": "demo:hn-source",
-      "captureID": "hn-source",
-      "entryType": "voice_brief_source",
-      "title": "Small tools and reliable systems",
-      "excerpt": "A discussion about operational simplicity.",
-      "topicIDs": [],
-      "topicNames": [],
-      "tags": [],
-      "sourceURL": "https://news.ycombinator.com",
-      "createdAt": "2026-07-17T06:30:00Z",
-      "origin": "personal",
-      "texts": [
-        {
-          "variant": "source",
-          "text": "A source item gathered for the Hacker News voice brief."
-        }
-      ]
-    }
-  ],
-  "voiceBriefs": [
-    {
-      "id": "arxiv",
-      "filename": "arxiv.md",
-      "title": "ArXiv",
-      "schedule": "manual",
-      "length": "5 minutes",
-      "sources": ["https://arxiv.org"]
-    },
-    {
-      "id": "hacker-news",
-      "filename": "hacker-news.md",
-      "title": "Hacker News",
-      "schedule": "manual",
-      "length": "8 minutes",
-      "sources": ["https://news.ycombinator.com"]
-    },
-    {
-      "id": "reddit",
-      "filename": "reddit.md",
-      "title": "Reddit",
-      "schedule": "manual",
-      "length": "6 minutes",
-      "sources": ["https://www.reddit.com"]
-    },
-    {
-      "id": "x",
-      "filename": "x.md",
-      "title": "X",
-      "schedule": "manual",
-      "length": "5 minutes",
-      "sources": ["https://x.com"]
     }
   ]
 }
