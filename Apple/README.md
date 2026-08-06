@@ -5,11 +5,11 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
 
 ## Current capabilities
 
-- Native library, channel, and voice-brief navigation with a collapsible macOS
-  sidebar and full-height titlebar layout.
-- SQLite-canonical local library with typed document, topic, channel,
-  voice-brief, and attachment records; FTS5 search; revision-checked writes;
-  and attachments stored in SQLite.
+- Native library and channel navigation with a collapsible macOS sidebar and
+  full-height titlebar layout.
+- SQLite-canonical local library with typed document, topic, channel, and
+  attachment records; FTS5 search; revision-checked writes; and attachments
+  stored in SQLite.
 - Native item inputs for text, PDF, web pages, arXiv, bioRxiv, YouTube, podcasts,
   Reddit, X, Bluesky, Threads, and TikTok; channel inputs for RSS/Atom,
   YouTube, podcasts, Reddit, X, arXiv, Hacker News, and watched pages. Visible
@@ -23,6 +23,9 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
   playback, local caching, resume position, seeking, speed, and volume.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
   the SQLite database file is never synchronized.
+- Durable channel review queues keep up to 50 user-configured candidates per
+  channel group. Discovery is cheap; only accepted candidates enter the library
+  and start summary processing.
 - Configurable system-wide macOS clipboard capture, native File-menu actions,
   drag-and-drop capture, light/dark/system appearance, and app-local SQLite
   persistence.
@@ -93,7 +96,7 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
 
 - Briefly AI via OpenRouter is the default on macOS and iOS. Local command-line
   processing and custom terminal agents remain available on macOS.
-- Scheduled briefs run at launch, while active, and while the app remains
-  running. Reliable background iOS execution still needs an App Refresh task.
-- The native clients retain generated voice-brief audio and can optionally
-  retain audio for manually captured YouTube items.
+- Scheduled channel checks run at launch while the app remains active. Reliable
+  background iOS execution still needs an App Refresh task.
+- The native clients can optionally retain audio for manually captured YouTube
+  items and can generate local speech for ordinary library documents.

@@ -350,11 +350,7 @@ struct ChannelConfiguration: View {
             channelID: channel.source,
             fallbackChannel: channel,
             requestSummary: { entryIDs in
-                _ = await model.processing.drainProcessingQueue(
-                    configuration: model.settings.processingConfiguration
-                )
-                await model.workflows.refreshLibrary(selecting: entryIDs.last)
-                model.workflows.requestSync()
+                await model.workflows.finishAcceptedChannelItems(entryIDs)
             }
         )
     }

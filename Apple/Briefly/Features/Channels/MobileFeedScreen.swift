@@ -12,19 +12,21 @@ struct MobileXFeedScreen: View {
     let create: () -> Void
     @State private var showsSearch = false
 
+    private var filteredChannels: [LibraryChannel] {
+        model.channels.filteredChannels(query: model.navigation.query)
+    }
+
+    private var selectedChannel: LibraryChannel? {
+        model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
+    }
+
     private var entries: [LibraryEntry] {
         let candidates: [LibraryEntry]
         switch tab {
         case .home:
             candidates = model.navigation.filteredEntries
         case .channels:
-            if model.navigation.selectedChannelSource.isEmpty {
-                var seen = Set<String>()
-                candidates = model.channels.channels.flatMap { model.channels.channelEntries(for: $0.source) }
-                    .filter { seen.insert($0.id).inserted }
-            } else {
-                candidates = model.channels.channelEntries(for: model.navigation.selectedChannelSource)
-            }
+            candidates = []
         case .library:
             candidates = []
         }
@@ -38,7 +40,9 @@ struct MobileXFeedScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if entries.isEmpty {
+            if tab == .channels {
+                channelContent
+            } else if entries.isEmpty {
                 ScrollView {
                     VStack(spacing: 0) {
                         Color.clear
@@ -84,6 +88,78 @@ struct MobileXFeedScreen: View {
             showsSearch = false
             model.navigation.query = ""
         }
+    }
+
+    private var channelContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                Color.clear
+                    .frame(height: floatingHeaderHeight)
+
+                if let channel = selectedChannel {
+                    ChannelReviewDeck(
+                        model: model.channels,
+                        channelID: channel.source,
+                        fallbackChannel: channel,
+                        requestSummary: { entryIDs in
+                            await model.workflows.finishAcceptedChannelItems(entryIDs)
+                        }
+                    )
+                    .padding(.horizontal, 16)
+                } else if filteredChannels.isEmpty {
+                    XEmptyState(
+                        icon: emptyIcon,
+                        title: emptyTitle,
+                        message: emptyMessage
+                    )
+                    .frame(maxWidth: 720, minHeight: 420)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    ForEach(filteredChannels) { channel in
+                        Button {
+                            model.workflows.selectChannel(channel.source)
+                        } label: {
+                            HStack(spacing: 14) {
+                                Image(
+                                    systemName: channel.kind == .podcast
+                                        ? "waveform"
+                                        : "dot.radiowaves.left.and.right"
+                                )
+                                .font(.system(size: 18, weight: .semibold))
+                                .frame(width: 44, height: 44)
+                                .background(Color.primary.opacity(0.07), in: Circle())
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(channel.title)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text("\(channel.items.count) pending review")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(16)
+                            .background(
+                                .regularMaterial,
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 96)
+        }
+        .scrollIndicators(.hidden)
+        .refreshable { await refresh() }
     }
 
     private func closeSearch() {
@@ -263,7 +339,7 @@ struct MobileXFeedScreen: View {
         if !model.navigation.query.isEmpty { return "No matches" }
         return switch tab {
         case .home: "Nothing here yet"
-        case .channels: "No channel updates"
+        case .channels: "No channels yet"
         case .library: "Library is empty"
         }
     }
@@ -272,7 +348,7 @@ struct MobileXFeedScreen: View {
         if !model.navigation.query.isEmpty { return "Try another search." }
         return switch tab {
         case .home: "Capture a link or note to start your feed."
-        case .channels: "Add a channel, then pull to fetch its latest updates."
+        case .channels: "Add a channel, then pull to fetch candidates for review."
         case .library: "Highlights and recently deleted notes appear here."
         }
     }

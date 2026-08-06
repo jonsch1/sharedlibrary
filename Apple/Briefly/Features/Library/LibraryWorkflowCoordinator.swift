@@ -54,6 +54,8 @@ final class LibraryWorkflowCoordinator {
     let lifecycle: LibraryLifecycleModel
 
     private let syncScheduler: LibrarySyncScheduler
+    private var acceptedChannelSummaryTask: Task<Void, Never>?
+    private var acceptedChannelSummaryRequested = false
 
     init(
         session: LibrarySession,
@@ -393,6 +395,24 @@ final class LibraryWorkflowCoordinator {
 
     func runDueChannelChecks() async {
         _ = await channels.runDueChannelChecks()
+    }
+
+    func finishAcceptedChannelItems(_ entryIDs: [String]) async {
+        guard !entryIDs.isEmpty else { return }
+        acceptedChannelSummaryRequested = true
+        guard acceptedChannelSummaryTask == nil else { return }
+        acceptedChannelSummaryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while self.acceptedChannelSummaryRequested {
+                self.acceptedChannelSummaryRequested = false
+                _ = await self.processing.drainProcessingQueue(
+                    configuration: self.settings.processingConfiguration
+                )
+            }
+            await self.refreshLibrary()
+            self.requestSync()
+            self.acceptedChannelSummaryTask = nil
+        }
     }
 
     // MARK: Settings

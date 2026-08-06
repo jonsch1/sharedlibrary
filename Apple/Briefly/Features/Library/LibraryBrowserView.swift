@@ -13,45 +13,20 @@ struct LibraryCardBrowser: View {
         }
     }
 
-    private var channelEntries: [LibraryEntry] {
-        guard !model.navigation.selectedChannelSource.isEmpty else { return [] }
-        return model.channels.channelEntries(for: model.navigation.selectedChannelSource).filter {
-            $0.matches(model.navigation.query)
-        }
-    }
-
-    private var allChannelEntries: [LibraryEntry] {
-        var seen = Set<String>()
-        return channels
-            .flatMap { model.channels.channelEntries(for: $0.source) }
-            .filter { seen.insert($0.id).inserted && $0.matches(model.navigation.query) }
-            .sorted {
-                ($0.createdAt ?? $0.updatedAt ?? "") >
-                    ($1.createdAt ?? $1.updatedAt ?? "")
-            }
-    }
-
     private var count: Int {
-        switch model.navigation.activeSection {
-        case .items: model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).count
-        case .channels:
-            model.navigation.selectedChannelSource.isEmpty ? allChannelEntries.count : channelEntries.count
-        }
+        model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).count
     }
 
-    private var feedEntries: [LibraryEntry]? {
-        switch model.navigation.activeSection {
-        case .items:
-            model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
-        case .channels:
-            model.navigation.selectedChannelSource.isEmpty ? allChannelEntries : channelEntries
-        }
+    private var feedEntries: [LibraryEntry] {
+        model.navigation.filteredEntries(trashEntries: model.selection.trashEntries)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if count == 0 {
+                if model.navigation.activeSection == .channels {
+                    browserContent
+                } else if count == 0 {
                     VStack(spacing: 0) {
                         feedHeader
                         XEmptyState(
@@ -79,10 +54,55 @@ struct LibraryCardBrowser: View {
 
     @ViewBuilder
     private var browserContent: some View {
-        if let feedEntries {
+        switch model.navigation.activeSection {
+        case .items:
             feedColumn(feedEntries)
                 .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity, alignment: .top)
+        case .channels:
+            VStack(spacing: 16) {
+                feedHeader
+                if let channel = model.channels.selectedChannel(
+                    for: model.navigation.selectedChannelSource
+                ) {
+                    HStack {
+                        Text("\(channel.items.count) pending")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            Task { await model.workflows.checkSelectedChannel() }
+                        } label: {
+                            if model.channels.isCheckingChannel {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Fetch fresh", systemImage: "arrow.clockwise")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.channels.isCheckingChannel)
+                    }
+                    ChannelReviewDeck(
+                        model: model.channels,
+                        channelID: channel.source,
+                        fallbackChannel: channel,
+                        requestSummary: { entryIDs in
+                            await model.workflows.finishAcceptedChannelItems(entryIDs)
+                        }
+                    )
+                } else if channels.isEmpty {
+                    XEmptyState(
+                        icon: emptyIcon,
+                        title: emptyTitle,
+                        message: emptyDescription
+                    )
+                    .frame(minHeight: 360)
+                } else {
+                    channelIndex
+                }
+            }
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 
@@ -125,7 +145,7 @@ struct LibraryCardBrowser: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                        Text("\(model.channels.channelEntries(for: channel.source).count) saved notes")
+                        Text("\(channel.items.count) pending review")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -321,142 +341,14 @@ struct LibraryCardBrowser: View {
         .buttonStyle(.plain)
     }
 
-    private var feedRail: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search your library", text: $model.navigation.query)
-                    .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-            .background(.regularMaterial)
-            .clipShape(Capsule())
-            .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
-
-            FeedRailCard(title: "Collections") {
-                ForEach(Array(model.session.projection.documentTopics.prefix(6)), id: \.self) { topic in
-                    Button {
-                        Task { await model.workflows.showTopic(topic) }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "folder")
-                                .foregroundStyle(.secondary)
-                            Text(topic)
-                                .lineLimit(1)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.vertical, 5)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-        }
-    }
-
-    private var feedTitle: String {
-        switch model.navigation.activeSection {
-        case .items:
-            model.navigation.showingTrash ? "Trash" : model.navigation.selectedTopic == "All" ? "For you" : model.navigation.selectedTopic
-        case .channels:
-            model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.title ?? "Channel"
-        }
-    }
-
-    @ViewBuilder
-    private var desktopActions: some View {
-        if model.navigation.activeSection == .channels,
-            let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
-        {
-            HStack {
-                Spacer()
-                Button {
-                    Task { await model.workflows.checkSelectedChannel() }
-                } label: {
-                    if model.channels.isCheckingChannel {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Fetch fresh", systemImage: "arrow.clockwise")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.channels.isCheckingChannel)
-
-                Button {
-                    model.workflows.showChannelSettings(channel.source)
-                } label: {
-                    Image(systemName: "gearshape")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Settings for \(channel.title)")
-                .help("Settings for \(channel.title)")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func noteCard(
-        _ entry: LibraryEntry,
-        minimumHeight: CGFloat? = nil,
-        featured: Bool = false
-    ) -> some View {
-        let card = GrainyEntryCard(
-            entry: entry,
-            minimumHeight: minimumHeight,
-            featured: featured,
-            action: { Task { await model.workflows.select(entry.id) } }
-        )
-        if model.navigation.showingTrash {
-            card
-        } else {
-            card.modifier(EntryContextMenu(model: model, entry: entry))
-        }
-    }
-
-    private func channelCard(_ channel: LibraryChannel) -> some View {
-        BrowserCard(
-            action: { model.workflows.selectChannel(channel.source) },
-            settingsAction: { model.workflows.showChannelSettings(channel.source) },
-            settingsLabel: "Settings for \(channel.title)",
-            palette: .channel,
-            variationKey: channel.source
-        ) {
-            CardEyebrow(
-                icon: channel.kind == .podcast
-                    ? "waveform"
-                    : "dot.radiowaves.left.and.right",
-                title: channelDomain(channel.primarySource)
-            )
-            Text(channel.title)
-                .font(.title3.weight(.semibold))
-                .lineLimit(2)
-            Text(channel.sources.joined(separator: " · "))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            Label(
-                "\(model.channels.channelEntries(for: channel.source).count) notes",
-                systemImage: "doc.text"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-    }
-
     private var emptyTitle: String {
         if !model.navigation.query.isEmpty { return "No matches" }
         return switch model.navigation.activeSection {
         case .items: model.navigation.showingTrash ? "Trash is empty" : "No notes yet"
         case .channels:
-            model.navigation.selectedChannelSource.isEmpty ? "No channels yet" : "No notes yet"
+            model.navigation.selectedChannelSource.isEmpty
+                ? "No channels yet"
+                : "Nothing waiting for review"
         }
     }
 
@@ -477,7 +369,7 @@ struct LibraryCardBrowser: View {
         case .channels:
             model.navigation.selectedChannelSource.isEmpty
                 ? "Add a channel to follow its updates."
-                : "New notes from this channel appear here."
+                : "Fetch fresh candidates when you are ready."
         }
     }
 }
