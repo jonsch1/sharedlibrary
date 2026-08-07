@@ -204,11 +204,10 @@ final class LibraryChannelModel {
         source: String,
         title: String,
         sources: [String],
-        reviewWindow: Int,
-        schedule: String
+        reviewWindow: Int
     ) async -> Bool {
         guard let library = session.library else { return false }
-        guard selectedChannel(for: source) != nil else { return false }
+        guard let channel = selectedChannel(for: source) else { return false }
         let boundedWindow = min(Self.maximumReviewWindow, max(1, reviewWindow))
         do {
             try await library.updateChannelGroup(
@@ -216,7 +215,7 @@ final class LibraryChannelModel {
                 title: title,
                 sources: sources,
                 reviewLimit: boundedWindow,
-                schedule: schedule
+                schedule: channel.schedule
             )
             try await refreshChannels(from: library)
             session.status = "Channel settings saved"

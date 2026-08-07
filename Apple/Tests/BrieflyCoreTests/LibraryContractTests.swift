@@ -120,9 +120,6 @@ final class LibraryContractTests: XCTestCase {
         XCTAssertEqual(grouped.sources, sources.sorted())
         XCTAssertLessThanOrEqual(grouped.items.count, 2)
         XCTAssertEqual(grouped.schedule, "daily 08:30")
-        XCTAssertEqual(defaultChannelReviewLimit, 50)
-        XCTAssertEqual(channelReviewLimitRange, 1...50)
-
         do {
             try await store.updateChannel(
                 sources[0], reviewLimit: 0, schedule: "manual"

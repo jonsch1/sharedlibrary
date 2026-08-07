@@ -59,7 +59,7 @@ enum SQLiteLibraryMigrator {
         }
         if !columns.contains("review_limit") {
             try library.execute(
-                "ALTER TABLE channels ADD COLUMN review_limit INTEGER NOT NULL DEFAULT 50 " +
+                "ALTER TABLE channels ADD COLUMN review_limit INTEGER NOT NULL DEFAULT 20 " +
                     "CHECK(review_limit BETWEEN 1 AND 50)"
             )
             if columns.contains("retrieval_count") {
@@ -76,7 +76,7 @@ enum SQLiteLibraryMigrator {
             try library.execute("ALTER TABLE channels DROP COLUMN auto_summarize")
         }
         try library.run(
-            "UPDATE channels SET review_limit = MIN(50, MAX(1, COALESCE(review_limit, 50)))"
+            "UPDATE channels SET review_limit = MIN(50, MAX(1, COALESCE(review_limit, 20)))"
         )
     }
 
@@ -355,7 +355,7 @@ private enum SQLiteLibrarySchema {
       title TEXT,
       kind TEXT,
       schedule TEXT NOT NULL DEFAULT 'manual',
-      review_limit INTEGER NOT NULL DEFAULT 50 CHECK(review_limit BETWEEN 1 AND 50),
+      review_limit INTEGER NOT NULL DEFAULT 20 CHECK(review_limit BETWEEN 1 AND 50),
       revision INTEGER NOT NULL DEFAULT 1,
       deleted_at REAL,
       cloud_record BLOB

@@ -2,7 +2,7 @@ import Foundation
 
 public let librarySchemaVersion = 6
 
-public let defaultChannelReviewLimit = 50
+public let defaultChannelReviewLimit = 20
 public let channelReviewLimitRange = 1...50
 
 public enum LibraryVariant: String, Codable, CaseIterable, Sendable {

@@ -86,7 +86,8 @@ struct LibraryChannelStateRepository {
 
         current.title = discovered.title
         current.kind = discovered.kind
-        current.canLoadMore = discovered.items.count >= limit && limit < 50
+        current.canLoadMore = discovered.items.count >= limit &&
+            limit < channelReviewLimitRange.upperBound
         return newItemIDs
     }
 

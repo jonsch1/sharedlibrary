@@ -373,16 +373,14 @@ final class LibraryWorkflowCoordinator {
     func updateSelectedChannel(
         title: String,
         sources: [String],
-        reviewWindow: Int,
-        schedule: String
+        reviewWindow: Int
     ) async {
         guard !navigation.selectedChannelSource.isEmpty else { return }
         if await channels.updateChannel(
             source: navigation.selectedChannelSource,
             title: title,
             sources: sources,
-            reviewWindow: reviewWindow,
-            schedule: schedule
+            reviewWindow: reviewWindow
         ) {
             requestSync()
         }

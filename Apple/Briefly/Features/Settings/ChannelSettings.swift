@@ -8,7 +8,6 @@ struct ChannelConfiguration: View {
     @State private var source = ""
     @State private var channelTitle = ""
     @State private var reviewWindow = defaultChannelReviewLimit
-    @State private var schedule = "manual"
     @State private var confirmsRemoval = false
 
     var body: some View {
@@ -104,8 +103,6 @@ struct ChannelConfiguration: View {
                             .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
                     }
 
-                    ScheduleEditor(schedule: $schedule)
-
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Review window")
@@ -176,7 +173,6 @@ struct ChannelConfiguration: View {
                             .textSelection(.enabled)
                     }
                     channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
-                    ScheduleEditor(schedule: $schedule)
                     Text("Review window")
                         .font(.headline)
                     Stepper(
@@ -263,7 +259,6 @@ struct ChannelConfiguration: View {
                 channelReviewLimitRange.upperBound,
                 max(channelReviewLimitRange.lowerBound, selectedChannel?.reviewLimit ?? defaultChannelReviewLimit)
             )
-            schedule = selectedChannel?.schedule ?? "manual"
             channelTitle = selectedChannel?.title ?? ""
             model.channels.newChannelSources = model.navigation.selectedChannelSource == "new"
                 ? []
@@ -423,8 +418,7 @@ struct ChannelConfiguration: View {
             await model.workflows.updateSelectedChannel(
                 title: channelTitle,
                 sources: model.channels.newChannelSources,
-                reviewWindow: reviewWindow,
-                schedule: schedule
+                reviewWindow: reviewWindow
             )
         }
     }
