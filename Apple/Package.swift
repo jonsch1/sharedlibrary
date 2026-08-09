@@ -10,7 +10,14 @@ let package = Package(
     ],
     products: [
         .library(name: "BrieflyCore", targets: ["BrieflyCore"]),
-        .executable(name: "briefly-migrate", targets: ["BrieflyMigrate"])
+        .executable(name: "briefly-migrate", targets: ["BrieflyMigrate"]),
+        .executable(name: "briefly-mcp", targets: ["BrieflyMCP"])
+    ],
+    dependencies: [
+        .package(
+            url: "https://github.com/modelcontextprotocol/swift-sdk.git",
+            from: "0.11.0"
+        )
     ],
     targets: [
         .target(
@@ -20,6 +27,13 @@ let package = Package(
         .executableTarget(
             name: "BrieflyMigrate",
             dependencies: ["BrieflyCore"]
+        ),
+        .executableTarget(
+            name: "BrieflyMCP",
+            dependencies: [
+                "BrieflyCore",
+                .product(name: "MCP", package: "swift-sdk")
+            ]
         ),
         .testTarget(
             name: "BrieflyCoreTests",

@@ -3,6 +3,7 @@ import { startAppleLogin } from '../domains/auth/apple.js';
 import { finishAppleLogin as finishAppleLoginHandler } from '../domains/auth/apple.js';
 import { finishNativeAppleLogin as finishNativeAppleLoginHandler } from '../domains/auth/apple.js';
 import { signOut } from '../domains/auth/session.js';
+import { deleteAccount } from '../domains/auth/deletion.js';
 import { paidAccessResponse } from '../domains/auth/entitlements.js';
 import { appStoreNotification, syncAppStoreTransaction } from '../domains/billing/storekit.js';
 import { adminComplimentaryAccess } from '../domains/admin/access.js';
@@ -49,6 +50,9 @@ const routeWorker = {
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);
+		}
+		if (url.pathname === '/api/auth/account' && request.method === 'DELETE') {
+			return deleteAccount(request, env);
 		}
 		if (
 			url.pathname === '/api/admin/complimentary-access' &&

@@ -9,22 +9,38 @@ struct MobileXLibraryScreen: View {
     }
 
     @Bindable var model: LibraryModel
-    @Binding var showsSettings: Bool
+    let openSettings: (BrieflySettingsSection?) -> Void
     let openEntry: (LibraryEntry) -> Void
-    let create: () -> Void
     @State private var section = Section.highlights
+    @State private var showsAbout = false
 
     var body: some View {
         VStack(spacing: 0) {
             MobileXHeader(
                 title: "Library",
-                showsSettings: $showsSettings,
-                primary: MobileXHeaderAction(
-                    icon: "plus",
-                    label: "Capture",
-                    identifier: "capture.open",
-                    action: create
-                )
+                menuItems: [
+                    MobileXHeaderMenuItem(
+                        title: "Settings",
+                        icon: "gearshape",
+                        identifier: "settings.open",
+                        action: { openSettings(nil) }
+                    ),
+                    MobileXHeaderMenuItem(
+                        title: "Appearance",
+                        icon: "circle.lefthalf.filled",
+                        action: { openSettings(.general) }
+                    ),
+                    MobileXHeaderMenuItem(
+                        title: "Account & Subscription",
+                        icon: "person.crop.circle",
+                        action: { openSettings(.account) }
+                    ),
+                    MobileXHeaderMenuItem(
+                        title: "About & Feedback",
+                        icon: "info.circle",
+                        action: { showsAbout = true }
+                    )
+                ]
             )
             .mobileGlass(
                 in: RoundedRectangle(cornerRadius: 24, style: .continuous),
@@ -94,6 +110,62 @@ struct MobileXLibraryScreen: View {
         .background { BrieflyAtmosphere().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar)
         .task { model.workflows.showHighlights() }
+        .sheet(isPresented: $showsAbout) {
+            MobileAboutFeedbackView()
+        }
+    }
+}
+
+private struct MobileAboutFeedbackView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let release = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(release) (\($0))" } ?? release
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("About Briefly") {
+                    LabeledContent("Version", value: version)
+                    Text("Briefly turns saved material into a focused personal reading library.")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Help") {
+                    Link(
+                        "Send feedback",
+                        destination: URL(string: "https://www.readbriefly.fyi/feedback")!
+                    )
+                }
+
+                Section("Legal") {
+                    Link(
+                        "Privacy Policy",
+                        destination: URL(string: "https://www.readbriefly.fyi/privacy")!
+                    )
+                    Link(
+                        "Terms of Use",
+                        destination: URL(string: "https://www.readbriefly.fyi/terms")!
+                    )
+                    Link(
+                        "Imprint",
+                        destination: URL(string: "https://www.readbriefly.fyi/imprint")!
+                    )
+                }
+            }
+            .navigationTitle("About & Feedback")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

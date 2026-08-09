@@ -41,6 +41,10 @@ struct SQLiteDocumentRepository {
         try database.getDocument(id, includeDeleted: includeDeleted)
     }
 
+    func find(captureID: String) throws -> SQLiteDocument? {
+        try database.document(captureID: captureID)
+    }
+
     func all(includeDeleted: Bool = false) throws -> [SQLiteDocument] {
         try database.allDocuments(includeDeleted: includeDeleted)
     }

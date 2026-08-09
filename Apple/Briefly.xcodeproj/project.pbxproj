@@ -77,6 +77,8 @@
 		100000000000000000000166 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000166 /* SettingsView.swift */; };
 		100000000000000000000167 /* SettingsViewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000167 /* SettingsViewLayout.swift */; };
 		100000000000000000000168 /* SettingsViewNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000168 /* SettingsViewNavigation.swift */; };
+		100000000000000000000191 /* SubscriptionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000191 /* SubscriptionScreen.swift */; };
+		100000000000000000000192 /* BrieflyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000192 /* BrieflyOnboarding.swift */; };
 		100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalSpeechSynthesizer.swift */; };
 		100000000000000000000173 /* NativeLibraryError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000173 /* NativeLibraryError.swift */; };
 		100000000000000000000175 /* BrieflyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000175 /* BrieflyBackend.swift */; };
@@ -93,6 +95,11 @@
 		100000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Assets.xcassets */; };
 		100000000000000000000004 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrieflyCore */; };
 		100000000000000000000008 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* FluidAudio */; };
+		E10000000000000000000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000001 /* ShareViewController.swift */; };
+		E10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = ED0000000000000000000001 /* BrieflyCore */; };
+		E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E30000000000000000000004 /* BrieflyShareExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		F10000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -103,7 +110,28 @@
 			remoteGlobalIDString = 500000000000000000000001;
 			remoteInfo = Briefly;
 		};
+		E20000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E90000000000000000000001;
+			remoteInfo = BrieflyShareExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E80000000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		200000000000000000000100 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -177,6 +205,8 @@
 		200000000000000000000166 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		200000000000000000000167 /* SettingsViewLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewLayout.swift; sourceTree = "<group>"; };
 		200000000000000000000168 /* SettingsViewNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewNavigation.swift; sourceTree = "<group>"; };
+		200000000000000000000191 /* SubscriptionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionScreen.swift; sourceTree = "<group>"; };
+		200000000000000000000192 /* BrieflyOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyOnboarding.swift; sourceTree = "<group>"; };
 		200000000000000000000172 /* LocalSpeechSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeechSynthesizer.swift; sourceTree = "<group>"; };
 		200000000000000000000173 /* NativeLibraryError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeLibraryError.swift; sourceTree = "<group>"; };
 		200000000000000000000175 /* BrieflyBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackend.swift; sourceTree = "<group>"; };
@@ -193,6 +223,11 @@
 		200000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		200000000000000000000009 /* BrieflyApplicationTours.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyApplicationTours.swift; sourceTree = "<group>"; };
 		20000000000000000000000A /* BrieflyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrieflyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E30000000000000000000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		E30000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		E30000000000000000000003 /* BrieflyShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrieflyShareExtension.entitlements; sourceTree = "<group>"; };
+		E30000000000000000000004 /* BrieflyShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrieflyShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F20000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -212,6 +247,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E50000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000000000000000000002 /* BrieflyCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -219,6 +262,7 @@
 			isa = PBXGroup;
 			children = (
 				400000000000000000000002 /* Briefly */,
+				E40000000000000000000001 /* BrieflyShareExtension */,
 				400000000000000000000004 /* BrieflyUITests */,
 				400000000000000000000003 /* Products */,
 			);
@@ -233,6 +277,7 @@
 				400000000000000000000111 /* Infrastructure */,
 				400000000000000000000113 /* Platform */,
 				200000000000000000000005 /* Assets.xcassets */,
+				F20000000000000000000001 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Briefly;
 			sourceTree = "<group>";
@@ -269,10 +314,19 @@
 				400000000000000000000103 /* Capture */,
 				400000000000000000000104 /* Channels */,
 				400000000000000000000105 /* Library */,
+				400000000000000000000119 /* Onboarding */,
 				400000000000000000000107 /* Reader */,
 				400000000000000000000109 /* Settings */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		400000000000000000000119 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000192 /* BrieflyOnboarding.swift */,
+			);
+			path = Onboarding;
 			sourceTree = "<group>";
 		};
 		400000000000000000000103 /* Capture */ = {
@@ -383,6 +437,7 @@
 				200000000000000000000166 /* SettingsView.swift */,
 				200000000000000000000167 /* SettingsViewLayout.swift */,
 				200000000000000000000168 /* SettingsViewNavigation.swift */,
+				200000000000000000000191 /* SubscriptionScreen.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -443,10 +498,21 @@
 			path = BrieflyUITests;
 			sourceTree = "<group>";
 		};
+		E40000000000000000000001 /* BrieflyShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				E30000000000000000000001 /* ShareViewController.swift */,
+				E30000000000000000000002 /* Info.plist */,
+				E30000000000000000000003 /* BrieflyShareExtension.entitlements */,
+			);
+			path = BrieflyShareExtension;
+			sourceTree = "<group>";
+		};
 		400000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				200000000000000000000004 /* Briefly.app */,
+				E30000000000000000000004 /* BrieflyShareExtension.appex */,
 				20000000000000000000000A /* BrieflyUITests.xctest */,
 			);
 			name = Products;
@@ -462,10 +528,12 @@
 				700000000000000000000001 /* Sources */,
 				300000000000000000000001 /* Frameworks */,
 				600000000000000000000001 /* Resources */,
+				E80000000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				EA0000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = Briefly;
 			packageProductDependencies = (
@@ -496,6 +564,26 @@
 			productReference = 20000000000000000000000A /* BrieflyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		E90000000000000000000001 /* BrieflyShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyShareExtension" */;
+			buildPhases = (
+				E60000000000000000000001 /* Sources */,
+				E50000000000000000000001 /* Frameworks */,
+				E70000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BrieflyShareExtension;
+			packageProductDependencies = (
+				ED0000000000000000000001 /* BrieflyCore */,
+			);
+			productName = BrieflyShareExtension;
+			productReference = E30000000000000000000004 /* BrieflyShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -509,6 +597,9 @@
 					500000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
 						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
 							com.apple.BackgroundModes = {
 								enabled = 1;
 							};
@@ -526,6 +617,14 @@
 					500000000000000000000002 = {
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = 500000000000000000000001;
+					};
+					E90000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -548,6 +647,7 @@
 			projectRoot = "";
 			targets = (
 				500000000000000000000001 /* Briefly */,
+				E90000000000000000000001 /* BrieflyShareExtension */,
 				500000000000000000000002 /* BrieflyUITests */,
 			);
 		};
@@ -559,6 +659,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000005 /* Assets.xcassets in Resources */,
+				F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -566,6 +667,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E70000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F10000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -646,6 +755,8 @@
 				100000000000000000000166 /* SettingsView.swift in Sources */,
 				100000000000000000000167 /* SettingsViewLayout.swift in Sources */,
 				100000000000000000000168 /* SettingsViewNavigation.swift in Sources */,
+				100000000000000000000191 /* SubscriptionScreen.swift in Sources */,
+				100000000000000000000192 /* BrieflyOnboarding.swift in Sources */,
 				100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */,
 				100000000000000000000173 /* NativeLibraryError.swift in Sources */,
 				100000000000000000000175 /* BrieflyBackend.swift in Sources */,
@@ -670,6 +781,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E60000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000000000000000000001 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -677,6 +796,12 @@
 			isa = PBXTargetDependency;
 			target = 500000000000000000000001 /* Briefly */;
 			targetProxy = C00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		EA0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = E90000000000000000000001 /* BrieflyShareExtension */;
+			targetProxy = E20000000000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -771,6 +896,7 @@
 		B00000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				APS_ENVIRONMENT = development;
 				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Briefly/Briefly.entitlements;
@@ -786,6 +912,7 @@
 				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
 				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -807,6 +934,7 @@
 		B00000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				APS_ENVIRONMENT = production;
 				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = Briefly/Briefly.entitlements;
@@ -822,6 +950,7 @@
 				"INFOPLIST_FILE[sdk=iphoneos*]" = Briefly/Info.plist;
 				"INFOPLIST_FILE[sdk=iphonesimulator*]" = Briefly/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -882,6 +1011,64 @@
 			};
 			name = Release;
 		};
+		EB0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = BrieflyShareExtension/BrieflyShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BrieflyShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EB0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = BrieflyShareExtension/BrieflyShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BrieflyShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -908,6 +1095,15 @@
 			buildConfigurations = (
 				B00000000000000000000005 /* Debug */,
 				B00000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EC0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB0000000000000000000001 /* Debug */,
+				EB0000000000000000000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -942,6 +1138,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
 			productName = FluidAudio;
+		};
+		ED0000000000000000000001 /* BrieflyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = BrieflyCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

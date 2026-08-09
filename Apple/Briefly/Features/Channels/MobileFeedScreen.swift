@@ -6,7 +6,6 @@ import BrieflyCore
 struct MobileXFeedScreen: View {
     @Bindable var model: LibraryModel
     let tab: MobilePrimaryTab
-    @Binding var showsSettings: Bool
     let openEntry: (LibraryEntry) -> Void
     let openChannel: (LibraryChannel) -> Void
     let openConfiguration: () -> Void
@@ -101,7 +100,7 @@ struct MobileXFeedScreen: View {
         showsSearch = false
     }
 
-    private let floatingHeaderHeight: CGFloat = 116
+    private let floatingHeaderHeight: CGFloat = 95
 
     private var floatingHeader: some View {
         VStack(spacing: 0) {
@@ -116,14 +115,13 @@ struct MobileXFeedScreen: View {
                 MobileXHeader(
                     title: title,
                     showsLogo: tab == .home,
-                    showsSettings: $showsSettings,
-                    showsSettingsButton: tab == .home,
                     search: MobileXHeaderAction(
                         icon: "magnifyingglass",
                         label: searchPrompt,
                         identifier: "library.search.open",
                         action: { showsSearch = true }
                     ),
+                    searchesTrailing: tab == .home,
                     primary: MobileXHeaderAction(
                         icon: createIcon,
                         label: createLabel,
@@ -137,6 +135,7 @@ struct MobileXFeedScreen: View {
 
             choices
         }
+        .padding(.top, 5)
         .mobileGlass(
             in: RoundedRectangle(cornerRadius: 24, style: .continuous),
             interactive: false
@@ -178,8 +177,7 @@ struct MobileXFeedScreen: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .padding(.bottom, 12)
+            .padding(.bottom, 8)
         }
         .defaultScrollAnchor(.leading)
     }
@@ -193,8 +191,8 @@ struct MobileXFeedScreen: View {
             Text(label)
                 .font(.subheadline.weight(selected ? .semibold : .regular))
                 .lineLimit(1)
-                .padding(.horizontal, 15)
-                .frame(height: 38)
+                .padding(.horizontal, 13)
+                .frame(height: 32)
                 .background(selected ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
                 .foregroundStyle(selected ? Color(uiColor: .systemBackground) : Color.primary)
                 .contentShape(Capsule())

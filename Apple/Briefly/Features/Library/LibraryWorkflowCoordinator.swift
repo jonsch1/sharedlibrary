@@ -56,6 +56,7 @@ final class LibraryWorkflowCoordinator {
     private let syncScheduler: LibrarySyncScheduler
     private var acceptedChannelSummaryTask: Task<Void, Never>?
     private var acceptedChannelSummaryRequested = false
+    private var isImportingSharedCaptures = false
 
     init(
         session: LibrarySession,
@@ -130,9 +131,11 @@ final class LibraryWorkflowCoordinator {
         if session.library != nil {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
-            _ = await processing.drainProcessingQueue(
+            await importPendingSharedCaptures()
+            let results = await processing.drainProcessingQueue(
                 configuration: settings.processingConfiguration
             )
+            if !results.isEmpty { await refreshLibrary() }
             await runDueChannelChecks()
         } else {
             _ = await (selectedText, accountRefresh)
@@ -283,6 +286,67 @@ final class LibraryWorkflowCoordinator {
     }
 
     // MARK: Capture and processing
+
+    func importPendingSharedCaptures() async {
+        #if os(iOS)
+        guard session.library != nil,
+              !session.environment.isUITesting,
+              !ProcessInfo.processInfo.arguments.contains("--demo"),
+              !isImportingSharedCaptures else { return }
+        isImportingSharedCaptures = true
+        defer { isImportingSharedCaptures = false }
+
+        do {
+            let inbox = try SharedCaptureInbox()
+            try inbox.recoverInterruptedClaims()
+            let initialCount = try inbox.pendingCaptures().count
+            guard initialCount > 0 else { return }
+
+            var importedIDs = [String]()
+            var failedCount = 0
+            for _ in 0..<initialCount {
+                guard let capture = try inbox.claimNext() else { break }
+                do {
+                    let request = try inbox.inputRequest(for: capture)
+                    let entryID = try await processing.captureShared(
+                        request,
+                        captureID: capture.captureID
+                    )
+                    guard let library = session.library else { throw LibraryError.missingEntry }
+                    try await library.enqueueProcessingJob(
+                        entryID: entryID,
+                        selectWhenFinished: false
+                    )
+                    try inbox.complete(capture)
+                    importedIDs.append(entryID)
+                } catch {
+                    failedCount += 1
+                    try? inbox.release(capture, error: error)
+                }
+            }
+
+            if !importedIDs.isEmpty {
+                navigation.activeSection = .items
+                await refreshLibrary(selecting: importedIDs.last)
+                session.status = importedIDs.count == 1
+                    ? "Imported a shared item. Preparing summaries…"
+                    : "Imported \(importedIDs.count) shared items. Preparing summaries…"
+                let results = await processing.drainProcessingQueue(
+                    configuration: settings.processingConfiguration
+                )
+                await refreshLibrary(selecting: results.compactMap(\.selectedID).last ?? importedIDs.last)
+                requestSync()
+            }
+            if failedCount > 0 {
+                session.errorMessage = failedCount == 1
+                    ? "A shared item could not be imported. Briefly will retry it next time."
+                    : "\(failedCount) shared items could not be imported. Briefly will retry them next time."
+            }
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+        #endif
+    }
 
     func processSelected() async {
         guard !selection.selectedID.isEmpty else { return }

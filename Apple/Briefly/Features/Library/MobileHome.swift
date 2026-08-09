@@ -4,7 +4,6 @@ import BrieflyCore
 #if os(iOS)
 struct MobileHome: View {
     @Bindable var model: LibraryModel
-    @Binding var showsSettings: Bool
     let onOpenDetail: () -> Void
 
     private var entries: [LibraryEntry] {
@@ -18,27 +17,10 @@ struct MobileHome: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                HStack {
-                    Button {
-                        showsSettings = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 20, weight: .medium))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .mobileGlass(in: Circle())
-                    .accessibilityLabel("Settings")
-
-                    Spacer()
-                }
-
-                BrieflyLogo()
-            }
-            .padding(.horizontal, 18)
-            .frame(height: 64)
+            BrieflyLogo()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 18)
+                .frame(height: 64)
 
             if entries.isEmpty {
                 ContentUnavailableView(

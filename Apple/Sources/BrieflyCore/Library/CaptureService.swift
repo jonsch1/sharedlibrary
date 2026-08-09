@@ -57,9 +57,12 @@ struct LibraryCaptureService {
         )
     }
 
-    func captureItem(_ draft: ItemDraft) throws -> String {
+    func captureItem(_ draft: ItemDraft, captureID: String? = nil) throws -> String {
         let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { throw LibraryError.emptyCapture }
+        if let captureID, let existing = try documents.find(captureID: captureID) {
+            return existing.id
+        }
         if let key = draft.canonicalKey,
            let existing = try documents.all().first(where: {
                canonicalItemIdentity($0.sourceURL.flatMap(URL.init(string:))) == key
@@ -94,7 +97,8 @@ struct LibraryCaptureService {
             faviconData: draft.faviconData,
             faviconFileExtension: draft.faviconFileExtension,
             audioData: draft.audioData,
-            audioMimeType: draft.audioMimeType
+            audioMimeType: draft.audioMimeType,
+            captureID: captureID
         )
     }
 
@@ -138,13 +142,15 @@ struct LibraryCaptureService {
         _ id: String,
         baseRevision: Int64,
         texts: [LibraryVariant: String],
+        removedTexts: Set<LibraryVariant>,
         title: String?
     ) throws -> SQLiteDocument {
         try documents.commit(SQLiteDocumentCommit(
             id: id,
             baseRevision: baseRevision,
             title: title,
-            texts: texts
+            texts: texts,
+            removedTexts: removedTexts
         ))
     }
 
@@ -169,14 +175,16 @@ struct LibraryCaptureService {
         faviconData: Data? = nil,
         faviconFileExtension: String? = nil,
         audioData: Data? = nil,
-        audioMimeType: String? = nil
+        audioMimeType: String? = nil,
+        captureID: String? = nil
     ) throws -> String {
         let document = try documents.create(
             title: title,
             body: content,
             type: entryType,
             sourceURL: sourceURL?.absoluteString,
-            mediaURL: mediaURL?.absoluteString
+            mediaURL: mediaURL?.absoluteString,
+            captureID: captureID
         )
         try saveDraftAttachments(
             ItemDraft(

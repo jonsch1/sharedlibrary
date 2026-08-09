@@ -79,6 +79,7 @@ public struct SQLiteDocumentCommit: Sendable {
     public let topicIDs: [String]?
     public let tags: [String]?
     public let texts: [LibraryVariant: String]
+    public let removedTexts: Set<LibraryVariant>
     public let deleted: Bool?
 
     public init(
@@ -91,6 +92,7 @@ public struct SQLiteDocumentCommit: Sendable {
         topicIDs: [String]? = nil,
         tags: [String]? = nil,
         texts: [LibraryVariant: String] = [:],
+        removedTexts: Set<LibraryVariant> = [],
         deleted: Bool? = nil
     ) {
         self.id = id
@@ -102,6 +104,7 @@ public struct SQLiteDocumentCommit: Sendable {
         self.topicIDs = topicIDs
         self.tags = tags
         self.texts = texts
+        self.removedTexts = removedTexts
         self.deleted = deleted
     }
 }

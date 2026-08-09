@@ -5,7 +5,7 @@ import SwiftUI
 #if os(iOS)
 struct MobileXAppShell: View {
     @Bindable var model: LibraryModel
-    @Binding var showsSettings: Bool
+    let openSettings: (BrieflySettingsSection?) -> Void
     @Binding var showsCaptureComposer: Bool
     @Binding var showsChannelBrowser: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
@@ -26,9 +26,8 @@ struct MobileXAppShell: View {
             NavigationStack {
                 MobileXLibraryScreen(
                     model: model,
-                    showsSettings: $showsSettings,
-                    openEntry: openEntry,
-                    create: primaryCreate
+                    openSettings: openSettings,
+                    openEntry: openEntry
                 )
                 .navigationDestination(isPresented: $showsDetail) {
                     MobileXDetail(
@@ -111,7 +110,6 @@ struct MobileXAppShell: View {
             MobileXFeedScreen(
                 model: model,
                 tab: tab,
-                showsSettings: $showsSettings,
                 openEntry: openEntry,
                 openChannel: { channel in
                     model.workflows.selectChannel(channel.source)

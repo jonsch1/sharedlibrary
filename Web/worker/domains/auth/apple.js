@@ -12,8 +12,7 @@ import { createSession } from './session.js';
 
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
 
-function appleAuthConfig(env) {
-	const clientID = String(env.APPLE_CLIENT_ID || '').trim();
+function appleTokenConfig(env, clientID) {
 	const teamID = String(env.APPLE_TEAM_ID || '').trim();
 	const keyID = String(env.APPLE_KEY_ID || '').trim();
 	const privateKey = String(env.APPLE_PRIVATE_KEY || '').replaceAll('\\n', '\n').trim();
@@ -28,9 +27,13 @@ function appleAuthConfig(env) {
 	return { clientID, teamID, keyID, privateKey };
 }
 
+function appleAuthConfig(env) {
+	return appleTokenConfig(env, String(env.APPLE_CLIENT_ID || '').trim());
+}
+
 function nativeAppleAuthConfig(env) {
 	const clientID = String(env.APPLE_APP_BUNDLE_ID || 'fyi.readbriefly.BrieflyNative').trim();
-	return /^[A-Za-z0-9.-]{3,255}$/.test(clientID) ? { clientID } : null;
+	return appleTokenConfig(env, clientID);
 }
 
 function safeReturnTo(value, fallback = '/') {
@@ -102,6 +105,79 @@ async function appleClientSecret(config) {
 		new TextEncoder().encode(input)
 	);
 	return input + '.' + bytesToBase64URL(new Uint8Array(signature));
+}
+
+async function exchangeAppleAuthorizationCode(config, code, redirectURI) {
+	const body = new URLSearchParams({
+		client_id: config.clientID,
+		client_secret: await appleClientSecret(config),
+		code,
+		grant_type: 'authorization_code'
+	});
+	if (redirectURI) body.set('redirect_uri', redirectURI);
+	const response = await fetch('https://appleid.apple.com/auth/token', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body
+	});
+	let value = {};
+	try {
+		value = await response.json();
+	} catch {
+		value = {};
+	}
+	return { response, value };
+}
+
+async function storeAppleAuthorization(env, subject, clientID, refreshToken) {
+	if (
+		typeof subject !== 'string' ||
+		!subject ||
+		typeof refreshToken !== 'string' ||
+		!refreshToken
+	) {
+		throw new Error('Apple did not return a revocable authorization.');
+	}
+	const now = Date.now();
+	await env.DB.prepare(
+		'INSERT INTO apple_authorizations (subject, client_id, refresh_token, created_at, updated_at)\n' +
+			'VALUES (?, ?, ?, ?, ?)\n' +
+			'ON CONFLICT(subject) DO UPDATE SET\n' +
+			'client_id = excluded.client_id,\n' +
+			'refresh_token = excluded.refresh_token,\n' +
+			'updated_at = excluded.updated_at'
+	)
+		.bind(subject, clientID, refreshToken, now, now)
+		.run();
+}
+
+async function revokeAppleAuthorizationForEmail(env, email) {
+	const authorization = await env.DB.prepare(
+		'SELECT authorization.client_id, authorization.refresh_token\n' +
+			'FROM auth_identities AS identity\n' +
+			'JOIN apple_authorizations AS authorization ON authorization.subject = identity.subject\n' +
+			'WHERE identity.provider = \'apple\' AND identity.user_email = ?\n' +
+			'LIMIT 1'
+	)
+		.bind(email)
+		.first();
+	if (!authorization?.refresh_token || !authorization?.client_id) return false;
+	const config = appleTokenConfig(env, authorization.client_id);
+	if (!config) throw new Error('Apple account revocation is not configured.');
+	const response = await fetch('https://appleid.apple.com/auth/revoke', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+		body: new URLSearchParams({
+			client_id: config.clientID,
+			client_secret: await appleClientSecret(config),
+			token: authorization.refresh_token,
+			token_type_hint: 'refresh_token'
+		})
+	});
+	if (!response.ok) {
+		throw new Error('Apple could not revoke this account authorization.');
+	}
+	return true;
 }
 
 async function verifiedAppleIdentity(idToken, config, expectedNonce) {
@@ -205,18 +281,11 @@ async function finishAppleLogin(request, env) {
 	await env.DB.prepare('DELETE FROM apple_login_states WHERE state = ?').bind(state).run();
 	const config = appleAuthConfig(env);
 	if (!config) return redirectWithProviderResult(request, 'apple', 'error');
-	const response = await fetch('https://appleid.apple.com/auth/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: new URLSearchParams({
-			client_id: config.clientID,
-			client_secret: await appleClientSecret(config),
-			code,
-			grant_type: 'authorization_code',
-			redirect_uri: new URL('/api/auth/apple/callback', request.url).toString()
-		})
-	});
-	const value = await response.json();
+	const { response, value } = await exchangeAppleAuthorizationCode(
+		config,
+		code,
+		new URL('/api/auth/apple/callback', request.url).toString()
+	);
 	const claims = response.ok
 		? await verifiedAppleIdentity(value.id_token, config, pending.nonce)
 		: null;
@@ -231,6 +300,11 @@ async function finishAppleLogin(request, env) {
 			? await identityEmail(env, 'apple', claims.sub, verifiedEmail)
 			: null;
 	if (!email) return redirectWithProviderResult(request, 'apple', 'error');
+	try {
+		await storeAppleAuthorization(env, claims.sub, config.clientID, value.refresh_token);
+	} catch {
+		return redirectWithProviderResult(request, 'apple', 'error');
+	}
 	return authenticatedRedirect(request, env, email, pending.return_to, 'apple');
 }
 
@@ -242,12 +316,29 @@ async function finishNativeAppleLogin(request, env) {
 		return json({ error: 'Invalid Apple credential.' }, { status: 400 });
 	}
 	const identityToken = typeof value?.identityToken === 'string' ? value.identityToken : '';
+	const authorizationCode =
+		typeof value?.authorizationCode === 'string' ? value.authorizationCode : '';
 	const nonce = typeof value?.nonce === 'string' ? value.nonce : '';
 	const config = nativeAppleAuthConfig(env);
-	if (!config || !identityToken || identityToken.length > 8_192 || !nonce || nonce.length > 256) {
+	if (
+		!config ||
+		!identityToken ||
+		identityToken.length > 8_192 ||
+		!authorizationCode ||
+		authorizationCode.length > 4_096 ||
+		!nonce ||
+		nonce.length > 256
+	) {
 		return json({ error: 'Invalid Apple credential.' }, { status: 400 });
 	}
 	const claims = await verifiedAppleIdentity(identityToken, config, await sha256Hex(nonce));
+	const exchanged = await exchangeAppleAuthorizationCode(config, authorizationCode);
+	const exchangedClaims = exchanged.response.ok
+		? await verifiedAppleIdentity(exchanged.value?.id_token, config, await sha256Hex(nonce))
+		: null;
+	if (!claims || !exchangedClaims || claims.sub !== exchangedClaims.sub) {
+		return json({ error: 'Apple sign-in could not be verified.' }, { status: 401 });
+	}
 	const verifiedEmail =
 		claims &&
 		(claims.email_verified === true || claims.email_verified === 'true') &&
@@ -259,6 +350,16 @@ async function finishNativeAppleLogin(request, env) {
 			? await identityEmail(env, 'apple', claims.sub, verifiedEmail)
 			: null;
 	if (!email) return json({ error: 'Apple sign-in could not be verified.' }, { status: 401 });
+	try {
+		await storeAppleAuthorization(
+			env,
+			claims.sub,
+			config.clientID,
+			exchanged.value?.refresh_token
+		);
+	} catch {
+		return json({ error: 'Apple sign-in could not be completed.' }, { status: 502 });
+	}
 	const account = await accountPayload(env, email);
 	const session = await createSession(env, email);
 	return json(account, { headers: { 'Set-Cookie': session.cookie } });
@@ -270,4 +371,9 @@ function redirectWithProviderResult(request, provider, result, path = '/') {
 	return Response.redirect(destination.toString(), 302);
 }
 
-export { finishAppleLogin, finishNativeAppleLogin, startAppleLogin };
+export {
+	finishAppleLogin,
+	finishNativeAppleLogin,
+	revokeAppleAuthorizationForEmail,
+	startAppleLogin
+};

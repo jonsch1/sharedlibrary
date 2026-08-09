@@ -119,6 +119,7 @@
 		<h2>5. Your controls</h2>
 		<ul>
 			<li>Use <strong>Sign out</strong> in Briefly to delete the active session cookie from your browser and revoke that server session.</li>
+			<li>Use <strong>Settings → Account → Delete Briefly account</strong> in the app to revoke every server session and delete the server-side account data described in the Privacy Policy.</li>
 			<li>Use your browser's site-data settings to remove Briefly's cookie and local storage.</li>
 			<li>Removing site data signs out web support surfaces and deletes browser preferences. It does not delete iCloud files, an active subscription, or a public share.</li>
 			<li>Manage private CloudKit data and App Store subscriptions through your Apple account.</li>

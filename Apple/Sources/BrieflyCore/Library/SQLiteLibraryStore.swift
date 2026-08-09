@@ -117,8 +117,8 @@ public actor SQLiteLibraryStore {
     }
 
     @discardableResult
-    public func captureItem(_ draft: ItemDraft) throws -> String {
-        try services().capture.captureItem(draft)
+    public func captureItem(_ draft: ItemDraft, captureID: String? = nil) throws -> String {
+        try services().capture.captureItem(draft, captureID: captureID)
     }
 
     public func loadChannels() throws -> [LibraryChannel] {
@@ -305,12 +305,14 @@ public actor SQLiteLibraryStore {
         _ id: String,
         baseRevision: Int64,
         texts: [LibraryVariant: String],
+        removedTexts: Set<LibraryVariant> = [],
         title: String? = nil
     ) throws -> SQLiteDocument {
         try services().capture.commitDocument(
             id,
             baseRevision: baseRevision,
             texts: texts,
+            removedTexts: removedTexts,
             title: title
         )
     }

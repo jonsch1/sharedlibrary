@@ -68,6 +68,17 @@ extension SQLiteLibrary {
         }
     }
 
+    func document(captureID: String) throws -> SQLiteDocument? {
+        try locked {
+            guard let id = try query(
+                "SELECT id FROM documents WHERE capture_id = ? LIMIT 1",
+                bindings: [.text(captureID)],
+                transform: { columnText($0, 0) }
+            ).first else { return nil }
+            return try readDocument(id)
+        }
+    }
+
     public func allDocuments(includeDeleted: Bool = false) throws -> [SQLiteDocument] {
         try documents(where: includeDeleted ? nil : "deleted = 0")
     }
@@ -179,11 +190,20 @@ extension SQLiteLibrary {
                     if let topicIDs = commit.topicIDs { current.topicIDs = topicIDs }
                     if let tags = commit.tags { current.tags = tags }
                     if let deleted = commit.deleted { current.deleted = deleted }
+                    for variant in commit.removedTexts {
+                        current.texts.removeValue(forKey: variant)
+                    }
                     for (variant, body) in commit.texts {
                         current.texts[variant] = body.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
                     current.revision += 1
                     current.updatedAt = Date()
+                    for variant in commit.removedTexts where commit.texts[variant] == nil {
+                        try run(
+                            "DELETE FROM document_texts WHERE document_id = ? AND variant = ?",
+                            bindings: [.text(current.id), .text(variant.rawValue)]
+                        )
+                    }
                     try update(current)
                     try enqueue(
                         id: current.id,

@@ -17,17 +17,33 @@ final class BrieflyBackend {
         try requireSuccess(response, data: nil, fallback: "Could not sign out.")
     }
 
-    func signInWithApple(identityToken: Data, nonce: String) async throws
+    func deleteAccount() async throws {
+        let (data, response) = try await request("api/auth/account", method: "DELETE")
+        try requireSuccess(response, data: data, fallback: "Could not delete the account.")
+        await storeCookies(from: response)
+    }
+
+    func signInWithApple(
+        identityToken: Data,
+        authorizationCode: Data,
+        nonce: String
+    ) async throws
         -> BrieflyAccountStatus
     {
         struct Payload: Encodable {
             let identityToken: String
+            let authorizationCode: String
             let nonce: String
         }
-        guard let token = String(data: identityToken, encoding: .utf8) else {
+        guard
+            let token = String(data: identityToken, encoding: .utf8),
+            let code = String(data: authorizationCode, encoding: .utf8)
+        else {
             throw BrieflyBackendError.message("Apple returned an invalid identity token.")
         }
-        let body = try JSONEncoder().encode(Payload(identityToken: token, nonce: nonce))
+        let body = try JSONEncoder().encode(
+            Payload(identityToken: token, authorizationCode: code, nonce: nonce)
+        )
         let (data, response) = try await request(
             "api/auth/apple/native",
             method: "POST",

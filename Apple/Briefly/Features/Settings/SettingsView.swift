@@ -11,8 +11,11 @@ struct SettingsView: View {
     )
     #endif
     @Bindable var model: LibraryModel
+    var initialSection: BrieflySettingsSection? = nil
     @State var appleSignInNonce = ""
     @State var settingsQuery = ""
+    @State var showingAccountDeletionConfirmation = false
+    @State var showingSubscription = false
     #if os(iOS)
     @State var selectedSection: BrieflySettingsSection?
     #else

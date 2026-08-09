@@ -18,6 +18,14 @@ export const authIdentities = sqliteTable(
 	(table) => [primaryKey({ columns: [table.provider, table.subject] })]
 );
 
+export const appleAuthorizations = sqliteTable('apple_authorizations', {
+	subject: text('subject').primaryKey(),
+	clientID: text('client_id').notNull(),
+	refreshToken: text('refresh_token').notNull(),
+	createdAt: integer('created_at').notNull(),
+	updatedAt: integer('updated_at').notNull()
+});
+
 export const appSessions = sqliteTable(
 	'app_sessions',
 	{

@@ -79,6 +79,10 @@ final class LibraryModel {
     let sharing: LibrarySharingModel
     let lifecycle: LibraryLifecycleModel
     let workflows: LibraryWorkflowCoordinator
+    #if os(macOS)
+    @ObservationIgnored
+    private var agentServer: BrieflyAgentSocketServer?
+    #endif
 
     init(environment: AppEnvironment = .current()) {
         let session = LibrarySession(environment: environment)
@@ -115,6 +119,17 @@ final class LibraryModel {
         self.sharing = sharing
         self.lifecycle = lifecycle
         self.workflows = workflows
+
+        #if os(macOS)
+        let agentServer = BrieflyAgentSocketServer { [weak self] call in
+            guard let self else {
+                return BrieflyAgentReply(error: .unavailable)
+            }
+            return await self.handleAgentCall(call)
+        }
+        try? agentServer.start()
+        self.agentServer = agentServer
+        #endif
     }
 
     var isWorking: Bool {
@@ -142,6 +157,7 @@ final class LibraryModel {
     }
 
     var menuBarIcon: String {
+        if account.account.entitled != true { return "lock.fill" }
         if audio.isGeneratingSpeech || audio.isPreparingSpeech {
             return "waveform"
         }
@@ -152,5 +168,127 @@ final class LibraryModel {
         if lifecycle.isSyncing { return "arrow.triangle.2.circlepath" }
         return "doc.text"
     }
+
+    #if os(macOS)
+    private func handleAgentCall(_ call: BrieflyAgentCall) async -> BrieflyAgentReply {
+        guard account.account.entitled == true else {
+            return BrieflyAgentReply(
+                error: BrieflyAgentFailure(
+                    code: "subscription_required",
+                    message: "An active Briefly membership is required."
+                )
+            )
+        }
+        do {
+            let library = try await agentLibrary()
+            let agent = BrieflyAgentLibrary(store: library)
+            switch call.op {
+            case "ingest":
+                guard let request = call.ingest else {
+                    throw BrieflyAgentFailure.invalid("ingest parameters are required.")
+                }
+                return BrieflyAgentReply(
+                    ingest: try await ingestForAgent(request, in: library)
+                )
+            case "save":
+                guard let request = call.save else {
+                    throw BrieflyAgentFailure.invalid("save parameters are required.")
+                }
+                let result = try await agent.save(request)
+                await finishAgentWrite(result)
+                return BrieflyAgentReply(save: result)
+            case "search":
+                guard let request = call.search else {
+                    throw BrieflyAgentFailure.invalid("search parameters are required.")
+                }
+                return BrieflyAgentReply(search: try await agent.search(request))
+            case "read":
+                guard let request = call.read else {
+                    throw BrieflyAgentFailure.invalid("read parameters are required.")
+                }
+                return BrieflyAgentReply(read: try await agent.read(request))
+            default:
+                throw BrieflyAgentFailure.invalid("Unknown Briefly agent operation.")
+            }
+        } catch let failure as BrieflyAgentFailure {
+            return BrieflyAgentReply(error: failure)
+        } catch {
+            return BrieflyAgentReply(error: BrieflyAgentFailure(
+                code: "failed",
+                message: "Briefly could not complete the request."
+            ))
+        }
+    }
+
+    private func agentLibrary() async throws -> SQLiteLibraryStore {
+        for _ in 0..<150 {
+            if let library = session.library { return library }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw BrieflyAgentFailure.unavailable
+    }
+
+    private func ingestForAgent(
+        _ request: BrieflyAgentIngestRequest,
+        in library: SQLiteLibraryStore
+    ) async throws -> BrieflyAgentWriteResult {
+        let value = request.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            value.count <= 2_048,
+            !value.contains(where: \.isWhitespace),
+            let url = URL(string: value),
+            ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+            url.host != nil,
+            url.user == nil,
+            url.password == nil
+        else {
+            throw BrieflyAgentFailure.invalid("url must be an absolute HTTP(S) URL.")
+        }
+
+        let draft: ItemDraft
+        do {
+            draft = try await NativeItemInputRouter().ingest(
+                ItemInputRequest(source: .url(url)),
+                context: processing.inputService.itemInputContext()
+            )
+        } catch {
+            throw BrieflyAgentFailure(code: "ingest_failed", message: error.localizedDescription)
+        }
+
+        let id: String
+        do {
+            id = try await library.captureItem(draft)
+        } catch {
+            throw BrieflyAgentFailure(
+                code: "ingest_failed",
+                message: "Briefly could not save that item."
+            )
+        }
+        let agent = BrieflyAgentLibrary(store: library)
+        let result = try await agent.writeResult(id: id)
+        if result.status == "processing" {
+            try await library.enqueueProcessingJob(entryID: id, selectWhenFinished: false)
+        }
+        await finishAgentWrite(result)
+        return result
+    }
+
+    private func finishAgentWrite(_ result: BrieflyAgentWriteResult) async {
+        await workflows.refreshLibrary()
+        workflows.requestSync()
+        if result.status == "processing" {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let completed = await processing.drainProcessingQueue(
+                    configuration: settings.processingConfiguration
+                )
+                if !completed.isEmpty {
+                    await workflows.refreshLibrary()
+                    workflows.requestSync()
+                }
+            }
+        }
+    }
+    #endif
 
 }

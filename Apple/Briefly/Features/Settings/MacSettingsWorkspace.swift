@@ -15,6 +15,8 @@ struct MacXSettingsWorkspace: View {
         forKey: "BrieflyCaptureShortcutRegistered"
     )
     @State private var appleSignInNonce = ""
+    @State private var showingAccountDeletionConfirmation = false
+    @State private var showingSubscription = false
 
     private var filteredSections: [BrieflySettingsSection] {
         guard !query.isEmpty else { return BrieflySettingsSection.allCases }
@@ -51,6 +53,26 @@ struct MacXSettingsWorkspace: View {
         .task {
             await model.account.refreshAccount()
             await model.account.loadSubscription()
+        }
+        .alert(
+            "Delete Briefly Account?",
+            isPresented: $showingAccountDeletionConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Account", role: .destructive) {
+                Task { await model.account.deleteAccount() }
+            }
+        } message: {
+            Text(
+                "This permanently removes your Briefly server account, public shares, " +
+                    "sessions, feedback, and service usage. It does not delete your local " +
+                    "or iCloud library or cancel an App Store subscription. Billing and " +
+                    "content-moderation records may be retained where legally required."
+            )
+        }
+        .sheet(isPresented: $showingSubscription) {
+            SubscriptionScreen(account: model.account)
+                .frame(width: 560, height: 760)
         }
     }
 
@@ -214,9 +236,9 @@ struct MacXSettingsWorkspace: View {
                     }
                     if model.account.account.entitled == true {
                         externalDetailRow(icon: "creditcard", title: "Manage App Store subscription", url: "https://apps.apple.com/account/subscriptions")
-                    } else if let product = model.account.subscriptionProduct {
-                        actionRow(icon: "sparkles", title: "Subscribe — \(product.displayPrice)/month", subtitle: "Unlock Briefly membership") {
-                            Task { await model.account.purchaseSubscription() }
+                    } else {
+                        actionRow(icon: "sparkles", title: "Explore Briefly Plus", subtitle: "See membership benefits and pricing") {
+                            showingSubscription = true
                         }
                     }
                     actionRow(icon: "arrow.counterclockwise", title: "Restore purchases", subtitle: "Restore an existing App Store subscription") {
@@ -225,6 +247,10 @@ struct MacXSettingsWorkspace: View {
                     actionRow(icon: "rectangle.portrait.and.arrow.right", title: "Sign out", subtitle: "Remove this account from the Mac", destructive: true) {
                         Task { await model.account.signOut() }
                     }
+                    actionRow(icon: "trash", title: "Delete Briefly account", subtitle: "Permanently delete server account data", destructive: true) {
+                        showingAccountDeletionConfirmation = true
+                    }
+                    .disabled(model.account.isDeletingAccount)
                 } else {
                     SignInWithAppleButton(.signIn) { request in
                         let nonce = randomAppleNonce()

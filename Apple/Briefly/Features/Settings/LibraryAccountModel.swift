@@ -13,6 +13,7 @@ final class LibraryAccountModel {
     var subscriptionProduct: Product?
     var isPurchasingSubscription = false
     var isCheckingAccount = false
+    var isDeletingAccount = false
 
     init(session: LibrarySession) {
         self.session = session
@@ -40,6 +41,19 @@ final class LibraryAccountModel {
         }
     }
 
+    func deleteAccount() async {
+        guard account.authenticated, !isDeletingAccount else { return }
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        do {
+            try await session.backend.deleteAccount()
+            account = .signedOut
+            session.status = "Briefly account deleted"
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
     func signInWithApple(
         _ result: Result<ASAuthorization, Error>,
         nonce: String
@@ -49,6 +63,7 @@ final class LibraryAccountModel {
                 case .success(let authorization) = result,
                 let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
                 let identityToken = credential.identityToken,
+                let authorizationCode = credential.authorizationCode,
                 !nonce.isEmpty
             else {
                 if case .failure(let error) = result { throw error }
@@ -56,6 +71,7 @@ final class LibraryAccountModel {
             }
             account = try await session.backend.signInWithApple(
                 identityToken: identityToken,
+                authorizationCode: authorizationCode,
                 nonce: nonce
             )
             session.status = "Signed in with Apple"

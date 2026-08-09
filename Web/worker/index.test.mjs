@@ -38,6 +38,53 @@ test('public requests cannot impersonate accounts or reach removed private-libra
 	assert.equal(library.status, 404);
 });
 
+test('account deletion revokes Apple authorization and removes deletable account data', async () => {
+	const denied = await worker.fetch(
+		new Request('https://library.example/api/auth/account', {
+			method: 'DELETE',
+			headers: { Origin: 'https://library.example' }
+		}),
+		environment()
+	);
+	assert.equal(denied.status, 401);
+
+	const deletion = await accountDeletionEnvironment();
+	const originalFetch = globalThis.fetch;
+	let revocation;
+	globalThis.fetch = async (url, init) => {
+		revocation = { url: String(url), body: new URLSearchParams(init.body) };
+		return new Response(null, { status: 200 });
+	};
+
+	try {
+		const response = await worker.fetch(
+			authenticatedRequest('/api/auth/account', {
+				method: 'DELETE',
+				headers: { Origin: 'https://library.example' }
+			}),
+			deletion.env
+		);
+		assert.equal(response.status, 200);
+		assert.equal((await response.json()).deleted, true);
+		assert.match(response.headers.get('set-cookie'), /Max-Age=0/);
+		assert.equal(revocation.url, 'https://appleid.apple.com/auth/revoke');
+		assert.equal(revocation.body.get('client_id'), 'fyi.readbriefly.BrieflyNative');
+		assert.equal(revocation.body.get('token'), 'apple-refresh-token');
+
+		const changes = deletion.batch.map((statement) => statement.sql).join('\n');
+		assert.match(changes, /DELETE FROM share_texts/);
+		assert.match(changes, /DELETE FROM share_links/);
+		assert.match(changes, /DELETE FROM service_usage/);
+		assert.match(changes, /DELETE FROM auth_identities/);
+		assert.match(changes, /DELETE FROM app_sessions/);
+		assert.match(changes, /DELETE FROM accounts/);
+		assert.doesNotMatch(changes, /DELETE FROM app_store_subscriptions/);
+		assert.doesNotMatch(changes, /DELETE FROM content_reports/);
+	} finally {
+		globalThis.fetch = originalFetch;
+	}
+});
+
 test('unknown web routes remain unavailable', async () => {
 	const response = await worker.fetch(
 		new Request('https://library.example/not-a-briefly-page', {
@@ -250,6 +297,77 @@ function environment(email = null) {
 	return {
 		DB: database(email),
 		ASSETS: { fetch: async () => new Response('asset') }
+	};
+}
+
+async function accountDeletionEnvironment() {
+	const email = 'reader@example.com';
+	const accountID = '15b360f5-6a58-4a77-890d-ae7b322f0b1f';
+	const keys = await crypto.subtle.generateKey(
+		{ name: 'ECDSA', namedCurve: 'P-256' },
+		true,
+		['sign', 'verify']
+	);
+	const privateKey = Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey))
+		.toString('base64')
+		.match(/.{1,64}/g)
+		.join('\n');
+	const batch = [];
+	const DB = {
+		prepare(sql) {
+			let bindings = [];
+			const statement = {
+				sql,
+				get bindings() {
+					return bindings;
+				},
+				bind(...values) {
+					bindings = values;
+					return statement;
+				},
+				async first() {
+					if (sql.includes('FROM app_sessions')) {
+						return { user_email: email, expires_at: Date.now() + 60_000 };
+					}
+					if (sql.includes('FROM accounts')) {
+						return { account_id: accountID, user_email: email };
+					}
+					if (sql.includes('JOIN apple_authorizations')) {
+						return {
+							client_id: 'fyi.readbriefly.BrieflyNative',
+							refresh_token: 'apple-refresh-token'
+						};
+					}
+					return null;
+				},
+				async all() {
+					return sql.includes('SELECT token FROM share_links')
+						? { results: [{ token: 'share-token' }] }
+						: { results: [] };
+				},
+				async run() {
+					return { success: true, meta: { changes: 1 } };
+				}
+			};
+			return statement;
+		},
+		async batch(statements) {
+			batch.push(...statements);
+			return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+		}
+	};
+	return {
+		batch,
+		env: {
+			APPLE_KEY_ID: 'ABCDEFGHIJ',
+			APPLE_PRIVATE_KEY:
+				'-----BEGIN PRIVATE KEY-----\n' +
+				privateKey +
+				'\n-----END PRIVATE KEY-----',
+			APPLE_TEAM_ID: 'KLMNOPQRST',
+			ASSETS: { fetch: async () => new Response('asset') },
+			DB
+		}
 	};
 }
 

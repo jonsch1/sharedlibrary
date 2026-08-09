@@ -246,19 +246,21 @@ extension SettingsView {
                                 "Manage App Store subscription",
                                 destination: URL(string: "https://apps.apple.com/account/subscriptions")!
                             )
-                        } else if let product = model.account.subscriptionProduct {
-                            Button("Subscribe — \(product.displayPrice)/month") {
-                                Task { await model.account.purchaseSubscription() }
-                            }
-                            .disabled(model.account.isPurchasingSubscription)
                         } else {
-                            Text("The subscription is not available from the App Store yet.")
-                                .foregroundStyle(.secondary)
+                            Button {
+                                showingSubscription = true
+                            } label: {
+                                Label("Explore Briefly Plus", systemImage: "sparkles")
+                            }
                         }
                         Button("Restore purchases") {
                             Task { await model.account.restoreSubscription() }
                         }
                         .disabled(model.account.isPurchasingSubscription)
+                        Button("Delete Briefly account", role: .destructive) {
+                            showingAccountDeletionConfirmation = true
+                        }
+                        .disabled(model.account.isDeletingAccount)
                     } else {
                         SignInWithAppleButton(.signIn) { request in
                             let nonce = randomAppleNonce()
@@ -420,6 +422,16 @@ extension SettingsView {
         .toolbar(removing: .sidebarToggle)
         .toolbar(.hidden, for: .windowToolbar)
         #endif
+        #if os(iOS)
+        .fullScreenCover(isPresented: $showingSubscription) {
+            SubscriptionScreen(account: model.account)
+        }
+        #else
+        .sheet(isPresented: $showingSubscription) {
+            SubscriptionScreen(account: model.account)
+                .frame(width: 560, height: 760)
+        }
+        #endif
         #if os(macOS)
         .background(.ultraThinMaterial.opacity(0.48))
         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
@@ -439,8 +451,27 @@ extension SettingsView {
         }
         #endif
         .task {
+            if let initialSection {
+                selectedSection = initialSection
+            }
             await model.account.refreshAccount()
             await model.account.loadSubscription()
+        }
+        .alert(
+            "Delete Briefly Account?",
+            isPresented: $showingAccountDeletionConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Account", role: .destructive) {
+                Task { await model.account.deleteAccount() }
+            }
+        } message: {
+            Text(
+                "This permanently removes your Briefly server account, public shares, " +
+                    "sessions, feedback, and service usage. It does not delete your local " +
+                    "or iCloud library or cancel an App Store subscription. Billing and " +
+                    "content-moderation records may be retained where legally required."
+            )
         }
     }
 

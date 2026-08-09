@@ -110,6 +110,25 @@ final class LibraryProcessingModel {
         }
     }
 
+    func captureShared(
+        _ request: ItemInputRequest,
+        captureID: String
+    ) async throws -> String {
+        guard let library = session.library else { throw LibraryError.missingEntry }
+        isIngesting = true
+        defer { isIngesting = false }
+        session.status = switch request.source {
+        case .url: "Importing a shared link…"
+        case .text: "Importing shared text…"
+        case .file: "Importing a shared PDF…"
+        }
+        let draft = try await NativeItemInputRouter().ingest(
+            request,
+            context: inputService.itemInputContext()
+        )
+        return try await library.captureItem(draft, captureID: captureID)
+    }
+
     func setBrowserIngesting(_ ingesting: Bool) {
         isIngesting = ingesting
         if ingesting {

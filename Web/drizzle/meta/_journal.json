@@ -15,6 +15,13 @@
       "when": 1785750501636,
       "tag": "0001_nervous_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786258664517,
+      "tag": "0002_free_white_tiger",
+      "breakpoints": true
     }
   ]
 }

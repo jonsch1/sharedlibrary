@@ -16,5 +16,9 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.fyi.readbriefly.shared</string>
+	</array>
 </dict>
 </plist>

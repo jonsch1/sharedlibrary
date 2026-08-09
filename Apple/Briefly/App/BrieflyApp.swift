@@ -32,6 +32,7 @@ struct BrieflyApp: App {
                     )
                 }
                 .keyboardShortcut("g", modifiers: .command)
+                .disabled(model.account.account.entitled != true)
                 Button("Import PDF…") {
                     NotificationCenter.default.post(
                         name: .brieflyImportPDF,
@@ -39,6 +40,7 @@ struct BrieflyApp: App {
                     )
                 }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+                .disabled(model.account.account.entitled != true)
                 Divider()
                 Button("Refresh Library") {
                     NotificationCenter.default.post(
@@ -47,6 +49,7 @@ struct BrieflyApp: App {
                     )
                 }
                 .keyboardShortcut("r", modifiers: .command)
+                .disabled(model.account.account.entitled != true)
             }
         }
 

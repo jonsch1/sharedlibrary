@@ -8,43 +8,44 @@ struct MobileXHeaderAction {
     let action: () -> Void
 }
 
+struct MobileXHeaderMenuItem {
+    let title: String
+    let icon: String
+    var identifier: String? = nil
+    let action: () -> Void
+}
+
 struct MobileXHeader: View {
     let title: String
     var showsLogo = false
-    @Binding var showsSettings: Bool
-    var showsSettingsButton = false
     var search: MobileXHeaderAction? = nil
+    var searchesTrailing = false
     var primary: MobileXHeaderAction? = nil
     var trailing: MobileXHeaderAction? = nil
+    var menuItems: [MobileXHeaderMenuItem] = []
 
     var body: some View {
         ZStack {
-            if showsLogo {
-                BrieflyLogo()
-            } else {
+            if !showsLogo {
                 Text(title)
                     .font(.headline.weight(.bold))
             }
 
-            HStack {
-                if showsSettingsButton {
-                    Button { showsSettings = true } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 19, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .background(Color.primary.opacity(0.06), in: Circle())
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Settings")
-                    .accessibilityIdentifier("settings.open")
+            HStack(spacing: 6) {
+                if showsLogo {
+                    BrieflyLogo()
+                        .padding(.leading, 6)
                 }
 
-                if let search {
+                if let search, !searchesTrailing {
                     headerButton(search)
                 }
 
                 Spacer()
+
+                if let search, searchesTrailing {
+                    headerButton(search)
+                }
 
                 if let trailing {
                     headerButton(trailing)
@@ -52,28 +53,52 @@ struct MobileXHeader: View {
 
                 if let primary {
                     headerButton(primary)
-                } else if trailing == nil {
-                    Color.clear.frame(width: 44, height: 44)
+                }
+
+                if !menuItems.isEmpty {
+                    Menu {
+                        ForEach(Array(menuItems.enumerated()), id: \.offset) { _, item in
+                            Button(action: item.action) {
+                                Label(item.title, systemImage: item.icon)
+                            }
+                            .accessibilityIdentifier(
+                                item.identifier ?? "header.menu.\(slug(item.title))"
+                            )
+                        }
+                    } label: {
+                        headerIcon("ellipsis")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("More")
+                    .accessibilityIdentifier("library.more")
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 52)
+        .padding(.horizontal, 10)
+        .frame(height: 44)
     }
 
     private func headerButton(_ action: MobileXHeaderAction) -> some View {
         Button(action: action.action) {
-            Image(systemName: action.icon)
-                .font(.system(size: 18, weight: .semibold))
-                .frame(width: 44, height: 44)
-                .background(Color.primary.opacity(0.06), in: Circle())
-                .contentShape(Circle())
+            headerIcon(action.icon)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(action.label)
         .accessibilityIdentifier(
-            action.identifier ?? "header.\(action.label.lowercased().replacingOccurrences(of: " ", with: "-"))"
+            action.identifier ?? "header.\(slug(action.label))"
         )
+    }
+
+    private func headerIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 18, weight: .semibold))
+            .frame(width: 42, height: 42)
+            .background(Color.primary.opacity(0.06), in: Circle())
+            .contentShape(Circle())
+    }
+
+    private func slug(_ value: String) -> String {
+        value.lowercased().replacingOccurrences(of: " ", with: "-")
     }
 }
 
@@ -112,8 +137,8 @@ struct MobileXSearchField: View {
                 .font(.subheadline.weight(.semibold))
                 .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 52)
+        .padding(.horizontal, 10)
+        .frame(height: 42)
         .task { focused = true }
     }
 }

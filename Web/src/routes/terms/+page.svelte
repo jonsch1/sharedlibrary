@@ -61,7 +61,9 @@
 		<p>
 			iCloud sync is optional and can be stopped in the app. Doing so does not
 			delete Briefly files already stored in iCloud. Signing out does not cancel
-			your membership.
+			your membership. You can delete your server-side Briefly account in
+			<strong>Settings → Account</strong>; local and private iCloud files remain under your
+			control, and an App Store subscription must be cancelled separately.
 		</p>
 	</section>
 
@@ -228,7 +230,8 @@
 		</p>
 		<p>
 			You may stop using Briefly at any time. Cancel your membership separately, revoke public shares you no
-			longer want online, and contact us to request deletion of server-side account data. We may
+			longer want online, and use <strong>Settings → Account → Delete Briefly account</strong>
+			to delete server-side account data. You may also contact us for help with a rights request. We may
 			end the Service or your access for a material breach, legal requirement, security risk, or
 			discontinuation. Where practicable, we will give reasonable notice and an opportunity to
 			export or retain your content.

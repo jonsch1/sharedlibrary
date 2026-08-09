@@ -95,6 +95,52 @@ final class NativeItemInputTests: XCTestCase {
         }
     }
 
+    func testSharedCaptureInboxRetriesIdempotentlyAtTheLibraryBoundary() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "shared-capture-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = try SharedCaptureInbox(directoryURL: root.appending(path: "Inbox"))
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+
+        let queued = try inbox.enqueue(text: "A durable shared note\nWith useful detail.")
+        let firstClaim = try XCTUnwrap(inbox.claimNext())
+        let firstDraft = try await router.ingest(try inbox.inputRequest(for: firstClaim))
+        let firstID = try await store.captureItem(firstDraft, captureID: firstClaim.captureID)
+
+        try inbox.release(firstClaim, error: NativeInputError.requestFailed(503))
+        let retriedClaim = try XCTUnwrap(inbox.claimNext())
+        let retriedDraft = try await router.ingest(try inbox.inputRequest(for: retriedClaim))
+        let retriedID = try await store.captureItem(retriedDraft, captureID: retriedClaim.captureID)
+        try inbox.complete(retriedClaim)
+
+        XCTAssertEqual(queued.id, retriedClaim.id)
+        XCTAssertEqual(firstID, retriedID)
+        XCTAssertTrue(try inbox.pendingCaptures().isEmpty)
+        let database = try await store.documentDatabase()
+        XCTAssertEqual(try database.allDocuments().count, 1)
+    }
+
+    func testSharedCaptureInboxKeepsItsOwnPDFCopy() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "shared-pdf-\(UUID())", directoryHint: .isDirectory)
+        let source = root.appending(path: "provider-copy")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try fixturePDF(text: "Shared PDF content", title: "Shared report").write(to: source)
+        let inbox = try SharedCaptureInbox(directoryURL: root.appending(path: "Inbox"))
+
+        _ = try inbox.enqueuePDF(at: source)
+        try FileManager.default.removeItem(at: source)
+        let claimed = try XCTUnwrap(inbox.claimNext())
+        let draft = try await router.ingest(try inbox.inputRequest(for: claimed))
+        try inbox.complete(claimed)
+
+        XCTAssertEqual(draft.inputID, .pdf)
+        XCTAssertEqual(draft.title, "Shared report")
+        XCTAssertTrue(draft.content.contains("Shared PDF content"))
+        XCTAssertTrue(try inbox.pendingCaptures().isEmpty)
+    }
+
     func testArxivInput() async throws {
         let value = try await router.ingest(
             .init(source: .url(itemTestURL(.arxiv))),

@@ -8,7 +8,11 @@ struct BrieflyMenuBar: View {
     @Bindable var model: LibraryModel
 
     var body: some View {
-        Text(model.isWorking ? model.activityStatus : "Briefly is idle")
+        Text(
+            model.account.account.entitled == true
+                ? model.isWorking ? model.activityStatus : "Briefly is idle"
+                : "Membership required"
+        )
 
         Divider()
 
@@ -23,17 +27,19 @@ struct BrieflyMenuBar: View {
             }
         }
 
-        if model.session.canEdit {
-            Button("Capture Clipboard") {
-                let text = NSPasteboard.general.string(forType: .string) ?? ""
-                Task { await model.workflows.capture(text) }
+        if model.account.account.entitled == true {
+            if model.session.canEdit {
+                Button("Capture Clipboard") {
+                    let text = NSPasteboard.general.string(forType: .string) ?? ""
+                    Task { await model.workflows.capture(text) }
+                }
             }
-        }
 
-        Button("Sync Now") {
-            Task { await model.workflows.sync() }
+            Button("Sync Now") {
+                Task { await model.workflows.sync() }
+            }
+            .disabled(model.lifecycle.isSyncing)
         }
-        .disabled(model.lifecycle.isSyncing)
 
         Divider()
 

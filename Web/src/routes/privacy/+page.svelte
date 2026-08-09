@@ -275,8 +275,12 @@
 			<li>lodge a complaint with a supervisory authority.</li>
 		</ul>
 		<p>
-			Email <a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a> to exercise a
-			right. We may ask for limited information to verify that the request concerns your account.
+			Use <strong>Settings → Account → Delete Briefly account</strong> in the app to delete
+			your server-side account, active sessions, public shares, feedback, and hosted-usage data.
+			This does not delete your local or private iCloud library and does not cancel an App Store
+			subscription. Billing and moderation records are retained only for the periods described
+			above. You can also email <a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>
+			to exercise a right. We may ask for limited information to verify that the request concerns your account.
 			We will respond without undue delay and normally within one month. Rights can have lawful
 			exceptions—for example, records we must keep for tax or legal claims.
 		</p>
