@@ -63,7 +63,7 @@ struct MacXNavigation: View {
                     model.workflows.showChannelSettings("new")
                 }
             } label: {
-                Label(primaryActionTitle, systemImage: "plus")
+                Label(primaryActionTitle, systemImage: primaryActionIcon)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
@@ -94,7 +94,14 @@ struct MacXNavigation: View {
     private var primaryActionTitle: String {
         switch model.navigation.activeSection {
         case .items: "Capture"
-        case .channels: "New channel"
+        case .channels: "Manage Channels"
+        }
+    }
+
+    private var primaryActionIcon: String {
+        switch model.navigation.activeSection {
+        case .items: "plus"
+        case .channels: "slider.horizontal.3"
         }
     }
 

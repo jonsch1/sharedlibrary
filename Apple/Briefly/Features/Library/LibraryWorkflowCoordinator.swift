@@ -365,7 +365,7 @@ final class LibraryWorkflowCoordinator {
     func createChannel() async {
         guard let added = await channels.createChannel() else { return }
         navigation.selectedChannelSource = added.source
-        navigation.showingChannelSettings = false
+        navigation.showingChannelSettings = true
         selection.clear()
         requestSync()
     }
@@ -389,8 +389,8 @@ final class LibraryWorkflowCoordinator {
     func removeSelectedChannel() async {
         guard !navigation.selectedChannelSource.isEmpty else { return }
         guard await channels.removeChannel(source: navigation.selectedChannelSource) != nil else { return }
-        navigation.selectedChannelSource = ""
-        navigation.showingChannelSettings = false
+        navigation.selectedChannelSource = channels.channels.first?.source ?? "new"
+        navigation.showingChannelSettings = true
         selection.clear()
         requestSync()
     }

@@ -12,9 +12,12 @@ struct ChannelConfiguration: View {
 
     var body: some View {
         ScrollView {
-            if model.navigation.selectedChannelSource == "new" {
-                channelCreation
-            } else if let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) {
+            VStack(spacing: 0) {
+                channelPicker
+
+                if model.navigation.selectedChannelSource == "new" {
+                    channelCreation
+                } else if let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) {
                 #if os(macOS)
                 VStack(alignment: .leading, spacing: 30) {
                     HStack(alignment: .top, spacing: 18) {
@@ -217,16 +220,17 @@ struct ChannelConfiguration: View {
                     }
                 }
                 #endif
-            } else {
-                XEmptyState(
-                    icon: "dot.radiowaves.left.and.right",
-                    title: "No channels",
-                    message: "Add a channel to gather new material."
-                )
-                .frame(maxWidth: 680)
-                .background(.ultraThinMaterial.opacity(0.64))
-                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                .frame(maxWidth: .infinity, alignment: .top)
+                } else {
+                    XEmptyState(
+                        icon: "dot.radiowaves.left.and.right",
+                        title: "No channels",
+                        message: "Add a channel to gather new material."
+                    )
+                    .frame(maxWidth: 680)
+                    .background(.ultraThinMaterial.opacity(0.64))
+                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
             }
         }
         #if os(macOS)
@@ -240,7 +244,7 @@ struct ChannelConfiguration: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Text(model.navigation.selectedChannelSource == "new" ? "Add channel" : "Channel")
+                Text("Manage Channels")
                     .font(.headline)
                 Spacer()
             }
@@ -280,6 +284,40 @@ struct ChannelConfiguration: View {
                     : "The channel and its \(count) pending candidates will be removed. Accepted documents stay in your library."
             )
         }
+    }
+
+    private var channelPicker: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Channel")
+                    .font(.headline)
+                Text("Add a channel or choose one to update.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            Picker("Channel", selection: channelSelection) {
+                Text("Add a channel").tag("new")
+                ForEach(model.channels.channels) { channel in
+                    Text(channel.title).tag(channel.source)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: 260, alignment: .trailing)
+        }
+        .padding(20)
+        .frame(maxWidth: 680)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) { Divider() }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var channelSelection: Binding<String> {
+        Binding(
+            get: { model.navigation.selectedChannelSource },
+            set: { model.workflows.showChannelSettings($0) }
+        )
     }
 
     private var channelCreation: some View {

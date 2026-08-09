@@ -198,7 +198,7 @@ struct MobileLibraryNavigation: View {
         if homeSelected { return "Import PDF" }
         switch model.navigation.activeSection {
         case .items: return "Import PDF"
-        case .channels: return "New channel"
+        case .channels: return "Manage Channels"
         }
     }
 
@@ -220,6 +220,9 @@ struct MobileLibraryNavigation: View {
     private var primaryActionIcon: String {
         if isPlayableDetail { return "play.fill" }
         if isChannelPage { return "arrow.clockwise" }
+        if !homeSelected && model.navigation.activeSection == .channels {
+            return "slider.horizontal.3"
+        }
         return "plus"
     }
 
@@ -297,7 +300,7 @@ struct MobileLibraryNavigation: View {
         case .items:
             showsPDFImporter = true
         case .channels:
-            model.navigation.selectedChannelSource = "new"
+            model.workflows.showChannelSettings("new")
             preferredCompactColumn = .detail
         }
     }

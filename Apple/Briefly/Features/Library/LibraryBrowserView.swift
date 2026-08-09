@@ -153,19 +153,6 @@ struct LibraryCardBrowser: View {
                 .background(opaqueHeaderActionBackground, in: Circle())
                 .help("Settings for \(channel.title)")
                 .accessibilityLabel("Settings for \(channel.title)")
-            } else {
-                Button {
-                    model.navigation.query = ""
-                    model.workflows.showChannelSettings("new")
-                } label: {
-                    Image(systemName: "plus")
-                        .frame(width: 44, height: 44)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .background(opaqueHeaderActionBackground, in: Circle())
-                .help("New channel")
-                .accessibilityLabel("New channel")
             }
         }
     }

@@ -125,7 +125,7 @@ struct MobileXFeedScreen: View {
                         action: { showsSearch = true }
                     ),
                     primary: MobileXHeaderAction(
-                        icon: "plus",
+                        icon: createIcon,
                         label: createLabel,
                         identifier: createLabel == "Capture" ? "capture.open" : nil,
                         action: create
@@ -247,9 +247,13 @@ struct MobileXFeedScreen: View {
     private var createLabel: String {
         switch tab {
         case .home: "Capture"
-        case .channels: "New channel"
+        case .channels: "Manage Channels"
         case .library: "Capture"
         }
+    }
+
+    private var createIcon: String {
+        tab == .channels ? "slider.horizontal.3" : "plus"
     }
 
     private var allSelected: Bool {

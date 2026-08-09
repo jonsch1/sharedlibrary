@@ -118,8 +118,8 @@ struct LibrarySidebar: View {
                     model.workflows.showChannelSettings("new")
                 } label: {
                     Label(
-                        "New channel",
-                        systemImage: "plus"
+                        "Manage Channels",
+                        systemImage: "slider.horizontal.3"
                     )
                     .font(.headline)
                     .frame(maxWidth: .infinity)
