@@ -3,9 +3,6 @@ import CryptoKit
 import AuthenticationServices
 import SwiftUI
 import BrieflyCore
-#if os(macOS)
-import AppKit
-#endif
 
 extension SettingsView {
     var body: some View {
@@ -205,38 +202,9 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
+                #else
+                EmptyView()
                 #endif
-
-                Section("Capture tools") {
-                    #if os(macOS)
-                    if model.session.canEdit {
-                        Button {
-                            let text = NSPasteboard.general.string(forType: .string) ?? ""
-                            Task { await model.workflows.capture(text) }
-                        } label: {
-                            Label("Capture clipboard", systemImage: "clipboard")
-                        }
-                    }
-                    #endif
-                    if model.session.canEdit {
-                        Button {
-                            showsPDFImporter = true
-                        } label: {
-                            Label("Import PDF", systemImage: "doc.richtext")
-                        }
-                    }
-                    Button {
-                        showsChannelBrowser = true
-                    } label: {
-                        Label("Signed-in browser", systemImage: "globe")
-                    }
-                }
-                Section("Media") {
-                    Toggle("Save captured YouTube audio", isOn: $saveCapturedAudio)
-                    Text("Applies to manual link captures. Podcast episode audio remains streamed from its source.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
                     case .account:
                 Section("Briefly account") {
@@ -470,23 +438,6 @@ extension SettingsView {
             shortcutRegistered = notification.object as? Bool ?? false
         }
         #endif
-        .fileImporter(
-            isPresented: $showsPDFImporter,
-            allowedContentTypes: [.pdf]
-        ) { result in
-            switch result {
-            case .success(let url):
-                Task {
-                    await model.workflows.capturePDF(url)
-                    dismiss()
-                }
-            case .failure(let error):
-                model.session.errorMessage = error.localizedDescription
-            }
-        }
-        .sheet(isPresented: $showsChannelBrowser) {
-            ChannelLoginView()
-        }
         .task {
             await model.account.refreshAccount()
             await model.account.loadSubscription()

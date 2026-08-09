@@ -98,5 +98,4 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
   processing and custom terminal agents remain available on macOS.
 - Scheduled channel checks run at launch while the app remains active. Reliable
   background iOS execution still needs an App Refresh task.
-- The native clients can optionally retain audio for manually captured YouTube
-  items and can generate local speech for ordinary library documents.
+- The native clients can generate local speech for ordinary library documents.

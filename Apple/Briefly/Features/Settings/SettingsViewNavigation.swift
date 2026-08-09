@@ -42,7 +42,7 @@ extension SettingsView {
         switch section {
         case .general: "Color scheme and display"
         case .library: "Storage, refresh, and iCloud"
-        case .capture: "Shortcut, imports, and media"
+        case .capture: "System-wide keyboard shortcut"
         case .account: "Sign-in and subscription"
         case .personalization: "Your context"
         case .topics: "Reusable library topics"

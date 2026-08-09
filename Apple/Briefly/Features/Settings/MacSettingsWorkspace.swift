@@ -3,14 +3,10 @@ import CryptoKit
 import AuthenticationServices
 import SwiftUI
 import BrieflyCore
-#if os(macOS)
-import AppKit
-#endif
 
 #if os(macOS)
 struct MacXSettingsWorkspace: View {
     @AppStorage("BrieflyAppearance") private var appearance = "system"
-    @AppStorage("BrieflySaveCapturedAudio") private var saveCapturedAudio = false
     @Bindable var model: LibraryModel
     @State private var selectedSection = BrieflySettingsSection.general
     @State private var query = ""
@@ -18,8 +14,6 @@ struct MacXSettingsWorkspace: View {
     @State private var shortcutRegistered = UserDefaults.standard.bool(
         forKey: "BrieflyCaptureShortcutRegistered"
     )
-    @State private var showsChannelBrowser = false
-    @State private var showsPDFImporter = false
     @State private var appleSignInNonce = ""
 
     private var filteredSections: [BrieflySettingsSection] {
@@ -40,17 +34,6 @@ struct MacXSettingsWorkspace: View {
         }
         .background(.ultraThinMaterial.opacity(0.48))
         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-        .fileImporter(isPresented: $showsPDFImporter, allowedContentTypes: [.pdf]) { result in
-            switch result {
-            case .success(let url):
-                Task { await model.workflows.capturePDF(url) }
-            case .failure(let error):
-                model.session.errorMessage = error.localizedDescription
-            }
-        }
-        .sheet(isPresented: $showsChannelBrowser) {
-            ChannelLoginView()
-        }
         .onChange(of: captureShortcut) {
             captureShortcut.save()
             NotificationCenter.default.post(
@@ -214,26 +197,10 @@ struct MacXSettingsWorkspace: View {
             }
 
         case .capture:
-            detailGroup("Capture") {
+            detailGroup("Shortcut") {
                 detailRow(icon: "keyboard", title: "Global shortcut", subtitle: shortcutRegistered ? "Active system-wide" : "Choose another shortcut") {
                     ShortcutRecorder(shortcut: $captureShortcut)
                         .frame(width: 150, height: 30)
-                }
-                actionRow(icon: "clipboard", title: "Capture clipboard", subtitle: "Save the current clipboard as a note") {
-                    let text = NSPasteboard.general.string(forType: .string) ?? ""
-                    Task { await model.workflows.capture(text) }
-                }
-                .disabled(!model.session.canEdit)
-                actionRow(icon: "doc.richtext", title: "Import PDF", subtitle: "Add and process a local PDF document") {
-                    showsPDFImporter = true
-                }
-                .disabled(!model.session.canEdit)
-                actionRow(icon: "globe", title: "Signed-in browser", subtitle: "Capture pages that require a login") {
-                    showsChannelBrowser = true
-                }
-                detailRow(icon: "waveform", title: "Save captured YouTube audio", subtitle: "Applies to manual link captures") {
-                    Toggle("", isOn: $saveCapturedAudio)
-                        .labelsHidden()
                 }
             }
 
@@ -498,7 +465,7 @@ struct MacXSettingsWorkspace: View {
         switch section {
         case .general: "Color scheme and display"
         case .library: "Storage, refresh, and iCloud"
-        case .capture: "Shortcut, imports, and media"
+        case .capture: "System-wide keyboard shortcut"
         case .account: "Sign-in and subscription"
         case .personalization: "Your context"
         case .topics: "Reusable library topics"
@@ -510,7 +477,7 @@ struct MacXSettingsWorkspace: View {
         switch section {
         case .general: "Manage how Briefly content is displayed to you."
         case .library: "Manage local storage, refresh, and synchronization."
-        case .capture: "Choose how links and documents enter your library."
+        case .capture: "Choose the keyboard shortcut used to capture from anywhere."
         case .account: "See account information and manage your membership."
         case .personalization: "Tell Briefly what matters to you."
         case .topics: "Manage the reusable topics applied to saved notes."

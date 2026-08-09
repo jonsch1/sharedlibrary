@@ -99,9 +99,7 @@ final class LibraryProcessingModel {
             }
             session.status = url == nil ? "Capturing text…" : "Extracting the item…"
             let router = NativeItemInputRouter()
-            var request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
-            request.retainAudio = UserDefaults.standard.bool(forKey: "BrieflySaveCapturedAudio") &&
-                router.inputID(for: request) == .youtube
+            let request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
             let draft = try await router.ingest(request, context: inputService.itemInputContext())
             let id = try await library.captureItem(draft)
             session.status = "Captured"

@@ -4,7 +4,6 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @AppStorage("BrieflyAppearance") var appearance = "system"
-    @AppStorage("BrieflySaveCapturedAudio") var saveCapturedAudio = false
     #if os(macOS)
     @State var captureShortcut = CaptureShortcut.load()
     @State var shortcutRegistered = UserDefaults.standard.bool(
@@ -12,9 +11,7 @@ struct SettingsView: View {
     )
     #endif
     @Bindable var model: LibraryModel
-    @State var showsChannelBrowser = false
     @State var appleSignInNonce = ""
-    @State var showsPDFImporter = false
     @State var settingsQuery = ""
     #if os(iOS)
     @State var selectedSection: BrieflySettingsSection?
@@ -23,7 +20,11 @@ struct SettingsView: View {
     #endif
 
     var availableSections: [BrieflySettingsSection] {
+        #if os(iOS)
+        BrieflySettingsSection.allCases.filter { $0 != .capture }
+        #else
         BrieflySettingsSection.allCases
+        #endif
     }
 
     func settingsRow(
