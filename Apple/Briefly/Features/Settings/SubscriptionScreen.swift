@@ -9,6 +9,7 @@ struct SubscriptionScreen: View {
     @Bindable var account: LibraryAccountModel
     var dismissesWhenEntitled = true
     var previewPrice: String? = nil
+    var previewAuthenticated = false
     var allowsDismissal = true
 
     @State private var appleSignInNonce = ""
@@ -175,7 +176,7 @@ struct SubscriptionScreen: View {
 
     private var footerLinks: some View {
         HStack(spacing: 17) {
-            if account.account.authenticated {
+            if isAuthenticated {
                 Button("Restore purchases") {
                     Task { await account.restoreSubscription() }
                 }
@@ -190,7 +191,7 @@ struct SubscriptionScreen: View {
 
     private var purchaseBar: some View {
         VStack(spacing: 8) {
-            if account.account.authenticated {
+            if isAuthenticated {
                 Button {
                     Task { await account.purchaseSubscription() }
                 } label: {
@@ -257,6 +258,10 @@ struct SubscriptionScreen: View {
 
     private var displayedPrice: String? {
         account.subscriptionProduct?.displayPrice ?? previewPrice
+    }
+
+    private var isAuthenticated: Bool {
+        account.account.authenticated || previewAuthenticated
     }
 }
 

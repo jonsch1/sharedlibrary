@@ -119,12 +119,21 @@ struct ContentView: View {
                     account: model.account,
                     dismissesWhenEntitled: false,
                     previewPrice: showsSubscriptionPreview ? "$8.49" : nil,
+                    previewAuthenticated: showsSubscriptionPreview,
                     allowsDismissal: false
                 )
             }
         }
         .task {
-            if model.session.environment.isUITesting {
+            if showsSubscriptionPreview {
+                model.account.account = BrieflyAccountStatus(
+                    authenticated: true,
+                    entitled: false,
+                    email: nil,
+                    accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")
+                )
+                hasResolvedAccess = true
+            } else if model.session.environment.isUITesting {
                 hasResolvedAccess = true
                 await model.workflows.start()
             } else {

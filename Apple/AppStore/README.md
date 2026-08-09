@@ -47,6 +47,8 @@ version in a separate submission after iOS is through review.
   rights or other legal permission to do so.
 - [ ] Confirm owner attestations listed below.
 - [x] Embed the supplied icon in an `AppIcon` catalog for iOS, iPadOS, and macOS.
+- [x] Align the app, share extension, and UI-test targets with App Store version
+  `1.0` and build `1`.
 - [x] Add in-app account deletion, including Sign in with Apple
   token revocation and deletion of server-side account data not legally retained.
 - [x] Embed a valid `PrivacyInfo.xcprivacy` covering the app's required-reason

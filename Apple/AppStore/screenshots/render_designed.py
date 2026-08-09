@@ -8,8 +8,11 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = Path(__file__).resolve().parent
 OUTPUT = ROOT / "designed" / "iphone-6.9"
+IPAD_OUTPUT = ROOT / "designed" / "ipad-13"
 MAC_OUTPUT = ROOT / "designed" / "mac"
 CANVAS = (1320, 2868)
+IPHONE_CANVAS = (1284, 2778)
+IPAD_CANVAS = (2064, 2752)
 
 CHARCOAL = (31, 29, 27)
 IVORY = (255, 252, 244)
@@ -48,8 +51,8 @@ def tracked_text(
         x += round(draw.textlength(character, font=text_font)) + tracking
 
 
-def canvas(color: tuple[int, int, int]) -> Image.Image:
-    return Image.new("RGBA", CANVAS, color + (255,))
+def canvas(color: tuple[int, int, int], size: tuple[int, int] = CANVAS) -> Image.Image:
+    return Image.new("RGBA", size, color + (255,))
 
 
 def add_copy(
@@ -100,7 +103,7 @@ def add_product(
     product = rounded_capture(source, width, radius)
     x, y = position
 
-    shadow = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ImageDraw.Draw(shadow).rounded_rectangle(
         (x - 12, y + 24, x + product.width + 12, y + product.height + 50),
         radius=radius + 18,
@@ -143,7 +146,7 @@ def add_label(
 def add_keycap(image: Image.Image, position: tuple[int, int], value: str) -> None:
     x, y = position
     size = 330
-    shadow = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    shadow = Image.new("RGBA", image.size, (0, 0, 0, 0))
     ImageDraw.Draw(shadow).rounded_rectangle(
         (x, y + 22, x + size, y + size + 22),
         radius=72,
@@ -170,8 +173,11 @@ def add_keycap(image: Image.Image, position: tuple[int, int], value: str) -> Non
     )
 
 
-def save(image: Image.Image, filename: str) -> None:
-    image.convert("RGB").save(OUTPUT / filename, format="PNG", optimize=True)
+def save(image: Image.Image, filename: str, output: Path = OUTPUT) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    if output == OUTPUT:
+        image = image.resize(IPHONE_CANVAS, Image.Resampling.LANCZOS)
+    image.convert("RGB").save(output / filename, format="PNG", optimize=True)
 
 
 def main() -> None:
@@ -219,6 +225,54 @@ def main() -> None:
     add_product(third, concise, (-15, 915), 670, 75, border=BLUE)
     add_product(third, detailed, (665, 915), 670, 75, border=(95, 86, 171))
     save(third, "03-reading-depth.png")
+
+    ipad_first = canvas(BUTTER, IPAD_CANVAS)
+    add_copy(
+        ipad_first,
+        "Mac + iPad",
+        "Your library. Everywhere.",
+        "Save on Mac. Read on iPad.",
+        (153, 101, 0),
+    )
+    add_product(ipad_first, mac_library, (102, 670), 1860, 40, border=(138, 91, 0))
+    add_product(
+        ipad_first,
+        iphone_library,
+        (1270, 1110),
+        680,
+        76,
+        border=(138, 91, 0),
+        border_width=5,
+    )
+    save(ipad_first, "01-mac-and-ipad.png", IPAD_OUTPUT)
+
+    ipad_second = canvas(CORAL, IPAD_CANVAS)
+    add_copy(
+        ipad_second,
+        "Mac shortcut",
+        "Save anything. Press ⌘G.",
+        "Capture from anywhere on your Mac.",
+        (143, 53, 31),
+    )
+    add_product(ipad_second, mac_library, (90, 690), 1884, 42, border=(143, 53, 31))
+    add_keycap(ipad_second, (525, 1870), "⌘")
+    add_keycap(ipad_second, (1209, 1870), "G")
+    save(ipad_second, "02-mac-shortcut.png", IPAD_OUTPUT)
+
+    ipad_third = canvas(SKY, IPAD_CANVAS)
+    add_copy(
+        ipad_third,
+        "Reading depth",
+        "Read and listen at the depth that fits.",
+        "Concise, detailed, source—or audio.",
+        BLUE,
+        headline_font=THIRD_HEADLINE,
+    )
+    add_label(ipad_third, (104, 770), "CONCISE", BLUE)
+    add_label(ipad_third, (1110, 770), "DETAILED", (95, 86, 171))
+    add_product(ipad_third, concise, (82, 860), 850, 82, border=BLUE)
+    add_product(ipad_third, detailed, (1080, 860), 850, 82, border=(95, 86, 171))
+    save(ipad_third, "03-reading-depth.png", IPAD_OUTPUT)
 
 
 if __name__ == "__main__":
