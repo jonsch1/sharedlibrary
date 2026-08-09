@@ -185,6 +185,20 @@ struct MacXSettingsWorkspace: View {
                     .frame(width: 210)
                 }
             }
+            detailGroup("Backgrounds") {
+                BrieflyBackgroundSetting(appearance: .light)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                Divider().padding(.leading, 20)
+                BrieflyBackgroundSetting(appearance: .dark)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                Text("Custom backgrounds are stored on this Mac and can be reset independently.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 18)
+            }
 
         case .library:
             detailGroup("Library") {

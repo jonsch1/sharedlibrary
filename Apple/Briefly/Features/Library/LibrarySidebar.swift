@@ -60,7 +60,7 @@ struct LibrarySidebar: View {
                 .ignoresSafeArea()
         }
         #else
-        .background(sidebarBackground.ignoresSafeArea())
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
         #endif
     }
 

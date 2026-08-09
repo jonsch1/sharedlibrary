@@ -74,7 +74,7 @@ struct MobileHome: View {
                 .scrollIndicators(.hidden)
             }
         }
-        .background(sidebarBackground.ignoresSafeArea())
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
     }
 }
 

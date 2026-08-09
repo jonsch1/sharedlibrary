@@ -2,6 +2,9 @@ import BrieflyCore
 import CryptoKit
 import Foundation
 import Observation
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -107,7 +110,16 @@ final class LibraryAudioModel {
         guard !isGeneratingSpeech else { return false }
 
         isGeneratingSpeech = true
-        defer { isGeneratingSpeech = false }
+        #if os(iOS)
+        let backgroundActivity = SpeechBackgroundActivity()
+        backgroundActivity.start()
+        #endif
+        defer {
+            isGeneratingSpeech = false
+            #if os(iOS)
+            backgroundActivity.end()
+            #endif
+        }
         let description = variant == .source
             ? "document"
             : "\(variant.title.lowercased()) summary"
@@ -191,3 +203,25 @@ final class LibraryAudioModel {
         return (size ?? 0) > 44
     }
 }
+
+#if os(iOS)
+@MainActor
+private final class SpeechBackgroundActivity {
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+
+    func start() {
+        guard identifier == .invalid else { return }
+        identifier = UIApplication.shared.beginBackgroundTask(
+            withName: "Briefly voice synthesis"
+        ) { [weak self] in
+            Task { @MainActor in self?.end() }
+        }
+    }
+
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
+    }
+}
+#endif

@@ -74,7 +74,7 @@ struct MobileXFeedScreen: View {
             }
         }
         .overlay(alignment: .top) { floatingHeader }
-        .background(readerBackground.ignoresSafeArea())
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar)
         .animation(.snappy(duration: 0.24), value: showsSearch)
         .onDisappear {

@@ -147,6 +147,39 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertFalse(value.content.contains("Abstract only"))
     }
 
+    func testBiorxivInputRendersTheFullArticleWhenThePDFIsBlocked() async throws {
+        let url = itemTestURL(.biorxiv)
+        let fullText = String(repeating: "Complete rendered manuscript body. ", count: 50)
+        let value = try await router.ingest(
+            .init(source: .url(url)),
+            context: .init(
+                http: InputHTTPClient { request, _ in
+                    if request.url!.path.hasSuffix(".full.pdf") {
+                        throw NativeInputError.requestFailed(429)
+                    }
+                    return InputHTTPResponse(
+                        data: Data(),
+                        finalURL: request.url!,
+                        contentType: "text/html"
+                    )
+                },
+                render: { renderedURL in
+                    XCTAssertTrue(renderedURL.path.hasSuffix(".full"))
+                    return RenderedInputPage(
+                        title: "Rendered bioRxiv paper",
+                        content: fullText,
+                        sourceURL: renderedURL
+                    )
+                }
+            )
+        )
+        XCTAssertEqual(value.inputID, .biorxiv)
+        XCTAssertEqual(value.title, "Rendered bioRxiv paper")
+        XCTAssertEqual(value.sourceURL, url)
+        XCTAssertTrue(value.content.contains("Complete rendered manuscript body"))
+        XCTAssertGreaterThan(value.content.count, 1_000)
+    }
+
     func testYouTubeInput() async throws {
         let player: [String: Any] = [
             "videoDetails": ["title": "Native video", "author": "Briefly", "shortDescription": "Demo"],

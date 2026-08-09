@@ -16,7 +16,6 @@ struct MobileXDetail: View {
             audioPlayer: audioPlayer,
             audioEntry: $audioEntry
         )
-        .background(readerBackground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {

@@ -151,6 +151,14 @@ extension SettingsView {
                     }
                     .pickerStyle(.segmented)
                 }
+                Section {
+                    BrieflyBackgroundSetting(appearance: .light)
+                    BrieflyBackgroundSetting(appearance: .dark)
+                } header: {
+                    Text("Backgrounds")
+                } footer: {
+                    Text("Custom backgrounds are stored on this device and can be reset independently.")
+                }
 
                     case .library:
                 Section("Library") {

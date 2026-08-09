@@ -279,7 +279,6 @@ struct ChannelCandidateDocument: View {
                 .fill(.primary.opacity(0.08))
                 .frame(height: 1)
         }
-        .padding(.horizontal, 18)
         .padding(.bottom, 8)
         #endif
         #if os(macOS)
@@ -307,7 +306,12 @@ struct ChannelCandidateDocument: View {
             }
             .font(ReaderActionBarMetrics.iconFont)
             .padding(.horizontal, 10)
+            #if os(iOS)
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            #else
             .frame(height: ReaderActionBarMetrics.buttonSize)
+            #endif
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

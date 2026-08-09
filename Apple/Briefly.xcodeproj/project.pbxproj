@@ -16,9 +16,9 @@
 		100000000000000000000106 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000106 /* ContentView.swift */; };
 		100000000000000000000107 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000107 /* Appearance.swift */; };
 		100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000108 /* BrieflyAtmosphere.swift */; };
+		100000000000000000000190 /* BrieflyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000190 /* BrieflyBackground.swift */; };
 		100000000000000000000109 /* GlassEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000109 /* GlassEffects.swift */; };
 		100000000000000000000110 /* GrainyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000110 /* GrainyCard.swift */; };
-		100000000000000000000111 /* GrainyGradient.metal in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000111 /* GrainyGradient.metal */; };
 		100000000000000000000112 /* MacCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* MacCaptureComposer.swift */; };
 		100000000000000000000113 /* MobileCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000113 /* MobileCaptureComposer.swift */; };
 		100000000000000000000186 /* LibraryInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000186 /* LibraryInputService.swift */; };
@@ -115,9 +115,9 @@
 		200000000000000000000106 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		200000000000000000000107 /* Appearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Appearance.swift; sourceTree = "<group>"; };
 		200000000000000000000108 /* BrieflyAtmosphere.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyAtmosphere.swift; sourceTree = "<group>"; };
+		200000000000000000000190 /* BrieflyBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrieflyBackground.swift; sourceTree = "<group>"; };
 		200000000000000000000109 /* GlassEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassEffects.swift; sourceTree = "<group>"; };
 		200000000000000000000110 /* GrainyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrainyCard.swift; sourceTree = "<group>"; };
-		200000000000000000000111 /* GrainyGradient.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = GrainyGradient.metal; sourceTree = "<group>"; };
 		200000000000000000000112 /* MacCaptureComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCaptureComposer.swift; sourceTree = "<group>"; };
 		200000000000000000000113 /* MobileCaptureComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCaptureComposer.swift; sourceTree = "<group>"; };
 		200000000000000000000186 /* LibraryInputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryInputService.swift; sourceTree = "<group>"; };
@@ -256,9 +256,9 @@
 			children = (
 				200000000000000000000107 /* Appearance.swift */,
 				200000000000000000000108 /* BrieflyAtmosphere.swift */,
+				200000000000000000000190 /* BrieflyBackground.swift */,
 				200000000000000000000109 /* GlassEffects.swift */,
 				200000000000000000000110 /* GrainyCard.swift */,
-				200000000000000000000111 /* GrainyGradient.metal */,
 			);
 			path = DesignSystem;
 			sourceTree = "<group>";
@@ -585,9 +585,9 @@
 				100000000000000000000106 /* ContentView.swift in Sources */,
 				100000000000000000000107 /* Appearance.swift in Sources */,
 				100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */,
+				100000000000000000000190 /* BrieflyBackground.swift in Sources */,
 				100000000000000000000109 /* GlassEffects.swift in Sources */,
 				100000000000000000000110 /* GrainyCard.swift in Sources */,
-				100000000000000000000111 /* GrainyGradient.metal in Sources */,
 				100000000000000000000112 /* MacCaptureComposer.swift in Sources */,
 				100000000000000000000113 /* MobileCaptureComposer.swift in Sources */,
 				100000000000000000000186 /* LibraryInputService.swift in Sources */,

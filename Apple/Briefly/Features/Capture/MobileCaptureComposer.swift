@@ -46,7 +46,7 @@ struct MobileCaptureComposer: View {
                 .padding(.horizontal, 10)
                 .frame(height: 58)
             }
-            .background(readerBackground.ignoresSafeArea())
+            .background { BrieflyAtmosphere().ignoresSafeArea() }
             .navigationTitle("Capture")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -44,7 +44,9 @@ struct MobileXAppShell: View {
         }
         .tint(Color.accentColor)
         .overlay(alignment: .bottomTrailing) {
-            if let playingEntry {
+            if selectedTab == .channels {
+                EmptyView()
+            } else if let playingEntry {
                 Button {
                     audioEntry = playingEntry
                 } label: {
@@ -150,7 +152,8 @@ struct MobileXAppShell: View {
     }
 
     private var isPlayableDetail: Bool {
-        showsDetail && model.selection.selectedEntry != nil
+        selectedTab != .channels && model.navigation.activeSection == .items &&
+            showsDetail && model.selection.selectedEntry != nil
     }
 
     private var playingEntry: LibraryEntry? {

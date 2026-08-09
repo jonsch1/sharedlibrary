@@ -37,7 +37,7 @@ public struct NativeItemInputRouter: Sendable {
             case .arxiv:
                 draft = try await ingestArxiv(request, http: context.http)
             case .biorxiv:
-                draft = try await ingestBiorxiv(request, http: context.http)
+                draft = try await ingestBiorxiv(request, context: context)
             case .youtube:
                 draft = try await ingestYouTube(request, context: context)
             case .podcast:

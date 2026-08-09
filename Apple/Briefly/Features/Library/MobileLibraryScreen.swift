@@ -91,7 +91,7 @@ struct MobileXLibraryScreen: View {
                 }
             }
         }
-        .background(readerBackground.ignoresSafeArea())
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar)
         .task { model.workflows.showHighlights() }
     }

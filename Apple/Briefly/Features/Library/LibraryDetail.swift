@@ -111,7 +111,7 @@ struct LibraryDetail: View {
             }
         }
         #else
-        .background(readerBackground.ignoresSafeArea())
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
         #endif
     }
 
