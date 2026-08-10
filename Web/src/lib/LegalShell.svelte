@@ -50,7 +50,8 @@
 <div class="legal-shell">
 	<header class="legal-header">
 		<a class="legal-brand" href="/landing" aria-label="Briefly home">
-			<img src="/brand/briefly-wordmark.svg" alt="" />
+			<img src="/brand/briefly-app-icon.png" alt="" width="240" height="240" />
+			<span>Briefly</span>
 		</a>
 		<a class="back-link" href="/landing">
 			<ArrowLeftIcon aria-hidden="true" />
@@ -159,13 +160,18 @@
 	}
 
 	.legal-brand {
+		gap: 9px;
 		color: inherit;
+		font-size: 18px;
+		font-weight: 780;
+		letter-spacing: -0.05em;
 		text-decoration: none;
 	}
 
 	.legal-brand img {
-		width: 102px;
-		height: auto;
+		width: 34px;
+		height: 34px;
+		border-radius: 8px;
 	}
 
 	.back-link {

@@ -112,8 +112,9 @@
 
 <main class="feedback-page">
 	<header>
-		<a class="brand" href="/landing">
-			<img src="/brand/briefly-wordmark.svg" alt="Briefly" />
+		<a class="brand" href="/landing" aria-label="Briefly home">
+			<img src="/brand/briefly-app-icon.png" alt="" width="240" height="240" />
+			<span>Briefly</span>
 		</a>
 	</header>
 
@@ -235,12 +236,17 @@
 	}
 
 	.brand {
+		gap: 9px;
+		font-size: 19px;
+		font-weight: 780;
+		letter-spacing: -0.05em;
 		text-decoration: none;
 	}
 
 	.brand img {
-		width: 112px;
-		height: auto;
+		width: 36px;
+		height: 36px;
+		border-radius: 9px;
 	}
 
 	.feedback-shell {

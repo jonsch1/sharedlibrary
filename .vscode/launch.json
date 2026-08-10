@@ -27,6 +27,26 @@
             "target": "briefly-migrate",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release briefly-migrate (Apple)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
+            "name": "Debug briefly-mcp (Apple)",
+            "target": "briefly-mcp",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug briefly-mcp (Apple)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
+            "name": "Release briefly-mcp (Apple)",
+            "target": "briefly-mcp",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release briefly-mcp (Apple)"
         }
     ]
 }

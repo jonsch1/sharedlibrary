@@ -9,7 +9,8 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" type="image/svg+xml" href="/brand/briefly-mark.svg" />
+	<link rel="icon" type="image/png" href="/brand/briefly-app-icon.png" />
+	<link rel="apple-touch-icon" href="/brand/briefly-app-icon.png" />
 	<meta name="theme-color" content="#ffffff" />
 </svelte:head>
 {@render children()}
