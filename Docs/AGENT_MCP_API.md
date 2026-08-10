@@ -1,7 +1,7 @@
 # Briefly Agent API and MCP
 
 Status: implemented v1
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Decision
 
@@ -34,10 +34,11 @@ flowchart LR
     B --> C["CloudKit outbox"]
 ```
 
-The MCP executable never opens the production database. The running app owns
-extraction, capture, summary queueing, UI refresh, and sync. If needed, the MCP
-executable launches Briefly without activating its windows and waits for the
-socket.
+The MCP executable is embedded at
+`Briefly.app/Contents/MacOS/briefly-mcp` and signed as part of the app build.
+It never opens the production database. The running app owns extraction,
+capture, summary queueing, UI refresh, and sync. If needed, the MCP executable
+launches Briefly without activating its windows and waits for the socket.
 
 The socket lives in the user's Briefly Application Support directory. Its
 directory is mode `0700`, the socket is mode `0600`, messages are length-prefixed
@@ -209,16 +210,18 @@ The canonical plugin source is in `Plugins/briefly/`:
 briefly/
 ├── plugin.json
 ├── mcp.json
-├── bin/briefly-mcp
 ├── skills/briefly/SKILL.md
 ├── .codex-plugin/plugin.json
 └── .mcp.json
 ```
 
 Root `plugin.json` and `mcp.json` follow the Agent Plugins 1.0.0 working draft.
-The dotted files are a thin Codex compatibility layer. Run
-`Apple/scripts/package-agent-plugin.sh` to build a release MCP executable and
-produce a self-contained plugin under `Apple/.build/plugin/briefly`.
+The dotted files are a thin Codex compatibility layer. Both MCP manifests use
+macOS Launch Services to resolve the installed Briefly app by bundle identifier,
+then execute its embedded helper while preserving MCP stdio. This makes startup
+independent of Codex's working directory and keeps native code in the signed app
+instead of the plugin. Run `Apple/scripts/package-agent-plugin.sh` to produce
+the lightweight plugin under `Apple/.build/plugin/briefly`.
 
 ## References
 

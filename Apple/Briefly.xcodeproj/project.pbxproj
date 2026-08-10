@@ -100,6 +100,10 @@
 		E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E30000000000000000000004 /* BrieflyShareExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
 		F10000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		C10000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* main.swift */; };
+		C10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000001 /* BrieflyCore */; };
+		C10000000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* MCP */; };
+		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilter = macos; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -117,6 +121,13 @@
 			remoteGlobalIDString = E90000000000000000000001;
 			remoteInfo = BrieflyShareExtension;
 		};
+		C20000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C70000000000000000000001;
+			remoteInfo = BrieflyMCP;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -129,6 +140,17 @@
 				E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C30000000000000000000001 /* Embed MCP Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */,
+			);
+			name = "Embed MCP Helper";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -228,6 +250,8 @@
 		E30000000000000000000003 /* BrieflyShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrieflyShareExtension.entitlements; sourceTree = "<group>"; };
 		E30000000000000000000004 /* BrieflyShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrieflyShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C40000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		C40000000000000000000002 /* briefly-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "briefly-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -255,6 +279,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C50000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000002 /* BrieflyCore in Frameworks */,
+				C10000000000000000000003 /* MCP in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -262,10 +295,19 @@
 			isa = PBXGroup;
 			children = (
 				400000000000000000000002 /* Briefly */,
+				C60000000000000000000001 /* BrieflyMCP */,
 				E40000000000000000000001 /* BrieflyShareExtension */,
 				400000000000000000000004 /* BrieflyUITests */,
 				400000000000000000000003 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		C60000000000000000000001 /* BrieflyMCP */ = {
+			isa = PBXGroup;
+			children = (
+				C40000000000000000000001 /* main.swift */,
+			);
+			path = Sources/BrieflyMCP;
 			sourceTree = "<group>";
 		};
 		400000000000000000000002 /* Briefly */ = {
@@ -512,6 +554,7 @@
 			isa = PBXGroup;
 			children = (
 				200000000000000000000004 /* Briefly.app */,
+				C40000000000000000000002 /* briefly-mcp */,
 				E30000000000000000000004 /* BrieflyShareExtension.appex */,
 				20000000000000000000000A /* BrieflyUITests.xctest */,
 			);
@@ -528,11 +571,13 @@
 				700000000000000000000001 /* Sources */,
 				300000000000000000000001 /* Frameworks */,
 				600000000000000000000001 /* Resources */,
+				C30000000000000000000001 /* Embed MCP Helper */,
 				E80000000000000000000001 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C80000000000000000000001 /* PBXTargetDependency */,
 				EA0000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = Briefly;
@@ -564,6 +609,26 @@
 			productReference = 20000000000000000000000A /* BrieflyUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C70000000000000000000001 /* BrieflyMCP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CA0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyMCP" */;
+			buildPhases = (
+				C50000000000000000000001 /* Frameworks */,
+				C70000000000000000000002 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BrieflyMCP;
+			packageProductDependencies = (
+				CC0000000000000000000001 /* BrieflyCore */,
+				CC0000000000000000000002 /* MCP */,
+			);
+			productName = "briefly-mcp";
+			productReference = C40000000000000000000002 /* briefly-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 		E90000000000000000000001 /* BrieflyShareExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EC0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyShareExtension" */;
@@ -594,6 +659,9 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					C70000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
 					500000000000000000000001 = {
 						CreatedOnToolsVersion = 26.0;
 						SystemCapabilities = {
@@ -640,6 +708,7 @@
 			packageReferences = (
 				A00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
 				A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 400000000000000000000003 /* Products */;
@@ -647,6 +716,7 @@
 			projectRoot = "";
 			targets = (
 				500000000000000000000001 /* Briefly */,
+				C70000000000000000000001 /* BrieflyMCP */,
 				E90000000000000000000001 /* BrieflyShareExtension */,
 				500000000000000000000002 /* BrieflyUITests */,
 			);
@@ -789,6 +859,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C70000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000001 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -802,6 +880,12 @@
 			platformFilter = ios;
 			target = E90000000000000000000001 /* BrieflyShareExtension */;
 			targetProxy = E20000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		C80000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = macos;
+			target = C70000000000000000000001 /* BrieflyMCP */;
+			targetProxy = C20000000000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1069,6 +1153,38 @@
 			};
 			name = Release;
 		};
+		C90000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_NAME = "briefly-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C90000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_NAME = "briefly-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1108,6 +1224,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		CA0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyMCP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C90000000000000000000001 /* Debug */,
+				C90000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -1124,6 +1249,14 @@
 			requirement = {
 				kind = revision;
 				revision = 5390df9752c8fc583596018360c5fd70d6fa6c75;
+			};
+		};
+		CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.11.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -1143,6 +1276,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = BrieflyCore;
+		};
+		CC0000000000000000000001 /* BrieflyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = BrieflyCore;
+		};
+		CC0000000000000000000002 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

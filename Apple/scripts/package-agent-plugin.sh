@@ -11,10 +11,7 @@ if [ -e "$output_root" ]; then
   exit 1
 fi
 
-swift build --package-path "$apple_root" -c release --product briefly-mcp
 mkdir -p "$output_root"
 cp -R "$source_root/." "$output_root"
-cp "$apple_root/.build/release/briefly-mcp" "$output_root/bin/briefly-mcp"
-chmod 755 "$output_root/bin/briefly-mcp"
 
 echo "$output_root"

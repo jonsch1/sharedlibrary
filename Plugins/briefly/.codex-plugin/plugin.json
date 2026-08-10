@@ -1,6 +1,6 @@
 {
   "name": "briefly",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260810200616",
   "description": "Ingest URLs, save supplied documents, and recall compact Briefly summaries.",
   "author": {
     "name": "Briefly",
@@ -8,7 +8,11 @@
     "url": "https://www.readbriefly.fyi"
   },
   "homepage": "https://www.readbriefly.fyi/landing",
-  "keywords": ["briefly", "library", "summaries"],
+  "keywords": [
+    "briefly",
+    "library",
+    "summaries"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -17,7 +21,10 @@
     "longDescription": "Ingest URLs with Briefly, store agent-supplied documents and summaries, and recall only the detail needed for the current task.",
     "developerName": "Briefly",
     "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
     "websiteURL": "https://www.readbriefly.fyi/landing",
     "privacyPolicyURL": "https://www.readbriefly.fyi/privacy",
     "termsOfServiceURL": "https://www.readbriefly.fyi/terms",

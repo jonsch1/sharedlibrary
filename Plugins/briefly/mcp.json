@@ -3,7 +3,11 @@
   "mcpServers": {
     "briefly": {
       "type": "stdio",
-      "command": "./bin/briefly-mcp"
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -eu; if ! app_path=$(/usr/bin/osascript -e 'POSIX path of (path to application id \"fyi.readbriefly.BrieflyNative\")' 2>/dev/null); then printf '%s\\n' 'Briefly is not installed. Install Briefly before enabling its Codex plugin.' >&2; exit 1; fi; app_path=$(printf '%s' \"$app_path\" | /usr/bin/sed 's:/$::'); helper=\"$app_path/Contents/MacOS/briefly-mcp\"; if [ ! -x \"$helper\" ]; then printf '%s\\n' 'This Briefly installation does not include the MCP helper. Update Briefly and try again.' >&2; exit 1; fi; exec \"$helper\""
+      ]
     }
   }
 }
