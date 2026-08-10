@@ -12,8 +12,31 @@ private struct CloudDocumentSyncFailure: LocalizedError {
     }
 }
 
+private func pruneAbandonedCloudAssets(in directory: URL) {
+    let fileManager = FileManager.default
+    let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+    guard let urls = try? fileManager.contentsOfDirectory(
+        at: directory,
+        includingPropertiesForKeys: [.contentModificationDateKey],
+        options: [.skipsHiddenFiles]
+    ) else { return }
+    for url in urls {
+        guard
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+            let modifiedAt = values.contentModificationDate,
+            modifiedAt < cutoff
+        else { continue }
+        try? fileManager.removeItem(at: url)
+    }
+}
+
 @available(macOS 14.0, iOS 17.0, *)
 public final actor CloudDocumentSync: CKSyncEngineDelegate {
+    private struct AssetRevision: Hashable {
+        let recordName: String
+        let revision: Int64
+    }
+
     private struct Payload: Codable {
         let topicIDs: [String]
         let tags: [String]
@@ -29,7 +52,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         ownerName: CKCurrentUserDefaultName
     )
     private let assetDirectory: URL
-    private var assets = Set<URL>()
+    private var assets = [AssetRevision: Set<URL>]()
     private var eventError: Error?
     private var progressHandler: (@MainActor @Sendable (Int, Int) -> Void)?
     private var completedChangeCount = 0
@@ -38,12 +61,11 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         let serialization = try? store.syncState().flatMap {
             try JSONDecoder().decode(CKSyncEngine.State.Serialization.self, from: $0)
         }
-        var configuration = CKSyncEngine.Configuration(
+        let configuration = CKSyncEngine.Configuration(
             database: container.privateCloudDatabase,
             stateSerialization: serialization ?? nil,
             delegate: self
         )
-        configuration.automaticallySync = true
         return CKSyncEngine(configuration)
     }()
     private let container: CKContainer
@@ -53,6 +75,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         container = CKContainer(identifier: containerIdentifier)
         assetDirectory = FileManager.default.temporaryDirectory
             .appending(path: "briefly-cloud-assets", directoryHint: .isDirectory)
+        pruneAbandonedCloudAssets(in: assetDirectory)
     }
 
     public func accountStatus() async throws -> CKAccountStatus {
@@ -67,10 +90,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         progressHandler = onProgress
         completedChangeCount = 0
         totalChangeCount = 0
-        defer {
-            progressHandler = nil
-            removeTemporaryAssets()
-        }
+        defer { progressHandler = nil }
 
         if try store.prepareInitialCloudUploadIfNeeded() {
             let recoveredChanges = try recoverInterruptedInitialUpload()
@@ -155,9 +175,11 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                             data: try archived(record)
                         )
                     }
+                    removeTemporaryAssets(for: record)
                 }
                 var retries = [CKSyncEngine.PendingRecordZoneChange]()
                 for failure in changes.failedRecordSaves {
+                    removeTemporaryAssets(for: failure.record)
                     guard failure.error.code == .serverRecordChanged,
                           let serverRecord = failure.error.serverRecord
                     else {
@@ -186,8 +208,6 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                     completedChangeCount + changes.savedRecords.count
                 )
                 await progressHandler?(completedChangeCount, totalChangeCount)
-            case .didSendChanges:
-                removeTemporaryAssets()
             case .didFetchRecordZoneChanges(let result):
                 if let error = result.error {
                     throw CloudDocumentSyncFailure(
@@ -316,7 +336,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         )
         let url = assetDirectory.appending(path: UUID().uuidString)
         try payload.write(to: url, options: .atomic)
-        assets.insert(url)
+        trackTemporaryAsset(url, recordID: id, revision: document.revision)
         record["payload"] = CKAsset(fileURL: url)
         return record
     }
@@ -348,7 +368,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         try FileManager.default.createDirectory(at: assetDirectory, withIntermediateDirectories: true)
         let url = assetDirectory.appending(path: UUID().uuidString)
         try attachment.data.write(to: url, options: .atomic)
-        assets.insert(url)
+        trackTemporaryAsset(url, recordID: id, revision: attachment.revision)
         record["payload"] = CKAsset(fileURL: url)
         return record
     }
@@ -453,9 +473,19 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         try NSKeyedArchiver.archivedData(withRootObject: record, requiringSecureCoding: true)
     }
 
-    private func removeTemporaryAssets() {
-        let urls = assets
-        assets.removeAll()
+    private func trackTemporaryAsset(
+        _ url: URL,
+        recordID: CKRecord.ID,
+        revision: Int64
+    ) {
+        let key = AssetRevision(recordName: recordID.recordName, revision: revision)
+        assets[key, default: []].insert(url)
+    }
+
+    private func removeTemporaryAssets(for record: CKRecord) {
+        guard let revision = (record["revision"] as? NSNumber)?.int64Value else { return }
+        let key = AssetRevision(recordName: record.recordID.recordName, revision: revision)
+        let urls = assets.removeValue(forKey: key) ?? []
         for url in urls { try? FileManager.default.removeItem(at: url) }
     }
 }
