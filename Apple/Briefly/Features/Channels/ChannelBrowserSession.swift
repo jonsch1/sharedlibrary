@@ -6,9 +6,15 @@ import WebKit
 final class ChannelBrowserSession {
     static let shared = ChannelBrowserSession()
 
-    let dataStore = WKWebsiteDataStore(
-        forIdentifier: UUID(uuidString: "F5D5198E-24BC-4E08-AAC0-D275EE8620D1")!
-    )
+    let dataStore: WKWebsiteDataStore
+
+    private init(arguments: [String] = ProcessInfo.processInfo.arguments) {
+        dataStore = arguments.contains("--app-review-testing")
+            ? .nonPersistent()
+            : WKWebsiteDataStore(
+                forIdentifier: UUID(uuidString: "F5D5198E-24BC-4E08-AAC0-D275EE8620D1")!
+            )
+    }
 
     func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()

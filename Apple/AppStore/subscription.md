@@ -17,11 +17,15 @@
 
 Review notes:
 
-> Open Settings > Account, sign in with Apple, and choose Explore Briefly Plus. The
-> localized price and one-month renewal period appear before purchase. Restore
-> Purchases, Manage Subscription, Privacy Policy, and Terms of Use are available
-> from Settings. Membership unlocks ongoing hosted AI processing, transcription,
-> voice generation, web extraction fallback, and public share links.
+> Briefly presents this subscription after onboarding. Sign in with Apple creates
+> the Briefly account, after which the localized price and one-month renewal period
+> appear before purchase. Restore Purchases, Manage Subscription, Privacy Policy,
+> and Terms of Use are available from the membership and Settings screens. The App
+> Review credentials supplied with the app version grant complimentary full access
+> for feature review without creating a StoreKit transaction. That login opens an
+> editable, prepopulated sample library stored separately from iCloud. Membership unlocks
+> the native library, hosted AI processing, transcription, voice generation, web
+> extraction fallback, private iCloud synchronization, and public share links.
 
 The review screenshot must be captured from the finished build and show the
 subscription screen in context. The first subscription and its subscription group

@@ -20,7 +20,9 @@ final class LibraryLifecycleModel {
         self.session = session
     }
 
-    var runsScheduledWork: Bool { !session.environment.isUITesting }
+    var runsScheduledWork: Bool {
+        !session.environment.isUITesting && !session.environment.isAppReviewTesting
+    }
 
     func beginStart() -> Bool {
         guard !started else { return false }
@@ -28,7 +30,7 @@ final class LibraryLifecycleModel {
         return true
     }
 
-    func openLibrary(databaseURL: URL) async -> Bool {
+    func openLibrary(databaseURL: URL, cloudSyncEnabled: Bool = true) async -> Bool {
         do {
             let next = SQLiteLibraryStore(databaseURL: databaseURL)
             session.projection = try await next.loadLibraryIndex()
@@ -36,7 +38,9 @@ final class LibraryLifecycleModel {
             session.status = "Opened local SQLite library"
             isReady = true
             let database = try await next.documentDatabase()
-            session.cloud = !session.environment.isUITesting && LibrarySession.cloudKitAvailable
+            session.cloud = cloudSyncEnabled &&
+                !session.environment.isUITesting &&
+                LibrarySession.cloudKitAvailable
                 ? CloudDocumentSync(
                     store: database,
                     containerIdentifier: "iCloud.fyi.readbriefly"

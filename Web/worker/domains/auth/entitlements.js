@@ -1,6 +1,7 @@
 import { json } from '../../infrastructure/http-security.js';
 import { normalizedEmail } from '../../infrastructure/input-validation.js';
 import { accountRecord } from './account-operations.js';
+import { isAppReviewAccount } from './review-access.js';
 import { authenticatedEmail } from './session.js';
 
 const administratorEmails = new Set(['schauljonathan@gmail.com']);
@@ -24,6 +25,7 @@ function isAdministrator(email) {
 async function hasComplimentaryPlusAccess(env, email) {
 	const normalized = normalizedEmail(email);
 	if (!normalized) return false;
+	if (isAppReviewAccount(env, normalized)) return true;
 	if (isAdministrator(normalized)) return true;
 	return Boolean(
 		await env.DB.prepare(

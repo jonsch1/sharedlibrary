@@ -11,7 +11,10 @@ final class LibraryAccountModel {
     let session: LibrarySession
     var account = BrieflyAccountStatus.signedOut
     var subscriptionProduct: Product?
+    var isLoadingSubscription = false
+    var subscriptionLoadMessage: String?
     var isPurchasingSubscription = false
+    var isSigningInForReview = false
     var isCheckingAccount = false
     var isDeletingAccount = false
 
@@ -82,11 +85,36 @@ final class LibraryAccountModel {
     }
 
     func loadSubscription() async {
+        guard !isLoadingSubscription else { return }
+        isLoadingSubscription = true
+        subscriptionLoadMessage = nil
+        defer { isLoadingSubscription = false }
         do {
-            subscriptionProduct = try await Product.products(
+            let product = try await Product.products(
                 for: [Self.subscriptionProductID]
             ).first
+            subscriptionProduct = product
+            guard product != nil else {
+                subscriptionLoadMessage = "The App Store price is unavailable."
+                return
+            }
             await syncStoreEntitlements()
+        } catch {
+            subscriptionLoadMessage = "The App Store price could not be loaded."
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
+    func signInForAppReview(username: String, password: String) async {
+        guard !isSigningInForReview else { return }
+        isSigningInForReview = true
+        defer { isSigningInForReview = false }
+        do {
+            account = try await session.backend.signInForAppReview(
+                username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
+            session.status = "Signed in for App Review"
         } catch {
             session.errorMessage = error.localizedDescription
         }

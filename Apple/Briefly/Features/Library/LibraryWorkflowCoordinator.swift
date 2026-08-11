@@ -106,6 +106,19 @@ final class LibraryWorkflowCoordinator {
         }
 
         audio.beginLocalSpeechPreparation()
+        if account.account.reviewAccess == true {
+            do {
+                let databaseURL = try session.environment.prepareAppReviewLibrary()
+                await openLibrary(databaseURL: databaseURL, cloudSyncEnabled: false)
+                await selection.loadSelectedText()
+                session.status = "Showing the App Review sample library"
+            } catch {
+                lifecycle.isReady = true
+                session.errorMessage = error.localizedDescription
+            }
+            return
+        }
+
         if ProcessInfo.processInfo.arguments.contains("--demo") {
             session.projection = .demo
             session.status = "Showing the sample library"
@@ -142,8 +155,11 @@ final class LibraryWorkflowCoordinator {
         }
     }
 
-    func openLibrary(databaseURL: URL) async {
-        let opened = await lifecycle.openLibrary(databaseURL: databaseURL)
+    func openLibrary(databaseURL: URL, cloudSyncEnabled: Bool = true) async {
+        let opened = await lifecycle.openLibrary(
+            databaseURL: databaseURL,
+            cloudSyncEnabled: cloudSyncEnabled
+        )
         guard opened, let library = session.library else {
             channels.libraryChannels = []
             selection.trashEntries = []
@@ -290,6 +306,7 @@ final class LibraryWorkflowCoordinator {
     func importPendingSharedCaptures() async {
         #if os(iOS)
         guard session.library != nil,
+              account.account.reviewAccess != true,
               !session.environment.isUITesting,
               !ProcessInfo.processInfo.arguments.contains("--demo"),
               !isImportingSharedCaptures else { return }

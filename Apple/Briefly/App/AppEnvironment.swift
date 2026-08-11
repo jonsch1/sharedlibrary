@@ -5,8 +5,10 @@ struct AppEnvironment {
     private static let uiTestingArgument = "--ui-testing"
     private static let uiTestResetArgument = "--ui-test-reset"
     private static let uiTestScenarioArgument = "--ui-test-scenario"
+    private static let appReviewTestingArgument = "--app-review-testing"
 
     let isUITesting: Bool
+    let isAppReviewTesting: Bool
     let resetsUITestLibrary: Bool
     let uiTestScenario: String
 
@@ -20,6 +22,7 @@ struct AppEnvironment {
         }
         return Self(
             isUITesting: arguments.contains(uiTestingArgument),
+            isAppReviewTesting: arguments.contains(appReviewTestingArgument),
             resetsUITestLibrary: arguments.contains(uiTestResetArgument),
             uiTestScenario: scenario
         )
@@ -51,12 +54,28 @@ struct AppEnvironment {
 
         let database = try SQLiteLibrary(databaseURL: databaseURL)
         if try database.isEmpty() {
-            try seedUITestLibrary(database)
+            try seedSampleLibrary(database)
         }
         return databaseURL
     }
 
-    private func seedUITestLibrary(_ database: SQLiteLibrary) throws {
+    func prepareAppReviewLibrary() throws -> URL {
+        let directory = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "BrieflyAppReview", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let databaseURL = directory.appending(path: "library.sqlite3")
+        let database = try SQLiteLibrary(databaseURL: databaseURL)
+        if try database.isEmpty() {
+            try seedSampleLibrary(database)
+        }
+        return databaseURL
+    }
+
+    private func seedSampleLibrary(_ database: SQLiteLibrary) throws {
         let createdAt = Date(timeIntervalSince1970: 1_767_268_800)
         let channelSource = "https://fixture.example/feed"
         try database.replaceTopicDefinitions([
@@ -242,7 +261,7 @@ struct AppEnvironment {
         try database.saveChannelRecords([
             SQLiteChannelRecord(
                 source: channelSource,
-                title: "Fixture Engineering Feed",
+                title: "Briefly Sample Feed",
                 kind: .feed,
                 schedule: "manual",
                 lastCheckedAt: ISO8601DateFormatter().string(from: createdAt),

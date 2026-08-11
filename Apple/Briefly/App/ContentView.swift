@@ -118,7 +118,10 @@ struct ContentView: View {
                 SubscriptionScreen(
                     account: model.account,
                     dismissesWhenEntitled: false,
-                    previewPrice: showsSubscriptionPreview ? "$8.49" : nil,
+                    previewPrice: showsSubscriptionPreview ||
+                        model.session.environment.isAppReviewTesting
+                        ? "$8.49"
+                        : nil,
                     previewAuthenticated: showsSubscriptionPreview,
                     allowsDismissal: false
                 )
@@ -129,6 +132,7 @@ struct ContentView: View {
                 model.account.account = BrieflyAccountStatus(
                     authenticated: true,
                     entitled: false,
+                    reviewAccess: false,
                     email: nil,
                     accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")
                 )
@@ -350,6 +354,7 @@ struct ContentView: View {
 
     private var needsOnboarding: Bool {
         !model.session.environment.isUITesting &&
+            !model.session.environment.isAppReviewTesting &&
             !showsSubscriptionPreview &&
             completedOnboardingVersion < BrieflyOnboarding.currentVersion
     }

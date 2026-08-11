@@ -45,11 +45,22 @@ https://www.readbriefly.fyi/api/billing/apple/notifications
 Pricing and cancellation are presented and managed by the App Store. The website
 does not display a checkout or manage the customer's Apple account.
 
+## App Review access
+
+The native subscription screen exposes a documented App Review credential form.
+`APP_REVIEW_USERNAME` identifies the review-only account and
+`APP_REVIEW_CREDENTIAL_HASH` stores the SHA-256 digest of the normalized username,
+a null byte, and the password. A successful review login receives an ordinary
+server session with complimentary Plus access; no StoreKit transaction is forged.
+Keep the plaintext password only in App Store Connect and rotate the hash after
+review when practical.
+
 ## Other deployment configuration
 
 - `FIRECRAWL_API_KEY` enables authenticated extraction fallback.
 - `OPENROUTER_API_KEY` enables hosted Briefly AI processing.
 - `PAID_PROCESSING_ENABLED=false` stops new hosted processing during an incident.
+- `APP_REVIEW_CREDENTIAL_HASH` enables the review-only credential boundary.
 - `PUBLIC_POSTHOG_PROJECT_TOKEN` optionally enables consent-only analytics.
 - D1 must be bound as `DB`; static assets must be bound as `ASSETS`.
 

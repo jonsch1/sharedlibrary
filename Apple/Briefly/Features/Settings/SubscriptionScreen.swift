@@ -13,6 +13,7 @@ struct SubscriptionScreen: View {
     var allowsDismissal = true
 
     @State private var appleSignInNonce = ""
+    @State private var showingAppReviewAccess = false
 
     private let privacyURL = URL(string: "https://www.readbriefly.fyi/privacy")!
     private let termsURL = URL(string: "https://www.readbriefly.fyi/terms")!
@@ -55,6 +56,9 @@ struct SubscriptionScreen: View {
         }
         .onChange(of: account.account.entitled) { _, entitled in
             if dismissesWhenEntitled, entitled == true { dismiss() }
+        }
+        .sheet(isPresented: $showingAppReviewAccess) {
+            AppReviewAccessSheet(account: account)
         }
     }
 
@@ -148,10 +152,20 @@ struct SubscriptionScreen: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            } else {
+            } else if account.isLoadingSubscription {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel("Loading App Store price")
+            } else {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("Price unavailable")
+                        .font(.caption.weight(.semibold))
+                    Button("Try again") {
+                        Task { await account.loadSubscription() }
+                    }
+                    .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
         }
         .padding(18)
@@ -238,6 +252,16 @@ struct SubscriptionScreen: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+
+                Button {
+                    showingAppReviewAccess = true
+                } label: {
+                    Text("App Review access")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .buttonStyle(.plain)
+                .controlSize(.small)
             }
         }
         .padding(.horizontal, 24)
@@ -245,13 +269,19 @@ struct SubscriptionScreen: View {
         .padding(.bottom, 10)
         .frame(maxWidth: 590)
         .frame(maxWidth: .infinity)
+        #if os(macOS)
+        .background(Color.clear)
+        #else
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) { Divider().opacity(0.45) }
+        #endif
     }
 
     private var purchaseButtonTitle: String {
         guard let displayedPrice else {
-            return "Loading subscription…"
+            return account.isLoadingSubscription
+                ? "Loading subscription…"
+                : "Subscription unavailable"
         }
         return "Subscribe for \(displayedPrice) / month"
     }
@@ -262,6 +292,74 @@ struct SubscriptionScreen: View {
 
     private var isAuthenticated: Bool {
         account.account.authenticated || previewAuthenticated
+    }
+}
+
+private struct AppReviewAccessSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var account: LibraryAccountModel
+
+    @State private var username = ""
+    @State private var password = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Username", text: $username)
+                        .textContentType(.username)
+                        .autocorrectionDisabled()
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                } header: {
+                    Text("Reviewer credentials")
+                } footer: {
+                    Text(
+                        "This access is reserved for App Review and does not change " +
+                            "the Apple Account on this device."
+                    )
+                }
+
+                Section {
+                    Button {
+                        Task {
+                            await account.signInForAppReview(
+                                username: username,
+                                password: password
+                            )
+                            if account.account.entitled == true { dismiss() }
+                        }
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if account.isSigningInForReview {
+                                ProgressView()
+                            } else {
+                                Text("Continue")
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(
+                        username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                            password.isEmpty ||
+                            account.isSigningInForReview
+                    )
+                }
+            }
+            .navigationTitle("App Review Access")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: dismiss.callAsFunction)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 300)
+        #endif
     }
 }
 

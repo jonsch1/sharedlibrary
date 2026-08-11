@@ -9,11 +9,14 @@ struct ChannelConfiguration: View {
     @State private var channelTitle = ""
     @State private var reviewWindow = defaultChannelReviewLimit
     @State private var confirmsRemoval = false
+    @FocusState private var sourceFieldFocused: Bool
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
+                #if !os(macOS)
                 channelPicker
+                #endif
 
                 if model.navigation.selectedChannelSource == "new" {
                     channelCreation
@@ -143,10 +146,18 @@ struct ChannelConfiguration: View {
                             )
                     }
                 }
-                .frame(maxWidth: 680, alignment: .leading)
+                .frame(maxWidth: 560, alignment: .leading)
                 .padding(24)
-                .background(.ultraThinMaterial.opacity(0.64))
-                .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .background(
+                    .thinMaterial,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.primary.opacity(0.10))
+                }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 36)
                 .frame(maxWidth: .infinity, alignment: .top)
                 #else
                 ConfigurationCard(
@@ -245,15 +256,23 @@ struct ChannelConfiguration: View {
                 }
                 .buttonStyle(.plain)
                 Text("Manage Channels")
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                 Spacer()
+                Picker("Channel", selection: channelSelection) {
+                    Text("Add a channel").tag("new")
+                    ForEach(model.channels.channels) { channel in
+                        Text(channel.title).tag(channel.source)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 210, alignment: .trailing)
             }
-            .padding(.horizontal, 14)
-            .frame(height: 56)
-            .frame(maxWidth: 680)
+            .padding(.horizontal, 18)
+            .frame(height: 60)
+            .frame(maxWidth: .infinity)
             .background(.regularMaterial)
-            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .overlay(alignment: .bottom) { Divider() }
         }
         #endif
         .task(id: model.navigation.selectedChannelSource) {
@@ -269,6 +288,7 @@ struct ChannelConfiguration: View {
                 : selectedChannel?.sources ?? []
             model.channels.channelBrowserAddress = ""
             model.channels.channelBrowserStagesSource = model.navigation.selectedChannelSource == "new"
+            sourceFieldFocused = model.navigation.selectedChannelSource == "new"
         }
         .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
             Button("Remove channel and pending candidates", role: .destructive) {
@@ -321,29 +341,48 @@ struct ChannelConfiguration: View {
     }
 
     private var channelCreation: some View {
+        #if os(macOS)
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("CHANNEL")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(1.2)
-                Text("Add channel")
-                    .font(.system(size: 32, weight: .bold))
-                Text("Add websites, blogs, podcasts, profiles, or pages to this channel.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 16) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 48, height: 48)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Create a channel")
+                        .font(.system(size: 26, weight: .bold))
+                    Text("Collect updates from the sites and people you follow in one place.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .padding(24)
 
-            Divider().padding(.vertical, 26)
-
-            channelSourceEditor(listTitle: "Added sources", allowsOpening: false)
-
-            Spacer(minLength: 38)
             Divider()
-            HStack {
-                Text("\(model.channels.newChannelSources.count) " +
-                     (model.channels.newChannelSources.count == 1 ? "source" : "sources") + " added")
+
+            VStack(alignment: .leading, spacing: 16) {
+                channelSourceEditor(listTitle: "Added sources", allowsOpening: false)
+
+                if model.channels.newChannelSources.isEmpty {
+                    Label(
+                        "Start with a website, newsletter, podcast, profile, or any public page.",
+                        systemImage: "sparkles"
+                    )
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                }
+            }
+            .padding(24)
+
+            Divider()
+
+            HStack(spacing: 12) {
+                Text(stagedSourceCountLabel)
+                    .font(.callout)
+                    .foregroundStyle(model.channels.newChannelSources.isEmpty ? .secondary : .primary)
                 Spacer()
                 Button("Cancel") {
                     model.channels.newChannelSources = []
@@ -357,16 +396,51 @@ struct ChannelConfiguration: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(model.channels.newChannelSources.isEmpty)
+                .accessibilityIdentifier("channels.create")
             }
-            .padding(.top, 22)
+            .padding(20)
         }
-        .frame(maxWidth: 920, minHeight: 620, alignment: .topLeading)
-        .padding(28)
-        #if os(macOS)
-        .background(.ultraThinMaterial.opacity(0.58))
-        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-        #endif
+        .frame(maxWidth: 560, alignment: .topLeading)
+        .background(
+            .thinMaterial,
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.10))
+        }
+        .padding(.horizontal, 32)
+        .padding(.vertical, 36)
         .frame(maxWidth: .infinity, alignment: .top)
+        #else
+        ConfigurationCard(
+            eyebrow: "CHANNEL",
+            title: "Add channel",
+            description: "Add websites, blogs, podcasts, profiles, or pages to this channel."
+        ) {
+            channelSourceEditor(listTitle: "Added sources", allowsOpening: false)
+            HStack {
+                Text(stagedSourceCountLabel)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Cancel") {
+                    model.channels.newChannelSources = []
+                    model.workflows.navigateBack()
+                }
+                Button("Create channel") {
+                    Task { await model.workflows.createChannel() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.channels.newChannelSources.isEmpty)
+                .accessibilityIdentifier("channels.create")
+            }
+        }
+        #endif
+    }
+
+    private var stagedSourceCountLabel: String {
+        let count = model.channels.newChannelSources.count
+        return count == 1 ? "1 source added" : "\(count) sources added"
     }
 
     private func addSource() {
@@ -382,72 +456,97 @@ struct ChannelConfiguration: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sources")
                 .font(.headline)
-            HStack(spacing: 12) {
-                Image(systemName: "link")
-                    .foregroundStyle(.secondary)
-                TextField("Paste a domain or URL", text: $source)
-                    .textFieldStyle(.plain)
-                    .autocorrectionDisabled()
-                    .onSubmit(addSource)
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 48)
-            .background(.primary.opacity(0.025))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(.primary.opacity(0.16), lineWidth: 1)
-            }
-            Text("Add by domain or URL, or choose a page in the browser.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                    TextField("Paste a domain or URL", text: $source)
+                        .textFieldStyle(.plain)
+                        .autocorrectionDisabled()
+                        .focused($sourceFieldFocused)
+                        .onSubmit(addSource)
+                        .accessibilityIdentifier("channels.source")
 
-            HStack(spacing: 12) {
-                Spacer()
+                    Button(action: addSource) {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("channels.source.add")
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 58)
+
+                Divider()
+                    .padding(.leading, 48)
+
                 Button {
                     model.channels.channelBrowserAddress = ""
                     model.channels.channelBrowserStagesSource = true
                     showsChannelBrowser = true
                 } label: {
-                    Label("Open signed-in browser", systemImage: "globe")
+                    HStack(spacing: 12) {
+                        Image(systemName: "globe")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(width: 28, height: 28)
+                            .background(Color.accentColor.opacity(0.10), in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Choose from browser")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Text("Pick a page from a site where you're signed in")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 58)
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-
-                Button(action: addSource) {
-                    Label("Add source", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("channels.browser")
             }
-            .padding(.top, 4)
+            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(.primary.opacity(0.12), lineWidth: 1)
+            }
         }
 
         if !model.channels.newChannelSources.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(listTitle)
-                    .font(.headline)
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 250), spacing: 12)],
-                    alignment: .leading,
-                    spacing: 12
-                ) {
-                    ForEach(model.channels.newChannelSources, id: \.self) { source in
-                        ChannelSourceCard(
-                            source: source,
-                            openInBrowser: allowsOpening ? {
-                                model.channels.channelBrowserAddress = source
-                                model.channels.channelBrowserStagesSource = false
-                                showsChannelBrowser = true
-                            } : nil,
-                            remove: {
-                                model.channels.removeStagedChannelSource(source)
-                            }
-                        )
-                    }
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(listTitle)
+                        .font(.headline)
+                    Spacer()
+                    Text(model.channels.newChannelSources.count.formatted())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.primary.opacity(0.07), in: Capsule())
+                }
+                ForEach(model.channels.newChannelSources, id: \.self) { source in
+                    ChannelSourceCard(
+                        source: source,
+                        openInBrowser: allowsOpening ? {
+                            model.channels.channelBrowserAddress = source
+                            model.channels.channelBrowserStagesSource = false
+                            showsChannelBrowser = true
+                        } : nil,
+                        remove: {
+                            model.channels.removeStagedChannelSource(source)
+                        }
+                    )
                 }
             }
-            .padding(.top, 38)
+            .padding(.top, 24)
         }
     }
 

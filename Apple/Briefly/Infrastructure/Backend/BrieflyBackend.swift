@@ -6,6 +6,15 @@ final class BrieflyBackend {
     static let shared = BrieflyBackend()
     static let origin = URL(string: "https://www.readbriefly.fyi")!
 
+    private let urlSession: URLSession
+
+    private init() {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        urlSession = URLSession(configuration: configuration)
+    }
+
     func accountStatus() async throws -> BrieflyAccountStatus {
         let (data, response) = try await request("api/auth/status")
         guard response.statusCode == 200 else { return .signedOut }
@@ -13,8 +22,9 @@ final class BrieflyBackend {
     }
 
     func signOut() async throws {
-        let (_, response) = try await request("api/auth/logout", method: "POST")
-        try requireSuccess(response, data: nil, fallback: "Could not sign out.")
+        let (data, response) = try await request("api/auth/logout", method: "POST")
+        try requireSuccess(response, data: data, fallback: "Could not sign out.")
+        await storeCookies(from: response)
     }
 
     func deleteAccount() async throws {
@@ -50,6 +60,30 @@ final class BrieflyBackend {
             body: body
         )
         try requireSuccess(response, data: data, fallback: "Could not sign in with Apple.")
+        await storeCookies(from: response)
+        return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
+    }
+
+    func signInForAppReview(username: String, password: String) async throws
+        -> BrieflyAccountStatus
+    {
+        struct Payload: Encodable {
+            let username: String
+            let password: String
+        }
+        let body = try JSONEncoder().encode(
+            Payload(username: username, password: password)
+        )
+        let (data, response) = try await request(
+            "api/auth/review",
+            method: "POST",
+            body: body
+        )
+        try requireSuccess(
+            response,
+            data: data,
+            fallback: "Could not sign in for App Review."
+        )
         await storeCookies(from: response)
         return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
     }
@@ -269,7 +303,7 @@ final class BrieflyBackend {
         for (field, value) in HTTPCookie.requestHeaderFields(with: cookies) {
             request.setValue(value, forHTTPHeaderField: field)
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw BrieflyBackendError.message("Briefly returned an invalid response.")
         }

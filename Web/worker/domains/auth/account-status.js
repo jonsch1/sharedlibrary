@@ -6,6 +6,7 @@ import {
 	hasComplimentaryPlusAccess,
 	isAdministrator
 } from './entitlements.js';
+import { isAppReviewAccount } from './review-access.js';
 
 async function accountPayload(env, email) {
 	const account = await ensureAccount(env, email);
@@ -15,6 +16,7 @@ async function accountPayload(env, email) {
 		email,
 		accountID: account.account_id,
 		isAdmin: isAdministrator(email),
+		reviewAccess: isAppReviewAccount(env, email),
 		entitled: Boolean(subscription) || (await hasComplimentaryPlusAccess(env, email)),
 		subscription: subscription
 			? { productID: subscription.product_id, expiresAt: subscription.expires_at }

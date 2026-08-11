@@ -103,7 +103,7 @@
 		C10000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* main.swift */; };
 		C10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000001 /* BrieflyCore */; };
 		C10000000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* MCP */; };
-		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilter = macos; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -674,6 +674,9 @@
 							com.apple.iCloud = {
 								enabled = 1;
 							};
+							com.apple.InAppPurchase = {
+								enabled = 1;
+							};
 							com.apple.Push = {
 								enabled = 1;
 							};
@@ -883,7 +886,9 @@
 		};
 		C80000000000000000000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			platformFilter = macos;
+			platformFilters = (
+				macos,
+			);
 			target = C70000000000000000000001 /* BrieflyMCP */;
 			targetProxy = C20000000000000000000001 /* PBXContainerItemProxy */;
 		};
@@ -987,7 +992,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = Briefly/Briefly.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Briefly/Briefly-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -1025,7 +1030,7 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = Briefly/Briefly.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "Briefly/Briefly-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -1057,7 +1062,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1078,7 +1083,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1101,7 +1106,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BrieflyShareExtension/BrieflyShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1130,7 +1135,7 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = BrieflyShareExtension/BrieflyShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = NO;

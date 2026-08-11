@@ -38,6 +38,69 @@ test('public requests cannot impersonate accounts or reach removed private-libra
 	assert.equal(library.status, 404);
 });
 
+test('App Review credentials grant revocable Plus access without a StoreKit transaction', async () => {
+	const username = 'app-review@readbriefly.fyi';
+	const password = 'correct horse battery staple';
+	const env = await appReviewEnvironment(username, password);
+
+	const crossOrigin = await worker.fetch(
+		new Request('https://library.example/api/auth/review', {
+			method: 'POST',
+			headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password })
+		}),
+		env
+	);
+	assert.equal(crossOrigin.status, 403);
+
+	const invalid = await worker.fetch(
+		new Request('https://library.example/api/auth/review', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password: 'wrong' })
+		}),
+		env
+	);
+	assert.equal(invalid.status, 401);
+	assert.equal(invalid.headers.get('set-cookie'), null);
+
+	const login = await worker.fetch(
+		new Request('https://library.example/api/auth/review', {
+			method: 'POST',
+			headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+			body: JSON.stringify({ username, password })
+		}),
+		env
+	);
+	assert.equal(login.status, 200);
+	assert.match(login.headers.get('set-cookie'), /^shared_library_session=/);
+	assert.deepEqual(await login.json(), {
+		authenticated: true,
+		entitled: true,
+		reviewAccess: true,
+		email: username,
+		accountID: '15b360f5-6a58-4a77-890d-ae7b322f0b1f',
+		isAdmin: false,
+		subscription: null
+	});
+
+	const status = await worker.fetch(authenticatedRequest('/api/auth/status'), env);
+	const statusPayload = await status.json();
+	assert.equal(statusPayload.entitled, true);
+	assert.equal(statusPayload.reviewAccess, true);
+
+	const deletion = await worker.fetch(
+		authenticatedRequest('/api/auth/account', {
+			method: 'DELETE',
+			headers: { Origin: 'https://library.example' }
+		}),
+		env
+	);
+	assert.equal(deletion.status, 200);
+	assert.equal((await deletion.json()).deleted, true);
+	assert.match(deletion.headers.get('set-cookie'), /Max-Age=0/);
+});
+
 test('account deletion revokes Apple authorization and removes deletable account data', async () => {
 	const denied = await worker.fetch(
 		new Request('https://library.example/api/auth/account', {
@@ -297,6 +360,48 @@ function environment(email = null) {
 	return {
 		DB: database(email),
 		ASSETS: { fetch: async () => new Response('asset') }
+	};
+}
+
+async function appReviewEnvironment(username, password) {
+	const encoded = new TextEncoder().encode(`${username}\0${password}`);
+	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoded));
+	const credentialHash = [...digest]
+		.map((byte) => byte.toString(16).padStart(2, '0'))
+		.join('');
+	const accountID = '15b360f5-6a58-4a77-890d-ae7b322f0b1f';
+	return {
+		APP_REVIEW_USERNAME: username,
+		APP_REVIEW_CREDENTIAL_HASH: credentialHash,
+		ASSETS: { fetch: async () => new Response('asset') },
+		DB: {
+			prepare(sql) {
+				const statement = {
+					bind() {
+						return statement;
+					},
+					async first() {
+						if (sql.includes('FROM app_sessions')) {
+							return { user_email: username, expires_at: Date.now() + 60_000 };
+						}
+						if (sql.includes('FROM accounts')) {
+							return { account_id: accountID, user_email: username };
+						}
+						return null;
+					},
+					async all() {
+						return { results: [] };
+					},
+					async run() {
+						return { success: true, meta: { changes: 1 } };
+					}
+				};
+				return statement;
+			},
+			async batch(statements) {
+				return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+			}
+		}
 	};
 }
 

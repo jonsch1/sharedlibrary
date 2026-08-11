@@ -1,6 +1,7 @@
 import { json, sessionCookie } from '../../infrastructure/http-security.js';
 import { accountRecord } from './account-operations.js';
 import { revokeAppleAuthorizationForEmail } from './apple.js';
+import { isAppReviewAccount } from './review-access.js';
 import { authenticatedMutation } from './session.js';
 
 async function deleteAccount(request, env) {
@@ -10,7 +11,10 @@ async function deleteAccount(request, env) {
 	const account = await accountRecord(env, email);
 
 	try {
-		if (!(await revokeAppleAuthorizationForEmail(env, email))) {
+		if (
+			!isAppReviewAccount(env, email) &&
+			!(await revokeAppleAuthorizationForEmail(env, email))
+		) {
 			return json(
 				{ error: 'Sign out and sign in again before deleting your Briefly account.' },
 				{ status: 409 }

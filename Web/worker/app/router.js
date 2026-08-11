@@ -2,6 +2,7 @@ import { accountStatus } from '../domains/auth/account-status.js';
 import { startAppleLogin } from '../domains/auth/apple.js';
 import { finishAppleLogin as finishAppleLoginHandler } from '../domains/auth/apple.js';
 import { finishNativeAppleLogin as finishNativeAppleLoginHandler } from '../domains/auth/apple.js';
+import { signInForAppReview } from '../domains/auth/review-access.js';
 import { signOut } from '../domains/auth/session.js';
 import { deleteAccount } from '../domains/auth/deletion.js';
 import { paidAccessResponse } from '../domains/auth/entitlements.js';
@@ -47,6 +48,9 @@ const routeWorker = {
 		}
 		if (url.pathname === '/api/auth/apple/native' && request.method === 'POST') {
 			return finishNativeAppleLoginHandler(request, env);
+		}
+		if (url.pathname === '/api/auth/review' && request.method === 'POST') {
+			return signInForAppReview(request, env);
 		}
 		if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
 			return signOut(request, env);

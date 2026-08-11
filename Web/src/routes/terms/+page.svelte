@@ -37,8 +37,8 @@
 			synchronize through iCloud, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li><strong>Briefly membership</strong> is a recurring subscription for hosted processing, cross-device synchronization, and public share links in the native apps.</li>
-			<li>An account and active membership are required to access hosted features.</li>
+			<li><strong>Briefly membership</strong> is a recurring subscription that unlocks the native apps, hosted processing, cross-device synchronization, and public share links.</li>
+			<li>A Briefly account created with Sign in with Apple and an active membership are required to proceed past onboarding and use the native apps.</li>
 			<li>Briefly AI provides summary and voice-brief-script generation via OpenRouter under a zero-data-retention agreement. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
 			<li>Features may require a supported Apple operating system, internet connection, Apple account, or third-party service.</li>
 			<li>App builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
@@ -144,7 +144,7 @@
 			<li>Your launch-tier monthly price remains fixed while that subscription stays continuously active. If it ends and you later resubscribe, the then-current available price applies.</li>
 			<li>Your purchase and payment method are administered by Apple under the applicable App Store terms.</li>
 			<li>You can cancel in your Apple subscription settings. Unless mandatory law or Apple states otherwise, cancellation takes effect at the end of the paid billing period.</li>
-			<li>If renewal fails or Apple revokes or refunds a purchase, hosted membership access may end. Your local and iCloud files remain yours.</li>
+			<li>If renewal fails or Apple revokes or refunds a purchase, access to the native apps may pause. Your local and iCloud files remain yours and are not deleted; restore or renew the membership to continue.</li>
 			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
 		</ul>
 		<h3>Fair-use limits</h3>
