@@ -1,7 +1,7 @@
 import Foundation
 import BrieflyCore
 
-struct BrieflyAccountStatus: Decodable, Equatable {
+struct BrieflyAccountStatus: Codable, Equatable {
     let authenticated: Bool
     let entitled: Bool?
     let reviewAccess: Bool?

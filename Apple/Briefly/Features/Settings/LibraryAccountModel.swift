@@ -9,7 +9,7 @@ final class LibraryAccountModel {
     static let subscriptionProductID = "fyi.readbriefly.plus.monthly"
 
     let session: LibrarySession
-    var account = BrieflyAccountStatus.signedOut
+    var account: BrieflyAccountStatus
     var subscriptionProduct: Product?
     var isLoadingSubscription = false
     var subscriptionLoadMessage: String?
@@ -20,6 +20,7 @@ final class LibraryAccountModel {
 
     init(session: LibrarySession) {
         self.session = session
+        account = BrieflyAccountCache.load() ?? .signedOut
     }
 
     func refreshAccount(reportErrors: Bool = false) async {
@@ -27,9 +28,8 @@ final class LibraryAccountModel {
         isCheckingAccount = true
         defer { isCheckingAccount = false }
         do {
-            account = try await session.backend.accountStatus()
+            updateAccount(try await session.backend.accountStatus())
         } catch {
-            account = .signedOut
             if reportErrors { session.errorMessage = error.localizedDescription }
         }
     }
@@ -37,7 +37,7 @@ final class LibraryAccountModel {
     func signOut() async {
         do {
             try await session.backend.signOut()
-            account = .signedOut
+            updateAccount(.signedOut)
             session.status = "Signed out of Briefly"
         } catch {
             session.errorMessage = error.localizedDescription
@@ -50,7 +50,7 @@ final class LibraryAccountModel {
         defer { isDeletingAccount = false }
         do {
             try await session.backend.deleteAccount()
-            account = .signedOut
+            updateAccount(.signedOut)
             session.status = "Briefly account deleted"
         } catch {
             session.errorMessage = error.localizedDescription
@@ -72,11 +72,11 @@ final class LibraryAccountModel {
                 if case .failure(let error) = result { throw error }
                 throw BrieflyBackendError.message("Apple sign-in did not return a credential.")
             }
-            account = try await session.backend.signInWithApple(
+            updateAccount(try await session.backend.signInWithApple(
                 identityToken: identityToken,
                 authorizationCode: authorizationCode,
                 nonce: nonce
-            )
+            ))
             session.status = "Signed in with Apple"
             await syncStoreEntitlements()
         } catch {
@@ -110,10 +110,10 @@ final class LibraryAccountModel {
         isSigningInForReview = true
         defer { isSigningInForReview = false }
         do {
-            account = try await session.backend.signInForAppReview(
+            updateAccount(try await session.backend.signInForAppReview(
                 username: username.trimmingCharacters(in: .whitespacesAndNewlines),
                 password: password
-            )
+            ))
             session.status = "Signed in for App Review"
         } catch {
             session.errorMessage = error.localizedDescription
@@ -131,7 +131,9 @@ final class LibraryAccountModel {
         do {
             switch try await product.purchase(options: [.appAccountToken(accountID)]) {
             case .success(.verified(let transaction)):
-                account = try await session.backend.syncAppStoreTransaction(String(transaction.id))
+                updateAccount(
+                    try await session.backend.syncAppStoreTransaction(String(transaction.id))
+                )
                 await transaction.finish()
                 session.status = "Briefly membership activated"
             case .success(.unverified):
@@ -171,12 +173,51 @@ final class LibraryAccountModel {
                     case .verified(let transaction) = result,
                     transaction.productID == Self.subscriptionProductID
                 else { continue }
-                account = try await session.backend.syncAppStoreTransaction(String(transaction.id))
+                updateAccount(
+                    try await session.backend.syncAppStoreTransaction(String(transaction.id))
+                )
                 await transaction.finish()
             }
             if account.entitled != true { await refreshAccount() }
         } catch {
             session.errorMessage = error.localizedDescription
         }
+    }
+
+    private func updateAccount(_ value: BrieflyAccountStatus) {
+        account = value
+        BrieflyAccountCache.save(value)
+    }
+}
+
+private enum BrieflyAccountCache {
+    private struct Entry: Codable {
+        let account: BrieflyAccountStatus
+        let checkedAt: Date
+    }
+
+    private static let key = "BrieflyVerifiedAccount"
+    private static let maximumAge: TimeInterval = 24 * 60 * 60
+
+    static func load(now: Date = .now) -> BrieflyAccountStatus? {
+        guard
+            let data = UserDefaults.standard.data(forKey: key),
+            let entry = try? JSONDecoder().decode(Entry.self, from: data),
+            entry.account.authenticated,
+            now.timeIntervalSince(entry.checkedAt) <= maximumAge
+        else {
+            return nil
+        }
+        return entry.account
+    }
+
+    static func save(_ account: BrieflyAccountStatus, now: Date = .now) {
+        guard account.authenticated else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        let entry = Entry(account: account, checkedAt: now)
+        guard let data = try? JSONEncoder().encode(entry) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 }

@@ -1,10 +1,12 @@
 import Foundation
 import BrieflyCore
+import Security
 
 @MainActor
 final class BrieflyBackend {
     static let shared = BrieflyBackend()
     static let origin = URL(string: "https://www.readbriefly.fyi")!
+    private static let sessionCookieName = "shared_library_session"
 
     private let urlSession: URLSession
 
@@ -17,20 +19,30 @@ final class BrieflyBackend {
 
     func accountStatus() async throws -> BrieflyAccountStatus {
         let (data, response) = try await request("api/auth/status")
-        guard response.statusCode == 200 else { return .signedOut }
-        return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
+        if response.statusCode == 401 {
+            await clearSession()
+            return .signedOut
+        }
+        try requireSuccess(
+            response,
+            data: data,
+            fallback: "Could not check the Briefly account."
+        )
+        let account = try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
+        if !account.authenticated { await clearSession() }
+        return account
     }
 
     func signOut() async throws {
         let (data, response) = try await request("api/auth/logout", method: "POST")
         try requireSuccess(response, data: data, fallback: "Could not sign out.")
-        await storeCookies(from: response)
+        await clearSession()
     }
 
     func deleteAccount() async throws {
         let (data, response) = try await request("api/auth/account", method: "DELETE")
         try requireSuccess(response, data: data, fallback: "Could not delete the account.")
-        await storeCookies(from: response)
+        await clearSession()
     }
 
     func signInWithApple(
@@ -316,6 +328,9 @@ final class BrieflyBackend {
             $0[key] = value
         }
         for cookie in HTTPCookie.cookies(withResponseHeaderFields: fields, for: Self.origin) {
+            if cookie.name == Self.sessionCookieName, !cookie.value.isEmpty {
+                BrieflySessionTokenStore.save(cookie.value)
+            }
             await withCheckedContinuation { continuation in
                 ChannelBrowserSession.shared.dataStore.httpCookieStore.setCookie(cookie) {
                     continuation.resume()
@@ -332,11 +347,46 @@ final class BrieflyBackend {
             }
         }
         guard let host = url.host?.lowercased() else { return [] }
-        return cookies.filter {
+        var matching = cookies.filter {
             let domain = $0.domain
                 .trimmingCharacters(in: CharacterSet(charactersIn: "."))
                 .lowercased()
             return host == domain || host.hasSuffix(".\(domain)")
+        }
+        if let token = BrieflySessionTokenStore.load() {
+            matching.removeAll { $0.name == Self.sessionCookieName }
+            if let cookie = HTTPCookie(properties: [
+                .name: Self.sessionCookieName,
+                .value: token,
+                .domain: host,
+                .path: "/",
+                .secure: "TRUE"
+            ]) {
+                matching.append(cookie)
+            }
+        } else if let cookie = matching.first(where: {
+            $0.name == Self.sessionCookieName && !$0.value.isEmpty
+        }) {
+            // Adopt sessions created by earlier builds before Keychain persistence existed.
+            BrieflySessionTokenStore.save(cookie.value)
+        }
+        return matching
+    }
+
+    private func clearSession() async {
+        BrieflySessionTokenStore.remove()
+        let cookies = await withCheckedContinuation {
+            (continuation: CheckedContinuation<[HTTPCookie], Never>) in
+            ChannelBrowserSession.shared.dataStore.httpCookieStore.getAllCookies {
+                continuation.resume(returning: $0)
+            }
+        }
+        for cookie in cookies where cookie.name == Self.sessionCookieName {
+            await withCheckedContinuation { continuation in
+                ChannelBrowserSession.shared.dataStore.httpCookieStore.delete(cookie) {
+                    continuation.resume()
+                }
+            }
         }
     }
 
@@ -356,6 +406,54 @@ final class BrieflyBackend {
                     fallback
             )
         }
+    }
+}
+
+private enum BrieflySessionTokenStore {
+    private static let service = "fyi.readbriefly.BrieflyNative.session"
+    private static let account = "shared_library_session"
+
+    static func load() -> String? {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard
+            SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+            let data = result as? Data,
+            let token = String(data: data, encoding: .utf8),
+            !token.isEmpty
+        else {
+            return nil
+        }
+        return token
+    }
+
+    static func save(_ token: String) {
+        guard !token.isEmpty else {
+            remove()
+            return
+        }
+        let data = Data(token.utf8)
+        let updates: [String: Any] = [kSecValueData as String: data]
+        let status = SecItemUpdate(baseQuery as CFDictionary, updates as CFDictionary)
+        guard status == errSecItemNotFound else { return }
+        var item = baseQuery
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(item as CFDictionary, nil)
+    }
+
+    static func remove() {
+        SecItemDelete(baseQuery as CFDictionary)
+    }
+
+    private static var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
     }
 }
 
