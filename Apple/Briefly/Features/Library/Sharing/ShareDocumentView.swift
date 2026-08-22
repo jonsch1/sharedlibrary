@@ -55,9 +55,9 @@ struct ShareDocumentView: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.ultraThinMaterial.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .clipShape(Rectangle())
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Rectangle()
                         .stroke(Color.primary.opacity(0.10))
                 }
 
@@ -72,7 +72,7 @@ struct ShareDocumentView: View {
                         .textSelection(.enabled)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.primary.opacity(0.055), in: Rectangle())
                     HStack {
                         Button("Copy link", systemImage: "doc.on.doc") {
                             copyShareURL(url)
@@ -106,7 +106,7 @@ struct ShareDocumentView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
+                    .buttonBorderShape(.roundedRectangle(radius: 0))
                     .disabled(isBusy)
 
                     Label(

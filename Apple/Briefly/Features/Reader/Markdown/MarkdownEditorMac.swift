@@ -235,7 +235,7 @@ private final class MarkdownTextView: NSTextView {
             alpha: 1
         ).cgColor
         button.layer?.borderWidth = 1
-        button.layer?.cornerRadius = 9
+        button.layer?.cornerRadius = 0
         button.layer?.shadowColor = NSColor.black.cgColor
         button.layer?.shadowOpacity = 0.16
         button.layer?.shadowRadius = 5

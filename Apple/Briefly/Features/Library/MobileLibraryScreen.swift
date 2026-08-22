@@ -43,7 +43,7 @@ struct MobileXLibraryScreen: View {
                 ]
             )
             .mobileGlass(
-                in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+                in: Rectangle(),
                 interactive: false
             )
             .padding(.horizontal, 8)
@@ -59,7 +59,7 @@ struct MobileXLibraryScreen: View {
                         Text(item.rawValue)
                             .font(.subheadline.weight(.semibold))
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(section == item ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
+                            .background(section == item ? Color.primary : Color.primary.opacity(0.06), in: Rectangle())
                             .foregroundStyle(section == item ? Color(uiColor: .systemBackground) : Color.primary)
                     }
                     .buttonStyle(.plain)

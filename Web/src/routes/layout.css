@@ -72,7 +72,7 @@
 .public-share-panel {
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--foreground) 11%, transparent);
-  border-radius: 16px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--background) 84%, transparent);
   box-shadow: 0 7px 24px color-mix(in srgb, black 8%, transparent);
   backdrop-filter: blur(24px) saturate(1.08);
@@ -117,7 +117,7 @@
   align-items: center;
   gap: 11px;
   padding: 0 11px;
-  border-radius: 10px;
+  border-radius: 0;
   color: var(--muted-foreground);
   font-size: 14px;
   font-weight: 650;
@@ -143,7 +143,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 17px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--foreground);
   color: var(--background);
   font-size: 13px;
@@ -247,7 +247,7 @@
   gap: 10px;
   margin-top: 13px;
   padding: 0 13px;
-  border-radius: 10px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
   color: inherit;
   font-size: 12px;
@@ -266,7 +266,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 12px;
+  border-radius: 0;
   color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 650;
@@ -387,7 +387,7 @@
   gap: 12px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--foreground) 13%, transparent);
-  border-radius: 18px;
+  border-radius: 0;
   background: color-mix(in srgb, var(--background) 79%, transparent);
   box-shadow: 0 18px 60px color-mix(in srgb, black 18%, transparent);
   backdrop-filter: blur(28px) saturate(1.25);
@@ -399,7 +399,7 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 12px;
+  border-radius: 0;
 }
 
 .public-share-play {
@@ -458,7 +458,7 @@
 .public-share-wave i {
   width: 2px;
   height: calc(5px + (var(--bar) * 1.5px));
-  border-radius: 999px;
+  border-radius: 0;
   background: currentColor;
 }
 
@@ -528,7 +528,7 @@
 
   .public-share-document {
     overflow: visible;
-    border-radius: 14px;
+    border-radius: 0;
   }
 
   .public-share-document-header {
@@ -559,7 +559,7 @@
     min-height: 62px;
     gap: 8px;
     padding: 6px 8px;
-    border-radius: 16px;
+    border-radius: 0;
   }
 
   .public-share-play {
@@ -589,6 +589,19 @@
   overflow-x: hidden;
   overflow-y: auto;
   background: var(--background);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .public-share-shell,
+  .public-share-shell .public-share-body {
+    cursor: default;
+  }
+
+  .public-share-shell input,
+  .public-share-shell textarea,
+  .public-share-shell [contenteditable="true"] {
+    cursor: text;
+  }
 }
 
 .public-share-shell > .public-share-cta {
@@ -639,16 +652,16 @@
 
 .public-share-action-bar {
   width: auto;
-  min-height: 60px;
+  min-height: 66px;
   gap: 7px;
   padding: 7px 9px;
-  border-radius: 17px;
+  border-radius: 0;
 }
 
 .public-share-play {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+  width: 48px;
+  height: 48px;
+  border-radius: 0;
 }
 
 .public-share-depth-divider {
@@ -705,15 +718,15 @@
   .public-share-action-bar {
     bottom: max(10px, env(safe-area-inset-bottom));
     width: auto;
-    min-height: 56px;
+    min-height: 64px;
     gap: 5px;
     padding: 6px 8px;
-    border-radius: 16px;
+    border-radius: 0;
   }
 
   .public-share-play {
-    width: 44px;
-    height: 44px;
+    width: 48px;
+    height: 48px;
   }
 
   .public-share-action-bar .segmented-depth--compact {

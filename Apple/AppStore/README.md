@@ -62,8 +62,8 @@ separate submission after iOS is through review.
   `BUILD_NUMBER=<unique> ./scripts/testflight.sh archive`.
 - [x] Re-sign and export the archive locally with
   `BUILD_NUMBER=<same> ./scripts/testflight.sh export`.
-- [ ] Upload it with `BUILD_NUMBER=<same> ./scripts/testflight.sh upload`, then
-  wait for App Store Connect processing to complete.
+- [x] Upload build 5 with `BUILD_NUMBER=5 ./scripts/testflight.sh upload`; App
+  Store Connect accepted it and processing is in progress.
 - [ ] Add the processed build to an internal TestFlight group and complete an
   internal smoke test before inviting external testers.
 - [ ] Capture and upload at least one iPhone 6.9-inch screenshot and one iPad

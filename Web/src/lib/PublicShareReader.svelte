@@ -375,7 +375,7 @@
 		padding: 0;
 		overflow: auto;
 		border: 1px solid var(--border);
-		border-radius: 20px;
+		border-radius: 0;
 		background: var(--background);
 		color: var(--foreground);
 		box-shadow: 0 30px 100px color-mix(in srgb, var(--foreground) 28%, transparent);
@@ -429,7 +429,7 @@
 		box-sizing: border-box;
 		padding: 11px 12px;
 		border: 1px solid var(--border);
-		border-radius: 10px;
+		border-radius: 0;
 		background: var(--background);
 		color: inherit;
 		font: inherit;
@@ -470,7 +470,7 @@
 		min-height: 40px;
 		padding: 0 16px;
 		border: 0;
-		border-radius: 999px;
+		border-radius: 0;
 		background: var(--primary);
 		color: var(--primary-foreground);
 		font: inherit;

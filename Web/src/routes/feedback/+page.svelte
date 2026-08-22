@@ -246,7 +246,7 @@
 	.brand img {
 		width: 36px;
 		height: 36px;
-		border-radius: 9px;
+		border-radius: 0;
 	}
 
 	.feedback-shell {
@@ -285,7 +285,7 @@
 	.sign-in {
 		margin-top: 42px;
 		border: 1px solid rgb(29 29 25 / 17%);
-		border-radius: 20px;
+		border-radius: 0;
 		background: rgb(250 248 240 / 78%);
 		box-shadow: 0 18px 45px rgb(57 48 31 / 8%);
 	}
@@ -315,7 +315,7 @@
 		box-sizing: border-box;
 		width: 100%;
 		border: 1px solid rgb(29 29 25 / 22%);
-		border-radius: 11px;
+		border-radius: 0;
 		outline: none;
 		background: #fffdf7;
 		color: inherit;
@@ -345,7 +345,7 @@
 		margin-top: 20px;
 		padding: 11px 15px;
 		border: 0;
-		border-radius: 10px;
+		border-radius: 0;
 		background: #191917;
 		color: #fffdf7;
 		font: inherit;
@@ -417,7 +417,7 @@
 	.items {
 		overflow: hidden;
 		border: 1px solid rgb(29 29 25 / 17%);
-		border-radius: 18px;
+		border-radius: 0;
 		background: rgb(250 248 240 / 72%);
 	}
 
@@ -439,7 +439,7 @@
 		width: 50px;
 		padding: 7px 4px 8px;
 		border: 1px solid rgb(29 29 25 / 18%);
-		border-radius: 11px;
+		border-radius: 0;
 		background: #f4f1e7;
 		color: #5e5b54;
 		font: inherit;
@@ -479,7 +479,7 @@
 	.empty {
 		padding: 44px 22px;
 		border: 1px dashed rgb(29 29 25 / 22%);
-		border-radius: 18px;
+		border-radius: 0;
 		color: #747168;
 		text-align: center;
 	}

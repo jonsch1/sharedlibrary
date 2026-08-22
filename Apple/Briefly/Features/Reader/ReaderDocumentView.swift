@@ -9,6 +9,11 @@ struct LibraryDocument: View {
     @State private var isEditing = false
     @State private var showsSharing = false
 
+    private var availableVariants: [LibraryVariant] {
+        let variants = Set(entry.texts.map(\.variant))
+        return LibraryVariant.allCases.filter(variants.contains)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             #if os(macOS)
@@ -30,7 +35,8 @@ struct LibraryDocument: View {
             .background(.regularMaterial)
             #endif
 
-            ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                ZStack {
             if model.selection.isLoadingText {
                 XLoadingState(
                     title: "Loading post",
@@ -56,94 +62,20 @@ struct LibraryDocument: View {
                 .accessibilityIdentifier("reader.editor")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id("\(entry.id):\(model.selection.selectedVariant.rawValue)")
-            }
+                }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
 
-            HStack(alignment: .center, spacing: 0) {
-                if entry.texts.count > 1 {
-                    ReadingDepthStrip(model: model, entry: entry)
-                        .frame(height: 44)
+                HStack(alignment: .center, spacing: 0) {
+                ForEach(availableVariants, id: \.self) { variant in
+                    ReadingDepthButton(
+                        model: model,
+                        variant: variant
+                    )
                 }
 
-                #if os(iOS)
-                Spacer()
-                #else
-                if entry.texts.count > 1 {
-                    Divider()
-                        .frame(height: 20)
-                        .padding(.horizontal, 8)
-                }
-                #endif
-
-                HStack(spacing: 0) {
                     #if os(macOS)
-                        Button {
-                            Task {
-                                let variant = model.selection.selectedVariant
-                                let text = model.selection.selectedText
-                                let playbackID = model.audio.audioPlaybackID(
-                                    for: entry,
-                                    variant: variant,
-                                    text: text
-                                )
-                                do {
-                                    let shouldGenerate = try audioPlayer.startStream(
-                                        entryID: entry.id,
-                                        title: entry.title,
-                                        playbackID: playbackID,
-                                        positionID: "\(entry.id):\(variant.rawValue)"
-                                    )
-                                    if shouldGenerate {
-                                        var startedPlayback = false
-                                        _ = await model.workflows.streamPlayableAudio(
-                                            for: entry,
-                                            variant: variant,
-                                            text: text,
-                                        ) { url in
-                                            try audioPlayer.appendSegment(
-                                                url,
-                                                playbackID: playbackID
-                                            )
-                                            if !startedPlayback {
-                                                startedPlayback = true
-                                                audioEntry = entry
-                                            }
-                                        }
-                                        audioPlayer.finishStream(playbackID: playbackID)
-                                        if !startedPlayback { audioPlayer.stop() }
-                                    } else {
-                                        audioEntry = entry
-                                    }
-                                } catch {
-                                    model.session.errorMessage = error.localizedDescription
-                                    audioPlayer.stop()
-                                }
-                            }
-                        } label: {
-                            if model.audio.isGeneratingSpeech {
-                                ProgressView()
-                                    .tint(.primary)
-                                    .frame(
-                                        width: ReaderActionBarMetrics.buttonSize,
-                                        height: ReaderActionBarMetrics.buttonSize
-                                    )
-                            } else {
-                                Image(systemName: "play.fill")
-                                    .font(ReaderActionBarMetrics.iconFont)
-                                    .foregroundStyle(.primary)
-                                    .frame(
-                                        width: ReaderActionBarMetrics.buttonSize,
-                                        height: ReaderActionBarMetrics.buttonSize
-                                    )
-                                    .contentShape(Circle())
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Play audio")
-                        .help("Play audio")
-                        .disabled(
-                            model.audio.isGeneratingSpeech || model.selection.selectedText.isEmpty
-                        )
-
                     Menu {
                         if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                             Button {
@@ -179,45 +111,36 @@ struct LibraryDocument: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .font(ReaderActionBarMetrics.iconFont)
-                            .frame(
-                                width: ReaderActionBarMetrics.buttonSize,
-                                height: ReaderActionBarMetrics.buttonSize
-                            )
-                            .contentShape(Circle())
+                            .font(.system(size: 22, weight: .medium))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .contentShape(Rectangle())
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
-                    .fixedSize()
-                    .accessibilityLabel("Document actions")
+                    .frame(width: ReaderActionBarMetrics.moreSlot)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .accessibilityLabel("More")
                     #endif
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #if os(iOS)
                 .background(readerBackground)
-                .clipShape(
-                    .rect(
-                        topLeadingRadius: 14,
-                        bottomLeadingRadius: 0,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                )
+                .clipShape(Rectangle())
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(.primary.opacity(0.08))
                         .frame(height: 1)
                 }
                 #endif
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             #if os(iOS)
-            .padding(.horizontal, 18)
-            .padding(.bottom, 8)
+            .frame(height: 64)
+            #else
+            .frame(height: 52)
             #endif
             #if os(macOS)
-            .padding(4)
-            .actionBarGlass()
-            .padding(.horizontal, 10)
-            .padding(.bottom, 10)
+            .background(.regularMaterial)
             #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -279,10 +202,112 @@ struct LibraryDocument: View {
                     } label: {
                         Image(systemName: "ellipsis")
                     }
-                    .accessibilityLabel("Document settings")
+                    .accessibilityLabel("More")
                 }
         }
         #endif
     }
 
 }
+
+#if os(macOS)
+struct MacAudioPlayButton: View {
+    @Bindable var model: LibraryModel
+    let entry: LibraryEntry?
+    @Bindable var audioPlayer: NativeAudioPlayer
+    @Binding var audioEntry: LibraryEntry?
+
+    var body: some View {
+        Button(action: primaryAction) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor)
+
+                if model.audio.isGeneratingSpeech {
+                    ProgressView()
+                        .tint(.white)
+                } else if audioPlayer.isPlaying {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .symbolEffect(.variableColor.iterative, options: .repeating)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(width: 58, height: 58)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.20), radius: 10, y: 5)
+        .accessibilityLabel(audioPlayer.isPlaying ? "Open audio player" : "Play audio")
+        .help(audioPlayer.isPlaying ? "Open audio player" : "Play audio")
+        .disabled(model.audio.isGeneratingSpeech && currentEntry == nil || noPlayableText)
+    }
+
+    private var currentEntry: LibraryEntry? {
+        guard let id = audioPlayer.currentEntryID else { return nil }
+        return model.session.projection.entries.first { $0.id == id }
+            ?? (id == entry?.id ? entry : nil)
+    }
+
+    private var noPlayableText: Bool {
+        guard currentEntry == nil, let entry else { return false }
+        return model.selection.selectedID == entry.id
+            ? model.selection.selectedText.isEmpty && entry.excerpt.isEmpty
+            : (entry.text(for: model.selection.selectedVariant)?.text ?? entry.excerpt).isEmpty
+    }
+
+    private func primaryAction() {
+        if let currentEntry {
+            audioEntry = currentEntry
+            return
+        }
+
+        guard let entry else { return }
+        let variant = model.selection.selectedVariant
+        let text = model.selection.selectedID == entry.id && !model.selection.selectedText.isEmpty
+            ? model.selection.selectedText
+            : entry.text(for: variant)?.text ?? entry.excerpt
+        let playbackID = model.audio.audioPlaybackID(
+            for: entry,
+            variant: variant,
+            text: text
+        )
+
+        Task {
+            do {
+                let shouldGenerate = try audioPlayer.startStream(
+                    entryID: entry.id,
+                    title: entry.title,
+                    playbackID: playbackID,
+                    positionID: "\(entry.id):\(variant.rawValue)"
+                )
+                if shouldGenerate {
+                    var startedPlayback = false
+                    _ = await model.workflows.streamPlayableAudio(
+                        for: entry,
+                        variant: variant,
+                        text: text,
+                    ) { url in
+                        try audioPlayer.appendSegment(url, playbackID: playbackID)
+                        if !startedPlayback {
+                            startedPlayback = true
+                            audioEntry = entry
+                        }
+                    }
+                    audioPlayer.finishStream(playbackID: playbackID)
+                    if !startedPlayback { audioPlayer.stop() }
+                } else {
+                    audioEntry = entry
+                }
+            } catch {
+                model.session.errorMessage = error.localizedDescription
+                audioPlayer.stop()
+            }
+        }
+    }
+}
+#endif

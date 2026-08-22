@@ -476,7 +476,7 @@
 	section {
 		padding: clamp(24px, 5vw, 48px);
 		border: 1px solid rgb(21 21 18 / 12%);
-		border-radius: 28px;
+		border-radius: 0;
 		background: rgb(255 255 255 / 62%);
 		box-shadow: 0 24px 70px rgb(21 21 18 / 8%);
 	}
@@ -526,7 +526,7 @@
 		gap: 13px;
 		padding: 18px;
 		border: 1px solid rgb(21 21 18 / 12%);
-		border-radius: 16px;
+		border-radius: 0;
 		background: rgb(255 255 255 / 52%);
 	}
 
@@ -555,7 +555,7 @@
 
 	.reports article header > span {
 		padding: 4px 8px;
-		border-radius: 999px;
+		border-radius: 0;
 		background: rgb(21 21 18 / 7%);
 	}
 
@@ -588,7 +588,7 @@
 
 	details {
 		border: 1px solid rgb(21 21 18 / 10%);
-		border-radius: 16px;
+		border-radius: 0;
 		background: rgb(255 255 255 / 48%);
 		overflow: hidden;
 	}
@@ -663,7 +663,7 @@
 		flex: 1;
 		padding: 13px 16px;
 		border: 1px solid rgb(21 21 18 / 18%);
-		border-radius: 999px;
+		border-radius: 0;
 		background: white;
 		font: inherit;
 	}
@@ -672,7 +672,7 @@
 		width: 120px;
 		padding: 9px;
 		border: 1px solid rgb(21 21 18 / 18%);
-		border-radius: 8px;
+		border-radius: 0;
 		background: white;
 		font: inherit;
 	}
@@ -689,7 +689,7 @@
 		justify-content: center;
 		padding: 0 18px;
 		border: 0;
-		border-radius: 999px;
+		border-radius: 0;
 		background: #151512;
 		color: white;
 		font: inherit;
@@ -739,7 +739,7 @@
 		gap: 16px;
 		padding: 14px 16px;
 		border: 1px solid rgb(21 21 18 / 10%);
-		border-radius: 16px;
+		border-radius: 0;
 		background: rgb(255 255 255 / 48%);
 	}
 

@@ -171,7 +171,7 @@
 	.legal-brand img {
 		width: 34px;
 		height: 34px;
-		border-radius: 8px;
+		border-radius: 0;
 	}
 
 	.back-link {
@@ -408,7 +408,7 @@
 		margin-top: 22px;
 		padding: 18px 20px;
 		border: 1px solid rgb(22 77 255 / 20%);
-		border-radius: 14px;
+		border-radius: 0;
 		background: rgb(22 77 255 / 5%);
 	}
 
@@ -430,7 +430,7 @@
 		gap: 30px;
 		padding: 22px;
 		border: 1px solid var(--legal-line);
-		border-radius: 16px;
+		border-radius: 0;
 		background: rgb(255 255 255 / 36%);
 		color: inherit;
 		text-decoration: none;
@@ -531,7 +531,7 @@
 			flex: 0 0 auto;
 			padding: 9px 10px;
 			border: 0;
-			border-radius: 8px;
+			border-radius: 0;
 		}
 
 		.legal-sidebar nav a:hover,

@@ -101,7 +101,7 @@ struct LibraryCardBrowser: View {
         }
         #if os(macOS)
         .macLiquidGlass(
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            in: Rectangle()
         )
         #else
         .background(.regularMaterial)
@@ -194,7 +194,7 @@ struct LibraryCardBrowser: View {
                     .font(.system(size: 16, weight: selected ? .semibold : .medium))
                     .foregroundStyle(selected ? .primary : .secondary)
                     .lineLimit(1)
-                Capsule()
+                Rectangle()
                     .fill(selected ? Color.accentColor : .clear)
                     .frame(height: 4)
             }
@@ -215,7 +215,7 @@ struct LibraryCardBrowser: View {
                     .font(.system(size: 16, weight: selected ? .semibold : .medium))
                     .foregroundStyle(selected ? .primary : .secondary)
                     .lineLimit(1)
-                Capsule()
+                Rectangle()
                     .fill(selected ? Color.accentColor : .clear)
                     .frame(height: 4)
             }

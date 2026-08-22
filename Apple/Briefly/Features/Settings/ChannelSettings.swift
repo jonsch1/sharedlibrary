@@ -33,7 +33,7 @@ struct ChannelConfiguration: View {
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 58, height: 58)
                         .background(Color.accentColor.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .clipShape(Rectangle())
 
                         VStack(alignment: .leading, spacing: 6) {
                             Text("CHANNEL")
@@ -106,7 +106,7 @@ struct ChannelConfiguration: View {
                             .textSelection(.enabled)
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                            .background(.red.opacity(0.08), in: Rectangle())
                     }
 
                     HStack {
@@ -150,10 +150,10 @@ struct ChannelConfiguration: View {
                 .padding(24)
                 .background(
                     .thinMaterial,
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    in: Rectangle()
                 )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    Rectangle()
                         .stroke(Color.primary.opacity(0.10))
                 }
                 .padding(.horizontal, 32)
@@ -348,7 +348,7 @@ struct ChannelConfiguration: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 48, height: 48)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 13))
+                    .background(Color.accentColor.opacity(0.12), in: Rectangle())
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Create a channel")
@@ -403,10 +403,10 @@ struct ChannelConfiguration: View {
         .frame(maxWidth: 560, alignment: .topLeading)
         .background(
             .thinMaterial,
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            in: Rectangle()
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.10))
         }
         .padding(.horizontal, 32)
@@ -512,9 +512,9 @@ struct ChannelConfiguration: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("channels.browser")
             }
-            .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+            .background(.primary.opacity(0.035), in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 14)
+                Rectangle()
                     .stroke(.primary.opacity(0.12), lineWidth: 1)
             }
         }
@@ -530,7 +530,7 @@ struct ChannelConfiguration: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(.primary.opacity(0.07), in: Capsule())
+                        .background(.primary.opacity(0.07), in: Rectangle())
                 }
                 ForEach(model.channels.newChannelSources, id: \.self) { source in
                     ChannelSourceCard(

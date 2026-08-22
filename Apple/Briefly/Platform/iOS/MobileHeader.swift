@@ -131,7 +131,7 @@ struct MobileXSearchField: View {
             .padding(.leading, 14)
             .padding(.trailing, 6)
             .frame(height: 40)
-            .background(Color.primary.opacity(0.07), in: Capsule())
+            .background(Color.primary.opacity(0.07), in: Rectangle())
 
             Button("Cancel", action: cancel)
                 .font(.subheadline.weight(.semibold))

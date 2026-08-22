@@ -87,7 +87,7 @@
   .segmented-depth {
     display: flex;
     min-width: 0;
-    height: 40px;
+    height: 48px;
     align-items: center;
     justify-content: center;
     gap: 2px;
@@ -95,19 +95,19 @@
   .depth-slot {
     position: relative;
     display: grid;
-    width: 38px;
-    height: 40px;
-    flex: 0 0 38px;
+    width: 46px;
+    height: 48px;
+    flex: 0 0 46px;
     place-items: center;
   }
   .depth-step {
     display: grid;
-    width: 38px;
-    height: 38px;
+    width: 46px;
+    height: 46px;
     margin: 0;
     padding: 0;
     place-items: center;
-    border-radius: 10px;
+    border-radius: 0;
     color: var(--popover-foreground);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
@@ -115,10 +115,10 @@
   }
   .depth-step-core {
     display: grid;
-    width: 38px;
-    height: 38px;
+    width: 46px;
+    height: 46px;
     place-items: center;
-    border-radius: inherit;
+    border-radius: 0;
   }
   .depth-step.is-active {
     background: var(--primary);
@@ -126,13 +126,13 @@
   }
   .depth-icon {
     display: block;
-    width: 21px;
-    height: 21px;
+    width: 24px;
+    height: 24px;
     fill: currentColor;
   }
   .original-icon {
-    width: 19px;
-    height: 19px;
+    width: 22px;
+    height: 22px;
     fill: none;
     stroke: currentColor;
     stroke-linecap: round;
@@ -191,43 +191,43 @@
     .segmented-depth--compact {
       grid-area: variant;
       width: 100%;
-      height: 40px;
+      height: 48px;
       align-self: end;
       gap: 2px;
       padding: 0 7px;
     }
     .segmented-depth--compact .depth-slot {
-      width: 34px;
-      height: 40px;
-      flex-basis: 34px;
+      width: 44px;
+      height: 48px;
+      flex-basis: 44px;
     }
     .segmented-depth--compact .depth-step,
     .segmented-depth--compact .depth-step-core,
     .segmented-depth--compact .depth-step.is-active,
     .segmented-depth--compact .depth-step.is-active .depth-step-core {
-      width: 30px;
-      height: 30px;
+      width: 42px;
+      height: 42px;
     }
     .segmented-depth--compact .depth-icon {
-      width: 18px;
-      height: 18px;
+      width: 22px;
+      height: 22px;
     }
     .segmented-depth--compact .original-icon {
-      width: 16px;
-      height: 16px;
+      width: 20px;
+      height: 20px;
     }
   }
   :global(.native-reader-footer) .segmented-depth--compact {
-    height: 44px;
+    height: 48px;
     gap: 0;
     padding: 0;
   }
   :global(.native-reader-footer) .segmented-depth--compact .depth-slot,
   :global(.native-reader-footer) .segmented-depth--compact .depth-step,
   :global(.native-reader-footer) .segmented-depth--compact .depth-step-core {
-    width: 44px;
-    height: 44px;
-    flex-basis: 44px;
+    width: 48px;
+    height: 48px;
+    flex-basis: 48px;
     border-radius: 0;
   }
   :global(.native-reader-footer) .segmented-depth--compact .depth-step.is-active {

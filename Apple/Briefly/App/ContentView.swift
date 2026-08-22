@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var showsCaptureComposer = false
     @State private var showsPDFImporter = false
     @State private var windowControlsVisible = true
+    #if os(macOS)
+    @State private var selectedSettingsSection = BrieflySettingsSection.general
+    #endif
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
 
@@ -31,41 +34,61 @@ struct ContentView: View {
             } else {
                 if model.lifecycle.isReady {
                 #if os(macOS)
-                HStack(alignment: .top, spacing: 24) {
-                    MacXNavigation(
-                        model: model,
-                        showsSettings: $showsSettings,
-                        showsCaptureComposer: $showsCaptureComposer
-                    )
-                    .frame(width: 220)
-
-                    if showsSettings {
-                        MacXSettingsWorkspace(model: model)
-                            .frame(width: 1_014)
-                    } else {
-                        LibraryDetail(
+                ZStack(alignment: .bottomTrailing) {
+                    HStack(alignment: .top, spacing: 24) {
+                        MacXNavigation(
                             model: model,
-                            showsChannelBrowser: $showsChannelBrowser,
-                            audioPlayer: audioPlayer,
-                            audioEntry: $audioEntry
+                            showsSettings: $showsSettings,
+                            showsCaptureComposer: $showsCaptureComposer,
+                            selectedSettingsSection: $selectedSettingsSection
                         )
-                        .layoutPriority(1)
-                        .frame(width: 680)
-                        .frame(maxHeight: .infinity)
-                        .background(
-                            .ultraThinMaterial.opacity(0.56),
-                            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        )
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.primary.opacity(0.10))
-                        }
+                        .frame(width: 220)
 
-                        MacXRightRail(model: model)
-                            .frame(width: 310)
+                        if showsSettings {
+                            MacXSettingsWorkspace(
+                                model: model,
+                                selectedSection: $selectedSettingsSection
+                            )
+                                .frame(width: 1_014)
+                        } else {
+                            LibraryDetail(
+                                model: model,
+                                showsChannelBrowser: $showsChannelBrowser,
+                                audioPlayer: audioPlayer,
+                                audioEntry: $audioEntry
+                            )
+                            .layoutPriority(1)
+                            .frame(width: 680)
+                            .frame(maxHeight: .infinity)
+                            .background(
+                                .ultraThinMaterial.opacity(0.56),
+                                in: Rectangle()
+                            )
+                            .clipShape(
+                                Rectangle()
+                            )
+                            .overlay {
+                                Rectangle()
+                                    .stroke(Color.primary.opacity(0.10))
+                            }
+
+                            MacXRightRail(model: model)
+                                .frame(width: 310)
+                        }
+                    }
+
+                    if showsDesktopAudioControl {
+                        HStack(spacing: 0) {
+                            MacAudioPlayButton(
+                                model: model,
+                                entry: model.selection.selectedEntry,
+                                audioPlayer: audioPlayer,
+                                audioEntry: $audioEntry
+                            )
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: 310, alignment: .leading)
+                        .padding(.bottom, 24)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -298,4 +321,13 @@ struct ContentView: View {
             !model.session.environment.isAppReviewTesting &&
             completedOnboardingVersion < BrieflyOnboarding.currentVersion
     }
+
+    #if os(macOS)
+    private var showsDesktopAudioControl: Bool {
+        audioPlayer.isPlaying ||
+            (!showsSettings &&
+                !model.navigation.showingHighlights &&
+                model.selection.selectedEntry != nil)
+    }
+    #endif
 }

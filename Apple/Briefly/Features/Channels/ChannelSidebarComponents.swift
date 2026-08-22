@@ -56,7 +56,7 @@ struct SidebarRow: View {
         #if os(iOS)
         if glass {
             row.mobileGlass(
-                in: RoundedRectangle(cornerRadius: 18, style: .continuous),
+                in: Rectangle(),
                 tint: selected ? Color.accentColor.opacity(0.18) : nil
             )
         } else {
@@ -65,7 +65,7 @@ struct SidebarRow: View {
         #else
         if selected {
             row.macLiquidGlass(
-                in: RoundedRectangle(cornerRadius: 9, style: .continuous),
+                in: Rectangle(),
                 tint: Color(red: 0.43, green: 0.34, blue: 0.21).opacity(0.44),
                 interactive: true
             )
@@ -98,7 +98,7 @@ struct SidebarRow: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .frame(minHeight: 24)
-                        .background(Color.primary.opacity(0.055), in: Capsule())
+                        .background(Color.primary.opacity(0.055), in: Rectangle())
                         .accessibilityLabel("\(count) items")
                 }
             }
@@ -111,16 +111,11 @@ struct SidebarRow: View {
         .frame(maxWidth: .infinity)
         .background {
             if !glass {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                Rectangle()
                     .fill(rowBackgroundColor)
             }
         }
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: glass ? 18 : 9,
-                style: .continuous
-            )
-        )
+        .clipShape(Rectangle())
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

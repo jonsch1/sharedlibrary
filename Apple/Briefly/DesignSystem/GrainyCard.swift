@@ -32,14 +32,9 @@ struct GrainyCard<Content: View>: View {
                     Color.primary.opacity(0.018)
                 }
             }
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: cardCornerRadius,
-                    style: .continuous
-                )
-            )
+            .clipShape(Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                Rectangle()
                     .stroke(.primary.opacity(0.11))
             }
             #if os(macOS)
@@ -49,11 +44,4 @@ struct GrainyCard<Content: View>: View {
             #endif
     }
 
-    private var cardCornerRadius: CGFloat {
-        #if os(macOS)
-        11
-        #else
-        20
-        #endif
-    }
 }

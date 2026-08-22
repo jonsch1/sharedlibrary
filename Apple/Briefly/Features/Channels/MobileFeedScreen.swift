@@ -137,7 +137,7 @@ struct MobileXFeedScreen: View {
         }
         .padding(.top, 5)
         .mobileGlass(
-            in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+            in: Rectangle(),
             interactive: false
         )
         .padding(.horizontal, 8)
@@ -193,9 +193,9 @@ struct MobileXFeedScreen: View {
                 .lineLimit(1)
                 .padding(.horizontal, 13)
                 .frame(height: 32)
-                .background(selected ? Color.primary : Color.primary.opacity(0.06), in: Capsule())
+                .background(selected ? Color.primary : Color.primary.opacity(0.06), in: Rectangle())
                 .foregroundStyle(selected ? Color(uiColor: .systemBackground) : Color.primary)
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

@@ -126,7 +126,7 @@ struct LibrarySidebar: View {
                     .frame(height: 42)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 0))
                 .padding(.top, 14)
                 .padding(.horizontal, 4)
             } else {
@@ -140,7 +140,7 @@ struct LibrarySidebar: View {
                         .frame(height: 42)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 0))
                 .padding(.top, 14)
                 .padding(.horizontal, 4)
             }

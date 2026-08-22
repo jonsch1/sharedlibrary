@@ -28,9 +28,9 @@ struct XErrorBanner: View {
         }
         .padding(14)
         .frame(width: 520)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.12))
         }
         .shadow(color: .black.opacity(0.20), radius: 18, y: 8)

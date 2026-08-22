@@ -60,7 +60,7 @@ struct MobileLibraryNavigation: View {
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
-                .mobileGlass(in: Capsule())
+                .mobileGlass(in: Rectangle())
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
@@ -120,7 +120,7 @@ struct MobileLibraryNavigation: View {
                     .padding(4)
                     .frame(maxWidth: .infinity)
                     .frame(height: 64)
-                    .mobileGlass(in: Capsule())
+                    .mobileGlass(in: Rectangle())
                     .animation(.snappy(duration: 0.24), value: model.navigation.activeSection)
                 }
                 .frame(maxWidth: .infinity)
@@ -187,7 +187,7 @@ struct MobileLibraryNavigation: View {
         .contentShape(Rectangle())
         .background {
             if selected {
-                Capsule()
+                Rectangle()
                     .fill(Color.primary.opacity(0.1))
                     .matchedGeometryEffect(id: "selected-tab", in: tabSelection)
             }

@@ -35,7 +35,7 @@ struct MacCaptureComposer: View {
                     Task { await model.workflows.capture(value) }
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 0))
                 .disabled(!canCapture)
                 .accessibilityIdentifier("capture.save")
             }

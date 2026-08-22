@@ -83,7 +83,7 @@ struct ChannelLoginView: View {
                 }
                 .padding(.horizontal, 11)
                 .frame(height: 32)
-                .background(.quaternary.opacity(0.55), in: Capsule())
+                .background(.quaternary.opacity(0.55), in: Rectangle())
             }
             .buttonStyle(.plain)
             .controlSize(.regular)
@@ -139,7 +139,7 @@ struct ChannelLoginView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
+                    .buttonBorderShape(.roundedRectangle(radius: 0))
                     .disabled(isExtracting)
                 }
                 .padding(.horizontal, 14)
@@ -235,7 +235,7 @@ struct ChannelPreview: View {
                 .padding(.horizontal, 11)
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                 .background(.quaternary.opacity(0.55))
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .clipShape(Rectangle())
 
                 Link(destination: loadedURL) {
                     Image(systemName: "arrow.up.right")
@@ -252,9 +252,9 @@ struct ChannelPreview: View {
                 if loadedURL != url { loadedURL = url }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            Rectangle()
                 .stroke(.separator, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.08), radius: 16, y: 8)

@@ -49,10 +49,10 @@ struct SyncActivityView: View {
         .padding(14)
         #if os(macOS)
         .macLiquidGlass(
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            in: Rectangle()
         )
         #else
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(.regularMaterial, in: Rectangle())
         #endif
         .shadow(color: .black.opacity(0.13), radius: 16, y: 7)
         .accessibilityElement(children: .combine)

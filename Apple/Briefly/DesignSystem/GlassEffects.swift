@@ -171,7 +171,7 @@ extension View {
 
     @ViewBuilder
     func actionBarGlass() -> some View {
-        macLiquidGlass(in: Capsule(), interactive: true)
+        macLiquidGlass(in: Rectangle(), interactive: true)
     }
 }
 

@@ -281,7 +281,7 @@
 		display: block;
 		width: 38px;
 		height: 38px;
-		border-radius: 9px;
+		border-radius: 0;
 	}
 
 	.brand-name {
@@ -311,7 +311,7 @@
 	.nav-cta {
 		justify-self: end;
 		padding: 11px 17px;
-		border-radius: 999px;
+		border-radius: 0;
 		background: var(--ink);
 		color: white !important;
 		font-size: 13px;
@@ -389,7 +389,7 @@
 		align-items: center;
 		justify-content: center;
 		padding: 0 22px;
-		border-radius: 999px;
+		border-radius: 0;
 		font-size: 14px;
 		font-weight: 750;
 	}
@@ -411,7 +411,7 @@
 	.hero-art::after {
 		position: absolute;
 		z-index: -1;
-		border-radius: 28px;
+		border-radius: 0;
 		content: '';
 		inset: 18px -18px -18px 18px;
 	}
@@ -433,7 +433,7 @@
 		width: 100%;
 		height: auto;
 		border: 1px solid rgb(23 23 21 / 14%);
-		border-radius: 28px;
+		border-radius: 0;
 		box-shadow: 0 30px 60px rgb(23 23 21 / 18%);
 	}
 
@@ -485,7 +485,7 @@
 		min-height: 440px;
 		flex-direction: column;
 		padding: clamp(26px, 3vw, 40px);
-		border-radius: 24px;
+		border-radius: 0;
 		color: var(--ink);
 	}
 
@@ -513,7 +513,7 @@
 	.step-top i {
 		padding: 9px 12px;
 		border: 1px solid rgb(23 23 21 / 45%);
-		border-radius: 999px;
+		border-radius: 0;
 		font-size: 11px;
 		font-style: normal;
 		letter-spacing: 0.03em;
@@ -577,7 +577,7 @@
 		margin: 0;
 		overflow: hidden;
 		border: 1px solid rgb(255 255 255 / 14%);
-		border-radius: 22px;
+		border-radius: 0;
 		background: #2a2926;
 	}
 
@@ -621,14 +621,14 @@
 		aspect-ratio: 1;
 		place-items: center;
 		border: 1px solid var(--line);
-		border-radius: 50%;
+		border-radius: 0;
 	}
 
 	.channel-orbit::before,
 	.channel-orbit::after {
 		position: absolute;
 		border: 1px solid var(--line);
-		border-radius: 50%;
+		border-radius: 0;
 		content: '';
 	}
 
@@ -649,7 +649,7 @@
 		z-index: 1;
 		padding: 11px 15px;
 		border: 1px solid var(--line);
-		border-radius: 999px;
+		border-radius: 0;
 		background: var(--cream);
 		font-size: 12px;
 		font-weight: 750;
@@ -696,7 +696,7 @@
 		gap: clamp(50px, 9vw, 130px);
 		align-items: center;
 		padding: clamp(50px, 7vw, 92px);
-		border-radius: 28px;
+		border-radius: 0;
 		background: #ece8dd;
 	}
 
@@ -704,7 +704,7 @@
 		display: grid;
 		aspect-ratio: 1;
 		place-items: center;
-		border-radius: 50%;
+		border-radius: 0;
 		background: var(--navy);
 		box-shadow: inset 0 0 0 16px rgb(255 255 255 / 5%);
 		color: white;
@@ -722,7 +722,7 @@
 		align-content: center;
 		margin-top: clamp(100px, 12vw, 180px);
 		padding: 80px 24px;
-		border-radius: 28px;
+		border-radius: 0;
 		background: var(--yellow);
 		text-align: center;
 	}
@@ -731,7 +731,7 @@
 		width: 88px;
 		height: 88px;
 		margin-bottom: 24px;
-		border-radius: 21px;
+		border-radius: 0;
 		box-shadow: 0 18px 35px rgb(12 36 93 / 20%);
 	}
 
@@ -747,7 +747,7 @@
 	.availability {
 		margin-top: 30px;
 		padding: 15px 22px;
-		border-radius: 999px;
+		border-radius: 0;
 		background: var(--ink);
 		color: white;
 		font-size: 13px;
@@ -765,7 +765,7 @@
 	.site-footer .brand-icon {
 		width: 30px;
 		height: 30px;
-		border-radius: 7px;
+		border-radius: 0;
 	}
 
 	.site-footer .brand-name {
@@ -857,7 +857,7 @@
 		.brand-icon {
 			width: 34px;
 			height: 34px;
-			border-radius: 8px;
+			border-radius: 0;
 		}
 
 		.brand-name {
@@ -900,7 +900,7 @@
 		.screenshot-card,
 		.privacy,
 		.final-cta {
-			border-radius: 18px;
+			border-radius: 0;
 		}
 
 		.promise {

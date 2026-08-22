@@ -89,7 +89,7 @@ struct GrainyEntryCard: View {
             .buttonStyle(.plain)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: selectionCornerRadius, style: .continuous)
+            Rectangle()
                 .stroke(
                     selected ? .white.opacity(0.7) : .clear,
                     lineWidth: selected ? 2 : 0
@@ -105,11 +105,4 @@ struct GrainyEntryCard: View {
         #endif
     }
 
-    private var selectionCornerRadius: CGFloat {
-        #if os(macOS)
-        11
-        #else
-        20
-        #endif
-    }
 }

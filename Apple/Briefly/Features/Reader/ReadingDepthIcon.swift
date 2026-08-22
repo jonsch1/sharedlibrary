@@ -3,9 +3,9 @@ import SwiftUI
 import BrieflyCore
 
 enum ReaderActionBarMetrics {
-    static let buttonSize: CGFloat = 36
-    static let iconSize: CGFloat = 15
-    static let iconSlot: CGFloat = 18
+    static let iconSize: CGFloat = 18
+    static let iconSlot: CGFloat = 22
+    static let moreSlot: CGFloat = 58
     static let iconFont = Font.system(size: iconSize, weight: .medium)
 }
 

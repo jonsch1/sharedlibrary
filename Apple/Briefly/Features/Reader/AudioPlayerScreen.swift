@@ -54,7 +54,7 @@ struct AudioPlayerScreen: View {
         .background(playerBackground.ignoresSafeArea())
         #if os(iOS)
         .presentationBackground(playerBackground)
-        .presentationCornerRadius(32)
+        .presentationCornerRadius(0)
         .presentationDragIndicator(.visible)
         .presentationDetents([.large])
         #else

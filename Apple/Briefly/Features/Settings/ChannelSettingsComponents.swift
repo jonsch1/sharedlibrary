@@ -28,7 +28,7 @@ struct ChannelSourceCard: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 36, height: 36)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                .background(Color.accentColor.opacity(0.12), in: Rectangle())
             Text(displaySource)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -54,9 +54,9 @@ struct ChannelSourceCard: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 58)
-        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+        .background(.primary.opacity(0.035), in: Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 12)
+            Rectangle()
                 .stroke(.primary.opacity(0.12), lineWidth: 1)
         }
     }

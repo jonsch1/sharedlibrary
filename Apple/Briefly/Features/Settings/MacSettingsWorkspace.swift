@@ -8,7 +8,7 @@ import BrieflyCore
 struct MacXSettingsWorkspace: View {
     @AppStorage("BrieflyAppearance") private var appearance = "system"
     @Bindable var model: LibraryModel
-    @State private var selectedSection = BrieflySettingsSection.general
+    @Binding var selectedSection: BrieflySettingsSection
     @State private var query = ""
     @State private var captureShortcut = CaptureShortcut.load()
     @State private var shortcutRegistered = UserDefaults.standard.bool(
@@ -93,8 +93,8 @@ struct MacXSettingsWorkspace: View {
             }
             .padding(.horizontal, 13)
             .frame(height: 40)
-            .background(Color.primary.opacity(0.055), in: Capsule())
-            .overlay { Capsule().stroke(Color.primary.opacity(0.09)) }
+            .background(Color.primary.opacity(0.055), in: Rectangle())
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.09)) }
             .padding(.horizontal, 14)
             .padding(.bottom, 10)
 
@@ -281,7 +281,7 @@ struct MacXSettingsWorkspace: View {
                         Spacer()
                         Button("Save topics") { Task { await model.workflows.saveTopics() } }
                             .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.capsule)
+                            .buttonBorderShape(.roundedRectangle(radius: 0))
                     }
                 }
                 .padding(20)
@@ -289,6 +289,30 @@ struct MacXSettingsWorkspace: View {
 
         case .ai:
             detailGroup("AI processing") {
+                Group {
+                    if model.settings.isProcessingConfigured {
+                        Label(
+                            "AI setup verified. Briefly is ready to process captures.",
+                            systemImage: "checkmark.circle.fill"
+                        )
+                        .foregroundStyle(.green)
+                    } else {
+                        Label(
+                            model.settings.processingTestMessage ??
+                                "Choose a local command or add an OpenRouter key, then test the connection.",
+                            systemImage: model.settings.processingTestMessage == nil
+                                ? "exclamationmark.triangle.fill"
+                                : "xmark.circle.fill"
+                        )
+                        .foregroundStyle(
+                            model.settings.processingTestMessage == nil ? .orange : .red
+                        )
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+
                 VStack(alignment: .leading, spacing: 10) {
                     Text("OpenRouter API key (optional)")
                         .font(.callout.weight(.semibold))
@@ -348,12 +372,21 @@ struct MacXSettingsWorkspace: View {
                         .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                     HStack {
                         Button("Restore default") { model.settings.processingPrompt = defaultProcessingPrompt }
-                        Button("Test") { Task { await model.settings.testProcessingCommand() } }
+                        Button {
+                            Task { await model.settings.testProcessingCommand() }
+                        } label: {
+                            if model.settings.isTestingAI {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Label("Test connection", systemImage: "bolt.horizontal")
+                            }
+                        }
                             .disabled(model.settings.isTestingAI)
                         Spacer()
                         Button("Save") { model.settings.saveProcessingSettings() }
                             .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.capsule)
+                            .buttonBorderShape(.roundedRectangle(radius: 0))
                     }
                 }
                 .padding(20)
@@ -478,7 +511,7 @@ struct MacXSettingsWorkspace: View {
                     Spacer()
                     Button("Save", action: save)
                         .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
+                        .buttonBorderShape(.roundedRectangle(radius: 0))
                 }
             }
             .padding(20)

@@ -26,7 +26,7 @@ struct FaviconImage: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 16, height: 16)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .clipShape(Rectangle())
         } else {
             fallbackImage
         }
@@ -36,7 +36,7 @@ struct FaviconImage: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 16, height: 16)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .clipShape(Rectangle())
         } else {
             fallbackImage
         }
@@ -149,38 +149,42 @@ struct ChannelCandidateDocument: View {
             }
             #endif
 
-            ZStack(alignment: .bottom) {
-                if let current = candidates.first {
-                    let previewText = resolvedPreviewText[current.reviewKey] ?? current.previewText
-                    if previewText.isEmpty {
-                        XEmptyState(
-                            icon: "doc.text.magnifyingglass",
-                            title: "Preview unavailable",
-                            message: "This candidate did not include readable text."
-                        )
+            VStack(spacing: 0) {
+                ZStack {
+                    if let current = candidates.first {
+                        let previewText = resolvedPreviewText[current.reviewKey] ?? current.previewText
+                        if previewText.isEmpty {
+                            XEmptyState(
+                                icon: "doc.text.magnifyingglass",
+                                title: "Preview unavailable",
+                                message: "This candidate did not include readable text."
+                            )
+                        } else {
+                            EditableDocumentTextView(
+                                text: .constant(previewText),
+                                isEditable: false,
+                                highlightedPassages: [],
+                                onHighlight: nil,
+                                onRemoveHighlight: nil
+                            )
+                            .accessibilityIdentifier("channel.review.editor")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .id(current.reviewKey)
+                        }
                     } else {
-                        EditableDocumentTextView(
-                            text: .constant(previewText),
-                            isEditable: false,
-                            highlightedPassages: [],
-                            onHighlight: nil,
-                            onRemoveHighlight: nil
+                        XEmptyState(
+                            icon: "checkmark.circle",
+                            title: "Nothing waiting for review",
+                            message: skippedItemIDs.isEmpty
+                                ? isAllChannels
+                                    ? "Check your channels for more candidates."
+                                    : "Check this channel for more candidates."
+                                : "You have reached the end of the unskipped candidates."
                         )
-                        .accessibilityIdentifier("channel.review.editor")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .id(current.reviewKey)
                     }
-                } else {
-                    XEmptyState(
-                        icon: "checkmark.circle",
-                        title: "Nothing waiting for review",
-                        message: skippedItemIDs.isEmpty
-                            ? isAllChannels
-                                ? "Check your channels for more candidates."
-                                : "Check this channel for more candidates."
-                            : "You have reached the end of the unskipped candidates."
-                    )
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
 
                 actionBar
             }
@@ -260,32 +264,22 @@ struct ChannelCandidateDocument: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .disabled(
             deciding != nil || model.channels.isAcceptingReviewCandidate ||
                 model.channels.isCheckingChannel
         )
         #if os(iOS)
         .background(readerBackground)
-        .clipShape(
-            .rect(
-                topLeadingRadius: 14,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 0
-            )
-        )
+        .clipShape(Rectangle())
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(.primary.opacity(0.08))
                 .frame(height: 1)
         }
-        .padding(.bottom, 8)
         #endif
         #if os(macOS)
-        .padding(4)
-        .actionBarGlass()
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
+        .background(.regularMaterial)
         #endif
     }
 
@@ -306,15 +300,17 @@ struct ChannelCandidateDocument: View {
             }
             .font(ReaderActionBarMetrics.iconFont)
             .padding(.horizontal, 10)
-            #if os(iOS)
             .frame(maxWidth: .infinity)
-            .frame(height: 58)
+            #if os(iOS)
+            .frame(height: 64)
             #else
-            .frame(height: ReaderActionBarMetrics.buttonSize)
+            .frame(height: 52)
             #endif
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
         .accessibilityLabel(title)
         #if os(macOS)
         .help(title)

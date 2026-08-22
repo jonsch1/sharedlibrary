@@ -37,21 +37,23 @@ current marketing version. First create and verify the archive without sending
 anything to Apple:
 
 ```bash
-BUILD_NUMBER=4 ./scripts/testflight.sh archive
+BUILD_NUMBER=<number> ./scripts/testflight.sh archive
 ```
 
 Next, prove that Xcode can re-sign that archive for App Store distribution and
 produce an IPA without uploading it:
 
 ```bash
-BUILD_NUMBER=4 ./scripts/testflight.sh export
+BUILD_NUMBER=<number> ./scripts/testflight.sh export
 ```
 
 Then upload that exact archive:
 
 ```bash
-BUILD_NUMBER=4 ./scripts/testflight.sh upload
+BUILD_NUMBER=<number> ./scripts/testflight.sh upload
 ```
+
+The latest uploaded beta is build `5` for version `1.0`.
 
 The export and upload actions refuse to rebuild or replace the archive, ensuring
 the artifact inspected locally is the one sent to Apple. They use Xcode's

@@ -45,10 +45,10 @@ struct MacXLoadingWorkspace: View {
             .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
 
             VStack(alignment: .leading, spacing: 14) {
-                Capsule()
+                Rectangle()
                     .fill(Color.primary.opacity(0.07))
                     .frame(height: 44)
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                Rectangle()
                     .fill(Color.primary.opacity(0.045))
                     .frame(height: 230)
             }

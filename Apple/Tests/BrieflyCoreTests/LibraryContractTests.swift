@@ -3,6 +3,12 @@ import XCTest
 @testable import BrieflyCore
 
 final class LibraryContractTests: XCTestCase {
+    func testProcessingTestResponseRequiresReadyPhrase() {
+        XCTAssertTrue(processingTestResponseIsValid("Briefly is ready."))
+        XCTAssertTrue(processingTestResponseIsValid("briefly IS READY"))
+        XCTAssertFalse(processingTestResponseIsValid("The model is available."))
+    }
+
     func testRefreshPersistsPendingHintsWithoutCreatingDocuments() async throws {
         let (root, store) = makeStore()
         defer { try? FileManager.default.removeItem(at: root) }

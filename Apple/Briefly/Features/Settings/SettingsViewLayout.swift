@@ -92,8 +92,8 @@ extension SettingsView {
                 }
                 .padding(.horizontal, 13)
                 .frame(height: 38)
-                .background(Color.primary.opacity(0.055), in: Capsule())
-                .overlay { Capsule().stroke(Color.primary.opacity(0.09)) }
+                .background(Color.primary.opacity(0.055), in: Rectangle())
+                .overlay { Rectangle().stroke(Color.primary.opacity(0.09)) }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 10)
 

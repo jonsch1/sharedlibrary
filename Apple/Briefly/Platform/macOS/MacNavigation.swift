@@ -5,6 +5,7 @@ struct MacXNavigation: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
     @Binding var showsCaptureComposer: Bool
+    @Binding var selectedSettingsSection: BrieflySettingsSection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -69,12 +70,42 @@ struct MacXNavigation: View {
                     .frame(height: 44)
             }
             .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
+            .buttonBorderShape(.roundedRectangle(radius: 0))
             .accessibilityIdentifier(
                 model.navigation.activeSection == .items ? "capture.open" : "navigation.primaryAction"
             )
             .padding(.top, 12)
             .padding(.horizontal, 4)
+
+            if !model.settings.isProcessingConfigured {
+                Button {
+                    selectedSettingsSection = .ai
+                    showsSettings = true
+                } label: {
+                    HStack(alignment: .top, spacing: 9) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("AI setup needed")
+                                .font(.caption.weight(.semibold))
+                            Text("Test your processing setup in Settings.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.10), in: Rectangle())
+                    .overlay { Rectangle().stroke(Color.orange.opacity(0.25)) }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 4)
+                .accessibilityIdentifier("settings.aiWarning")
+            }
 
             Spacer(minLength: 18)
 

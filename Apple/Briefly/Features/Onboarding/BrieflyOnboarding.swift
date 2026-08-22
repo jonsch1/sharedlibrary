@@ -2,7 +2,7 @@ import SwiftUI
 
 struct BrieflyOnboarding: View {
     static let completionKey = "BrieflyOnboardingVersion"
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let complete: () -> Void
 
@@ -103,7 +103,7 @@ struct BrieflyOnboarding: View {
         HStack {
             BrieflyLogo()
             Spacer()
-            if step != .depth {
+            if !isFinalStep {
                 Button("Skip", action: complete)
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -128,6 +128,10 @@ struct BrieflyOnboarding: View {
                     OnboardingCaptureArtwork()
                 case .depth:
                     OnboardingDepthArtwork(selection: $depth)
+                #if os(macOS)
+                case .ai:
+                    OnboardingAIArtwork()
+                #endif
                 }
             }
             .id(step)
@@ -207,6 +211,21 @@ struct BrieflyOnboarding: View {
                 OnboardingDepthLabel(icon: "text.justify", title: "Detailed")
                 OnboardingDepthLabel(icon: "doc.text", title: "Source")
             }
+        #if os(macOS)
+        case .ai:
+            VStack(spacing: 10) {
+                OnboardingCapability(
+                    icon: "sparkles",
+                    title: "Choose your AI",
+                    detail: "Use a local CLI such as Codex, Claude, Gemini, or an OpenRouter key."
+                )
+                OnboardingCapability(
+                    icon: "checkmark.shield",
+                    title: "Test before you capture",
+                    detail: "Briefly pings the model and checks its reply so you know processing is ready."
+                )
+            }
+        #endif
         }
     }
 
@@ -214,7 +233,7 @@ struct BrieflyOnboarding: View {
         VStack(spacing: 16) {
             HStack(spacing: 7) {
                 ForEach(OnboardingStep.allCases) { candidate in
-                    Capsule()
+                    Rectangle()
                         .fill(candidate == step ? Color.accentColor : Color.primary.opacity(0.16))
                         .frame(width: candidate == step ? 24 : 7, height: 7)
                 }
@@ -227,20 +246,20 @@ struct BrieflyOnboarding: View {
                 if step != .welcome {
                     Button("Back", action: goBack)
                         .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
+                        .buttonBorderShape(.roundedRectangle(radius: 0))
                         .controlSize(.large)
                 }
 
                 Button(action: advance) {
                     HStack(spacing: 8) {
-                        Text(step == .depth ? "Continue to Briefly" : "Continue")
-                        Image(systemName: step == .depth ? "checkmark" : "arrow.right")
+                        Text(isFinalStep ? "Continue to Briefly" : "Continue")
+                        Image(systemName: isFinalStep ? "checkmark" : "arrow.right")
                     }
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
+                .buttonBorderShape(.roundedRectangle(radius: 0))
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("onboarding.continue")
@@ -253,6 +272,14 @@ struct BrieflyOnboarding: View {
         .system(size: 44, weight: .bold, design: .rounded)
         #else
         .system(size: 34, weight: .bold, design: .rounded)
+        #endif
+    }
+
+    private var isFinalStep: Bool {
+        #if os(macOS)
+        step == .ai
+        #else
+        step == .depth
         #endif
     }
 
@@ -277,6 +304,9 @@ struct BrieflyOnboarding: View {
         case .welcome: Color(red: 0.47, green: 0.28, blue: 0.94).opacity(0.10)
         case .capture: Color(red: 0.96, green: 0.41, blue: 0.24).opacity(0.10)
         case .depth: Color(red: 0.18, green: 0.57, blue: 0.51).opacity(0.10)
+        #if os(macOS)
+        case .ai: Color(red: 0.32, green: 0.44, blue: 0.92).opacity(0.10)
+        #endif
         }
     }
 
@@ -312,6 +342,9 @@ private enum OnboardingStep: String, CaseIterable, Identifiable {
     case welcome
     case capture
     case depth
+    #if os(macOS)
+    case ai
+    #endif
 
     var id: Self { self }
     var index: Int { Self.allCases.firstIndex(of: self) ?? 0 }
@@ -323,6 +356,9 @@ private enum OnboardingStep: String, CaseIterable, Identifiable {
         case .welcome: "WELCOME TO BRIEFLY"
         case .capture: "SAVE FROM ANYWHERE"
         case .depth: "READ ON YOUR TERMS"
+        #if os(macOS)
+        case .ai: "READY WHEN YOU ARE"
+        #endif
         }
     }
 
@@ -336,6 +372,9 @@ private enum OnboardingStep: String, CaseIterable, Identifiable {
             "Keep the good stuff close."
             #endif
         case .depth: "Start with the point. Go deeper when it’s worth it."
+        #if os(macOS)
+        case .ai: "Set up the engine for your library."
+        #endif
         }
     }
 
@@ -351,6 +390,10 @@ private enum OnboardingStep: String, CaseIterable, Identifiable {
             #endif
         case .depth:
             "Every item keeps its source beside a concise and detailed reading. Try the preview, then choose what the moment calls for."
+        #if os(macOS)
+        case .ai:
+            "Briefly uses your chosen AI to turn captures into concise and detailed summaries. Open Settings → AI processing, choose a command or add an OpenRouter key, run Test connection, then save."
+        #endif
         }
     }
 }
@@ -391,8 +434,8 @@ private struct OnboardingPill: View {
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 12)
             .frame(height: 34)
-            .background(Color.primary.opacity(0.055), in: Capsule())
-            .overlay { Capsule().stroke(Color.primary.opacity(0.08)) }
+            .background(Color.primary.opacity(0.055), in: Rectangle())
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.08)) }
     }
 }
 
@@ -482,9 +525,9 @@ private struct OnboardingWelcomeArtwork: View {
                 height: resultCardHeight,
                 alignment: .topLeading
             )
-            .onboardingGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .onboardingGlass(in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                Rectangle()
                     .stroke(Color.primary.opacity(0.14))
             }
             .shadow(color: .black.opacity(0.13), radius: 15, y: 8)
@@ -499,7 +542,7 @@ private struct OnboardingWelcomeArtwork: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(color)
                 .frame(width: 30, height: 30)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                .background(color.opacity(0.12), in: Rectangle())
             Text(title)
                 .font(sourceTitleFont)
                 .lineLimit(1)
@@ -508,9 +551,9 @@ private struct OnboardingWelcomeArtwork: View {
         }
         .padding(.horizontal, 11)
         .frame(width: sourceTileWidth, height: sourceTileHeight)
-        .onboardingGlass(in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .onboardingGlass(in: Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.13))
         }
         #else
@@ -519,15 +562,15 @@ private struct OnboardingWelcomeArtwork: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(color)
                 .frame(width: 28, height: 28)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .background(color.opacity(0.12), in: Rectangle())
             Text(title)
                 .font(sourceTitleFont)
                 .lineLimit(1)
         }
         .frame(width: sourceTileWidth, height: sourceTileHeight)
-        .onboardingGlass(in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .onboardingGlass(in: Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.13))
         }
         #endif
@@ -535,7 +578,7 @@ private struct OnboardingWelcomeArtwork: View {
 
     private func line(width: CGFloat) -> some View {
         GeometryReader { proxy in
-            Capsule()
+            Rectangle()
                 .fill(Color.primary.opacity(0.12))
                 .frame(width: proxy.size.width * width, height: 6)
         }
@@ -643,9 +686,9 @@ private struct OnboardingCaptureArtwork: View {
             }
             .padding(18)
             .frame(maxWidth: 390)
-            .onboardingGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .onboardingGlass(in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                Rectangle()
                     .stroke(Color.primary.opacity(0.14))
             }
 
@@ -661,9 +704,9 @@ private struct OnboardingCaptureArtwork: View {
             .font(.system(size: 25, weight: .medium, design: .rounded))
             .padding(.horizontal, 20)
             .frame(height: 60)
-            .onboardingGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onboardingGlass(in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                Rectangle()
                     .stroke(Color.accentColor.opacity(0.45), lineWidth: 1.5)
             }
             .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
@@ -685,9 +728,9 @@ private struct OnboardingCaptureArtwork: View {
             }
             .padding(.horizontal, 16)
             .frame(maxWidth: 300, minHeight: 62)
-            .onboardingGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .onboardingGlass(in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                Rectangle()
                     .stroke(Color.accentColor.opacity(0.40), lineWidth: 1.5)
             }
             .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
@@ -696,6 +739,51 @@ private struct OnboardingCaptureArtwork: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+#if os(macOS)
+private struct OnboardingAIArtwork: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 13) {
+                Image(systemName: "sparkles")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 48, height: 48)
+                    .background(Color.accentColor.opacity(0.12), in: Rectangle())
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("AI processing")
+                        .font(.headline.weight(.bold))
+                    Text("A quick check before your first capture")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+            }
+            .padding(18)
+            .frame(maxWidth: 430)
+            .onboardingGlass(in: Rectangle())
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.14)) }
+
+            HStack(spacing: 10) {
+                Label("Choose", systemImage: "slider.horizontal.3")
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.tertiary)
+                Label("Test", systemImage: "bolt.horizontal")
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.tertiary)
+                Label("Save", systemImage: "checkmark")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+#endif
 
 private struct OnboardingDepthArtwork: View {
     @Binding var selection: OnboardingDepth
@@ -716,7 +804,7 @@ private struct OnboardingDepthArtwork: View {
                             .frame(height: 40)
                             .background(
                                 selection == depth ? Color.accentColor.opacity(0.14) : .clear,
-                                in: Capsule()
+                                in: Rectangle()
                             )
                     }
                     .buttonStyle(.plain)
@@ -725,8 +813,8 @@ private struct OnboardingDepthArtwork: View {
                 }
             }
             .padding(4)
-            .onboardingGlass(in: Capsule())
-            .overlay { Capsule().stroke(Color.primary.opacity(0.12)) }
+            .onboardingGlass(in: Rectangle())
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.12)) }
             .frame(maxWidth: 430)
 
             VStack(alignment: .leading, spacing: 13) {
@@ -763,9 +851,9 @@ private struct OnboardingDepthArtwork: View {
             }
             .padding(20)
             .frame(maxWidth: 430, minHeight: 190, alignment: .topLeading)
-            .onboardingGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .onboardingGlass(in: Rectangle())
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                Rectangle()
                     .stroke(Color.primary.opacity(0.14))
             }
             .shadow(color: .black.opacity(0.10), radius: 12, y: 6)

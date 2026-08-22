@@ -121,9 +121,9 @@ struct FeedRailCard<Content: View>: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial.opacity(0.72))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(Rectangle())
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            Rectangle()
                 .stroke(Color.primary.opacity(0.10))
         }
     }
@@ -164,7 +164,7 @@ struct BrowserCard<Content: View>: View {
                     .padding(.vertical, 18)
                     .padding(.trailing, settingsAction == nil ? 18 : 50)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -234,7 +234,7 @@ struct XEmptyState: View {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
+                    .buttonBorderShape(.roundedRectangle(radius: 0))
                     .padding(.top, 4)
             }
         }

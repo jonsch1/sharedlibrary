@@ -164,9 +164,9 @@ struct BrieflyBackgroundSetting: View {
                 BrieflyBackgroundImage(appearance: appearance)
                     .frame(width: previewWidth, height: previewHeight)
                     .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(Rectangle())
                     .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        Rectangle()
                             .stroke(Color.primary.opacity(0.14))
                     }
 
@@ -202,7 +202,7 @@ struct BrieflyBackgroundSetting: View {
                 }
             }
             .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
+            .buttonBorderShape(.roundedRectangle(radius: 0))
         }
         #if os(macOS)
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.image]) { result in

@@ -46,7 +46,8 @@ final class ShareViewController: UIViewController {
 
         var configuration = UIButton.Configuration.filled()
         configuration.title = "Save"
-        configuration.cornerStyle = .capsule
+        configuration.cornerStyle = .fixed
+        configuration.background.cornerRadius = 0
         configuration.imagePadding = 8
         saveButton.configuration = configuration
         saveButton.addTarget(self, action: #selector(save), for: .touchUpInside)

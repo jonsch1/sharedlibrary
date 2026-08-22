@@ -41,6 +41,10 @@ Source:
 {{source}}
 """
 
+public func processingTestResponseIsValid(_ output: String) -> Bool {
+    output.localizedCaseInsensitiveContains("Briefly is ready")
+}
+
 public struct ProcessingSuggestion: Codable, Equatable, Sendable {
     public struct Summaries: Codable, Equatable, Sendable {
         public var concise: String

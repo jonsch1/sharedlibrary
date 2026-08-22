@@ -29,8 +29,8 @@ struct MacXRightRail: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 44)
-            .background(.regularMaterial, in: Capsule())
-            .overlay { Capsule().stroke(Color.primary.opacity(0.10)) }
+            .background(.regularMaterial, in: Rectangle())
+            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
 
             if let entry = model.selection.selectedEntry {
                 FeedRailCard(title: "About this post") {

@@ -1,4 +1,5 @@
 import BrieflyCore
+import CryptoKit
 import Foundation
 import Observation
 import Security
@@ -9,6 +10,7 @@ final class LibrarySettingsModel {
     static let processingDefaultCommand = BrieflyCore.defaultProcessingCommand
     static let processingCommandKey = "BrieflyProcessingCommand"
     static let processingPromptKey = "BrieflyProcessingPrompt"
+    static let processingVerificationKey = "BrieflyProcessingVerification"
     static let aboutYouKey = "BrieflyAboutYou"
 
     let session: LibrarySession
@@ -18,6 +20,9 @@ final class LibrarySettingsModel {
     var processingPrompt: String
     var openRouterAPIKey: String
     var aboutYou: String
+    var processingVerificationFingerprint: String
+    var processingTestMessage: String?
+    var processingTestSucceeded = false
 
     init(session: LibrarySession) {
         self.session = session
@@ -29,6 +34,9 @@ final class LibrarySettingsModel {
             ?? defaultProcessingPrompt
         openRouterAPIKey = OpenRouterCredentialStore.load() ?? ""
         aboutYou = UserDefaults.standard.string(forKey: Self.aboutYouKey) ?? ""
+        processingVerificationFingerprint = UserDefaults.standard.string(
+            forKey: Self.processingVerificationKey
+        ) ?? ""
     }
 
     var processingConfiguration: LibraryProcessingConfiguration {
@@ -41,6 +49,11 @@ final class LibrarySettingsModel {
     }
 
     var defaultProcessingCommand: String { BrieflyCore.defaultProcessingCommand }
+
+    var isProcessingConfigured: Bool {
+        !processingCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            processingVerificationFingerprint == processingFingerprint
+    }
 
     func refreshTopics(from library: SQLiteLibraryStore) async throws {
         topicsText = try await library.topicDefinitions()
@@ -85,6 +98,8 @@ final class LibrarySettingsModel {
     func testProcessingCommand() async {
         guard !isTestingAI else { return }
         isTestingAI = true
+        processingTestMessage = nil
+        processingTestSucceeded = false
         defer { isTestingAI = false }
         do {
             let prompt = "Reply with exactly: Briefly is ready."
@@ -106,13 +121,33 @@ final class LibrarySettingsModel {
             #else
             throw LibraryError.processingUnavailable
             #endif
-            guard output.localizedCaseInsensitiveContains("Briefly is ready") else {
+            guard processingTestResponseIsValid(output) else {
                 throw NativeLibraryError.unexpectedAIResponse
             }
+            processingVerificationFingerprint = processingFingerprint
+            UserDefaults.standard.set(
+                processingVerificationFingerprint,
+                forKey: Self.processingVerificationKey
+            )
+            processingTestSucceeded = true
+            processingTestMessage = "AI setup verified. Briefly is ready to process captures."
             session.status = "Processing command works"
         } catch {
+            processingVerificationFingerprint = ""
+            UserDefaults.standard.removeObject(forKey: Self.processingVerificationKey)
+            processingTestMessage = error.localizedDescription
             session.errorMessage = error.localizedDescription
         }
+    }
+
+    private var processingFingerprint: String {
+        let configuration = [
+            processingCommand.trimmingCharacters(in: .whitespacesAndNewlines),
+            openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        ].joined(separator: "\n")
+        return SHA256.hash(data: Data(configuration.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     func savePersonalizationSettings() {
