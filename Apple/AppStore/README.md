@@ -5,11 +5,10 @@ publishing copy, compliance drafts, and asset handoff material only.
 
 ## Fastest release path
 
-Ship the iOS/iPadOS app first, in English (U.S.), as a free download with the
-existing monthly subscription. Submit the first subscription, its subscription
-group, and app version in the same review submission. Use automatic release after
-approval unless a coordinated launch date matters more than speed. Add the macOS
-version in a separate submission after iOS is through review.
+Ship the iOS/iPadOS app first, in English (U.S.), as a free TestFlight beta with
+no subscription or hosted AI. Use automatic release after approval unless a
+coordinated launch date matters more than speed. Add the macOS version in a
+separate submission after iOS is through review.
 
 ## Status
 
@@ -34,9 +33,7 @@ version in a separate submission after iOS is through review.
   and regions, with public App Store distribution.
 - [x] Accept the Paid Apps Agreement. It is pending completion of banking and
   tax information.
-- [x] Create and localize the monthly subscription and subscription group, make
-  them available in all 175 storefronts, set the U.S. price to `$8.49`, and
-  leave Family Sharing off.
+- [x] Defer the subscription and hosted AI flow until after the TestFlight beta.
 - [ ] Add a bank account and complete the U.S. tax questionnaire.
 - [ ] Receive approval for the App Store Small Business Program. Enrollment was
   submitted on August 9, 2026 with no associated developer accounts declared
@@ -48,7 +45,8 @@ version in a separate submission after iOS is through review.
 - [ ] Confirm owner attestations listed below.
 - [x] Embed the supplied icon in an `AppIcon` catalog for iOS, iPadOS, and macOS.
 - [x] Align the app, share extension, and UI-test targets with App Store version
-  `1.0` and build `1`.
+  `1.0`; the TestFlight release script applies one explicit build number to the
+  app and share extension at archive time.
 - [x] Add in-app account deletion, including Sign in with Apple
   token revocation and deletion of server-side account data not legally retained.
 - [x] Embed a valid `PrivacyInfo.xcprivacy` covering the app's required-reason
@@ -56,21 +54,32 @@ version in a separate submission after iOS is through review.
 - [x] Set `ITSAppUsesNonExemptEncryption` to `NO`; the source audit found Apple
   transport/storage services and SHA-256 hashing, with no proprietary or
   non-standard encryption.
+- [x] Add a repeatable iOS archive/upload script and prepare the TestFlight beta
+  description, test instructions, group plan, and feedback address.
 - [x] Deploy the tested account-deletion Worker and its one-table database
   migration to production.
-- [ ] Archive the finished iOS build with Xcode 26, validate it, and upload it.
+- [x] Create and verify the finished iOS archive with
+  `BUILD_NUMBER=<unique> ./scripts/testflight.sh archive`.
+- [x] Re-sign and export the archive locally with
+  `BUILD_NUMBER=<same> ./scripts/testflight.sh export`.
+- [ ] Upload it with `BUILD_NUMBER=<same> ./scripts/testflight.sh upload`, then
+  wait for App Store Connect processing to complete.
+- [ ] Add the processed build to an internal TestFlight group and complete an
+  internal smoke test before inviting external testers.
 - [ ] Capture and upload at least one iPhone 6.9-inch screenshot and one iPad
   13-inch screenshot; the five-screen plan below is preferred.
-- [ ] Upload the subscription review screenshot from Settings > Account.
-- [ ] Attach the processed build to version 1.0 and submit the app, subscription,
-  and subscription group together.
+- [ ] Attach the processed beta build to the TestFlight group and complete the
+  native capture/library smoke test.
 
-## App-team blockers (do not submit before these are fixed)
+## Distribution signing
 
-1. **Distribution signing:** the sandboxed audit did not find a valid local code
-   signing identity. Re-check from Xcode's Accounts settings before archiving and
-   let automatic signing create or download the Apple Distribution certificate
-   and App Store provisioning profiles if needed.
+Xcode successfully exported iOS build 4 on August 20, 2026 using the team's
+cloud-managed Apple Distribution certificate and App Store provisioning profiles
+for the app and share extension. The export verified non-debuggable binaries,
+production push notifications, and the production CloudKit environment.
+
+TestFlight beta copy, group defaults, and the release commands are in
+[`testflight.md`](testflight.md).
 
 ## Screenshot plan
 
@@ -90,9 +99,8 @@ Required launch sizes:
   1320 x 2868 PNG/JPEG without transparency.
 - iPad 13-inch portrait: use 2064 x 2752 or 2048 x 2732 PNG/JPEG without
   transparency.
-- The subscription review screenshot is separate and should show the localized
-  product, price, period, Subscribe action, Restore Purchases, Privacy Policy,
-  and Terms of Use in context.
+- Subscription screenshots are intentionally deferred until the paid product is
+  reintroduced.
 
 ## Owner input required before external submission
 
@@ -106,7 +114,7 @@ Required launch sizes:
 - Primary language: English (U.S.).
 - Primary category: Productivity.
 - Secondary category: News.
-- Price: Free app with one monthly auto-renewable subscription.
+- Price: Free TestFlight beta; any monthly subscription is deferred.
 - Release: Automatic after approval.
 - Age rating: answer **Yes** to unrestricted web access, which produces 16+ on
   Apple OS 26-era storefronts (17+ on older OS versions). All other content and

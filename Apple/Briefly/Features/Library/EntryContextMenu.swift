@@ -15,16 +15,18 @@ struct EntryContextMenu: ViewModifier {
                 }
             }
             if model.session.canEdit {
-                Button {
-                    Task {
-                        await model.workflows.select(entry.id)
-                        await model.workflows.processSelected()
+                if model.supportsAIProcessing {
+                    Button {
+                        Task {
+                            await model.workflows.select(entry.id)
+                            await model.workflows.processSelected()
+                        }
+                    } label: {
+                        Label("Regenerate summaries", systemImage: "sparkles")
                     }
-                } label: {
-                    Label("Regenerate summaries", systemImage: "sparkles")
+                    .disabled(model.processing.isProcessing)
+                    Divider()
                 }
-                .disabled(model.processing.isProcessing)
-                Divider()
                 Button(role: .destructive) {
                     confirmsTrash = true
                 } label: {

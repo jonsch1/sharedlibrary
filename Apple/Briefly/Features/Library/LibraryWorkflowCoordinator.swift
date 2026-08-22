@@ -145,10 +145,12 @@ final class LibraryWorkflowCoordinator {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
             await importPendingSharedCaptures()
+            #if os(macOS)
             let results = await processing.drainProcessingQueue(
                 configuration: settings.processingConfiguration
             )
             if !results.isEmpty { await refreshLibrary() }
+            #endif
             await runDueChannelChecks()
         } else {
             _ = await (selectedText, accountRefresh)
@@ -329,11 +331,6 @@ final class LibraryWorkflowCoordinator {
                         request,
                         captureID: capture.captureID
                     )
-                    guard let library = session.library else { throw LibraryError.missingEntry }
-                    try await library.enqueueProcessingJob(
-                        entryID: entryID,
-                        selectWhenFinished: false
-                    )
                     try inbox.complete(capture)
                     importedIDs.append(entryID)
                 } catch {
@@ -346,12 +343,8 @@ final class LibraryWorkflowCoordinator {
                 navigation.activeSection = .items
                 await refreshLibrary(selecting: importedIDs.last)
                 session.status = importedIDs.count == 1
-                    ? "Imported a shared item. Preparing summaries…"
-                    : "Imported \(importedIDs.count) shared items. Preparing summaries…"
-                let results = await processing.drainProcessingQueue(
-                    configuration: settings.processingConfiguration
-                )
-                await refreshLibrary(selecting: results.compactMap(\.selectedID).last ?? importedIDs.last)
+                    ? "Imported a shared item"
+                    : "Imported \(importedIDs.count) shared items"
                 requestSync()
             }
             if failedCount > 0 {
@@ -388,26 +381,34 @@ final class LibraryWorkflowCoordinator {
         guard let entryID = await processing.capture(text) else { return }
         navigation.activeSection = .items
         await refreshLibrary(selecting: entryID)
-        if session.environment.isUITesting {
-            session.status = "Captured"
-            return
-        }
+        #if os(macOS)
         session.status = "Captured. Preparing summaries…"
         await enqueueProcessing([entryID], selectWhenFinished: true)
+        #else
+        session.status = "Captured"
+        #endif
     }
 
     func captureWebPage(url: URL, page: SignedInChannelPage) async {
         guard let entryID = await processing.captureWebPage(url: url, page: page) else { return }
         await refreshLibrary(selecting: entryID)
+        #if os(macOS)
         session.status = "Saved the signed-in page. Preparing summaries…"
         await enqueueProcessing([entryID], selectWhenFinished: true)
+        #else
+        session.status = "Saved the signed-in page"
+        #endif
     }
 
     func capturePDF(_ url: URL) async {
         guard let entryID = await processing.capturePDF(url) else { return }
         await refreshLibrary(selecting: entryID)
+        #if os(macOS)
         session.status = "PDF captured. Preparing summaries…"
         await enqueueProcessing([entryID], selectWhenFinished: true)
+        #else
+        session.status = "PDF captured"
+        #endif
     }
 
     func setBrowserIngesting(_ ingesting: Bool) {
@@ -486,12 +487,14 @@ final class LibraryWorkflowCoordinator {
         guard acceptedChannelSummaryTask == nil else { return }
         acceptedChannelSummaryTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            #if os(macOS)
             while self.acceptedChannelSummaryRequested {
                 self.acceptedChannelSummaryRequested = false
                 _ = await self.processing.drainProcessingQueue(
                     configuration: self.settings.processingConfiguration
                 )
             }
+            #endif
             await self.refreshLibrary()
             self.requestSync()
             self.acceptedChannelSummaryTask = nil

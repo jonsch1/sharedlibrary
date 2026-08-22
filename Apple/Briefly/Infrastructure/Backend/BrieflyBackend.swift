@@ -118,51 +118,6 @@ final class BrieflyBackend {
         return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
     }
 
-    func runManagedAI(prompt: String, format: String) async throws -> String {
-        try await performManagedAI(prompt: prompt, format: format)
-    }
-
-    private func performManagedAI(prompt: String, format: String) async throws -> String {
-        struct Payload: Encodable {
-            let prompt: String
-            let format: String
-        }
-        struct Result: Decodable {
-            let output: String?
-        }
-        struct Failure: Decodable { let code: String? }
-        let body = try JSONEncoder().encode(Payload(prompt: prompt, format: format))
-        for attempt in 0..<6 {
-            let (data, response) = try await request(
-                "api/ai/process",
-                method: "POST",
-                body: body,
-                timeoutInterval: 20 * 60
-            )
-            let failure = try? JSONDecoder().decode(Failure.self, from: data)
-            if response.statusCode == 429,
-               failure?.code == "request_in_progress",
-               attempt < 5 {
-                try await Task.sleep(for: .seconds(pow(2.0, Double(attempt + 1))))
-                continue
-            }
-            try requireSuccess(
-                response,
-                data: data,
-                fallback: "Briefly AI could not process this request."
-            )
-            guard
-                let output = try JSONDecoder().decode(Result.self, from: data).output?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                !output.isEmpty
-            else {
-                throw BrieflyBackendError.message("Briefly AI returned no output.")
-            }
-            return output
-        }
-        throw BrieflyBackendError.message("Briefly AI is still finishing the previous request.")
-    }
-
     func firecrawl(_ url: URL) async throws -> ItemDraft {
         let body = try JSONSerialization.data(withJSONObject: ["url": url.absoluteString])
         let (data, response) = try await request(

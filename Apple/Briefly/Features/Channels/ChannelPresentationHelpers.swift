@@ -327,12 +327,16 @@ struct ChannelCandidateDocument: View {
         Task {
             switch decision {
             case .accept:
+                #if os(macOS)
                 _ = await model.channels.acceptCandidate(
                     item,
                     requestSummary: { entryIDs in
                         await model.workflows.finishAcceptedChannelItems(entryIDs)
                     }
                 )
+                #else
+                _ = await model.channels.acceptCandidate(item)
+                #endif
             case .reject:
                 _ = await model.channels.rejectCandidate(item)
             case .loadMore, .refresh:

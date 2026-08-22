@@ -138,6 +138,14 @@ final class LibraryModel {
             audio.isPreparingSpeech || lifecycle.isSyncing || settings.isTestingAI
     }
 
+    var supportsAIProcessing: Bool {
+        #if os(macOS)
+        true
+        #else
+        false
+        #endif
+    }
+
     var activityStatus: String {
         audio.isPreparingSpeech ? audio.speechPreparationStatus : session.status
     }
@@ -157,7 +165,6 @@ final class LibraryModel {
     }
 
     var menuBarIcon: String {
-        if account.account.entitled != true { return "lock.fill" }
         if audio.isGeneratingSpeech || audio.isPreparingSpeech {
             return "waveform"
         }
@@ -171,14 +178,6 @@ final class LibraryModel {
 
     #if os(macOS)
     private func handleAgentCall(_ call: BrieflyAgentCall) async -> BrieflyAgentReply {
-        guard account.account.entitled == true else {
-            return BrieflyAgentReply(
-                error: BrieflyAgentFailure(
-                    code: "subscription_required",
-                    message: "An active Briefly membership is required."
-                )
-            )
-        }
         do {
             let library = try await agentLibrary()
             let agent = BrieflyAgentLibrary(store: library)

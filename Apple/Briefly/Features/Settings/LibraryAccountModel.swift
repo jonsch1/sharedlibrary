@@ -1,19 +1,12 @@
 import AuthenticationServices
 import BrieflyCore
 import Observation
-import StoreKit
 
 @MainActor
 @Observable
 final class LibraryAccountModel {
-    static let subscriptionProductID = "fyi.readbriefly.plus.monthly"
-
     let session: LibrarySession
     var account: BrieflyAccountStatus
-    var subscriptionProduct: Product?
-    var isLoadingSubscription = false
-    var subscriptionLoadMessage: String?
-    var isPurchasingSubscription = false
     var isSigningInForReview = false
     var isCheckingAccount = false
     var isDeletingAccount = false
@@ -78,29 +71,7 @@ final class LibraryAccountModel {
                 nonce: nonce
             ))
             session.status = "Signed in with Apple"
-            await syncStoreEntitlements()
         } catch {
-            session.errorMessage = error.localizedDescription
-        }
-    }
-
-    func loadSubscription() async {
-        guard !isLoadingSubscription else { return }
-        isLoadingSubscription = true
-        subscriptionLoadMessage = nil
-        defer { isLoadingSubscription = false }
-        do {
-            let product = try await Product.products(
-                for: [Self.subscriptionProductID]
-            ).first
-            subscriptionProduct = product
-            guard product != nil else {
-                subscriptionLoadMessage = "The App Store price is unavailable."
-                return
-            }
-            await syncStoreEntitlements()
-        } catch {
-            subscriptionLoadMessage = "The App Store price could not be loaded."
             session.errorMessage = error.localizedDescription
         }
     }
@@ -120,69 +91,6 @@ final class LibraryAccountModel {
         }
     }
 
-    func purchaseSubscription() async {
-        guard
-            let product = subscriptionProduct,
-            let accountID = account.accountID,
-            !isPurchasingSubscription
-        else { return }
-        isPurchasingSubscription = true
-        defer { isPurchasingSubscription = false }
-        do {
-            switch try await product.purchase(options: [.appAccountToken(accountID)]) {
-            case .success(.verified(let transaction)):
-                updateAccount(
-                    try await session.backend.syncAppStoreTransaction(String(transaction.id))
-                )
-                await transaction.finish()
-                session.status = "Briefly membership activated"
-            case .success(.unverified):
-                throw BrieflyBackendError.message("The App Store purchase could not be verified.")
-            case .pending:
-                session.status = "The App Store purchase is awaiting approval"
-            case .userCancelled:
-                break
-            @unknown default:
-                break
-            }
-        } catch {
-            session.errorMessage = error.localizedDescription
-        }
-    }
-
-    func restoreSubscription() async {
-        guard account.authenticated, !isPurchasingSubscription else { return }
-        isPurchasingSubscription = true
-        defer { isPurchasingSubscription = false }
-        do {
-            try await AppStore.sync()
-            await syncStoreEntitlements()
-            session.status = account.entitled == true
-                ? "Briefly membership restored"
-                : "No active Briefly membership was found"
-        } catch {
-            session.errorMessage = error.localizedDescription
-        }
-    }
-
-    private func syncStoreEntitlements() async {
-        guard account.authenticated else { return }
-        do {
-            for await result in Transaction.currentEntitlements {
-                guard
-                    case .verified(let transaction) = result,
-                    transaction.productID == Self.subscriptionProductID
-                else { continue }
-                updateAccount(
-                    try await session.backend.syncAppStoreTransaction(String(transaction.id))
-                )
-                await transaction.finish()
-            }
-            if account.entitled != true { await refreshAccount() }
-        } catch {
-            session.errorMessage = error.localizedDescription
-        }
-    }
 
     private func updateAccount(_ value: BrieflyAccountStatus) {
         account = value

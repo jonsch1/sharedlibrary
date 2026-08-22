@@ -63,7 +63,7 @@
 				</tr>
 				<tr>
 					<td>Summaries and voice-brief scripts</td>
-					<td>The source title, URL, text, selected topics, and processing prompt. Briefly AI processes these via OpenRouter under a zero-data-retention agreement.</td>
+					<td>The source title, URL, text, selected topics, and processing prompt. On macOS, these are sent directly to the provider you choose when you request processing; iOS does not generate summaries in this beta.</td>
 					<td>Create the summaries or voice-brief script you request. Briefly does not use this content to train its own models.</td>
 					<td>Performance of your processing request.</td>
 				</tr>
@@ -98,12 +98,6 @@
 					<td>Your consent, which you may withdraw at any time.</td>
 				</tr>
 				<tr>
-					<td>Briefly membership billing</td>
-					<td>Email, internal account ID, App Store product and transaction identifiers, expiry, environment, and revocation status. Apple separately receives payment, billing, and tax details.</td>
-					<td>Verify App Store membership and provide subscribed features.</td>
-					<td>Contract and legal obligations; fraud prevention is a legitimate interest.</td>
-				</tr>
-				<tr>
 					<td>Support and rights requests</td>
 					<td>Your email, message, and any information you include.</td>
 					<td>Reply, resolve a problem, verify identity where necessary, and document compliance.</td>
@@ -121,9 +115,8 @@
 	<section>
 		<h2>3. Where data comes from</h2>
 		<ul>
-			<li>Directly from you when you sign in, connect a provider, subscribe, contact us, or publish a document.</li>
+			<li>Directly from you when you sign in, connect a provider, contact us, or publish a document.</li>
 			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
-			<li>From Apple when it reports App Store subscription, renewal, expiration, or revocation status.</li>
 			<li>From OpenRouter or a custom AI provider, Firecrawl, Modal, and PostHog when they return requested processing or operational results.</li>
 			<li>Automatically from your device and network when it requests the service.</li>
 			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
@@ -147,11 +140,11 @@
 				</tr>
 				<tr>
 					<td><a href="https://www.apple.com/legal/privacy/" rel="noreferrer">Apple</a></td>
-					<td>Account sign-in, App Store subscriptions, and private CloudKit storage; processes authentication, payment, transaction, and iCloud data under Apple's terms.</td>
+					<td>Account sign-in and private CloudKit storage; processes authentication and iCloud data under Apple's terms.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
-					<td>Provides Briefly AI summaries and voice-brief scripts under a zero-data-retention agreement. Source content is sent only when you request processing.</td>
+					<td>Processes source content when you choose OpenRouter directly in the macOS app, under OpenRouter's current terms and privacy policy. Source content is sent only when you request processing.</td>
 				</tr>
 				<tr>
 					<td><a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">OpenAI</a></td>
@@ -232,7 +225,7 @@
 				</tr>
 				<tr>
 					<td>AI processing inputs</td>
-					<td>Briefly keeps prompts and generated output only for the active API request; the output is then written to your selected library. Briefly AI processes the request via OpenRouter under a zero-data-retention agreement. A custom CLI provider applies its own service retention terms if you choose one instead.</td>
+					<td>When you request macOS processing, the app sends the prompt and source content directly to your selected OpenRouter or CLI provider. Briefly does not receive that request; the selected provider's own retention terms apply.</td>
 				</tr>
 				<tr>
 					<td>Fair-use counters and leases</td>
@@ -244,7 +237,7 @@
 				</tr>
 				<tr>
 					<td>Billing and transaction records</td>
-					<td>For the subscription and then as long as German tax, commercial, fraud-prevention, dispute, and other legal obligations require. Depending on the record, statutory retention is generally 6, 8, or 10 years; accounting vouchers are generally retained for 8 years.</td>
+					<td>Any legacy billing records are retained only as long as German tax, commercial, fraud-prevention, dispute, and other legal obligations require.</td>
 				</tr>
 				<tr>
 					<td>Support and rights requests</td>
@@ -277,9 +270,8 @@
 		<p>
 			Use <strong>Settings → Account → Delete Briefly account</strong> in the app to delete
 			your server-side account, active sessions, public shares, feedback, and hosted-usage data.
-			This does not delete your local or private iCloud library and does not cancel an App Store
-			subscription. Billing and moderation records are retained only for the periods described
-			above. You can also email <a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>
+			This does not delete your local or private iCloud library. Moderation records are retained
+			only for the periods described above. You can also email <a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>
 			to exercise a right. We may ask for limited information to verify that the request concerns your account.
 			We will respond without undue delay and normally within one month. Rights can have lawful
 			exceptions—for example, records we must keep for tax or legal claims.

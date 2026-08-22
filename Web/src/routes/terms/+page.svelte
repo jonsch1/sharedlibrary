@@ -5,7 +5,7 @@
 <LegalShell
 	active="terms"
 	title="Terms of service"
-	description="The agreement for using Briefly's apps, website, connected services, public shares, and membership."
+	description="The agreement for using Briefly's apps, website, connected services, and public shares."
 	updated="6 August 2026"
 >
 	<section>
@@ -13,11 +13,11 @@
 		<p>
 			These Terms are an agreement between you and <strong>Jonathan Schaul</strong>, operating
 			Briefly in Germany (“Briefly”, “we”, or “us”). They apply to the Briefly website,
-			macOS and iOS apps, accounts, synchronization, scheduled voice briefs, share links, and
-			the Briefly membership (together, the “Service”).
+			macOS and iOS apps, accounts, synchronization, scheduled voice briefs, and share links
+			(together, the “Service”).
 		</p>
 		<p>
-			By creating an account, using a connected feature, or subscribing, you agree to these
+			By creating an account or using a connected feature, you agree to these
 			Terms. If you do not agree, do not use those features. The <a href="/privacy">Privacy Notice</a>
 			explains how personal data is handled. Provider details are in the
 			<a href="/imprint">Imprint</a>. Contact:
@@ -37,9 +37,9 @@
 			synchronize through iCloud, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li><strong>Briefly membership</strong> is a recurring subscription that unlocks the native apps, hosted processing, cross-device synchronization, and public share links.</li>
-			<li>A Briefly account created with Sign in with Apple and an active membership are required to proceed past onboarding and use the native apps.</li>
-			<li>Briefly AI provides summary and voice-brief-script generation via OpenRouter under a zero-data-retention agreement. You may instead configure a compatible Codex, Claude, Pi, or OpenCode CLI; that provider's separate terms and any charges for your account then apply.</li>
+			<li>This TestFlight beta is free to use and does not present a Briefly subscription or hosted AI inference.</li>
+			<li>Sign in with Apple is optional for local library use. Cross-device and public-sharing features may require a Briefly account and remain subject to the service configuration.</li>
+			<li>On macOS, you may provide your own OpenRouter API key or configure a compatible Codex, Claude, Gemini, Pi, or OpenCode CLI. The selected provider's separate terms, privacy policy, usage limits, and charges then apply. iOS does not generate summaries in this beta.</li>
 			<li>Features may require a supported Apple operating system, internet connection, Apple account, or third-party service.</li>
 			<li>App builds may be labelled beta. Back up important source material and do not use Briefly as the sole copy of irreplaceable data.</li>
 		</ul>
@@ -60,10 +60,9 @@
 		</p>
 		<p>
 			iCloud sync is optional and can be stopped in the app. Doing so does not
-			delete Briefly files already stored in iCloud. Signing out does not cancel
-			your membership. You can delete your server-side Briefly account in
-			<strong>Settings → Account</strong>; local and private iCloud files remain under your
-			control, and an App Store subscription must be cancelled separately.
+			delete Briefly files already stored in iCloud. You can delete your server-side Briefly
+			account in <strong>Settings → Account</strong>; local and private iCloud files remain under
+			your control.
 		</p>
 	</section>
 
@@ -138,64 +137,18 @@
 	</section>
 
 	<section>
-		<h2>6. Membership, payment, and cancellation</h2>
+		<h2>6. Beta availability and provider charges</h2>
 		<ul>
-			<li>The Briefly membership is billed monthly through the App Store at the price, currency, and applicable tax shown before purchase.</li>
-			<li>Your launch-tier monthly price remains fixed while that subscription stays continuously active. If it ends and you later resubscribe, the then-current available price applies.</li>
-			<li>Your purchase and payment method are administered by Apple under the applicable App Store terms.</li>
-			<li>You can cancel in your Apple subscription settings. Unless mandatory law or Apple states otherwise, cancellation takes effect at the end of the paid billing period.</li>
-			<li>If renewal fails or Apple revokes or refunds a purchase, access to the native apps may pause. Your local and iCloud files remain yours and are not deleted; restore or renew the membership to continue.</li>
-			<li>We may change future prices with advance notice. A change does not override the continuous launch-tier promise unless you agree, the subscription ends, or a tax or legal requirement independently changes the amount due.</li>
+			<li>The TestFlight beta is free and does not present a Briefly subscription or hosted AI inference.</li>
+			<li>On macOS, you may provide your own OpenRouter API key or use a compatible provider CLI. The selected provider's separate terms, privacy policy, usage limits, and charges apply to that processing.</li>
+			<li>iOS captures and stores items without generating summaries in this beta.</li>
 		</ul>
-		<h3>Fair-use limits</h3>
-		<p>
-			The membership includes high but finite processing and storage allowances so one account
-			cannot exhaust shared infrastructure. Current limits include 24 hours of transcription per
-			day and 200 hours per month; 250,000 voice-generation characters per day and 2 million per
-			month; up to 100 active public links and 100 MB of public share text; and a conservative
-			Firecrawl extraction allowance. Individual transcription
-			inputs must be no larger than 250 MB or four hours, and individual voice requests no
-			longer than 60,000 characters.
-		</p>
-		<p>
-			We may temporarily slow or pause processing when a limit is reached, during an incident, or
-			to prevent abuse. We may adjust limits reasonably as actual use and provider costs become
-			clear, but will not use them to remove the core paid service without appropriate notice.
-			Contact us if a legitimate workflow regularly needs more.
-		</p>
-
-		<h3>German and EEA consumer right of withdrawal</h3>
-		<p>
-			If you are a consumer in Germany or elsewhere in the EEA, you generally have 14 days from
-			concluding an online service contract to withdraw without giving a reason. When you choose
-			to activate your membership immediately, you request performance during that period. If you withdraw
-			after service has begun, the law may permit a proportionate charge for service supplied
-			before your notice. Your right does not expire merely because access begins; statutory
-			rules on full performance and your express consent remain unaffected.
-		</p>
-		<p>
-			To withdraw from your membership, email an unambiguous statement to
-			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a> before the deadline. You
-			may use this optional model:
-		</p>
-		<div class="withdrawal-form">
-			<p>To: Briefly · hello@readbriefly.fyi</p>
-			<p>I hereby give notice that I withdraw from my Briefly membership contract.</p>
-			<p>Ordered on: [date]</p>
-			<p>Account email: [email]</p>
-			<p>Name: [name]</p>
-			<p>Date: [date]</p>
-		</div>
-		<p>
-			This section does not affect your mandatory remedies when a digital service is defective,
-			not as described, or not supplied. Refunds required by law will be provided.
-		</p>
 	</section>
 
 	<section>
 		<h2>7. Third-party services</h2>
 		<p>
-			Briefly interoperates with Apple, iCloud, the App Store, OpenRouter,
+			Briefly interoperates with Apple, iCloud, OpenRouter,
 			optional third-party AI CLIs such as OpenAI/Codex,
 			Modal-hosted transcription and voice generation, Firecrawl extraction, consent-only
 			PostHog analytics, operating systems, and browsers. Their services and terms are separate
@@ -225,12 +178,12 @@
 		<p>
 			We aim to keep Briefly reliable but do not promise uninterrupted or error-free operation.
 			We may update features for security, compatibility, legal compliance, or product
-			improvement. For a paid continuous service, we will provide updates and remedies required
-			by applicable consumer law.
+			improvement. For any connected service, we will provide updates and remedies required by
+			applicable consumer law.
 		</p>
 		<p>
-			You may stop using Briefly at any time. Cancel your membership separately, revoke public shares you no
-			longer want online, and use <strong>Settings → Account → Delete Briefly account</strong>
+			You may stop using Briefly at any time, revoke public shares you no longer want online, and
+			use <strong>Settings → Account → Delete Briefly account</strong>
 			to delete server-side account data. You may also contact us for help with a rights request. We may
 			end the Service or your access for a material breach, legal requirement, security risk, or
 			discontinuation. Where practicable, we will give reasonable notice and an opportunity to
@@ -250,8 +203,7 @@
 			loss. Briefly is not responsible for loss caused by your unlawful content, disclosure of a
 			forwardable share link, failure to secure your account, or a third-party service outside
 			our reasonable control. For business use, Briefly's aggregate liability is limited to
-			€100; for paid business use, it is limited to the membership fees paid in the 12 months before
-			the event. These business caps do not apply to consumers where mandatory law provides a
+			€100. These business caps do not apply to consumers where mandatory law provides a
 			greater remedy.
 		</p>
 	</section>
@@ -272,8 +224,8 @@
 		</p>
 		<p>
 			We may update these Terms for legal, security, or product reasons. We will post the revised
-			version and date. If a material change affects an existing paid subscription, we will give
-			reasonable advance notice and, where required, ask for agreement or allow termination.
+			version and date. We will give reasonable advance notice of material changes where required
+			by applicable law.
 		</p>
 	</section>
 </LegalShell>

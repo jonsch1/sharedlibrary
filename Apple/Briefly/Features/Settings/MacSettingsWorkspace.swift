@@ -16,7 +16,6 @@ struct MacXSettingsWorkspace: View {
     )
     @State private var appleSignInNonce = ""
     @State private var showingAccountDeletionConfirmation = false
-    @State private var showingSubscription = false
 
     private var filteredSections: [BrieflySettingsSection] {
         guard !query.isEmpty else { return BrieflySettingsSection.allCases }
@@ -52,7 +51,6 @@ struct MacXSettingsWorkspace: View {
         }
         .task {
             await model.account.refreshAccount()
-            await model.account.loadSubscription()
         }
         .alert(
             "Delete Briefly Account?",
@@ -66,13 +64,9 @@ struct MacXSettingsWorkspace: View {
             Text(
                 "This permanently removes your Briefly server account, public shares, " +
                     "sessions, feedback, and service usage. It does not delete your local " +
-                    "or iCloud library or cancel an App Store subscription. Billing and " +
-                    "content-moderation records may be retained where legally required."
+                    "or iCloud library. Billing and content-moderation records may be " +
+                    "retained where legally required."
             )
-        }
-        .sheet(isPresented: $showingSubscription) {
-            SubscriptionScreen(account: model.account)
-                .frame(width: 560, height: 760)
         }
     }
 
@@ -230,19 +224,9 @@ struct MacXSettingsWorkspace: View {
             detailGroup("Your account") {
                 valueRow(icon: "person.crop.circle", title: "Account", value: model.account.account.authenticated ? model.account.account.email ?? "Signed in" : "Signed out")
                 if model.account.account.authenticated {
-                    valueRow(icon: "checkmark.seal", title: "Membership", value: model.account.account.entitled == true ? "Active" : "Needs activation")
-                    actionRow(icon: "arrow.clockwise", title: "Refresh account", subtitle: "Check membership and subscription status") {
+                    valueRow(icon: "checkmark.seal", title: "Access", value: "TestFlight beta")
+                    actionRow(icon: "arrow.clockwise", title: "Refresh account", subtitle: "Check sign-in status") {
                         Task { await model.account.refreshAccount(reportErrors: true) }
-                    }
-                    if model.account.account.entitled == true {
-                        externalDetailRow(icon: "creditcard", title: "Manage App Store subscription", url: "https://apps.apple.com/account/subscriptions")
-                    } else {
-                        actionRow(icon: "sparkles", title: "Explore Briefly Plus", subtitle: "See membership benefits and pricing") {
-                            showingSubscription = true
-                        }
-                    }
-                    actionRow(icon: "arrow.counterclockwise", title: "Restore purchases", subtitle: "Restore an existing App Store subscription") {
-                        Task { await model.account.restoreSubscription() }
                     }
                     actionRow(icon: "rectangle.portrait.and.arrow.right", title: "Sign out", subtitle: "Remove this account from the Mac", destructive: true) {
                         Task { await model.account.signOut() }
@@ -305,23 +289,53 @@ struct MacXSettingsWorkspace: View {
 
         case .ai:
             detailGroup("AI processing") {
-                detailRow(icon: "sparkles", title: "Use Briefly AI", subtitle: "Managed processing with zero-data retention") {
-                    Toggle("", isOn: Binding(get: { model.settings.usesManagedAI }, set: model.settings.useManagedAI))
-                        .labelsHidden()
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("OpenRouter API key (optional)")
+                        .font(.callout.weight(.semibold))
+                    SecureField("sk-or-v1-…", text: $model.settings.openRouterAPIKey)
+                        .textFieldStyle(.plain)
+                        .padding(11)
+                        .background(Color.primary.opacity(0.04))
+                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                    Text(
+                        model.settings.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "Leave blank to use a locally installed CLI such as Codex, Claude, or Gemini."
+                            : "Briefly uses this key directly with OpenRouter on this Mac."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                if !model.settings.usesManagedAI {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Processing command")
-                            .font(.callout.weight(.semibold))
-                        TextField("Command", text: $model.settings.processingCommand, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .padding(11)
-                            .background(Color.primary.opacity(0.04))
-                            .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
+                .padding(20)
+                Divider().padding(.leading, 58)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Processing command")
+                        .font(.callout.weight(.semibold))
+                    Menu("Choose processing preset") {
+                        Button("Codex") { model.settings.processingCommand = defaultProcessingCommand }
+                        Button("Claude") {
+                            model.settings.processingCommand =
+                                #"claude -p --tools "" --strict-mcp-config --no-session-persistence"#
+                        }
+                        Button("Gemini") {
+                            model.settings.processingCommand =
+                                #"gemini --output-format json -p "$(cat)""#
+                        }
+                        Button("Pi") {
+                            model.settings.processingCommand =
+                                "pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills"
+                        }
+                        Button("OpenCode") {
+                            model.settings.processingCommand = #"opencode run --pure "$(cat)""#
+                        }
                     }
-                    .padding(20)
-                    Divider().padding(.leading, 58)
+                    TextField("Command", text: $model.settings.processingCommand, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .padding(11)
+                        .background(Color.primary.opacity(0.04))
+                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
                 }
+                .padding(20)
+                Divider().padding(.leading, 58)
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Processing prompt")
                         .font(.callout.weight(.semibold))
@@ -492,7 +506,7 @@ struct MacXSettingsWorkspace: View {
         case .general: "Color scheme and display"
         case .library: "Storage, refresh, and iCloud"
         case .capture: "System-wide keyboard shortcut"
-        case .account: "Sign-in and subscription"
+        case .account: "Sign-in and beta access"
         case .personalization: "Your context"
         case .topics: "Reusable library topics"
         case .ai: "Provider, command, and prompt"
@@ -504,7 +518,7 @@ struct MacXSettingsWorkspace: View {
         case .general: "Manage how Briefly content is displayed to you."
         case .library: "Manage local storage, refresh, and synchronization."
         case .capture: "Choose the keyboard shortcut used to capture from anywhere."
-        case .account: "See account information and manage your membership."
+        case .account: "See account information and optional Apple sign-in."
         case .personalization: "Tell Briefly what matters to you."
         case .topics: "Manage the reusable topics applied to saved notes."
         case .ai: "Choose how Briefly processes and summarizes content."

@@ -1,12 +1,12 @@
 import BrieflyCore
 import Foundation
 import Observation
+import Security
 
 @MainActor
 @Observable
 final class LibrarySettingsModel {
-    static let managedAICommand = "briefly://openrouter/openai/gpt-5.6-luna"
-    static let processingDefaultCommand = managedAICommand
+    static let processingDefaultCommand = BrieflyCore.defaultProcessingCommand
     static let processingCommandKey = "BrieflyProcessingCommand"
     static let processingPromptKey = "BrieflyProcessingPrompt"
     static let aboutYouKey = "BrieflyAboutYou"
@@ -16,27 +16,27 @@ final class LibrarySettingsModel {
     var isTestingAI = false
     var processingCommand: String
     var processingPrompt: String
+    var openRouterAPIKey: String
     var aboutYou: String
 
     init(session: LibrarySession) {
         self.session = session
-        processingCommand = UserDefaults.standard.string(forKey: Self.processingCommandKey)
-            ?? Self.processingDefaultCommand
+        let savedCommand = UserDefaults.standard.string(forKey: Self.processingCommandKey)
+        processingCommand = savedCommand == "briefly://openrouter/openai/gpt-5.6-luna"
+            ? Self.processingDefaultCommand
+            : savedCommand ?? Self.processingDefaultCommand
         processingPrompt = UserDefaults.standard.string(forKey: Self.processingPromptKey)
             ?? defaultProcessingPrompt
+        openRouterAPIKey = OpenRouterCredentialStore.load() ?? ""
         aboutYou = UserDefaults.standard.string(forKey: Self.aboutYouKey) ?? ""
-    }
-
-    var usesManagedAI: Bool {
-        processingCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            == Self.managedAICommand
     }
 
     var processingConfiguration: LibraryProcessingConfiguration {
         LibraryProcessingConfiguration(
             command: processingCommand,
             prompt: processingPrompt,
-            usesManagedAI: usesManagedAI
+            openRouterAPIKey: openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
         )
     }
 
@@ -67,9 +67,19 @@ final class LibrarySettingsModel {
         }
         processingCommand = command
         processingPrompt = prompt
+        let apiKey = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try OpenRouterCredentialStore.save(apiKey)
+        } catch {
+            session.errorMessage = error.localizedDescription
+            return
+        }
+        openRouterAPIKey = apiKey
         UserDefaults.standard.set(command, forKey: Self.processingCommandKey)
         UserDefaults.standard.set(prompt, forKey: Self.processingPromptKey)
-        session.status = "AI processing settings saved"
+        session.status = apiKey.isEmpty
+            ? "AI command settings saved"
+            : "OpenRouter settings saved"
     }
 
     func testProcessingCommand() async {
@@ -79,19 +89,23 @@ final class LibrarySettingsModel {
         do {
             let prompt = "Reply with exactly: Briefly is ready."
             let output: String
-            if usesManagedAI {
-                output = try await session.backend.runManagedAI(prompt: prompt, format: "text")
+            #if os(macOS)
+            if let apiKey = processingConfiguration.openRouterAPIKey {
+                output = try await runOpenRouterProcessing(
+                    prompt: prompt,
+                    format: "text",
+                    apiKey: apiKey
+                )
             } else {
-                #if os(macOS)
                 output = try await runProcessingCommand(
                     processingCommand,
                     prompt: prompt,
                     timeout: 60
                 )
-                #else
-                throw LibraryError.processingUnavailable
-                #endif
             }
+            #else
+            throw LibraryError.processingUnavailable
+            #endif
             guard output.localizedCaseInsensitiveContains("Briefly is ready") else {
                 throw NativeLibraryError.unexpectedAIResponse
             }
@@ -99,10 +113,6 @@ final class LibrarySettingsModel {
         } catch {
             session.errorMessage = error.localizedDescription
         }
-    }
-
-    func useManagedAI(_ enabled: Bool) {
-        processingCommand = enabled ? Self.managedAICommand : BrieflyCore.defaultProcessingCommand
     }
 
     func savePersonalizationSettings() {
@@ -183,5 +193,58 @@ final class LibrarySettingsModel {
             session.errorMessage = error.localizedDescription
             return false
         }
+    }
+}
+
+private enum OpenRouterCredentialStore {
+    private static let service = "fyi.readbriefly.BrieflyNative.openrouter"
+    private static let account = "openrouter_api_key"
+
+    static func load() -> String? {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard
+            SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+            let data = result as? Data,
+            let key = String(data: data, encoding: .utf8),
+            !key.isEmpty
+        else {
+            return nil
+        }
+        return key
+    }
+
+    static func save(_ key: String) throws {
+        if key.isEmpty {
+            SecItemDelete(baseQuery as CFDictionary)
+            return
+        }
+        let data = Data(key.utf8)
+        let status = SecItemUpdate(
+            baseQuery as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        guard status == errSecItemNotFound else {
+            guard status == errSecSuccess else {
+                throw BrieflyBackendError.message("Briefly could not save the OpenRouter API key.")
+            }
+            return
+        }
+        var item = baseQuery
+        item[kSecValueData as String] = data
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
+            throw BrieflyBackendError.message("Briefly could not save the OpenRouter API key.")
+        }
+    }
+
+    private static var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
     }
 }

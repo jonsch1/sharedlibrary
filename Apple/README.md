@@ -17,8 +17,9 @@ Native SwiftUI clients for macOS and iOS. These are the primary Briefly apps;
   persistent cookie store. External Safari/default-browser links are for
   viewing only; authenticated extraction stays in-app so the session remains
   available to Briefly.
-- Native Sign in with Apple, StoreKit membership, managed AI, personal context,
-  an editable processing prompt, custom macOS AI/agent commands, and share links.
+- Native Sign in with Apple, personal context, an editable processing prompt,
+  macOS provider commands, optional user-supplied OpenRouter processing, and
+  share links.
 - Startup-warmed on-device audio generation with paragraph-level progressive
   playback, local caching, resume position, seeking, speed, and volume.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
@@ -43,10 +44,10 @@ To connect the private CloudKit library:
 4. Confirm `BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER` is `iCloud.fyi.readbriefly`.
 5. Run while signed into an iCloud account that has a Briefly library.
 
-Also add **Sign in with Apple** and the `fyi.readbriefly.plus.monthly`
-auto-renewable subscription in App Store Connect. The app uses that StoreKit
-product for purchase and restore; the Worker verifies its transactions before
-granting hosted access.
+Also add **Sign in with Apple** if account-backed features are being tested. The
+TestFlight beta does not present a subscription or use app-funded hosted AI.
+macOS users can enter their own OpenRouter API key or configure a local provider
+CLI; iOS captures and stores items without summaries.
 
 The app uses the private `BrieflyDocuments` zone. Each local transaction adds
 or coalesces a logical-record outbox entry for CKSyncEngine.
@@ -84,6 +85,12 @@ To rebuild and immediately reopen a development-signed app, use:
 ./scripts/rebuild-and-reopen.sh all
 ```
 
+To build, install Briefly directly into `/Applications`, and launch it:
+
+```bash
+./scripts/install-to-applications.sh
+```
+
 Launched builds keep development signing enabled so capabilities such as Sign
 in with Apple remain available. The iOS command requires a booted simulator.
 
@@ -94,8 +101,9 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
 
 ## Platform-specific limits
 
-- Briefly AI via OpenRouter is the default on macOS and iOS. Local command-line
-  processing and custom terminal agents remain available on macOS.
+- macOS summaries use either a user-supplied OpenRouter API key or a local
+  command-line provider such as Codex, Claude, or Gemini. iOS captures and
+  stores items without summaries in this beta.
 - Scheduled channel checks run at launch while the app remains active. Reliable
   background iOS execution still needs an App Refresh task.
 - The native clients can generate local speech for ordinary library documents.

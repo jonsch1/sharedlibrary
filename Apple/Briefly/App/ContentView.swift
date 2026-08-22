@@ -11,7 +11,6 @@ struct ContentView: View {
     @AppStorage("BrieflyAppearance") private var appearance = "system"
     @AppStorage(BrieflyOnboarding.completionKey) private var completedOnboardingVersion = 0
     @Bindable var model: LibraryModel
-    @State private var hasResolvedAccess = false
     @State private var showsChannelBrowser = false
     @State private var showsSettings = false
     #if os(iOS)
@@ -29,14 +28,7 @@ struct ContentView: View {
                 BrieflyOnboarding {
                     completedOnboardingVersion = BrieflyOnboarding.currentVersion
                 }
-            } else if isCheckingAccess {
-                ProgressView("Checking membership…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background {
-                        BrieflyAtmosphere()
-                            .ignoresSafeArea()
-                    }
-            } else if hasLibraryAccess {
+            } else {
                 if model.lifecycle.isReady {
                 #if os(macOS)
                 HStack(alignment: .top, spacing: 24) {
@@ -114,38 +106,14 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #endif
                 }
-            } else {
-                SubscriptionScreen(
-                    account: model.account,
-                    dismissesWhenEntitled: false,
-                    previewPrice: showsSubscriptionPreview ||
-                        model.session.environment.isAppReviewTesting
-                        ? "$8.49"
-                        : nil,
-                    previewAuthenticated: showsSubscriptionPreview,
-                    allowsDismissal: false
-                )
             }
         }
         .task {
-            if showsSubscriptionPreview {
-                model.account.account = BrieflyAccountStatus(
-                    authenticated: true,
-                    entitled: false,
-                    reviewAccess: false,
-                    email: nil,
-                    accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")
-                )
-                hasResolvedAccess = true
-            } else if model.session.environment.isUITesting {
-                hasResolvedAccess = true
+            if model.session.environment.isUITesting {
                 await model.workflows.start()
             } else {
                 await model.account.refreshAccount()
-                hasResolvedAccess = true
-                if model.account.account.entitled == true {
-                    await model.workflows.start()
-                }
+                await model.workflows.start()
             }
         }
         .task {
@@ -153,7 +121,6 @@ struct ContentView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled else { return }
-                guard model.account.account.entitled == true else { continue }
                 if model.session.canEdit { await model.workflows.sync() }
                 await model.workflows.runDueChannelChecks()
             }
@@ -166,24 +133,10 @@ struct ContentView: View {
                 await model.account.refreshAccount()
             }
         }
-        .onChange(of: model.account.account.entitled) { _, entitled in
-            if entitled == true {
-                guard hasResolvedAccess else { return }
-                Task { await model.workflows.start() }
-            } else {
-                showsChannelBrowser = false
-                showsSettings = false
-                showsCaptureComposer = false
-                showsPDFImporter = false
-                audioEntry = nil
-                audioPlayer.stop()
-            }
-        }
         .onChange(of: scenePhase) {
             if scenePhase == .active, model.lifecycle.runsScheduledWork {
                 Task {
                     await model.account.refreshAccount()
-                    guard model.account.account.entitled == true else { return }
                     await model.workflows.importPendingSharedCaptures()
                     if model.session.canEdit { await model.workflows.sync() }
                     await model.workflows.runDueChannelChecks()
@@ -191,8 +144,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .CKAccountChanged)) { _ in
-            guard model.lifecycle.runsScheduledWork,
-                  model.account.account.entitled == true else { return }
+            guard model.lifecycle.runsScheduledWork else { return }
             Task {
                 if model.session.canEdit { await model.workflows.sync() }
             }
@@ -261,7 +213,6 @@ struct ContentView: View {
             isPresented: $showsPDFImporter,
             allowedContentTypes: [.pdf]
         ) { result in
-            guard model.account.account.entitled == true else { return }
             switch result {
             case .success(let url):
                 Task { await model.workflows.capturePDF(url) }
@@ -270,7 +221,6 @@ struct ContentView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard model.account.account.entitled == true else { return false }
             guard urls.count == 1 else {
                 model.session.errorMessage = "Drop one document or link at a time."
                 return false
@@ -319,20 +269,17 @@ struct ContentView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyCaptureClipboard)
         ) { _ in
-            guard model.account.account.entitled == true else { return }
             let text = NSPasteboard.general.string(forType: .string) ?? ""
             Task { await model.workflows.capture(text) }
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyImportPDF)
         ) { _ in
-            guard model.account.account.entitled == true else { return }
             showsPDFImporter = true
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)
         ) { _ in
-            guard model.account.account.entitled == true else { return }
             Task<Void, Never> { await model.workflows.refreshLibrary() }
         }
         #endif
@@ -346,29 +293,9 @@ struct ContentView: View {
         #endif
     }
 
-    private var isCheckingAccess: Bool {
-        !hasResolvedAccess &&
-            !model.session.environment.isUITesting &&
-            !showsSubscriptionPreview
-    }
-
     private var needsOnboarding: Bool {
         !model.session.environment.isUITesting &&
             !model.session.environment.isAppReviewTesting &&
-            !showsSubscriptionPreview &&
             completedOnboardingVersion < BrieflyOnboarding.currentVersion
-    }
-
-    private var hasLibraryAccess: Bool {
-        model.session.environment.isUITesting ||
-            (model.account.account.entitled == true && !showsSubscriptionPreview)
-    }
-
-    private var showsSubscriptionPreview: Bool {
-        #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("--show-subscription")
-        #else
-        false
-        #endif
     }
 }

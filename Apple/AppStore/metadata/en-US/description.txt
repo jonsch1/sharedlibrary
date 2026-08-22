@@ -17,9 +17,10 @@ Turn saved material and briefs into audio, then continue at your preferred playb
 PRIVATE BY DEFAULT
 Your library is local-first and can sync privately through your iCloud account. Nothing becomes public unless you deliberately create a share link.
 
-A monthly Briefly Plus membership is required to use the app after onboarding. Sign in with Apple creates your Briefly account, and the subscription is purchased securely through the App Store. The localized price and monthly renewal period are shown before purchase. You can restore purchases in the app and manage or cancel your subscription from your App Store account settings.
-
-If a membership expires, access to the app pauses, but the library stored on your device and in your private iCloud container is not deleted. Restore or renew the membership to continue.
+This TestFlight beta is free to use. Sign in with Apple is optional for local
+library use. On macOS, summaries can use your own OpenRouter API key or a local
+provider CLI such as Codex, Claude, or Gemini. iOS currently captures and stores
+items without AI summaries.
 
 Privacy Policy: https://www.readbriefly.fyi/privacy
 Terms of Use: https://www.readbriefly.fyi/terms

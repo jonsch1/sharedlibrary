@@ -196,7 +196,7 @@ test('native services fail closed without an App Store entitlement', async () =>
 	assert.equal((await unavailable.json()).code, 'subscription_required');
 });
 
-test('Briefly AI prefers Fireworks with zero-data-retention routing and provider fallback', async () => {
+test('Briefly AI prefers Fireworks with provider fallback', async () => {
 	const originalFetch = globalThis.fetch;
 	let openRouterRequest;
 	globalThis.fetch = async (url, init) => {
@@ -222,7 +222,6 @@ test('Briefly AI prefers Fireworks with zero-data-retention routing and provider
 		);
 		assert.equal(response.status, 200);
 		assert.deepEqual(JSON.parse(openRouterRequest.init.body).provider, {
-			zdr: true,
 			order: ['fireworks'],
 			allow_fallbacks: true
 		});

@@ -2,9 +2,9 @@
 
 The SvelteKit site renders public share links and the supporting marketing,
 feedback, administration, and legal pages. It does not contain a private library,
-account manager, or checkout. The Cloudflare Worker supports the native macOS and
-iOS apps with Apple authentication, App Store entitlement verification, managed
-processing, and public-share publishing.
+account manager, or checkout. The Cloudflare Worker supports Apple authentication
+and public-share publishing. The beta does not run hosted AI inference; macOS
+users can bring an OpenRouter API key or use a local provider CLI.
 
 ## Development
 
@@ -27,39 +27,21 @@ flow. Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and
 `APPLE_PRIVATE_KEY`, then register
 `https://www.readbriefly.fyi/api/auth/apple/callback` as the Services ID return URL.
 
-## App Store subscriptions
+## Hosted AI and billing
 
-Create one monthly auto-renewable subscription whose product identifier matches
-`APP_STORE_PRODUCT_ID` (`fyi.readbriefly.plus.monthly` by default). The app attaches
-its Briefly account UUID as StoreKit's `appAccountToken`; the Worker verifies each
-transaction with the App Store Server API before granting hosted access.
+Hosted Briefly AI and the subscription flow are deferred during the TestFlight
+beta. Keep `PAID_PROCESSING_ENABLED=false` in the deployed Worker. macOS users
+process locally with their own OpenRouter API key or a provider CLI; iOS stores
+captures without generating summaries.
 
-Create an App Store Connect In-App Purchase key and configure
-`APP_STORE_ISSUER_ID`, `APP_STORE_KEY_ID`, and `APP_STORE_PRIVATE_KEY`. Set the
-App Store Server Notifications V2 production and sandbox URL to:
-
-```
-https://www.readbriefly.fyi/api/billing/apple/notifications
-```
-
-Pricing and cancellation are presented and managed by the App Store. The website
-does not display a checkout or manage the customer's Apple account.
-
-## App Review access
-
-The native subscription screen exposes a documented App Review credential form.
-`APP_REVIEW_USERNAME` identifies the review-only account and
-`APP_REVIEW_CREDENTIAL_HASH` stores the SHA-256 digest of the normalized username,
-a null byte, and the password. A successful review login receives an ordinary
-server session with complimentary Plus access; no StoreKit transaction is forged.
-Keep the plaintext password only in App Store Connect and rotate the hash after
-review when practical.
+The Worker retains the Apple transaction and review-access modules for a later
+hosted-service release, but the beta app does not expose those flows.
 
 ## Other deployment configuration
 
 - `FIRECRAWL_API_KEY` enables authenticated extraction fallback.
-- `OPENROUTER_API_KEY` enables hosted Briefly AI processing.
-- `PAID_PROCESSING_ENABLED=false` stops new hosted processing during an incident.
+- `PAID_PROCESSING_ENABLED=true` enables hosted Briefly AI processing for a future
+  paid release; keep it `false` for the beta.
 - `APP_REVIEW_CREDENTIAL_HASH` enables the review-only credential boundary.
 - `PUBLIC_POSTHOG_PROJECT_TOKEN` optionally enables consent-only analytics.
 - D1 must be bound as `DB`; static assets must be bound as `ASSETS`.

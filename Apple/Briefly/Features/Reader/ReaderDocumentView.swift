@@ -145,7 +145,7 @@ struct LibraryDocument: View {
                         )
 
                     Menu {
-                        if model.session.canEdit && !model.navigation.showingTrash {
+                        if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                             Button {
                                 isEditing.toggle()
                             } label: {
@@ -233,7 +233,7 @@ struct LibraryDocument: View {
             isEditing = false
         }
         .contextMenu {
-            if model.session.canEdit && !model.navigation.showingTrash {
+            if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                 Button("Regenerate summaries") {
                     Task { await model.workflows.processSelected() }
                 }
@@ -266,7 +266,7 @@ struct LibraryDocument: View {
                                 )
                             }
                         }
-                        if model.session.canEdit && !model.navigation.showingTrash {
+                        if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                             Divider()
                             Button("Regenerate summaries", systemImage: "arrow.clockwise") {
                                 Task { await model.workflows.processSelected() }

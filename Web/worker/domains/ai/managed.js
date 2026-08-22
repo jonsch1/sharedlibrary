@@ -17,6 +17,9 @@ const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;
 const maximumManagedAIPromptLength = 600_000;
 
 async function processWithManagedAI(request, env) {
+	if (String(env.PAID_PROCESSING_ENABLED || '').toLowerCase() === 'false') {
+		return json({ error: 'Hosted Briefly AI is disabled in the beta.' }, { status: 503 });
+	}
 	const authentication = await authenticatedMutation(request, env, {
 		authenticationError: {
 			error: 'Sign in before using Briefly AI.',

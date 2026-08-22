@@ -426,7 +426,7 @@ final class LibraryChannelModel {
                 session.status = "Accepted. Preparing summaries…"
                 await requestSummary([entryID])
             } else {
-                session.status = "Accepted. Summary queued."
+                session.status = "Accepted."
             }
             return entryID
         } catch {

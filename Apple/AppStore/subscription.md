@@ -1,4 +1,8 @@
-# Subscription setup
+# Subscription setup (deferred)
+
+The subscription is not presented in the current TestFlight beta. Keep this
+document as future launch configuration only; do not expose the product in the
+beta build or use it to gate the native library.
 
 - Subscription group reference name: `ReadBriefly Membership`
 - Subscription group display name (en-US): `ReadBriefly Membership`

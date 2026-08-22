@@ -215,12 +215,7 @@ extension SettingsView {
                             : "Signed out"
                     )
                     if model.account.account.authenticated {
-                        LabeledContent(
-                            "Membership",
-                            value: model.account.account.entitled == true
-                                ? "Active"
-                                : "Needs activation"
-                        )
+                        LabeledContent("Access", value: "TestFlight beta")
                     }
                     HStack {
                         if model.account.account.authenticated {
@@ -241,22 +236,6 @@ extension SettingsView {
                         .disabled(model.account.isCheckingAccount)
                     }
                     if model.account.account.authenticated {
-                        if model.account.account.entitled == true {
-                            Link(
-                                "Manage App Store subscription",
-                                destination: URL(string: "https://apps.apple.com/account/subscriptions")!
-                            )
-                        } else {
-                            Button {
-                                showingSubscription = true
-                            } label: {
-                                Label("Explore Briefly Plus", systemImage: "sparkles")
-                            }
-                        }
-                        Button("Restore purchases") {
-                            Task { await model.account.restoreSubscription() }
-                        }
-                        .disabled(model.account.isPurchasingSubscription)
                         Button("Delete Briefly account", role: .destructive) {
                             showingAccountDeletionConfirmation = true
                         }
@@ -326,55 +305,39 @@ extension SettingsView {
                 }
 
                     case .ai:
+                #if os(macOS)
                 Section("AI processing") {
-                    #if os(macOS)
-                    Toggle(
-                        "Use Briefly AI",
-                        isOn: Binding(
-                            get: { model.settings.usesManagedAI },
-                            set: model.settings.useManagedAI
-                        )
-                    )
-                    if !model.settings.usesManagedAI {
-                        Menu("Choose processing preset") {
-                            Button("Codex") {
-                                model.settings.processingCommand =
-                                    defaultProcessingCommand
-                            }
-                            Button("Claude") {
-                                model.settings.processingCommand =
-                                    #"claude -p --tools "" --strict-mcp-config --no-session-persistence"#
-                            }
-                            Button("Pi") {
-                                model.settings.processingCommand =
-                                    "pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills"
-                            }
-                            Button("OpenCode") {
-                                model.settings.processingCommand =
-                                    #"opencode run --pure "$(cat)""#
-                            }
-                        }
-                        TextField(
-                            "Command",
-                            text: $model.settings.processingCommand,
-                            axis: .vertical
-                        )
-                        .lineLimit(2...5)
-                    } else {
-                        Text(
-                            "Briefly AI via OpenRouter, covered by a zero-data-retention agreement."
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    #else
-                    Label("Briefly AI", systemImage: "sparkles")
+                    SecureField("OpenRouter API key (optional)", text: $model.settings.openRouterAPIKey)
                     Text(
-                        "Briefly AI via OpenRouter, covered by a zero-data-retention agreement."
+                        model.settings.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "Leave this blank to use a locally installed CLI such as Codex, Claude, or Gemini."
+                            : "Briefly will use this key directly with OpenRouter on this Mac."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    #endif
+                    Menu("Choose processing preset") {
+                        Button("Codex") {
+                            model.settings.processingCommand = defaultProcessingCommand
+                        }
+                        Button("Claude") {
+                            model.settings.processingCommand =
+                                #"claude -p --tools "" --strict-mcp-config --no-session-persistence"#
+                        }
+                        Button("Gemini") {
+                            model.settings.processingCommand =
+                                #"gemini --output-format json -p "$(cat)""#
+                        }
+                        Button("Pi") {
+                            model.settings.processingCommand =
+                                "pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills"
+                        }
+                        Button("OpenCode") {
+                            model.settings.processingCommand =
+                                #"opencode run --pure "$(cat)""#
+                        }
+                    }
+                    TextField("Command", text: $model.settings.processingCommand, axis: .vertical)
+                        .lineLimit(2...5)
                     TextEditor(text: $model.settings.processingPrompt)
                         .font(.system(.caption, design: .monospaced))
                         .frame(minHeight: 150)
@@ -402,6 +365,13 @@ extension SettingsView {
                         .buttonStyle(.borderedProminent)
                     }
                 }
+                #else
+                ContentUnavailableView(
+                    "Summaries are a macOS beta feature",
+                    systemImage: "sparkles",
+                    description: Text("iOS captures and stores your items without AI processing for now.")
+                )
+                #endif
 
                     }
                 }
@@ -421,16 +391,6 @@ extension SettingsView {
         #if os(macOS)
         .toolbar(removing: .sidebarToggle)
         .toolbar(.hidden, for: .windowToolbar)
-        #endif
-        #if os(iOS)
-        .fullScreenCover(isPresented: $showingSubscription) {
-            SubscriptionScreen(account: model.account)
-        }
-        #else
-        .sheet(isPresented: $showingSubscription) {
-            SubscriptionScreen(account: model.account)
-                .frame(width: 560, height: 760)
-        }
         #endif
         #if os(macOS)
         .background(.ultraThinMaterial.opacity(0.48))
@@ -455,7 +415,6 @@ extension SettingsView {
                 selectedSection = initialSection
             }
             await model.account.refreshAccount()
-            await model.account.loadSubscription()
         }
         .alert(
             "Delete Briefly Account?",
@@ -469,8 +428,8 @@ extension SettingsView {
             Text(
                 "This permanently removes your Briefly server account, public shares, " +
                     "sessions, feedback, and service usage. It does not delete your local " +
-                    "or iCloud library or cancel an App Store subscription. Billing and " +
-                    "content-moderation records may be retained where legally required."
+                    "or iCloud library. Billing and content-moderation records may be " +
+                    "retained where legally required."
             )
         }
     }
