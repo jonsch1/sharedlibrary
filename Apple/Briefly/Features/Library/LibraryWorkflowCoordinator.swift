@@ -537,8 +537,10 @@ final class LibraryWorkflowCoordinator {
             return
         }
         let entryID = preferredEntryID ?? selection.selectedID
-        if (session.projection.entries + selection.trashEntries).contains(where: { $0.id == entryID }) {
-            await selection.select(entryID, includeDeleted: navigation.showingTrash)
+        if await selection.restoreSelection(
+            preferredEntryID: entryID,
+            includeDeleted: navigation.showingTrash
+        ) {
             return
         }
 

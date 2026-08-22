@@ -53,7 +53,7 @@ Then upload that exact archive:
 BUILD_NUMBER=<number> ./scripts/testflight.sh upload
 ```
 
-The latest uploaded beta is build `5` for version `1.0`.
+The latest uploaded beta is build `6` for version `1.0`.
 
 The export and upload actions refuse to rebuild or replace the archive, ensuring
 the artifact inspected locally is the one sent to Apple. They use Xcode's

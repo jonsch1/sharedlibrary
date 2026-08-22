@@ -17,6 +17,7 @@ final class LibrarySelectionModel {
     var hasLoadedHighlights = false
 
     private var selectedEntryIsInTrash = false
+    private var loadedEntrySnapshot: LibraryEntry?
 
     init(session: LibrarySession) {
         self.session = session
@@ -60,6 +61,7 @@ final class LibrarySelectionModel {
         selectedEntryIsInTrash = includeDeleted && !id.isEmpty
         guard let entry = selectedEntry else {
             selectedText = ""
+            loadedEntrySnapshot = nil
             return nil
         }
         selectedVariant = entry.preferredVariant
@@ -83,6 +85,7 @@ final class LibrarySelectionModel {
         selectedIDs = []
         selectedText = ""
         selectedEntryIsInTrash = false
+        loadedEntrySnapshot = nil
     }
 
     @discardableResult
@@ -96,18 +99,29 @@ final class LibrarySelectionModel {
         selectedIDs = selectedID.isEmpty ? [] : [selectedID]
         selectedVariant = selectedEntry?.preferredVariant ?? .concise
         selectedText = ""
+        loadedEntrySnapshot = nil
         return .items
         #endif
     }
 
     @discardableResult
-    func restoreSelection(preferredEntryID: String? = nil) async -> Bool {
+    func restoreSelection(
+        preferredEntryID: String? = nil,
+        includeDeleted: Bool = false
+    ) async -> Bool {
         let entryID = preferredEntryID ?? selectedID
-        guard (session.projection.entries + trashEntries).contains(where: { $0.id == entryID }) else {
+        guard let entry = (session.projection.entries + trashEntries).first(where: { $0.id == entryID }) else {
             clear()
             return false
         }
-        await select(entryID, includeDeleted: selectedEntryIsInTrash)
+        let variant = entry.preferredVariant
+        selectedEntryIsInTrash = includeDeleted
+        if selectedID == entryID, selectedVariant == variant {
+            guard loadedEntrySnapshot != entry else { return true }
+            await loadSelectedText(includeDeleted: includeDeleted, showLoading: false)
+        } else {
+            await select(entryID, includeDeleted: includeDeleted)
+        }
         return true
     }
 
@@ -139,30 +153,39 @@ final class LibrarySelectionModel {
         }
     }
 
-    func loadSelectedText(includeDeleted: Bool = false) async {
+    func loadSelectedText(
+        includeDeleted: Bool = false,
+        showLoading: Bool = true
+    ) async {
         guard
             let entry = selectedEntry,
             let reference = entry.text(for: selectedVariant)
         else {
             selectedText = ""
+            loadedEntrySnapshot = nil
             return
         }
         guard let library = session.library else {
             selectedText = reference.text ?? ""
+            loadedEntrySnapshot = entry
             return
         }
         let entryID = entry.id
         let variant = selectedVariant
-        isLoadingText = true
-        defer { isLoadingText = false }
+        if showLoading { isLoadingText = true }
+        defer {
+            if showLoading { isLoadingText = false }
+        }
         do {
             let document = try await library.getDocument(entryID, includeDeleted: includeDeleted)
             guard selectedID == entryID, selectedVariant == variant else { return }
             selectedText = document.texts[variant] ?? ""
+            loadedEntrySnapshot = entry
             await loadHighlights()
         } catch {
             session.errorMessage = error.localizedDescription
             selectedText = ""
+            loadedEntrySnapshot = nil
         }
     }
 
@@ -182,6 +205,9 @@ final class LibrarySelectionModel {
             session.projection = try await library.loadLibraryIndex()
             if selectedID == entryID, selectedVariant == variant {
                 selectedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                loadedEntrySnapshot = session.projection.entries.first {
+                    $0.id == entryID
+                }
             }
             session.status = "Document saved"
             return true

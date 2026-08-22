@@ -58,7 +58,7 @@ final class LibraryLifecycleModel {
 
     func refreshSession() async throws {
         guard let library = session.library else { return }
-        session.projection = try await library.loadLibraryIndex()
+        updateProjectionIfNeeded(try await library.loadLibraryIndex())
     }
 
     func sync() async {
@@ -103,15 +103,20 @@ final class LibraryLifecycleModel {
                 },
                 onFetchedChanges: { [weak self] in
                     guard let self else { return }
-                    session.projection = try await library.loadLibraryIndex()
+                    updateProjectionIfNeeded(try await library.loadLibraryIndex())
                 }
             )
-            session.projection = try await library.loadLibraryIndex()
+            updateProjectionIfNeeded(try await library.loadLibraryIndex())
             session.status = "Sync complete"
         } catch {
             session.errorMessage = error.localizedDescription
             session.status = "Using the last complete offline library"
         }
+    }
+
+    private func updateProjectionIfNeeded(_ next: LibraryProjection) {
+        guard next.entries != session.projection.entries else { return }
+        session.projection = next
     }
 
     func clearError() {

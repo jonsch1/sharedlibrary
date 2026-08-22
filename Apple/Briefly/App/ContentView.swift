@@ -142,7 +142,7 @@ struct ContentView: View {
         .task {
             guard model.lifecycle.runsScheduledWork else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(5 * 60))
                 guard !Task.isCancelled else { return }
                 if model.session.canEdit { await model.workflows.sync() }
                 await model.workflows.runDueChannelChecks()
