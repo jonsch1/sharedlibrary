@@ -275,6 +275,24 @@ struct ContentView: View {
             }
         }
         #endif
+        .alert(
+            "Custom capture failed",
+            isPresented: Binding(
+                get: { model.session.customCaptureFailure != nil },
+                set: { if !$0 { model.session.customCaptureFailure = nil } }
+            ),
+            presenting: model.session.customCaptureFailure
+        ) { failure in
+            Button("Retry") {
+                Task { await model.workflows.capture(failure.url.absoluteString) }
+            }
+            Button("Use native capture") {
+                Task { await model.workflows.capture(failure.url.absoluteString, useNative: true) }
+            }
+            Button("Cancel", role: .cancel) { model.session.customCaptureFailure = nil }
+        } message: { failure in
+            Text(failure.localizedDescription)
+        }
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
                 text: model.selection.selectedID == entry.id && !model.selection.selectedText.isEmpty

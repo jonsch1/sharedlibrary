@@ -395,27 +395,32 @@ final class LibraryWorkflowCoordinator {
         if !results.isEmpty { requestSync() }
     }
 
-    func capture(_ text: String, onCaptured: (() -> Void)? = nil) async {
-        guard let entryID = await processing.capture(text) else { return }
+    func capture(_ text: String, useNative: Bool = false, onCaptured: (() -> Void)? = nil) async {
+        session.customCaptureFailure = nil
+        clearError()
+        guard let entryID = await processing.capture(text, useNative: useNative) else { return }
         onCaptured?()
         navigation.activeSection = .items
-        await refreshLibrary(selecting: entryID)
-        #if os(macOS)
-        session.status = "Captured. Preparing summaries…"
-        await enqueueProcessing([entryID], selectWhenFinished: true)
-        #else
-        session.status = "Captured"
-        #endif
+        await finishCapturedItem(entryID)
     }
 
     func captureWebPage(url: URL, page: SignedInChannelPage) async {
+        session.customCaptureFailure = nil
         guard let entryID = await processing.captureWebPage(url: url, page: page) else { return }
+        await finishCapturedItem(entryID)
+    }
+
+    private func finishCapturedItem(_ entryID: String) async {
         await refreshLibrary(selecting: entryID)
+        requestSync()
+        session.status = "Captured"
         #if os(macOS)
-        session.status = "Saved the signed-in page. Preparing summaries…"
-        await enqueueProcessing([entryID], selectWhenFinished: true)
-        #else
-        session.status = "Saved the signed-in page"
+        if let library = session.library,
+           let result = try? await BrieflyAgentLibrary(store: library).writeResult(id: entryID),
+           result.status == "processing" {
+            session.status = "Captured. Preparing summaries…"
+            await enqueueProcessing([entryID], selectWhenFinished: true)
+        }
         #endif
     }
 

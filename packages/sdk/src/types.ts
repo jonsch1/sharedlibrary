@@ -49,4 +49,10 @@ export interface BrieflyOptions {
 
 export type CapturePreview =
   | { kind: "custom"; adapterId: string; url: string; document: SaveInput }
-  | { kind: "native"; url: string };
+  | { kind: "app"; url: string };
+
+export type AdapterRunnerRequest =
+  | { action: "status" }
+  | { action: "disconnect"; id: string }
+  | { action: "connect"; id: string; port: number; token: string; adapterIDs: string[] };
+export interface AdapterRunnerStatus { connected: boolean; adapterCount: number }

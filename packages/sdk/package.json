@@ -11,6 +11,7 @@
     }
   },
   "types": "./dist/index.d.ts",
+  "bin": { "briefly-adapters": "./dist/runner-cli.js" },
   "files": ["dist", "examples", "AGENTS.md", "README.md"],
   "scripts": {
     "build": "tsc -p tsconfig.json",

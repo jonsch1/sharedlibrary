@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class LibraryInputService {
     let session: LibrarySession
+    let captureCoordinator = BrieflyCaptureCoordinator()
 
     init(session: LibrarySession) {
         self.session = session

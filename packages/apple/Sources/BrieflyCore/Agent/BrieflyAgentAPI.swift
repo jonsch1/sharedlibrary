@@ -1,6 +1,8 @@
 import Foundation
 
 public protocol BrieflyAgentAPI: Sendable {
+    func capture(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult
+    func adapterRunner(_ request: BrieflyAdapterRunnerRequest) async throws -> BrieflyAdapterRunnerStatus
     func ingest(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult
     func save(_ request: BrieflyAgentSaveRequest) async throws -> BrieflyAgentWriteResult
     func search(_ request: BrieflyAgentSearchRequest) async throws -> BrieflyAgentSearchResult
@@ -393,6 +395,8 @@ public struct BrieflyAgentLibrary: Sendable {
 public struct BrieflyAgentCall: Codable, Equatable, Sendable {
     public let version: Int
     public let op: String
+    public let capture: BrieflyAgentIngestRequest?
+    public let adapterRunner: BrieflyAdapterRunnerRequest?
     public let ingest: BrieflyAgentIngestRequest?
     public let save: BrieflyAgentSaveRequest?
     public let search: BrieflyAgentSearchRequest?
@@ -401,6 +405,8 @@ public struct BrieflyAgentCall: Codable, Equatable, Sendable {
     public init(
         version: Int = 1,
         op: String,
+        capture: BrieflyAgentIngestRequest? = nil,
+        adapterRunner: BrieflyAdapterRunnerRequest? = nil,
         ingest: BrieflyAgentIngestRequest? = nil,
         save: BrieflyAgentSaveRequest? = nil,
         search: BrieflyAgentSearchRequest? = nil,
@@ -408,6 +414,8 @@ public struct BrieflyAgentCall: Codable, Equatable, Sendable {
     ) {
         self.version = version
         self.op = op
+        self.capture = capture
+        self.adapterRunner = adapterRunner
         self.ingest = ingest
         self.save = save
         self.search = search
@@ -416,6 +424,8 @@ public struct BrieflyAgentCall: Codable, Equatable, Sendable {
 }
 
 public struct BrieflyAgentReply: Codable, Equatable, Sendable {
+    public let capture: BrieflyAgentWriteResult?
+    public let adapterRunner: BrieflyAdapterRunnerStatus?
     public let ingest: BrieflyAgentWriteResult?
     public let save: BrieflyAgentWriteResult?
     public let search: BrieflyAgentSearchResult?
@@ -423,12 +433,16 @@ public struct BrieflyAgentReply: Codable, Equatable, Sendable {
     public let error: BrieflyAgentFailure?
 
     public init(
+        capture: BrieflyAgentWriteResult? = nil,
+        adapterRunner: BrieflyAdapterRunnerStatus? = nil,
         ingest: BrieflyAgentWriteResult? = nil,
         save: BrieflyAgentWriteResult? = nil,
         search: BrieflyAgentSearchResult? = nil,
         read: BrieflyAgentReadResult? = nil,
         error: BrieflyAgentFailure? = nil
     ) {
+        self.capture = capture
+        self.adapterRunner = adapterRunner
         self.ingest = ingest
         self.save = save
         self.search = search

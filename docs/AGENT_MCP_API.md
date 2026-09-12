@@ -5,10 +5,12 @@ Last updated: 2026-09-12
 
 ## Decision
 
-Briefly exposes four local MCP tools:
+Briefly exposes six local MCP tools:
 
 | Tool | Input | Compact result |
 | --- | --- | --- |
+| `capture` | `url` | `id`, `status`; app routes through the connected runner or native extraction |
+| `adapter_runner` | `action`, optional runner registration | `connected`, `adapterCount` |
 | `ingest` | `url` | `id`, `status` |
 | `save` | `title`, `content`, optional `url`, `concise`, `detailed` | `id`, `status` |
 | `search` | optional `q`, optional `limit` | `items[]` with `id`, `title`, optional `snippet` |
@@ -235,3 +237,34 @@ the lightweight plugin under `packages/apple/.build/plugin/briefly`.
 - [MCP tools, 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [Official Swift MCP SDK](https://github.com/modelcontextprotocol/swift-sdk)
 - [Agent Plugins 1.0.0 specification](https://agent-plugins.org/specification)
+
+
+## App-owned custom capture
+
+`capture` accepts the same URL schema as `ingest` and uses
+`BrieflyCaptureCoordinator`, also used by the native capture shortcut, composer,
+link drops, and signed-in page capture. `ingest` always bypasses custom handling.
+The SDK also uses `capture` when no adapter in its own process matches.
+
+`adapter_runner` manages a single local runner lease. `connect` requires `id`
+(UUID), `port` (1–65535), `token` (64 hexadecimal characters), and `adapterIDs`
+(1–100 unique IDs, each at most 100 characters). `disconnect` requires the runner
+ID; `status` needs no other fields. Results contain only `connected` and
+`adapterCount`. A different active runner receives `runner_conflict`. Leases
+expire after 45 seconds and the SDK renews every 15 seconds. Nothing is persisted
+or synced: a runner reconnects after app restart, and iOS does not execute it.
+
+The app POSTs authenticated JSON to `http://127.0.0.1:<port>/resolve` with `{url}`.
+The runner returns `{matched, adapterId}`; an explicit no-match has `matched:false`
+and `adapterId:null`. A match leads to `/extract` with `{url,adapterId}`, returning
+`{document}` using the `save` document fields. Registration is the only way to
+select a port; arbitrary hosts, redirects, cookies and proxy forwarding are not
+allowed. Requests have 3-second resolution and 120-second extraction deadlines.
+The runner limits request bodies to 16 KB and extracted responses to 2 MB.
+
+No connected runner, expired registration, a refused connection before matching,
+or explicit no-match use native extraction. Failure after matching or an invalid
+response returns `adapter_failed` without saving or falling back. The native UI
+offers Retry and Use native capture. The runner never calls save on the app's
+behalf: the coordinator validates and persists returned content, preserving
+supplied summaries and queueing processing only when neither summary is supplied.

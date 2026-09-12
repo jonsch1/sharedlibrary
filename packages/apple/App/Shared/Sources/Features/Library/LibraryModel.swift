@@ -46,6 +46,7 @@ final class LibrarySession {
     var projection = LibraryProjection.empty
     var status = "Loading library…"
     var errorMessage: String?
+    var customCaptureFailure: BrieflyCustomCaptureFailure?
 
     init(environment: AppEnvironment = .current()) {
         self.environment = environment
@@ -179,9 +180,22 @@ final class LibraryModel {
     #if os(macOS)
     private func handleAgentCall(_ call: BrieflyAgentCall) async -> BrieflyAgentReply {
         do {
+            if call.op == "adapter_runner" {
+                guard let request = call.adapterRunner else { throw BrieflyAgentFailure.invalid("Runner parameters are required.") }
+                return BrieflyAgentReply(adapterRunner: try processing.inputService.captureCoordinator.configureRunner(request))
+            }
             let library = try await agentLibrary()
             let agent = BrieflyAgentLibrary(store: library)
             switch call.op {
+            case "capture":
+                guard let request = call.capture, let url = URL(string: request.url) else {
+                    throw BrieflyAgentFailure.invalid("Capture requires a URL.")
+                }
+                let result = try await processing.inputService.captureCoordinator.capture(
+                    .init(source: .url(url)), in: library, context: processing.inputService.itemInputContext()
+                )
+                await finishAgentWrite(result)
+                return BrieflyAgentReply(capture: result)
             case "ingest":
                 guard let request = call.ingest else {
                     throw BrieflyAgentFailure.invalid("ingest parameters are required.")
@@ -209,6 +223,8 @@ final class LibraryModel {
             default:
                 throw BrieflyAgentFailure.invalid("Unknown Briefly agent operation.")
             }
+        } catch let failure as BrieflyCustomCaptureFailure {
+            return BrieflyAgentReply(error: BrieflyAgentFailure(code: "adapter_failed", message: failure.localizedDescription))
         } catch let failure as BrieflyAgentFailure {
             return BrieflyAgentReply(error: failure)
         } catch {

@@ -220,6 +220,16 @@ struct MacXSettingsWorkspace: View {
                 }
             }
 
+            detailGroup("Custom source handling") {
+                TimelineView(.periodic(from: .now, by: 5)) { _ in
+                    let status = model.processing.inputService.captureCoordinator.runnerStatus()
+                    valueRow(icon: "puzzlepiece.extension", title: "Adapter runner",
+                             value: status.connected ? "Connected · \(status.adapterCount) handlers" : "Not connected · using native capture")
+                }
+                Text("Your capture shortcut checks connected custom handlers first. Start the adapter runner from your script to connect it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
         case .account:
             detailGroup("Your account") {
                 valueRow(icon: "person.crop.circle", title: "Account", value: model.account.account.authenticated ? model.account.account.email ?? "Signed in" : "Signed out")

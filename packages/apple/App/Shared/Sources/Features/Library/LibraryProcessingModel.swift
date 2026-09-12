@@ -86,7 +86,7 @@ final class LibraryProcessingModel {
     }
 
     @discardableResult
-    func capture(_ text: String) async -> String? {
+    func capture(_ text: String, useNative: Bool = false) async -> String? {
         guard let library = session.library else {
             session.errorMessage = "Open a Briefly library before capturing."
             return nil
@@ -103,12 +103,15 @@ final class LibraryProcessingModel {
                     : nil
             }
             session.status = url == nil ? "Capturing text…" : "Extracting the item…"
-            let router = NativeItemInputRouter()
             let request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
-            let draft = try await router.ingest(request, context: inputService.itemInputContext())
-            let id = try await library.captureItem(draft)
+            let result = try await inputService.captureCoordinator.capture(
+                request, in: library, context: inputService.itemInputContext(), useNative: useNative
+            )
             session.status = "Captured"
-            return id
+            return result.id
+        } catch let failure as BrieflyCustomCaptureFailure {
+            session.customCaptureFailure = failure
+            return nil
         } catch {
             session.errorMessage = error.localizedDescription
             return nil
@@ -150,7 +153,9 @@ final class LibraryProcessingModel {
         isIngesting = true
         defer { isIngesting = false }
         do {
-            let id = try await library.captureItem(ItemDraft(
+            let result = try await inputService.captureCoordinator.capture(
+                .init(source: .url(url)), in: library, context: inputService.itemInputContext(),
+                nativeDraft: ItemDraft(
                 inputID: .webPage,
                 title: page.title,
                 content: page.text,
@@ -160,7 +165,10 @@ final class LibraryProcessingModel {
                 faviconFileExtension: page.faviconFileExtension
             ))
             session.status = "Saved the signed-in page"
-            return id
+            return result.id
+        } catch let failure as BrieflyCustomCaptureFailure {
+            session.customCaptureFailure = failure
+            return nil
         } catch {
             session.errorMessage = error.localizedDescription
             return nil

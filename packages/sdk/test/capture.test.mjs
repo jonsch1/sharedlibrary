@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
-import { Briefly, BrieflyError } from "@readbriefly/sdk";
+import { Briefly, BrieflyError, startAdapterRunner } from "@readbriefly/sdk";
 
 const execFileAsync = promisify(execFile);
 const helper = process.env.BRIEFLY_MCP_HELPER ??
@@ -82,7 +82,7 @@ test("custom capture, native fallback, reads, and canonical updates use the real
     title: "Custom capture", source_url: `${base}/discussion`, body: content,
   }]);
 
-  assert.deepEqual(await briefly.preview(`${base}/native.txt`), { kind: "native", url: `${base}/native.txt` });
+  assert.deepEqual(await briefly.preview(`${base}/native.txt`), { kind: "app", url: `${base}/native.txt` });
   const native = await briefly.capture(`${base}/native.txt`);
   assert.equal(native.status, "processing");
   assert.equal((await briefly.read({ id: native.id })).status, "processing");
@@ -129,4 +129,56 @@ test("preview needs no app and failed custom handling preserves saved content", 
   assert.deepEqual(await sourceTexts(database), [{
     title: "Good source", source_url: "https://example.com/item", body: "Keep this original",
   }]);
+});
+
+test("the app routes captures to a live runner, preserves failures, and falls back when disconnected", { timeout: 30_000 }, async (t) => {
+  const { helperPath, database } = await library(t);
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("# Native capture\n\nOrdinary native extraction remains available.");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const client = new Briefly({ helperPath });
+  let broken = false;
+  const runner = await startAdapterRunner({
+    client,
+    adapters: [{
+      id: "personal.discussion",
+      matches: (url) => url.origin === base && url.pathname === "/discussion",
+      extract: () => {
+        if (broken) throw new Error("Source layout changed");
+        return { title: "Selected discussion", content: "The post and selected replies.", concise: "Custom summary supplied by the handler." };
+      },
+    }],
+  });
+  t.after(async () => {
+    await runner.close();
+    await client.close();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  assert.equal(runner.state.connected, true);
+  assert.deepEqual(await client.adapterRunner({ action: "status" }), { connected: true, adapterCount: 1 });
+  assert.deepEqual((await client.search()).items, []); // Registration and matching never save.
+  const saved = await client.capture(`${base}/discussion`);
+  assert.equal(saved.status, "ready");
+  assert.equal((await client.read({ id: saved.id })).text, "Custom summary supplied by the handler.");
+  assert.equal((await sourceTexts(database))[0].body, "The post and selected replies.");
+  const native = await client.capture(`${base}/ordinary`);
+  assert.equal(native.status, "processing");
+
+  broken = true;
+  await assert.rejects(client.capture(`${base}/discussion`), { code: "adapter_failed" });
+  assert.equal((await client.read({ id: saved.id })).text, "Custom summary supplied by the handler.");
+  assert.equal((await sourceTexts(database)).find((item) => item.source_url === `${base}/discussion`).body, "The post and selected replies.");
+
+  // Explicit native capture is the recovery action, even while the custom handler is broken.
+  const recovered = await client.ingest(`${base}/discussion`);
+  assert.equal(recovered.id, saved.id);
+  assert.match((await sourceTexts(database)).find((item) => item.source_url === `${base}/discussion`).body, /Ordinary native extraction/);
+  await runner.close();
+  assert.deepEqual(await client.adapterRunner({ action: "status" }), { connected: false, adapterCount: 0 });
+  const fallback = await client.capture(`${base}/after-stop`);
+  assert.equal(fallback.status, "processing");
 });

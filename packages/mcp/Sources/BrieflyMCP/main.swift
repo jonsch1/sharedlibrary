@@ -23,6 +23,10 @@ struct BrieflyMCPCommand {
         await server.withMethodHandler(CallTool.self) { parameters in
             do {
                 switch parameters.name {
+                case "capture":
+                    return try success(try await api.capture(decode(BrieflyAgentIngestRequest.self, arguments: parameters.arguments)))
+                case "adapter_runner":
+                    return try success(try await api.adapterRunner(decode(BrieflyAdapterRunnerRequest.self, arguments: parameters.arguments)))
                 case "ingest":
                     let request = try decode(
                         BrieflyAgentIngestRequest.self,
@@ -50,6 +54,8 @@ struct BrieflyMCPCommand {
                 default:
                     return try failure(.invalid("Unknown Briefly tool."))
                 }
+            } catch let error as BrieflyCustomCaptureFailure {
+                return try failure(BrieflyAgentFailure(code: "adapter_failed", message: error.localizedDescription))
             } catch let error as BrieflyAgentFailure {
                 return try failure(error)
             } catch {
@@ -70,6 +76,30 @@ struct BrieflyMCPCommand {
 }
 
 private let brieflyTools = [
+    Tool(
+        name: "capture",
+        description: "Capture a URL through the app's custom source handling, or native extraction if no handler matches. Changes the library; use only when asked.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object(["url": .object(["type": .string("string"), "maxLength": .int(2048)])]),
+            "required": .array([.string("url")]), "additionalProperties": .bool(false)
+        ])
+    ),
+    Tool(
+        name: "adapter_runner",
+        description: "Connect, renew, disconnect, or check the user's local source-adapter runner. Setup changes how future captures are handled; use only when asked to configure custom handling.",
+        inputSchema: .object([
+            "type": .string("object"),
+            "properties": .object([
+                "action": .object(["type": .string("string"), "enum": .array([.string("connect"), .string("disconnect"), .string("status")])]),
+                "id": .object(["type": .string("string"), "maxLength": .int(36)]),
+                "port": .object(["type": .string("integer"), "minimum": .int(1), "maximum": .int(65535)]),
+                "token": .object(["type": .string("string"), "minLength": .int(64), "maxLength": .int(64)]),
+                "adapterIDs": .object(["type": .string("array"), "minItems": .int(1), "maxItems": .int(100), "items": .object(["type": .string("string"), "maxLength": .int(100)])])
+            ]),
+            "required": .array([.string("action")]), "additionalProperties": .bool(false)
+        ])
+    ),
     Tool(
         name: "ingest",
         description: "Capture one HTTP(S) URL using Briefly extraction and summarization. Changes the library; use only when asked.",
@@ -133,6 +163,20 @@ private let brieflyTools = [
 private struct SocketBrieflyAgentAPI: BrieflyAgentAPI {
     let client = BrieflyAgentSocketClient()
 
+    func capture(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult {
+        let reply = try await client.call(BrieflyAgentCall(op: "capture", capture: request))
+        if let error = reply.error { throw error }
+        guard let result = reply.capture else { throw invalidReply() }
+        return result
+    }
+
+    func adapterRunner(_ request: BrieflyAdapterRunnerRequest) async throws -> BrieflyAdapterRunnerStatus {
+        let reply = try await client.call(BrieflyAgentCall(op: "adapter_runner", adapterRunner: request))
+        if let error = reply.error { throw error }
+        guard let result = reply.adapterRunner else { throw invalidReply() }
+        return result
+    }
+
     func ingest(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult {
         let reply = try await client.call(BrieflyAgentCall(op: "ingest", ingest: request))
         if let error = reply.error { throw error }
@@ -169,11 +213,22 @@ private struct SocketBrieflyAgentAPI: BrieflyAgentAPI {
     }
 }
 
-private struct DirectBrieflyAgentAPI: BrieflyAgentAPI {
+@MainActor
+private final class DirectBrieflyAgentAPI: BrieflyAgentAPI {
+    let captureCoordinator = BrieflyCaptureCoordinator()
     let store: SQLiteLibraryStore
 
     init(databaseURL: URL) {
         store = SQLiteLibraryStore(databaseURL: databaseURL)
+    }
+
+    func capture(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult {
+        guard let url = URL(string: request.url) else { throw BrieflyAgentFailure.invalid("Invalid capture URL.") }
+        return try await captureCoordinator.capture(.init(source: .url(url)), in: store)
+    }
+
+    func adapterRunner(_ request: BrieflyAdapterRunnerRequest) async throws -> BrieflyAdapterRunnerStatus {
+        try captureCoordinator.configureRunner(request)
     }
 
     func ingest(_ request: BrieflyAgentIngestRequest) async throws -> BrieflyAgentWriteResult {

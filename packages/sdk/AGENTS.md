@@ -13,14 +13,23 @@ native extraction, summaries, and synchronization.
    Do not invent tags, attachments, or processing options: the API does not
    accept them yet.
 4. Run `preview(url)` and inspect the extracted document. Preview can perform
-   external requests through your adapter but never writes to Briefly. Native
+   external requests through your adapter but never writes to Briefly. App
    previews show routing only; native extraction has no preview API.
 5. Save with `capture(url)` only within the user's requested capture scope.
    A repeated canonical URL replaces the existing source and supplied summaries;
    omitted summaries are removed. An explicit `ingest(url)` uses native handling.
 
+For a single app capture shortcut, export a default array of adapters and run
+`briefly-adapters run /absolute/path/to/adapters.mjs`. Once verified, use
+`briefly-adapters install` with the same path when the user has asked for ongoing
+custom handling. This starts a user login service. Check `briefly-adapters status`
+and the app's Capture settings. The runner returns source data to the app; do not
+call `save` or `capture` from a runner's extraction function. Use `uninstall` to
+remove the login service. Keep credentials out of launch arguments and log files.
+
 The first matching adapter wins. A broken matcher or extractor fails capture;
-it never silently selects another adapter or native extraction. Check a few
+it never silently selects another adapter or native extraction. With no local
+match, SDK capture delegates to the app, which checks its connected runner. Check a few
 representative inputs before reusing a handler on a collection.
 
 Do not write to Briefly's SQLite database or private socket. Close the SDK in

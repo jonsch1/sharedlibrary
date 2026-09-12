@@ -1,12 +1,18 @@
 import { BrieflyError } from "./errors.js";
+import { AdapterRegistry } from "./adapters.js";
+import { httpURL, saveInput, inputText } from "./input.js";
 import { MCPConnection } from "./transport.js";
 import type {
+  AdapterRunnerRequest, AdapterRunnerStatus,
   BrieflyOptions, CapturePreview, ReadInput, ReadResult, SaveInput,
   SearchInput, SearchResult, SourceAdapter, WriteResult,
 } from "./types.js";
 
+export { startAdapterRunner } from "./runner.js";
+export type { AdapterRunner, AdapterRunnerOptions, AdapterRunnerState } from "./runner.js";
 export { BrieflyError } from "./errors.js";
 export type {
+  AdapterRunnerRequest, AdapterRunnerStatus,
   BrieflyOptions, CapturePreview, ReadInput, ReadResult, SaveInput,
   SearchInput, SearchResult, SourceAdapter, WriteResult,
 } from "./types.js";
@@ -14,54 +20,26 @@ export type {
 /** External resource capture through Briefly's app-owned MCP API. Construction does no I/O. */
 export class Briefly {
   private readonly connection: MCPConnection;
-  private readonly adapters: readonly SourceAdapter[];
+  private readonly registry: AdapterRegistry;
   private closed = false;
 
   constructor(options: BrieflyOptions = {}) {
-    const ids = new Set<string>();
-    this.adapters = [...(options.adapters ?? [])];
-    for (const adapter of this.adapters) {
-      if (!adapter || typeof adapter.id !== "string" || !adapter.id.trim() ||
-          ids.has(adapter.id) || typeof adapter.matches !== "function" ||
-          typeof adapter.extract !== "function") {
-        throw new BrieflyError("invalid_input", "Adapters need a unique nonempty id, matches, and extract.");
-      }
-      ids.add(adapter.id);
-    }
+    this.registry = new AdapterRegistry(options.adapters ?? []);
     this.connection = new MCPConnection(options);
   }
 
-  /** Extract with the first matching custom adapter, or ask Briefly to ingest the URL. */
+  /** Extract with the first matching custom adapter, or let the app route the URL through its connected runner and native extraction. */
   async capture(url: string | URL): Promise<WriteResult> {
     const preview = await this.preview(url);
     return preview.kind === "custom"
       ? this.save(preview.document)
-      : this.ingest(preview.url);
+      : writeResult(await this.connection.call("capture", { url: preview.url }));
   }
 
-  /** Runs custom extraction without connecting to Briefly. Native previews only describe routing. */
+  /** Runs custom extraction without connecting to Briefly. App previews only describe routing. */
   async preview(input: string | URL): Promise<CapturePreview> {
     this.assertOpen();
-    const url = httpURL(input);
-    for (const adapter of this.adapters) {
-      let matches: boolean;
-      try {
-        matches = adapter.matches(new URL(url));
-        if (typeof matches !== "boolean") throw new Error("matches must return a boolean.");
-      } catch (cause) {
-        throw new BrieflyError("adapter_failed", `Adapter ${adapter.id} could not match this resource.`, { cause });
-      }
-      if (!matches) continue;
-      try {
-        const extracted = await adapter.extract(new URL(url));
-        const document = saveInput(extracted);
-        document.url ??= url;
-        return { kind: "custom", adapterId: adapter.id, url, document };
-      } catch (cause) {
-        throw new BrieflyError("adapter_failed", `Adapter ${adapter.id} could not extract a valid document.`, { cause });
-      }
-    }
-    return { kind: "native", url };
+    return this.registry.preview(input);
   }
 
   /** Explicit native ingestion, bypassing custom adapters. */
@@ -74,6 +52,15 @@ export class Briefly {
   async save(document: SaveInput): Promise<WriteResult> {
     this.assertOpen();
     return writeResult(await this.connection.call("save", { ...saveInput(document) }));
+  }
+
+  /** Runner registration and connection status. startAdapterRunner normally manages the lease. */
+  async adapterRunner(request: AdapterRunnerRequest): Promise<AdapterRunnerStatus> {
+    this.assertOpen();
+    const result = responseObject(await this.connection.call("adapter_runner", { ...request }));
+    if (typeof result.connected !== "boolean" || typeof result.adapterCount !== "number" ||
+        !Number.isInteger(result.adapterCount) || result.adapterCount < 0 || result.adapterCount > 100) throw invalidResponse();
+    return { connected: result.connected, adapterCount: result.adapterCount };
   }
 
   async search(input: SearchInput = {}): Promise<SearchResult> {
@@ -137,51 +124,6 @@ export class Briefly {
   private assertOpen(): void {
     if (this.closed) throw new BrieflyError("client_closed", "This Briefly client is closed. Create a new client.");
   }
-}
-
-function httpURL(input: string | URL): string {
-  const value = input instanceof URL ? input.href : input;
-  if (typeof value !== "string" || value.trim().length > 2048 || /\s/.test(value.trim())) {
-    throw new BrieflyError("invalid_input", "url must be an absolute HTTP(S) URL of at most 2,048 characters.");
-  }
-  try {
-    const url = new URL(value.trim());
-    if (!["http:", "https:"].includes(url.protocol) || !url.hostname || url.username || url.password || url.href.length > 2048) {
-      throw new Error("Invalid URL.");
-    }
-    return url.href;
-  } catch {
-    throw new BrieflyError("invalid_input", "url must be an absolute HTTP(S) URL without embedded credentials.");
-  }
-}
-
-function saveInput(value: SaveInput): SaveInput {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BrieflyError("invalid_input", "A document must contain title and content.");
-  }
-  const fields = new Set(["title", "content", "url", "concise", "detailed"]);
-  if (Object.keys(value).some((key) => !fields.has(key))) {
-    throw new BrieflyError("invalid_input", "Documents support title, content, url, concise, and detailed only.");
-  }
-  const document: SaveInput = {
-    title: inputText(value.title, "title", 200),
-    content: inputText(value.content, "content", 500_000),
-  };
-  if (value.url !== undefined) document.url = httpURL(value.url);
-  for (const field of ["concise", "detailed"] as const) {
-    if (value[field] !== undefined) {
-      const text = inputText(value[field], field, field === "concise" ? 100_000 : 500_000, true);
-      if (text.trim()) document[field] = text;
-    }
-  }
-  return document;
-}
-
-function inputText(value: unknown, name: string, maximum: number, allowEmpty = false): string {
-  if (typeof value !== "string" || value.length > maximum || (!allowEmpty && !value.trim())) {
-    throw new BrieflyError("invalid_input", `${name} must contain ${allowEmpty ? "0" : "1"}–${maximum.toLocaleString("en-US")} characters.`);
-  }
-  return value;
 }
 
 function writeResult(value: unknown): WriteResult {
