@@ -6,7 +6,7 @@
 	active="terms"
 	title="Terms of service"
 	description="The agreement for using Briefly's apps, website, connected services, and public shares."
-	updated="6 August 2026"
+	updated="24 August 2026"
 >
 	<section>
 		<h2>1. Agreement and operator</h2>
@@ -37,7 +37,7 @@
 			synchronize through iCloud, and deliberately publish individual documents using share links.
 		</p>
 		<ul>
-			<li>This TestFlight beta is free to use and does not present a Briefly subscription or hosted AI inference.</li>
+			<li>This TestFlight beta is free to use and does not run hosted AI inference.</li>
 			<li>Sign in with Apple is optional for local library use. Cross-device and public-sharing features may require a Briefly account and remain subject to the service configuration.</li>
 			<li>On macOS, you may provide your own OpenRouter API key or configure a compatible Codex, Claude, Gemini, Pi, or OpenCode CLI. The selected provider's separate terms, privacy policy, usage limits, and charges then apply. iOS does not generate summaries in this beta.</li>
 			<li>Features may require a supported Apple operating system, internet connection, Apple account, or third-party service.</li>
@@ -139,7 +139,7 @@
 	<section>
 		<h2>6. Beta availability and provider charges</h2>
 		<ul>
-			<li>The TestFlight beta is free and does not present a Briefly subscription or hosted AI inference.</li>
+			<li>The TestFlight beta is free and does not run hosted AI inference.</li>
 			<li>On macOS, you may provide your own OpenRouter API key or use a compatible provider CLI. The selected provider's separate terms, privacy policy, usage limits, and charges apply to that processing.</li>
 			<li>iOS captures and stores items without generating summaries in this beta.</li>
 		</ul>

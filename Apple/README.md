@@ -45,7 +45,7 @@ To connect the private CloudKit library:
 5. Run while signed into an iCloud account that has a Briefly library.
 
 Also add **Sign in with Apple** if account-backed features are being tested. The
-TestFlight beta does not present a subscription or use app-funded hosted AI.
+TestFlight beta is free and does not use app-funded hosted AI.
 macOS users can enter their own OpenRouter API key or configure a local provider
 CLI; iOS captures and stores items without summaries.
 

@@ -1,10 +1,7 @@
 import { json, requestJSON } from '../../infrastructure/http-security.js';
-import { accountRecord, ensureAccount } from '../auth/account-operations.js';
+import { ensureAccount } from '../auth/account-operations.js';
 import { authenticatedMutation } from '../auth/session.js';
-import {
-	activeAppStoreSubscription,
-	hasComplimentaryPlusAccess
-} from '../auth/entitlements.js';
+import { hasHostedServiceAccess } from '../auth/service-access.js';
 import {
 	managedAIMonthlyAllowanceMicros,
 	releaseManagedAIUsage,
@@ -12,12 +9,13 @@ import {
 	settleManagedAIUsage
 } from './managed-usage.js';
 import { executeManagedAI, managedAIKey } from './provider.js';
+import { hostedProcessingEnabled } from './usage.js';
 
 const managedAIUpstreamTimeoutMilliseconds = 15 * 60 * 1000;
 const maximumManagedAIPromptLength = 600_000;
 
 async function processWithManagedAI(request, env) {
-	if (String(env.PAID_PROCESSING_ENABLED || '').toLowerCase() === 'false') {
+	if (!hostedProcessingEnabled(env)) {
 		return json({ error: 'Hosted Briefly AI is disabled in the beta.' }, { status: 503 });
 	}
 	const authentication = await authenticatedMutation(request, env, {
@@ -32,18 +30,16 @@ async function processWithManagedAI(request, env) {
 	if (!apiKey) {
 		return json({ error: 'Briefly AI is unavailable.' }, { status: 503 });
 	}
-	const complimentary = await hasComplimentaryPlusAccess(env, email);
-	let customer = await accountRecord(env, email);
-	if (!complimentary && !(await activeAppStoreSubscription(env, customer?.account_id))) {
+	if (!(await hasHostedServiceAccess(env, email))) {
 		return json(
 			{
-				error: 'An active Briefly membership is required for Briefly AI.',
-				code: 'subscription_required'
+				error: 'Hosted Briefly AI is unavailable for this account.',
+				code: 'service_access_required'
 			},
-			{ status: 402 }
+			{ status: 403 }
 		);
 	}
-	customer ??= await ensureAccount(env, email);
+	const customer = await ensureAccount(env, email);
 
 	const value = await requestJSON(request);
 	if (value === undefined) {

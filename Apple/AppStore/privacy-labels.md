@@ -7,7 +7,6 @@ then declare the following. None is used for tracking or advertising.
 | Data type | Purposes | Linked to user | Tracking |
 | --- | --- | --- | --- |
 | Contact Info > Email Address | App Functionality | Yes | No |
-| Purchases > Purchase History | App Functionality | Yes | No |
 | Identifiers > User ID | App Functionality | Yes | No |
 | User Content > Other User Content | App Functionality; Product Personalization | Yes | No |
 | Browsing History | App Functionality | Yes | No |
@@ -16,12 +15,11 @@ then declare the following. None is used for tracking or advertising.
 Why these are included:
 
 - Sign in with Apple supplies the account email and provider identifier.
-- The server associates App Store product/transaction status with the account.
 - Connected processing can receive user-selected source text, prompts, topics,
   and URLs. Public shares retain selected summaries, metadata, and source URLs
   until revoked.
 - Account-scoped service usage counters and short-lived concurrency leases enforce
-  membership allowances and prevent abuse.
+  processing limits and prevent abuse.
 
 Do not declare the following unless the finished archive or implementation changes:
 
@@ -37,4 +35,3 @@ Public URLs:
 
 - Privacy Policy: https://www.readbriefly.fyi/privacy
 - Privacy Choices: leave blank unless a native privacy-choice page is added.
-

@@ -6,6 +6,7 @@ struct LibraryProcessingConfiguration: Sendable {
     let command: String
     let prompt: String
     let openRouterAPIKey: String?
+    let codexHome: URL?
 }
 
 @MainActor
@@ -216,9 +217,16 @@ final class LibraryProcessingModel {
                 )
             } else {
                 #if os(macOS)
+                let hasAccess = configuration.codexHome?.startAccessingSecurityScopedResource() ?? false
+                defer {
+                    if hasAccess { configuration.codexHome?.stopAccessingSecurityScopedResource() }
+                }
                 output = try await runProcessingCommand(
                     configuration.command,
-                    prompt: prompt
+                    prompt: prompt,
+                    environmentOverrides: configuration.codexHome.map {
+                        ["CODEX_HOME": $0.path]
+                    } ?? [:]
                 )
                 #else
                 throw LibraryError.processingUnavailable

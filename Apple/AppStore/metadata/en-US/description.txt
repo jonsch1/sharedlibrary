@@ -18,9 +18,8 @@ PRIVATE BY DEFAULT
 Your library is local-first and can sync privately through your iCloud account. Nothing becomes public unless you deliberately create a share link.
 
 This TestFlight beta is free to use. Sign in with Apple is optional for local
-library use. On macOS, summaries can use your own OpenRouter API key or a local
-provider CLI such as Codex, Claude, or Gemini. iOS currently captures and stores
-items without AI summaries.
+library use. On macOS, summaries can use your own OpenRouter API key. iOS currently
+captures and stores items without AI summaries.
 
 Privacy Policy: https://www.readbriefly.fyi/privacy
 Terms of Use: https://www.readbriefly.fyi/terms

@@ -68,14 +68,18 @@ struct LibraryDocument: View {
                 .layoutPriority(1)
 
                 HStack(alignment: .center, spacing: 0) {
-                ForEach(availableVariants, id: \.self) { variant in
-                    ReadingDepthButton(
-                        model: model,
-                        variant: variant
-                    )
-                }
+                    #if os(iOS)
+                    Spacer(minLength: 0)
+                    ReadingDepthPicker(model: model, entry: entry)
+                        .padding(.horizontal, 12)
+                    #else
+                    ForEach(availableVariants, id: \.self) { variant in
+                        ReadingDepthButton(
+                            model: model,
+                            variant: variant
+                        )
+                    }
 
-                    #if os(macOS)
                     Menu {
                         if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                             Button {

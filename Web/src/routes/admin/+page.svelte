@@ -54,7 +54,7 @@
 		method: 'GET' | 'POST' | 'DELETE',
 		value?: string
 	): Promise<Response> {
-		return fetch('/api/admin/complimentary-access', {
+		return fetch('/api/admin/service-access', {
 			method,
 			headers: value ? { 'Content-Type': 'application/json' } : undefined,
 			body: value ? JSON.stringify({ email: value }) : undefined,
@@ -407,7 +407,7 @@
 			</section>
 
 			<section class="access-panel">
-				<h2>Complimentary access</h2>
+				<h2>Hosted service access</h2>
 				<form class="access-form" onsubmit={add}>
 					<label for="email">Email address</label>
 					<div>
@@ -427,7 +427,7 @@
 							</button>
 						</li>
 					{:else}
-						<li class="empty">No complimentary accounts yet.</li>
+						<li class="empty">No accounts have hosted service access.</li>
 					{/each}
 				</ul>
 			</section>

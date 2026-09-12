@@ -152,6 +152,31 @@ final class NativeItemInputTests: XCTestCase {
         XCTAssertEqual(value.title, "Attention Is All You Need")
     }
 
+    func testArxivInputFallsBackToOriginalPDFWhenMarkxivFails() async throws {
+        let pdf = fixturePDF(text: "Original arXiv PDF content", title: "Attention Is All You Need")
+        let value = try await router.ingest(
+            .init(source: .url(URL(string: "https://arxiv.org/abs/1706.03762")!)),
+            context: .init(http: InputHTTPClient { request, maximumBytes in
+                if request.url!.host == "markxiv.org" {
+                    throw NativeInputError.requestFailed(502)
+                }
+                guard request.url!.absoluteString.contains("arxiv.org/pdf/1706.03762.pdf") else {
+                    throw FixtureError.missing(request.url!.absoluteString)
+                }
+                guard pdf.count <= maximumBytes else { throw NativeInputError.responseTooLarge }
+                return InputHTTPResponse(
+                    data: pdf,
+                    finalURL: request.url!,
+                    contentType: "application/pdf"
+                )
+            })
+        )
+        XCTAssertEqual(value.inputID, .arxiv)
+        XCTAssertEqual(value.title, "Attention Is All You Need")
+        XCTAssertTrue(value.content.contains("Original arXiv PDF content"))
+        XCTAssertEqual(value.sourceURL?.host, "arxiv.org")
+    }
+
     func testBiorxivInputUsesTheFullPaperPDF() async throws {
         let url = itemTestURL(.biorxiv)
         let pdf = fixturePDF(text: "Complete manuscript body", title: "PDF title")

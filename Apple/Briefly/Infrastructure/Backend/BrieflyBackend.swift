@@ -100,24 +100,6 @@ final class BrieflyBackend {
         return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
     }
 
-    func syncAppStoreTransaction(_ transactionID: String) async throws
-        -> BrieflyAccountStatus
-    {
-        struct Payload: Encodable { let transactionID: String }
-        let body = try JSONEncoder().encode(Payload(transactionID: transactionID))
-        let (data, response) = try await request(
-            "api/billing/apple/transaction",
-            method: "POST",
-            body: body
-        )
-        try requireSuccess(
-            response,
-            data: data,
-            fallback: "Could not verify the App Store subscription."
-        )
-        return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
-    }
-
     func firecrawl(_ url: URL) async throws -> ItemDraft {
         let body = try JSONSerialization.data(withJSONObject: ["url": url.absoluteString])
         let (data, response) = try await request(

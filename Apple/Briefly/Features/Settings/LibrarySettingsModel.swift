@@ -3,6 +3,9 @@ import CryptoKit
 import Foundation
 import Observation
 import Security
+#if os(macOS)
+import AppKit
+#endif
 
 @MainActor
 @Observable
@@ -27,9 +30,13 @@ final class LibrarySettingsModel {
     init(session: LibrarySession) {
         self.session = session
         let savedCommand = UserDefaults.standard.string(forKey: Self.processingCommandKey)
-        processingCommand = savedCommand == "briefly://openrouter/openai/gpt-5.6-luna"
-            ? Self.processingDefaultCommand
-            : savedCommand ?? Self.processingDefaultCommand
+        processingCommand = switch savedCommand {
+        case "briefly://openrouter/openai/gpt-5.6-luna",
+             "codex exec --ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check --color never -":
+            Self.processingDefaultCommand
+        default:
+            savedCommand ?? Self.processingDefaultCommand
+        }
         processingPrompt = UserDefaults.standard.string(forKey: Self.processingPromptKey)
             ?? defaultProcessingPrompt
         openRouterAPIKey = OpenRouterCredentialStore.load() ?? ""
@@ -40,19 +47,80 @@ final class LibrarySettingsModel {
     }
 
     var processingConfiguration: LibraryProcessingConfiguration {
-        LibraryProcessingConfiguration(
+        #if os(macOS)
+        let codexHome = CodexAccessStore.resolve()
+        #else
+        let codexHome: URL? = nil
+        #endif
+        return LibraryProcessingConfiguration(
             command: processingCommand,
             prompt: processingPrompt,
             openRouterAPIKey: openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
+                .nilIfEmpty,
+            codexHome: codexHome
         )
     }
 
+    #if os(macOS)
+    var hasCodexAccess: Bool { CodexAccessStore.resolve() != nil }
+
+    var codexAccessDescription: String {
+        guard let url = CodexAccessStore.resolve() else {
+            return "Briefly will use the Codex login from /Users/\(NSUserName())/.codex."
+        }
+        return "Codex access granted for \(url.path)"
+    }
+
+    func grantCodexAccess() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose the Codex folder"
+        panel.message = "Choose ~/.codex so Briefly can use your existing Codex login."
+        panel.prompt = "Allow Access"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        let home = CodexAccessStore.userHome
+        panel.directoryURL = home
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard url.lastPathComponent == ".codex" else {
+            session.errorMessage = "Choose the .codex folder in your home folder."
+            return
+        }
+        do {
+            try CodexAccessStore.save(url)
+            processingTestMessage = "Codex access granted. Test the connection to verify it."
+            session.status = "Codex access granted"
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+    #endif
+
     var defaultProcessingCommand: String { BrieflyCore.defaultProcessingCommand }
 
+    #if os(macOS)
+    var usesCodexCommand: Bool {
+        processingCommand
+            .split(whereSeparator: { $0.isWhitespace })
+            .first
+            .map { URL(fileURLWithPath: String($0)).lastPathComponent == "codex" } ?? false
+    }
+
+    var requiresCodexAccess: Bool {
+        usesCodexCommand && processingConfiguration.openRouterAPIKey == nil
+    }
+    #endif
+
     var isProcessingConfigured: Bool {
-        !processingCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        let verified =
+            !processingCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             processingVerificationFingerprint == processingFingerprint
+        #if os(macOS)
+        return verified && (!requiresCodexAccess || hasCodexAccess)
+        #else
+        return verified
+        #endif
     }
 
     func refreshTopics(from library: SQLiteLibraryStore) async throws {
@@ -97,6 +165,13 @@ final class LibrarySettingsModel {
 
     func testProcessingCommand() async {
         guard !isTestingAI else { return }
+        #if os(macOS)
+        guard !requiresCodexAccess || hasCodexAccess else {
+            processingTestMessage = "Grant Briefly access to ~/.codex before testing Codex."
+            session.errorMessage = processingTestMessage
+            return
+        }
+        #endif
         isTestingAI = true
         processingTestMessage = nil
         processingTestSucceeded = false
@@ -112,10 +187,18 @@ final class LibrarySettingsModel {
                     apiKey: apiKey
                 )
             } else {
+                let codexHome = processingConfiguration.codexHome
+                let hasAccess = codexHome?.startAccessingSecurityScopedResource() ?? false
+                defer {
+                    if hasAccess { codexHome?.stopAccessingSecurityScopedResource() }
+                }
                 output = try await runProcessingCommand(
                     processingCommand,
                     prompt: prompt,
-                    timeout: 60
+                    timeout: 60,
+                    environmentOverrides: codexHome.map {
+                        ["CODEX_HOME": $0.path]
+                    } ?? [:]
                 )
             }
             #else
@@ -230,6 +313,56 @@ final class LibrarySettingsModel {
         }
     }
 }
+
+#if os(macOS)
+private enum CodexAccessStore {
+    private static let bookmarkKey = "BrieflyCodexHomeBookmark"
+
+    static let userHome = URL(fileURLWithPath: "/Users/\(NSUserName())", isDirectory: true)
+
+    private static var expectedURL: URL {
+        userHome.appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private static func isExpectedURL(_ url: URL) -> Bool {
+        url.standardizedFileURL.path == expectedURL.standardizedFileURL.path
+    }
+
+    static func resolve() -> URL? {
+        if let data = UserDefaults.standard.data(forKey: bookmarkKey) {
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope, .withoutUI],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ), isExpectedURL(url) {
+                if isStale, let refreshed = try? url.bookmarkData(
+                    options: [.withSecurityScope],
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                ) {
+                    UserDefaults.standard.set(refreshed, forKey: bookmarkKey)
+                }
+                return url
+            }
+        }
+        if FileManager.default.fileExists(atPath: expectedURL.path) {
+            return expectedURL
+        }
+        return nil
+    }
+
+    static func save(_ url: URL) throws {
+        let bookmark = try url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        UserDefaults.standard.set(bookmark, forKey: bookmarkKey)
+    }
+}
+#endif
 
 private enum OpenRouterCredentialStore {
     private static let service = "fyi.readbriefly.BrieflyNative.openrouter"

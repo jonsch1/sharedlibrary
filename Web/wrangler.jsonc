@@ -10,9 +10,6 @@
 			"APPLE_KEY_ID",
 			"APPLE_PRIVATE_KEY",
 			"APPLE_TEAM_ID",
-			"APP_STORE_ISSUER_ID",
-			"APP_STORE_KEY_ID",
-			"APP_STORE_PRIVATE_KEY",
 			"APP_REVIEW_CREDENTIAL_HASH",
 			"FIRECRAWL_API_KEY"
 		]
@@ -20,8 +17,7 @@
 	"vars": {
 		"APPLE_APP_BUNDLE_ID": "fyi.readbriefly.BrieflyNative",
 		"APP_REVIEW_USERNAME": "app-review@readbriefly.fyi",
-		"APP_STORE_PRODUCT_ID": "fyi.readbriefly.plus.monthly",
-		"PAID_PROCESSING_ENABLED": "false"
+		"HOSTED_PROCESSING_ENABLED": "false"
 	},
 	"triggers": {
 		"crons": ["17 3 * * *"]

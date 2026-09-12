@@ -2,7 +2,7 @@ import { databaseChanges } from '../../infrastructure/database.js';
 import { emailAddressPattern, normalizedEmail } from '../../infrastructure/input-validation.js';
 import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
 import { authenticatedEmail } from '../auth/session.js';
-import { isAdministrator } from '../auth/entitlements.js';
+import { isAdministrator } from '../auth/service-access.js';
 
 async function administratorRequest(request, env) {
 	const email = await authenticatedEmail(request, env);
@@ -17,13 +17,13 @@ async function administratorRequest(request, env) {
 	return { email };
 }
 
-async function adminComplimentaryAccess(request, env) {
+async function adminServiceAccess(request, env) {
 	const administrator = await administratorRequest(request, env);
 	if (administrator.response) return administrator.response;
 	if (request.method === 'GET') {
 		const result = await env.DB.prepare(
 			'SELECT user_email, granted_by, created_at\n' +
-				'FROM complimentary_access\n' +
+				'FROM service_access\n' +
 				'ORDER BY created_at DESC, user_email'
 		).all();
 		return json({
@@ -47,7 +47,7 @@ async function adminComplimentaryAccess(request, env) {
 	if (request.method === 'POST') {
 		const createdAt = Date.now();
 		const result = await env.DB.prepare(
-			'INSERT OR IGNORE INTO complimentary_access (user_email, granted_by, created_at)\n' +
+			'INSERT OR IGNORE INTO service_access (user_email, granted_by, created_at)\n' +
 				'VALUES (?, ?, ?)'
 		)
 			.bind(email, normalizedEmail(administrator.email), createdAt)
@@ -59,7 +59,7 @@ async function adminComplimentaryAccess(request, env) {
 	}
 	if (request.method === 'DELETE') {
 		const result = await env.DB.prepare(
-			'DELETE FROM complimentary_access WHERE user_email = ?'
+			'DELETE FROM service_access WHERE user_email = ?'
 		)
 			.bind(email)
 			.run();
@@ -68,4 +68,4 @@ async function adminComplimentaryAccess(request, env) {
 	return json({ error: 'Method not allowed.' }, { status: 405 });
 }
 
-export { adminComplimentaryAccess, administratorRequest };
+export { adminServiceAccess, administratorRequest };

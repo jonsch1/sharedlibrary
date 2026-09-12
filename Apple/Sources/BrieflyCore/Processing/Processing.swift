@@ -24,7 +24,7 @@ public func spokenText(_ markdown: String) -> String {
 }
 
 public let defaultProcessingCommand =
-    "codex exec --ephemeral --ignore-user-config --sandbox read-only " +
+    "codex exec --ephemeral --sandbox read-only " +
     "--skip-git-repo-check --color never -"
 public let defaultProcessingPrompt = """
 Summarize one captured source for a private knowledge library.
@@ -115,7 +115,8 @@ public struct ProcessingSuggestion: Codable, Equatable, Sendable {
 public func runProcessingCommand(
     _ command: String,
     prompt: String,
-    timeout: TimeInterval = 300
+    timeout: TimeInterval = 300,
+    environmentOverrides: [String: String] = [:]
 ) async throws -> String {
     #if os(macOS)
     let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -165,6 +166,9 @@ public func runProcessingCommand(
     environment["PATH"] = NSOrderedSet(array: existing + additions).array
         .compactMap { $0 as? String }
         .joined(separator: ":")
+    for (key, value) in environmentOverrides {
+        environment[key] = value
+    }
     process.environment = environment
 
     let stop = try await withCheckedThrowingContinuation {

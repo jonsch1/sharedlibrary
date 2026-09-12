@@ -428,8 +428,8 @@ extension SettingsView {
             Text(
                 "This permanently removes your Briefly server account, public shares, " +
                     "sessions, feedback, and service usage. It does not delete your local " +
-                    "or iCloud library. Billing and content-moderation records may be " +
-                    "retained where legally required."
+                    "or iCloud library. Content-moderation records may be retained where " +
+                    "legally required."
             )
         }
     }

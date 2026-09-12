@@ -1,7 +1,7 @@
 # App Review notes
 
-ReadBriefly is a free TestFlight beta. There is no subscription screen or purchase
-flow in this build. Sign in with Apple is optional for local library use.
+ReadBriefly is a free TestFlight beta. Sign in with Apple is optional for local
+library use.
 
 ## Suggested review path
 
@@ -20,11 +20,12 @@ flow in this build. Sign in with Apple is optional for local library use.
 
 ## AI processing
 
-On macOS, open Settings > AI processing. Reviewers may leave the OpenRouter API key
-blank and use a locally installed provider CLI, or enter their own OpenRouter API
-key. iOS captures and stores items without AI processing in this beta.
+On macOS, open Settings > AI processing to configure an OpenRouter API key. AI
+processing is optional during review; the included sample library already contains
+prepared summaries at multiple depths. iOS captures and stores items without AI
+processing in this beta.
 
-The app contains no purchase flow and no advertising or tracking.
+The app contains no advertising or tracking.
 
 The app includes a user-directed embedded browser for capturing authenticated or
 otherwise user-selected web sources, so Unrestricted Web Access is declared in

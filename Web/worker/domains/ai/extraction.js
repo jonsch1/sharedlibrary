@@ -1,11 +1,11 @@
 import { json, requestJSON, sameOriginResponse } from '../../infrastructure/http-security.js';
-import { accountRecord, ensureAccount } from '../auth/account-operations.js';
+import { ensureAccount } from '../auth/account-operations.js';
 import { authenticatedEmail } from '../auth/session.js';
-import { paidAccessResponse } from '../auth/entitlements.js';
+import { hostedServiceAccessResponse } from '../auth/service-access.js';
 import {
 	accountServiceLimits,
 	consumeServiceUnits,
-	paidProcessingEnabled,
+	hostedProcessingEnabled,
 	quotaResponse,
 	releaseServiceLease,
 	reserveServiceLease
@@ -16,9 +16,9 @@ const firecrawlEndpoint = 'https://api.firecrawl.dev/v2/scrape';
 async function scrapeWithFirecrawl(request, env) {
 	const originError = sameOriginResponse(request);
 	if (originError) return originError;
-	const denied = await paidAccessResponse(request, env);
+	const denied = await hostedServiceAccessResponse(request, env);
 	if (denied) return denied;
-	if (!paidProcessingEnabled(env)) {
+	if (!hostedProcessingEnabled(env)) {
 		return json({ error: 'Web extraction is temporarily paused.' }, { status: 503 });
 	}
 	let rawURL;

@@ -48,9 +48,9 @@ async function deleteAccount(request, env) {
 		env.DB.prepare('DELETE FROM feedback_upvotes WHERE user_email = ?').bind(email),
 		env.DB.prepare('DELETE FROM feedback_items WHERE user_email = ?').bind(email),
 		env.DB.prepare('DELETE FROM share_links WHERE owner_email = ?').bind(email),
-		env.DB.prepare('DELETE FROM complimentary_access WHERE user_email = ?').bind(email),
+		env.DB.prepare('DELETE FROM service_access WHERE user_email = ?').bind(email),
 		env.DB
-			.prepare('UPDATE complimentary_access SET granted_by = \'deleted-account\' WHERE granted_by = ?')
+			.prepare('UPDATE service_access SET granted_by = \'deleted-account\' WHERE granted_by = ?')
 			.bind(email)
 	);
 	if (account?.account_id) {
@@ -80,7 +80,7 @@ async function deleteAccount(request, env) {
 	return json(
 		{
 			deleted: true,
-			retained: ['App Store billing records required by law', 'content moderation records']
+			retained: ['content moderation records']
 		},
 		{ headers: { 'Set-Cookie': sessionCookie('', 0) } }
 	);

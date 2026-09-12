@@ -64,8 +64,8 @@ struct MacXSettingsWorkspace: View {
             Text(
                 "This permanently removes your Briefly server account, public shares, " +
                     "sessions, feedback, and service usage. It does not delete your local " +
-                    "or iCloud library. Billing and content-moderation records may be " +
-                    "retained where legally required."
+                    "or iCloud library. Content-moderation records may be retained where " +
+                    "legally required."
             )
         }
     }
@@ -332,6 +332,18 @@ struct MacXSettingsWorkspace: View {
                 .padding(20)
                 Divider().padding(.leading, 58)
                 VStack(alignment: .leading, spacing: 10) {
+                    Text("Codex access")
+                        .font(.callout.weight(.semibold))
+                    Text(model.settings.codexAccessDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button(model.settings.hasCodexAccess ? "Choose a different folder" : "Grant access to Codex") {
+                        model.settings.grantCodexAccess()
+                    }
+                }
+                .padding(20)
+                Divider().padding(.leading, 58)
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Processing command")
                         .font(.callout.weight(.semibold))
                     Menu("Choose processing preset") {
@@ -382,7 +394,10 @@ struct MacXSettingsWorkspace: View {
                                 Label("Test connection", systemImage: "bolt.horizontal")
                             }
                         }
-                            .disabled(model.settings.isTestingAI)
+                            .disabled(
+                                model.settings.isTestingAI ||
+                                (model.settings.requiresCodexAccess && !model.settings.hasCodexAccess)
+                            )
                         Spacer()
                         Button("Save") { model.settings.saveProcessingSettings() }
                             .buttonStyle(.borderedProminent)

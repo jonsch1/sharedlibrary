@@ -13,6 +13,7 @@ MAC_OUTPUT = ROOT / "designed" / "mac"
 CANVAS = (1320, 2868)
 IPHONE_CANVAS = (1284, 2778)
 IPAD_CANVAS = (2064, 2752)
+MAC_CANVAS = (2880, 1800)
 
 CHARCOAL = (31, 29, 27)
 IVORY = (255, 252, 244)
@@ -180,11 +181,25 @@ def save(image: Image.Image, filename: str, output: Path = OUTPUT) -> None:
     image.convert("RGB").save(output / filename, format="PNG", optimize=True)
 
 
+def save_mac_capture(source: Image.Image, filename: str) -> None:
+    """Fit a real Mac capture to Apple's 16:10 screenshot canvas without cropping UI."""
+    scale = min(MAC_CANVAS[0] / source.width, MAC_CANVAS[1] / source.height)
+    size = (round(source.width * scale), round(source.height * scale))
+    capture = source.convert("RGB").resize(size, Image.Resampling.LANCZOS)
+    result = Image.new("RGB", MAC_CANVAS, IVORY)
+    position = ((MAC_CANVAS[0] - size[0]) // 2, (MAC_CANVAS[1] - size[1]) // 2)
+    result.paste(capture, position)
+    MAC_OUTPUT.mkdir(parents=True, exist_ok=True)
+    result.save(MAC_OUTPUT / filename, format="PNG", optimize=True)
+
+
 def main() -> None:
     iphone_library = Image.open(OUTPUT / "raw-library.png")
     concise = Image.open(OUTPUT / "raw-reader-concise.png")
     detailed = Image.open(OUTPUT / "raw-reader.png")
     mac_library = Image.open(MAC_OUTPUT / "raw-library.png")
+
+    save_mac_capture(mac_library, "01-library.png")
 
     first = canvas(BUTTER)
     add_copy(

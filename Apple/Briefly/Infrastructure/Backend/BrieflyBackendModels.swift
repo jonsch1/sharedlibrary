@@ -3,14 +3,12 @@ import BrieflyCore
 
 struct BrieflyAccountStatus: Codable, Equatable {
     let authenticated: Bool
-    let entitled: Bool?
     let reviewAccess: Bool?
     let email: String?
     let accountID: UUID?
 
     static let signedOut = Self(
         authenticated: false,
-        entitled: false,
         reviewAccess: false,
         email: nil,
         accountID: nil

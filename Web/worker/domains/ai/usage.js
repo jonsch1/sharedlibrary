@@ -1,11 +1,8 @@
 import { databaseChanges } from '../../infrastructure/database.js';
 import { json, requestJSON } from '../../infrastructure/http-security.js';
 import { authenticatedEmail } from '../auth/session.js';
-import { accountRecord, ensureAccount } from '../auth/account-operations.js';
-import {
-	activeAppStoreSubscription,
-	hasComplimentaryPlusAccess
-} from '../auth/entitlements.js';
+import { ensureAccount } from '../auth/account-operations.js';
+import { hostedServiceAccessResponse } from '../auth/service-access.js';
 
 const serviceUsageLimits = {
 	transcription: {
@@ -34,8 +31,8 @@ const serviceUsageLimits = {
 	}
 };
 
-function paidProcessingEnabled(env) {
-	return String(env.PAID_PROCESSING_ENABLED ?? 'true').toLowerCase() !== 'false';
+function hostedProcessingEnabled(env) {
+	return String(env.HOSTED_PROCESSING_ENABLED ?? 'true').toLowerCase() !== 'false';
 }
 
 function quotaResponse(message) {
@@ -46,28 +43,10 @@ function quotaResponse(message) {
 }
 
 async function serviceAccount(request, env) {
+	const response = await hostedServiceAccessResponse(request, env);
+	if (response) return { response };
 	const email = await authenticatedEmail(request, env);
-	if (!email) {
-		return {
-			response: json(
-				{ error: 'Sign in before using Briefly.', code: 'authentication_required' },
-				{ status: 401 }
-			)
-		};
-	}
-	const record = await accountRecord(env, email);
-	if (
-		!(await hasComplimentaryPlusAccess(env, email)) &&
-		!(await activeAppStoreSubscription(env, record?.account_id))
-	) {
-		return {
-			response: json(
-				{ error: 'An active Briefly membership is required.', code: 'subscription_required' },
-				{ status: 402 }
-			)
-		};
-	}
-	return { email, customer: record ?? (await ensureAccount(env, email)) };
+	return { email, customer: await ensureAccount(env, email) };
 }
 
 async function accountServiceLimits(env, accountID, service) {
@@ -182,8 +161,8 @@ async function serviceUsage(request, env) {
 	if (!defaults || !['reserve', 'release'].includes(value?.action)) {
 		return json({ error: 'Invalid usage request.' }, { status: 400 });
 	}
-	if (value.action === 'reserve' && !paidProcessingEnabled(env)) {
-		return json({ error: 'Paid processing is temporarily paused.' }, { status: 503 });
+	if (value.action === 'reserve' && !hostedProcessingEnabled(env)) {
+		return json({ error: 'Hosted processing is temporarily paused.' }, { status: 503 });
 	}
 	const account = await serviceAccount(request, env);
 	if (account.response) return account.response;
@@ -244,7 +223,7 @@ export {
 	accountServiceLimits,
 	cleanServiceUsage,
 	consumeServiceUnits,
-	paidProcessingEnabled,
+	hostedProcessingEnabled,
 	quotaResponse,
 	releaseServiceLease,
 	reserveServiceLease,

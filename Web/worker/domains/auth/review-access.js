@@ -48,12 +48,10 @@ async function signInForAppReview(request, env) {
 	return json(
 		{
 			authenticated: true,
-			entitled: true,
 			reviewAccess: true,
 			email: username,
 			accountID: account.account_id,
-			isAdmin: false,
-			subscription: null
+			isAdmin: false
 		},
 		{ headers: { 'Set-Cookie': session.cookie } }
 	);

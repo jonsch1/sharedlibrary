@@ -48,27 +48,7 @@ export const accounts = sqliteTable(
 	(table) => [uniqueIndex('accounts_account_id_unique').on(table.accountID)]
 );
 
-export const appStoreSubscriptions = sqliteTable(
-	'app_store_subscriptions',
-	{
-		originalTransactionID: text('original_transaction_id').primaryKey(),
-		accountID: text('account_id').notNull(),
-		transactionID: text('transaction_id').notNull(),
-		productID: text('product_id').notNull(),
-		environment: text('environment').notNull(),
-		expiresAt: integer('expires_at').notNull(),
-		revocationDate: integer('revocation_date'),
-		signedAt: integer('signed_at').notNull(),
-		createdAt: integer('created_at').notNull(),
-		updatedAt: integer('updated_at').notNull()
-	},
-	(table) => [
-		uniqueIndex('app_store_subscriptions_transaction_id_unique').on(table.transactionID),
-		index('app_store_subscriptions_account_expires_idx').on(table.accountID, table.expiresAt)
-	]
-);
-
-export const complimentaryAccess = sqliteTable('complimentary_access', {
+export const serviceAccess = sqliteTable('service_access', {
 	userEmail: text('user_email').primaryKey(),
 	grantedBy: text('granted_by').notNull(),
 	createdAt: integer('created_at').notNull()

@@ -6,7 +6,7 @@
 	active="privacy"
 	title="Privacy notice"
 	description="How Briefly processes personal data, the choices you control, and your rights under the GDPR."
-	updated="3 August 2026"
+	updated="24 August 2026"
 >
 	<section>
 		<h2>1. Who is responsible</h2>
@@ -136,7 +136,7 @@
 			<tbody>
 				<tr>
 					<td><a href="https://www.cloudflare.com/privacypolicy/" rel="noreferrer">Cloudflare</a></td>
-					<td>Hosting, database, content delivery, and security; processes account, share, entitlement, request, and technical data for Briefly.</td>
+					<td>Hosting, database, content delivery, and security; processes account, share, request, and technical data for Briefly.</td>
 				</tr>
 				<tr>
 					<td><a href="https://www.apple.com/legal/privacy/" rel="noreferrer">Apple</a></td>
@@ -234,10 +234,6 @@
 				<tr>
 					<td>Optional analytics</td>
 					<td>Only after consent and subject to the configured PostHog project retention, which Briefly limits operationally to no more than 12 months. Withdrawing consent stops future collection.</td>
-				</tr>
-				<tr>
-					<td>Billing and transaction records</td>
-					<td>Any legacy billing records are retained only as long as German tax, commercial, fraud-prevention, dispute, and other legal obligations require.</td>
 				</tr>
 				<tr>
 					<td>Support and rights requests</td>

@@ -1,27 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import worker, { validAppStoreTransaction } from './index.js';
-
-test('App Store transactions must match the Briefly app and subscription', () => {
-	const config = {
-		bundleID: 'fyi.readbriefly.BrieflyNative',
-		productID: 'fyi.readbriefly.plus.monthly'
-	};
-	const transaction = {
-		bundleId: config.bundleID,
-		productId: config.productID,
-		type: 'Auto-Renewable Subscription',
-		transactionId: '1234567890',
-		originalTransactionId: '1234567890',
-		appAccountToken: '15b360f5-6a58-4a77-890d-ae7b322f0b1f',
-		expiresDate: Date.now() + 60_000,
-		signedDate: Date.now()
-	};
-	assert.equal(validAppStoreTransaction(config, transaction), true);
-	assert.equal(validAppStoreTransaction(config, { ...transaction, bundleId: 'attacker.app' }), false);
-	assert.equal(validAppStoreTransaction(config, { ...transaction, productId: 'other.product' }), false);
-});
+import worker from './index.js';
 
 test('public requests cannot impersonate accounts or reach removed private-library APIs', async () => {
 	const env = environment();
@@ -38,7 +18,7 @@ test('public requests cannot impersonate accounts or reach removed private-libra
 	assert.equal(library.status, 404);
 });
 
-test('App Review credentials grant revocable Plus access without a StoreKit transaction', async () => {
+test('App Review credentials grant revocable review access', async () => {
 	const username = 'app-review@readbriefly.fyi';
 	const password = 'correct horse battery staple';
 	const env = await appReviewEnvironment(username, password);
@@ -76,17 +56,14 @@ test('App Review credentials grant revocable Plus access without a StoreKit tran
 	assert.match(login.headers.get('set-cookie'), /^shared_library_session=/);
 	assert.deepEqual(await login.json(), {
 		authenticated: true,
-		entitled: true,
 		reviewAccess: true,
 		email: username,
 		accountID: '15b360f5-6a58-4a77-890d-ae7b322f0b1f',
-		isAdmin: false,
-		subscription: null
+		isAdmin: false
 	});
 
 	const status = await worker.fetch(authenticatedRequest('/api/auth/status'), env);
 	const statusPayload = await status.json();
-	assert.equal(statusPayload.entitled, true);
 	assert.equal(statusPayload.reviewAccess, true);
 
 	const deletion = await worker.fetch(
@@ -141,7 +118,7 @@ test('account deletion revokes Apple authorization and removes deletable account
 		assert.match(changes, /DELETE FROM auth_identities/);
 		assert.match(changes, /DELETE FROM app_sessions/);
 		assert.match(changes, /DELETE FROM accounts/);
-		assert.doesNotMatch(changes, /DELETE FROM app_store_subscriptions/);
+		assert.match(changes, /DELETE FROM service_access/);
 		assert.doesNotMatch(changes, /DELETE FROM content_reports/);
 	} finally {
 		globalThis.fetch = originalFetch;
@@ -183,7 +160,7 @@ test('static HTML keeps its page-specific CSP instead of receiving the API polic
 	assert.equal(response.headers.get('x-frame-options'), 'DENY');
 });
 
-test('native services fail closed without an App Store entitlement', async () => {
+test('hosted services fail closed without explicit access', async () => {
 	const unavailable = await worker.fetch(
 		authenticatedRequest('/api/ai/process', {
 			method: 'POST',
@@ -192,8 +169,8 @@ test('native services fail closed without an App Store entitlement', async () =>
 		}),
 		{ ...environment('reader@example.com'), OPENROUTER_API_KEY: 'test-key' }
 	);
-	assert.equal(unavailable.status, 402);
-	assert.equal((await unavailable.json()).code, 'subscription_required');
+	assert.equal(unavailable.status, 403);
+	assert.equal((await unavailable.json()).code, 'service_access_required');
 });
 
 test('Briefly AI prefers Fireworks with provider fallback', async () => {
@@ -341,18 +318,6 @@ test('share mutations reject cross-origin requests', async () => {
 		{ waitUntil() {} }
 	);
 	assert.equal(response.status, 403);
-});
-
-test('App Store notifications reject malformed signed payloads before changing state', async () => {
-	const response = await worker.fetch(
-		new Request('https://library.example/api/billing/apple/notifications', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ signedPayload: 'invalid' })
-		}),
-		environment()
-	);
-	assert.equal(response.status, 400);
 });
 
 function environment(email = null) {

@@ -71,7 +71,7 @@ a link deletes its active share records.
 
 ## Hosted services
 
-`Web/worker/index.js` provides native Apple authentication, App Store entitlement
-verification, managed processing, share publishing, and content reports. D1
-stores account, entitlement, usage, and text-share state. See `Web/README.md`
-for local development and deployment configuration.
+`Web/worker/index.js` provides native Apple authentication, managed processing,
+share publishing, and content reports. D1 stores account, service-access, usage,
+and text-share state. See `Web/README.md` for local development and deployment
+configuration.

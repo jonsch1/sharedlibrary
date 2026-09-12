@@ -5,9 +5,7 @@ import { finishNativeAppleLogin as finishNativeAppleLoginHandler } from '../doma
 import { signInForAppReview } from '../domains/auth/review-access.js';
 import { signOut } from '../domains/auth/session.js';
 import { deleteAccount } from '../domains/auth/deletion.js';
-import { paidAccessResponse } from '../domains/auth/entitlements.js';
-import { appStoreNotification, syncAppStoreTransaction } from '../domains/billing/storekit.js';
-import { adminComplimentaryAccess } from '../domains/admin/access.js';
+import { adminServiceAccess } from '../domains/admin/access.js';
 import { adminContentReports } from '../domains/admin/content-reports.js';
 import { adminUsage } from '../domains/admin/usage.js';
 import { createFeedback, feedbackBoard, setFeedbackUpvote } from '../domains/feedback/feedback.js';
@@ -59,10 +57,10 @@ const routeWorker = {
 			return deleteAccount(request, env);
 		}
 		if (
-			url.pathname === '/api/admin/complimentary-access' &&
+			url.pathname === '/api/admin/service-access' &&
 			['GET', 'POST', 'DELETE'].includes(request.method)
 		) {
-			return adminComplimentaryAccess(request, env);
+			return adminServiceAccess(request, env);
 		}
 		if (
 			url.pathname === '/api/admin/usage' &&
@@ -80,8 +78,6 @@ const routeWorker = {
 			return feedbackBoard(request, env);
 		}
 		if (url.pathname === '/api/feedback' && request.method === 'POST') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
 			return createFeedback(request, env);
 		}
 		const feedbackUpvote = url.pathname.match(
@@ -93,12 +89,6 @@ const routeWorker = {
 		if (url.pathname === '/api/usage' && request.method === 'POST') {
 			return serviceUsage(request, env);
 		}
-		if (url.pathname === '/api/billing/apple/transaction' && request.method === 'POST') {
-			return syncAppStoreTransaction(request, env);
-		}
-		if (url.pathname === '/api/billing/apple/notifications' && request.method === 'POST') {
-			return appStoreNotification(request, env);
-		}
 		if (url.pathname === '/api/extraction/firecrawl' && request.method === 'POST') {
 			return scrapeWithFirecrawl(request, env);
 		}
@@ -109,8 +99,6 @@ const routeWorker = {
 			return ownerShareLinkStatus(request, env);
 		}
 		if (url.pathname === '/api/share-links' && request.method === 'POST') {
-			const denied = await paidAccessResponse(request, env);
-			if (denied) return denied;
 			return publishShareLink(request, env, context);
 		}
 		const ownerShare = url.pathname.match(/^\/api\/share-links\/([A-Za-z0-9_-]{32})$/);

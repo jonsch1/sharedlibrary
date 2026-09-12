@@ -6,7 +6,7 @@ publishing copy, compliance drafts, and asset handoff material only.
 ## Fastest release path
 
 Ship the iOS/iPadOS app first, in English (U.S.), as a free TestFlight beta with
-no subscription or hosted AI. Use automatic release after approval unless a
+no hosted AI. Use automatic release after approval unless a
 coordinated launch date matters more than speed. Add the macOS version in a
 separate submission after iOS is through review.
 
@@ -14,11 +14,9 @@ separate submission after iOS is through review.
 
 - [x] Confirm current upload toolchain requirement: Xcode 26 or later. The local
   machine has Xcode 26.0.1.
-- [x] Confirm bundle ID and product ID used by the app:
-  `fyi.readbriefly.BrieflyNative` and `fyi.readbriefly.plus.monthly`.
+- [x] Confirm the native app bundle ID: `fyi.readbriefly.BrieflyNative`.
 - [x] Prepare English App Store listing copy and URLs in `metadata/en-US/`.
-- [x] Prepare privacy-label, age-rating, export-compliance, review-note, and
-  subscription drafts.
+- [x] Prepare privacy-label, age-rating, export-compliance, and review-note drafts.
 - [x] Prepare a 1024 x 1024 opaque App Store icon master in `assets/`.
 - [x] Sign in to App Store Connect and confirm the native bundle ID is available.
 - [x] Create the `ReadBriefly` iOS/macOS app record in App Store Connect using
@@ -31,14 +29,7 @@ separate submission after iOS is through review.
   tracking or advertising.
 - [x] Set the app itself to free and available in all 175 App Store countries
   and regions, with public App Store distribution.
-- [x] Accept the Paid Apps Agreement. It is pending completion of banking and
-  tax information.
-- [x] Defer the subscription and hosted AI flow until after the TestFlight beta.
-- [ ] Add a bank account and complete the U.S. tax questionnaire.
-- [ ] Receive approval for the App Store Small Business Program. Enrollment was
-  submitted on August 9, 2026 with no associated developer accounts declared
-  and prior-year proceeds confirmed below `$1,000,000`; Apple will email the
-  account holder with its decision.
+- [x] Keep the TestFlight beta free and hosted AI disabled.
 - [x] Complete the Digital Services Act declaration as a trader.
 - [x] Attest that the app accesses third-party content and has the necessary
   rights or other legal permission to do so.
@@ -62,7 +53,7 @@ separate submission after iOS is through review.
   `BUILD_NUMBER=<unique> ./scripts/testflight.sh archive`.
 - [x] Re-sign and export the archive locally with
   `BUILD_NUMBER=<same> ./scripts/testflight.sh export`.
-- [x] Upload build 6 with `BUILD_NUMBER=6 ./scripts/testflight.sh upload`; App
+- [x] Upload build 8 with `BUILD_NUMBER=8 ./scripts/testflight.sh upload`; App
   Store Connect accepted it and processing is in progress.
 - [ ] Add the processed build to an internal TestFlight group and complete an
   internal smoke test before inviting external testers.
@@ -99,14 +90,10 @@ Required launch sizes:
   1320 x 2868 PNG/JPEG without transparency.
 - iPad 13-inch portrait: use 2064 x 2752 or 2048 x 2732 PNG/JPEG without
   transparency.
-- Subscription screenshots are intentionally deferred until the paid product is
-  reintroduced.
-
 ## Owner input required before external submission
 
 - Export-compliance attestation that the app uses only exempt standard encryption
   supplied by Apple (for example HTTPS) and no proprietary/non-standard crypto.
-- Bank account details and the answers required by Apple's U.S. tax questionnaire.
 
 ## Defaults prepared for speed
 
@@ -114,7 +101,7 @@ Required launch sizes:
 - Primary language: English (U.S.).
 - Primary category: Productivity.
 - Secondary category: News.
-- Price: Free TestFlight beta; any monthly subscription is deferred.
+- Price: Free.
 - Release: Automatic after approval.
 - Age rating: answer **Yes** to unrestricted web access, which produces 16+ on
   Apple OS 26-era storefronts (17+ on older OS versions). All other content and

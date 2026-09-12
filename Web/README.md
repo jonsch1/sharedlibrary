@@ -27,21 +27,18 @@ flow. Configure `APPLE_CLIENT_ID`, `APPLE_TEAM_ID`, `APPLE_KEY_ID`, and
 `APPLE_PRIVATE_KEY`, then register
 `https://www.readbriefly.fyi/api/auth/apple/callback` as the Services ID return URL.
 
-## Hosted AI and billing
+## Hosted processing
 
-Hosted Briefly AI and the subscription flow are deferred during the TestFlight
-beta. Keep `PAID_PROCESSING_ENABLED=false` in the deployed Worker. macOS users
-process locally with their own OpenRouter API key or a provider CLI; iOS stores
-captures without generating summaries.
-
-The Worker retains the Apple transaction and review-access modules for a later
-hosted-service release, but the beta app does not expose those flows.
+Hosted Briefly AI is disabled during the TestFlight beta. Keep
+`HOSTED_PROCESSING_ENABLED=false` in the deployed Worker. macOS users process
+locally with their own OpenRouter API key or a provider CLI; iOS stores captures
+without generating summaries.
 
 ## Other deployment configuration
 
 - `FIRECRAWL_API_KEY` enables authenticated extraction fallback.
-- `PAID_PROCESSING_ENABLED=true` enables hosted Briefly AI processing for a future
-  paid release; keep it `false` for the beta.
+- `HOSTED_PROCESSING_ENABLED=true` enables hosted Briefly AI processing for
+  explicitly approved service accounts; keep it `false` for the beta.
 - `APP_REVIEW_CREDENTIAL_HASH` enables the review-only credential boundary.
 - `PUBLIC_POSTHOG_PROJECT_TOKEN` optionally enables consent-only analytics.
 - D1 must be bound as `DB`; static assets must be bound as `ASSETS`.

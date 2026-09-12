@@ -41,14 +41,12 @@ and source terms, but the App Store Connect attestation still belongs to the own
 
 ## DSA and storefront availability
 
-For EU distribution, confirm trader status in App Store Connect. A developer
-selling a recurring subscription will generally need to assess the trader option,
-but only the owner can make that legal attestation. Trader verification can make
-the supplied address, phone, and email public on the App Store product page.
+For EU distribution, confirm trader status in App Store Connect. Only the owner
+can make that legal attestation. Trader verification can make the supplied
+address, phone, and email public on the App Store product page.
 
 ## Encryption and privacy-manifest build handoff
 
 The finished archive should contain a valid privacy manifest and pass Xcode's
 Generate Privacy Report check before upload. App Store Connect rejects invalid
 manifests and required-reason API omissions.
-

@@ -31,7 +31,7 @@ struct MobileXLibraryScreen: View {
                         action: { openSettings(.general) }
                     ),
                     MobileXHeaderMenuItem(
-                        title: "Account & Subscription",
+                        title: "Account",
                         icon: "person.crop.circle",
                         action: { openSettings(.account) }
                     ),

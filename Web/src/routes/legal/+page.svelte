@@ -12,7 +12,7 @@
 		<p>
 			Briefly is designed around a local-first library. Your private library stays on your
 			device, while iCloud provides private synchronization across your Apple devices.
-			Server-side copies are limited to the account, entitlement, and share-link data needed to
+			Server-side copies are limited to the account and share-link data needed to
 			provide the features you request.
 		</p>
 
@@ -28,7 +28,7 @@
 				<span>02 · Agreement</span>
 				<div>
 					<h2>Terms of service</h2>
-					<p>The rules for accounts, content, public sharing, and your Briefly membership.</p>
+					<p>The rules for accounts, content, and public sharing.</p>
 				</div>
 			</a>
 			<a class="legal-card" href="/cookies">
@@ -68,7 +68,7 @@
 		<h2>Which documents apply?</h2>
 		<ul>
 			<li>The <a href="/privacy">Privacy Notice</a> applies whenever Briefly processes personal data.</li>
-			<li>The <a href="/terms">Terms of Service</a> apply when you use the website, apps, accounts, synchronization, public sharing, or a Briefly membership.</li>
+			<li>The <a href="/terms">Terms of Service</a> apply when you use the website, apps, accounts, synchronization, or public sharing.</li>
 			<li>The <a href="/cookies">Cookies & Local Storage Notice</a> explains data stored on your browser or device.</li>
 			<li>The <a href="/imprint">Imprint</a> identifies the service operator under German law.</li>
 			<li>Mandatory consumer and data-protection law always prevails over a conflicting term.</li>

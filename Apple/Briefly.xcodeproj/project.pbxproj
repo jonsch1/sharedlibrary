@@ -102,7 +102,7 @@
 		C10000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* main.swift */; };
 		C10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000001 /* BrieflyCore */; };
 		C10000000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* MCP */; };
-		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilters = (macos, ); settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilters = (macos, ); };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -671,9 +671,6 @@
 							com.apple.iCloud = {
 								enabled = 1;
 							};
-							com.apple.InAppPurchase = {
-								enabled = 1;
-							};
 							com.apple.Push = {
 								enabled = 1;
 							};
@@ -1157,11 +1154,15 @@
 		C90000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BrieflyMCP/BrieflyMCP.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
 				PRODUCT_NAME = "briefly-mcp";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -1173,11 +1174,15 @@
 		C90000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = BrieflyMCP/BrieflyMCP.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
 				PRODUCT_NAME = "briefly-mcp";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;

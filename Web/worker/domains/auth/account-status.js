@@ -1,26 +1,17 @@
 import { json } from '../../infrastructure/http-security.js';
 import { authenticatedEmail } from './session.js';
 import { accountRecord, ensureAccount } from './account-operations.js';
-import {
-	activeAppStoreSubscription,
-	hasComplimentaryPlusAccess,
-	isAdministrator
-} from './entitlements.js';
+import { isAdministrator } from './service-access.js';
 import { isAppReviewAccount } from './review-access.js';
 
 async function accountPayload(env, email) {
 	const account = await ensureAccount(env, email);
-	const subscription = await activeAppStoreSubscription(env, account.account_id);
 	return {
 		authenticated: true,
 		email,
 		accountID: account.account_id,
 		isAdmin: isAdministrator(email),
-		reviewAccess: isAppReviewAccount(env, email),
-		entitled: Boolean(subscription) || (await hasComplimentaryPlusAccess(env, email)),
-		subscription: subscription
-			? { productID: subscription.product_id, expiresAt: subscription.expires_at }
-			: null
+		reviewAccess: isAppReviewAccount(env, email)
 	};
 }
 

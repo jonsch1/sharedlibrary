@@ -114,7 +114,9 @@ final class LibrarySelectionModel {
             clear()
             return false
         }
-        let variant = entry.preferredVariant
+        let variant = selectedID == entryID && entry.text(for: selectedVariant) != nil
+            ? selectedVariant
+            : entry.preferredVariant
         selectedEntryIsInTrash = includeDeleted
         if selectedID == entryID, selectedVariant == variant {
             guard loadedEntrySnapshot != entry else { return true }

@@ -26,6 +26,42 @@ struct ReadingDepthStrip: View {
     }
 }
 
+#if os(iOS)
+struct ReadingDepthPicker: View {
+    @Bindable var model: LibraryModel
+    let entry: LibraryEntry
+
+    private var variants: [LibraryVariant] {
+        let availableVariants = Set(entry.texts.map(\.variant))
+        return LibraryVariant.allCases.filter(availableVariants.contains)
+    }
+
+    var body: some View {
+        Picker(
+            "Reading depth",
+            selection: Binding(
+                get: { model.selection.selectedVariant },
+                set: { variant in
+                    guard model.selection.selectedVariant != variant else { return }
+                    model.selection.selectedVariant = variant
+                    Task { await model.workflows.selectVariant(variant) }
+                }
+            )
+        ) {
+            ForEach(variants, id: \.self) { variant in
+                Text(variant.title)
+                    .tag(variant)
+                    .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityIdentifier("reader.depth.selector")
+    }
+}
+#endif
+
 struct ReadingDepthButton: View {
     @Bindable var model: LibraryModel
     let variant: LibraryVariant

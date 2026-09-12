@@ -95,8 +95,12 @@ final class MarkdownTextView: UITextView {
 
     func renderMarkdown() {
         guard !isRendering else { return }
+        let previousContentOffset = contentOffset
         isRendering = true
-        defer { isRendering = false }
+        defer {
+            isRendering = false
+            restoreContentOffset(previousContentOffset)
+        }
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = 32
         paragraph.maximumLineHeight = 32
@@ -159,6 +163,27 @@ final class MarkdownTextView: UITextView {
             .paragraphStyle: paragraph
         ]
         setNeedsDisplay()
+    }
+
+    private func restoreContentOffset(_ offset: CGPoint) {
+        guard bounds.height > 0 else { return }
+        layoutIfNeeded()
+
+        let minimumX = -adjustedContentInset.left
+        let maximumX = max(
+            minimumX,
+            contentSize.width - bounds.width + adjustedContentInset.right
+        )
+        let minimumY = -adjustedContentInset.top
+        let maximumY = max(
+            minimumY,
+            contentSize.height - bounds.height + adjustedContentInset.bottom
+        )
+
+        contentOffset = CGPoint(
+            x: min(max(offset.x, minimumX), maximumX),
+            y: min(max(offset.y, minimumY), maximumY)
+        )
     }
 
 }
