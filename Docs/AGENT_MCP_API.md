@@ -1,7 +1,7 @@
 # Briefly Agent API and MCP
 
 Status: implemented v1
-Last updated: 2026-08-10
+Last updated: 2026-09-12
 
 ## Decision
 
@@ -37,15 +37,19 @@ flowchart LR
 The MCP executable is embedded at
 `Briefly.app/Contents/MacOS/briefly-mcp` and signed as part of the app build.
 It never opens the production database. The running app owns extraction,
-capture, summary queueing, UI refresh, and sync. If needed, the MCP executable
-launches Briefly without activating its windows and waits for the socket.
+capture, summary queueing, UI refresh, and sync. Briefly must already be open. Agent requests return `library_unavailable` while
+the app is closed; connecting the plugin or retrying a request never launches it.
 
-The socket lives in the user's Briefly Application Support directory. Its
-directory is mode `0700`, the socket is mode `0600`, messages are length-prefixed
+The app and externally launched helper each use their own App Sandbox. The helper
+must not use sandbox inheritance, which requires a sandboxed parent process.
+Both share the macOS app group `Z9ZRF2T37C.fyi.readbriefly.agent`; this team-prefixed
+group requires no additional provisioning profile. Its only content is the
+`Agent/briefly.sock` IPC endpoint. The directory is mode `0700`, the socket is mode `0600`, messages are length-prefixed
 JSON, frames are limited to 2 MB, and the private protocol starts with version
 `1`. The app returns `upgrade_required` for an incompatible helper.
 
-For tests and development only, `briefly-mcp --library <sqlite-path>` uses an
+For tests and development only, the Swift-package-built
+`briefly-mcp --library <sqlite-path>` uses an
 isolated database directly. Production has no database fallback.
 
 ## MCP contract
@@ -225,6 +229,8 @@ the lightweight plugin under `Apple/.build/plugin/briefly`.
 
 ## References
 
+- [Apple App Groups entitlement and UNIX socket requirements](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.application-groups)
+- [Apple macOS app groups without provisioning](https://developer.apple.com/documentation/xcode/accessing-app-group-containers)
 - [MCP tools, 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 - [MCP tools, 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [Official Swift MCP SDK](https://github.com/modelcontextprotocol/swift-sdk)

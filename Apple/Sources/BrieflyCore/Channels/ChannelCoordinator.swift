@@ -282,30 +282,33 @@ struct LibraryChannelCoordinator {
         maximumItems limit: Int,
         discover: @Sendable () async throws -> DiscoveredChannel
     ) async throws -> LibraryChannelRefresh {
-        var records = try state.records()
-        guard let index = records.firstIndex(where: { $0.source == source }) else {
-            throw LibraryError.missingChannel
-        }
-        var record = records[index]
+        _ = try channelRecord(source)
+        let discovered: DiscoveredChannel
         do {
-            let discovered = try await discover()
+            discovered = try await discover()
+        } catch {
+            try state.update { records in
+                guard let index = records.firstIndex(where: { $0.source == source }) else { return }
+                records[index].lastCheckedAt = Date().iso8601
+                records[index].error = error.localizedDescription
+            }
+            throw error
+        }
+        return try state.update { records in
+            guard let index = records.firstIndex(where: { $0.source == source }) else {
+                throw LibraryError.missingChannel
+            }
+            var record = records[index]
             let newItemIDs = state.merge(discovered, into: &record, limit: limit)
             record.lastCheckedAt = Date().iso8601
             record.reviewLimit = normalizedReviewLimit(record.reviewLimit)
             record.error = nil
             records[index] = record
             _ = trimGroups(&records)
-            try state.write(records)
             guard let channel = state.buildChannels(from: records).first(where: {
                 $0.id == record.groupID
             }) else { throw LibraryError.missingChannel }
             return LibraryChannelRefresh(channel: channel, newItemIDs: newItemIDs)
-        } catch {
-            record.lastCheckedAt = Date().iso8601
-            record.error = error.localizedDescription
-            records[index] = record
-            try state.write(records)
-            throw error
         }
     }
 

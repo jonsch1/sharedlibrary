@@ -1,4 +1,3 @@
-import { databaseChanges } from '../../infrastructure/database.js';
 import { shareLinkURL, maximumShareTextBytesPerAccount, validateShareDocuments } from './validation.js';
 
 async function ownerShareTextBytes(env, email, excludedToken) {
@@ -69,18 +68,6 @@ function shareLinkResponse(request, record) {
 	};
 }
 
-async function removeShareGeneration(env, token, generation) {
-	await env.DB.prepare('DELETE FROM share_texts WHERE share_token = ? AND generation = ?')
-		.bind(token, generation)
-		.run();
-}
-
-async function removeOldShareGenerations(env, token, currentGeneration) {
-	await env.DB.prepare('DELETE FROM share_texts WHERE share_token = ? AND generation <> ?')
-		.bind(token, currentGeneration)
-		.run();
-}
-
 async function prepareShareLink(env, email, token, captureID, generation, source) {
 	try {
 		if (!source?.documents?.length) throw new Error('No summary is available to share.');
@@ -91,15 +78,11 @@ async function prepareShareLink(env, email, token, captureID, generation, source
 		) {
 			throw new Error('This account has reached its public sharing storage limit.');
 		}
-		for (const document of source.documents) {
-			await env.DB.prepare(
-				'INSERT OR REPLACE INTO share_texts (\n' +
-					'\tshare_token, generation, variant, markdown, word_count\n' +
-					') VALUES (?, ?, ?, ?, ?)'
-			)
-				.bind(token, generation, document.variant, document.markdown, document.wordCount)
-				.run();
-		}
+		const canPublish =
+			"token = ? AND generation = ? AND status = 'preparing'\n" +
+			'AND NOT EXISTS (SELECT 1 FROM content_reports report\n' +
+			'    WHERE report.owner_email = share_links.owner_email\n' +
+			"    AND report.capture_id = share_links.capture_id AND report.status = 'removed')";
 		const metadata = {
 			captureID: source.entry.captureID ?? captureID,
 			title: source.entry.title,
@@ -111,30 +94,34 @@ async function prepareShareLink(env, email, token, captureID, generation, source
 			createdAt: source.entry.createdAt,
 			updatedAt: source.entry.updatedAt
 		};
-		const completed = await env.DB.prepare(
-			'UPDATE share_links\n' +
-				'SET status = \'ready\', metadata_json = ?, source_filename = ?,\n' +
-				'    error_message = NULL, updated_at = ?\n' +
-				'WHERE token = ? AND generation = ?'
-		)
-			.bind(
-				JSON.stringify(metadata),
-				source.sourcePath.split('/').at(-1),
-				new Date().toISOString(),
-				token,
-				generation
-			)
-			.run();
-		if (databaseChanges(completed) === 0) {
-			await removeShareGeneration(env, token, generation);
-			return;
-		}
-		await removeOldShareGenerations(env, token, generation);
+		// D1 batches are transactions: a stale publisher cannot insert orphaned texts
+		// or delete the next publisher's generation between completion and cleanup.
+		await env.DB.batch([
+			...source.documents.map((document) => env.DB.prepare(
+				'INSERT OR REPLACE INTO share_texts (\n' +
+					'    share_token, generation, variant, markdown, word_count\n' +
+					') SELECT ?, ?, ?, ?, ?\n' +
+					'WHERE EXISTS (SELECT 1 FROM share_links WHERE ' + canPublish + ')'
+			).bind(token, generation, document.variant, document.markdown, document.wordCount,
+				token, generation)),
+			env.DB.prepare(
+				'UPDATE share_links\n' +
+					'SET status = \'ready\', metadata_json = ?, source_filename = ?,\n' +
+					'    error_message = NULL, updated_at = ?\n' +
+					'WHERE ' + canPublish
+			).bind(JSON.stringify(metadata), source.sourcePath.split('/').at(-1),
+				new Date().toISOString(), token, generation),
+			env.DB.prepare(
+				'DELETE FROM share_texts WHERE share_token = ? AND generation <> ?\n' +
+					'AND EXISTS (SELECT 1 FROM share_links\n' +
+					"    WHERE token = ? AND generation = ? AND status = 'ready')"
+			).bind(token, generation, token, generation)
+		]);
 	} catch (error) {
 		await env.DB.prepare(
 			'UPDATE share_links\n' +
 				'SET status = \'failed\', error_message = ?, updated_at = ?\n' +
-				'WHERE token = ? AND generation = ?'
+				"WHERE token = ? AND generation = ? AND status = 'preparing'"
 		)
 			.bind(
 				error instanceof Error ? error.message : 'The share link could not be prepared.',
@@ -149,8 +136,6 @@ async function prepareShareLink(env, email, token, captureID, generation, source
 export {
 	ownerShareTextBytes,
 	prepareShareLink,
-	removeOldShareGenerations,
-	removeShareGeneration,
 	shareLinkByToken,
 	shareLinkForOwner,
 	shareLinkResponse,

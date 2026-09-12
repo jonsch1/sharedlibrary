@@ -14,6 +14,10 @@ struct LibraryChannelStateRepository {
         try channels.saveRecords(records)
     }
 
+    func update<T>(_ operation: (inout [SQLiteChannelRecord]) throws -> T) throws -> T {
+        try channels.updateRecords(operation)
+    }
+
     func merge(
         _ discovered: DiscoveredChannel,
         into current: inout SQLiteChannelRecord,
@@ -25,6 +29,20 @@ struct LibraryChannelStateRepository {
         for item in discovered.items.prefix(limit).reversed() {
             guard !item.id.isEmpty, httpURL(item.url) != nil else { continue }
             let identity = canonicalItemIdentity(URL(string: item.url))
+            // Cloud restores provenance using document IDs. A feed's original ID
+            // may differ, but its accepted URL must not return to the review queue.
+            if current.items.contains(where: { existing in
+                !existing.isPending && (existing.id == item.id ||
+                    (discovered.kind != .page && identity != nil &&
+                        canonicalItemIdentity(URL(string: existing.url)) == identity))
+            }) {
+                if seen.insert(item.id).inserted { current.seen.insert(item.id, at: 0) }
+                current.items.removeAll { existing in
+                    existing.isPending && (existing.id == item.id ||
+                        (identity != nil && canonicalItemIdentity(URL(string: existing.url)) == identity))
+                }
+                continue
+            }
             let replacementIDs: Set<String> = Set(current.items.compactMap { existing in
                 guard existing.isPending,
                       let identity,

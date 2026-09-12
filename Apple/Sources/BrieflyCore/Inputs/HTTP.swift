@@ -37,7 +37,9 @@ public struct InputHTTPClient: Sendable {
     }
 
     public static let live = Self { request, maximumBytes in
-        let (data, rawResponse) = try await URLSession.shared.data(for: request)
+        guard maximumBytes >= 0 else { throw NativeInputError.responseTooLarge }
+        let (bytes, rawResponse) = try await URLSession.shared.bytes(for: request)
+        defer { bytes.task.cancel() }
         guard let response = rawResponse as? HTTPURLResponse else {
             throw NativeInputError.invalidResponse
         }
@@ -47,10 +49,14 @@ public struct InputHTTPClient: Sendable {
         if response.expectedContentLength > Int64(maximumBytes) {
             throw NativeInputError.responseTooLarge
         }
-        guard data.count <= maximumBytes else { throw NativeInputError.responseTooLarge }
         let finalURL = response.url ?? request.url!
         guard isNativeHTTPURL(finalURL), finalURL.user == nil, finalURL.password == nil else {
             throw NativeInputError.invalidResponse
+        }
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < maximumBytes else { throw NativeInputError.responseTooLarge }
+            data.append(byte)
         }
         return InputHTTPResponse(
             data: data,

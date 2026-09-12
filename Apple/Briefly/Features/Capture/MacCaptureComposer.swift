@@ -10,11 +10,12 @@ struct MacCaptureComposer: View {
     let openPDFImporter: () -> Void
     let openBrowser: () -> Void
     @State private var draft = ""
+    @State private var isSaving = false
     @FocusState private var focused: Bool
 
     private var canCapture: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !model.processing.isProcessing
+            !model.processing.isProcessing && !isSaving
     }
 
     var body: some View {
@@ -26,13 +27,18 @@ struct MacCaptureComposer: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isSaving)
                 Text("Capture")
                     .font(.headline)
                 Spacer()
                 Button("Save") {
                     let value = draft
-                    dismiss()
-                    Task { await model.workflows.capture(value) }
+                    isSaving = true
+                    model.workflows.clearError()
+                    Task {
+                        await model.workflows.capture(value, onCaptured: { dismiss() })
+                        isSaving = false
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: 0))
@@ -58,6 +64,7 @@ struct MacCaptureComposer: View {
                     .font(.system(size: 18))
                     .scrollContentBackground(.hidden)
                     .focused($focused)
+                    .disabled(isSaving)
                     .accessibilityIdentifier("capture.text")
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
@@ -72,6 +79,14 @@ struct MacCaptureComposer: View {
             }
             .padding(16)
             .frame(minHeight: 190, alignment: .top)
+
+            if let error = model.session.errorMessage, !isSaving {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
 
             Divider()
 
@@ -88,9 +103,12 @@ struct MacCaptureComposer: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 56)
+            .disabled(isSaving)
         }
-        .frame(width: 600, height: 302)
+        .frame(width: 600)
+        .frame(minHeight: 302)
         .background(.regularMaterial)
+        .interactiveDismissDisabled(isSaving)
         .task {
             if draft.isEmpty {
                 draft = NSPasteboard.general.string(forType: .string) ?? ""

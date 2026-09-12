@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import worker from './index.js';
@@ -78,7 +80,7 @@ test('App Review credentials grant revocable review access', async () => {
 	assert.match(deletion.headers.get('set-cookie'), /Max-Age=0/);
 });
 
-test('account deletion revokes Apple authorization and removes deletable account data', async () => {
+test('account deletion revokes Apple authorization and removes deletable account data', async (t) => {
 	const denied = await worker.fetch(
 		new Request('https://library.example/api/auth/account', {
 			method: 'DELETE',
@@ -88,7 +90,7 @@ test('account deletion revokes Apple authorization and removes deletable account
 	);
 	assert.equal(denied.status, 401);
 
-	const deletion = await accountDeletionEnvironment();
+	const deletion = await accountDeletionEnvironment(t);
 	const originalFetch = globalThis.fetch;
 	let revocation;
 	globalThis.fetch = async (url, init) => {
@@ -111,15 +113,11 @@ test('account deletion revokes Apple authorization and removes deletable account
 		assert.equal(revocation.body.get('client_id'), 'fyi.readbriefly.BrieflyNative');
 		assert.equal(revocation.body.get('token'), 'apple-refresh-token');
 
-		const changes = deletion.batch.map((statement) => statement.sql).join('\n');
-		assert.match(changes, /DELETE FROM share_texts/);
-		assert.match(changes, /DELETE FROM share_links/);
-		assert.match(changes, /DELETE FROM service_usage/);
-		assert.match(changes, /DELETE FROM auth_identities/);
-		assert.match(changes, /DELETE FROM app_sessions/);
-		assert.match(changes, /DELETE FROM accounts/);
-		assert.match(changes, /DELETE FROM service_access/);
-		assert.doesNotMatch(changes, /DELETE FROM content_reports/);
+		for (const table of ['share_texts', 'share_links', 'service_usage', 'auth_identities',
+			'apple_authorizations', 'app_sessions', 'accounts', 'service_access']) {
+			assert.equal(deletion.env.DB.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count, 0);
+		}
+		assert.equal(deletion.env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM content_reports').get().count, 1);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}
@@ -320,6 +318,144 @@ test('share mutations reject cross-origin requests', async () => {
 	assert.equal(response.status, 403);
 });
 
+test('share publication preserves the newest text and respects moderation and revocation', { timeout: 10_000 }, async (t) => {
+	const env = await sqliteEnvironment(t, 'schauljonathan@gmail.com');
+	const captureID = 'capture-1';
+	const mutation = (path, value, method = 'POST') => authenticatedRequest(path, {
+		method,
+		headers: { Origin: 'https://library.example', 'Content-Type': 'application/json' },
+		body: value && JSON.stringify(value)
+	});
+	const publish = async (markdown) => {
+		const tasks = [];
+		const response = await worker.fetch(mutation('/api/share-links', {
+			captureID,
+			source: {
+				filename: 'capture.md', title: 'Shared article', topicIDs: [], topicNames: [], tags: [],
+				texts: [{ variant: 'source', markdown: 'Private source.' }, { variant: 'concise', markdown }]
+			}
+		}), env, { waitUntil(task) { tasks.push(task); } });
+		return { response, tasks };
+	};
+	const firstReady = Promise.withResolvers();
+	const releaseFirst = Promise.withResolvers();
+	env.DB.afterWrite = async () => {
+		if (env.DB.sqlite.prepare('SELECT status FROM share_links').get()?.status !== 'ready') return;
+		env.DB.afterWrite = undefined;
+		firstReady.resolve();
+		await releaseFirst.promise;
+	};
+	const first = await publish('Older summary.');
+	assert.equal(first.response.status, 202);
+	const { token } = await first.response.json();
+	const read = () => worker.fetch(new Request(`https://library.example/api/public/shares/${token}`), env);
+	try {
+		await firstReady.promise;
+		const newer = await publish('Newest summary.');
+		assert.equal(newer.response.status, 202);
+		await Promise.all(newer.tasks);
+	} finally {
+		releaseFirst.resolve();
+		await Promise.all(first.tasks);
+	}
+	const document = await (await read()).json();
+	assert.equal(document.status, 'ready');
+	assert.deepEqual(document.texts.map((text) => text.markdown), ['Newest summary.']);
+	assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM share_texts').get().count, 1);
+	env.DB.afterRead = async (record) => {
+		if (record?.token !== token || record.status !== 'ready') return;
+		env.DB.afterRead = undefined;
+		const newer = await publish('Published while reading.');
+		await Promise.all(newer.tasks);
+	};
+	const snapshot = await (await read()).json();
+	assert.equal(snapshot.revision, document.revision);
+	assert.deepEqual(snapshot.texts, document.texts);
+	assert.deepEqual((await (await read()).json()).texts.map((text) => text.markdown), ['Published while reading.']);
+
+	const report = await worker.fetch(mutation(`/api/public/shares/${token}/reports`, {
+		category: 'privacy', reporterName: 'Reader', reporterEmail: 'reader@example.com',
+		explanation: 'This summary contains private information.', goodFaith: true
+	}), env);
+	assert.equal(report.status, 201);
+	const { id } = await report.json();
+	const beforeCommit = Promise.withResolvers();
+	const releaseCommit = Promise.withResolvers();
+	env.DB.beforeWrite = async () => {
+		if (env.DB.sqlite.prepare('SELECT status FROM share_links').get()?.status !== 'preparing') return;
+		env.DB.beforeWrite = undefined;
+		beforeCommit.resolve();
+		await releaseCommit.promise;
+	};
+	const pending = await publish('Do not restore removed content.');
+	try {
+		await beforeCommit.promise;
+		const removed = await worker.fetch(mutation('/api/admin/content-reports', { id, decision: 'removed' }, 'PATCH'), env);
+		assert.equal(removed.status, 200);
+	} finally {
+		releaseCommit.resolve();
+		await Promise.all(pending.tasks);
+	}
+	assert.equal((await read()).status, 409);
+	assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM share_texts').get().count, 0);
+	assert.equal((await publish('Still removed.')).response.status, 403);
+	const revoked = await worker.fetch(mutation(`/api/share-links/${token}`, null, 'DELETE'), env);
+	assert.equal(revoked.status, 200);
+	assert.equal((await read()).status, 404);
+});
+
+test('Apple web login binds callbacks to the browser and keeps return URLs on site', async (t) => {
+	const env = await appleEnvironment(t);
+	const keys = await crypto.subtle.generateKey(
+		{ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+		true, ['sign', 'verify']
+	);
+	const jwk = { ...await crypto.subtle.exportKey('jwk', keys.publicKey), kid: 'test-apple-key' };
+	const originalFetch = globalThis.fetch;
+	t.after(() => { globalThis.fetch = originalFetch; });
+	let nonce;
+	globalThis.fetch = async (url) => {
+		if (String(url).endsWith('/auth/keys')) return Response.json({ keys: [jwk] });
+		assert.equal(String(url), 'https://appleid.apple.com/auth/token');
+		const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+		const input = encode({ alg: 'RS256', kid: jwk.kid }) + '.' + encode({
+			iss: 'https://appleid.apple.com', aud: env.APPLE_CLIENT_ID, nonce,
+			exp: Math.floor(Date.now() / 1000) + 300, sub: 'apple-reader',
+			email: 'reader@example.com', email_verified: true
+		});
+		const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keys.privateKey, new TextEncoder().encode(input));
+		return Response.json({ id_token: input + '.' + Buffer.from(signature).toString('base64url'), refresh_token: 'refresh-token' });
+	};
+	const start = async (returnTo) => {
+		const url = new URL('https://library.example/api/auth/apple/start');
+		url.searchParams.set('return_to', returnTo);
+		const response = await worker.fetch(new Request(url), env);
+		const authorization = new URL(response.headers.get('location'));
+		nonce = authorization.searchParams.get('nonce');
+		const cookie = response.headers.get('set-cookie');
+		assert.match(cookie, /HttpOnly; Secure; SameSite=None; Max-Age=600/);
+		return { state: authorization.searchParams.get('state'), cookie: cookie.split(';')[0] };
+	};
+	const finish = (login, cookie = login.cookie) => worker.fetch(new Request('https://library.example/api/auth/apple/callback', {
+		method: 'POST', headers: { Cookie: cookie },
+		body: new URLSearchParams({ state: login.state, code: 'apple-code' })
+	}), env);
+	const login = await start('/admin?view=reports');
+	const foreign = await finish(login, '');
+	assert.equal(new URL(foreign.headers.get('location')).searchParams.get('apple'), 'error');
+	assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM app_sessions').get().count, 0);
+	const successful = await finish(login);
+	assert.equal(successful.headers.get('location'), 'https://library.example/admin?view=reports&apple=signed-in');
+	const session = successful.headers.getSetCookie().find((cookie) => cookie.startsWith('shared_library_session=')).split(';')[0];
+	const status = await worker.fetch(new Request('https://library.example/api/auth/status', { headers: { Cookie: session } }), env);
+	assert.equal((await status.json()).email, 'reader@example.com');
+	const replay = await finish(login);
+	assert.equal(new URL(replay.headers.get('location')).searchParams.get('apple'), 'expired');
+	assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM app_sessions').get().count, 1);
+	const unsafe = await finish(await start('/\\attacker.example/'));
+	assert.equal(unsafe.headers.get('location'), 'https://library.example/?apple=signed-in');
+});
+
 function environment(email = null) {
 	return {
 		DB: database(email),
@@ -369,75 +505,92 @@ async function appReviewEnvironment(username, password) {
 	};
 }
 
-async function accountDeletionEnvironment() {
-	const email = 'reader@example.com';
-	const accountID = '15b360f5-6a58-4a77-890d-ae7b322f0b1f';
+async function accountDeletionEnvironment(t) {
+	const env = await appleEnvironment(t, 'reader@example.com');
+	env.DB.sqlite.exec(`
+		INSERT INTO auth_identities VALUES ('apple', 'apple-subject', 'reader@example.com', 0);
+		INSERT INTO apple_authorizations VALUES ('apple-subject', 'fyi.readbriefly.BrieflyNative', 'apple-refresh-token', 0, 0);
+		INSERT INTO service_access VALUES ('reader@example.com', 'admin@example.com', 0);
+		INSERT INTO service_usage VALUES ('test-account', 'firecrawl', '2026-09-12', 1, 0);
+		INSERT INTO share_links VALUES ('share-token', 'reader@example.com', 'capture-1', 'generation-1', 1, 'ready', '{}', 'capture.md', NULL, '', '');
+		INSERT INTO share_texts VALUES ('share-token', 'generation-1', 'concise', 'Saved summary.', 2);
+		INSERT INTO content_reports (id, share_token, owner_email, capture_id, share_title, reported_url, category, explanation, status, created_at)
+		VALUES ('report-1', 'share-token', 'reader@example.com', 'capture-1', 'Title', 'https://library.example/', 'privacy', 'Keep moderation history.', 'open', 0);
+	`);
+	return { env };
+}
+
+async function appleEnvironment(t, email) {
 	const keys = await crypto.subtle.generateKey(
-		{ name: 'ECDSA', namedCurve: 'P-256' },
-		true,
-		['sign', 'verify']
+		{ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']
 	);
-	const privateKey = Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey))
-		.toString('base64')
-		.match(/.{1,64}/g)
-		.join('\n');
-	const batch = [];
+	return {
+		...await sqliteEnvironment(t, email),
+		APPLE_CLIENT_ID: 'fyi.readbriefly.web',
+		APPLE_KEY_ID: 'ABCDEFGHIJ',
+		APPLE_TEAM_ID: 'KLMNOPQRST',
+		APPLE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\n' +
+			Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey)).toString('base64') +
+			'\n-----END PRIVATE KEY-----'
+	};
+}
+
+async function sqliteEnvironment(t, email) {
+	const sqlite = new DatabaseSync(':memory:');
+	t.after(() => sqlite.close());
+	const migrations = new URL('../drizzle/', import.meta.url);
+	for (const name of readdirSync(migrations).filter((name) => name.endsWith('.sql')).sort()) {
+		sqlite.exec(readFileSync(new URL(name, migrations), 'utf8'));
+	}
+	// Only adapt D1's result shape; all SQL, constraints and transactions run in SQLite.
 	const DB = {
+		sqlite,
 		prepare(sql) {
 			let bindings = [];
+			const prepared = sqlite.prepare(sql);
 			const statement = {
-				sql,
-				get bindings() {
-					return bindings;
-				},
-				bind(...values) {
-					bindings = values;
-					return statement;
-				},
+				bind(...values) { bindings = values; return statement; },
 				async first() {
-					if (sql.includes('FROM app_sessions')) {
-						return { user_email: email, expires_at: Date.now() + 60_000 };
-					}
-					if (sql.includes('FROM accounts')) {
-						return { account_id: accountID, user_email: email };
-					}
-					if (sql.includes('JOIN apple_authorizations')) {
-						return {
-							client_id: 'fyi.readbriefly.BrieflyNative',
-							refresh_token: 'apple-refresh-token'
-						};
-					}
-					return null;
+					const result = prepared.get(...bindings) ?? null;
+					await DB.afterRead?.(result);
+					return result;
 				},
 				async all() {
-					return sql.includes('SELECT token FROM share_links')
-						? { results: [{ token: 'share-token' }] }
-						: { results: [] };
+					const results = prepared.all(...bindings);
+					await DB.afterRead?.(results[0]);
+					return { results };
 				},
+				execute() { return { success: true, meta: prepared.run(...bindings) }; },
 				async run() {
-					return { success: true, meta: { changes: 1 } };
+					await DB.beforeWrite?.();
+					const result = statement.execute();
+					await DB.afterWrite?.();
+					return result;
 				}
 			};
 			return statement;
 		},
 		async batch(statements) {
-			batch.push(...statements);
-			return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+			await DB.beforeWrite?.();
+			sqlite.exec('BEGIN');
+			let results;
+			try {
+				results = statements.map((statement) => statement.execute());
+				sqlite.exec('COMMIT');
+			} catch (error) {
+				sqlite.exec('ROLLBACK');
+				throw error;
+			}
+			await DB.afterWrite?.();
+			return results;
 		}
 	};
-	return {
-		batch,
-		env: {
-			APPLE_KEY_ID: 'ABCDEFGHIJ',
-			APPLE_PRIVATE_KEY:
-				'-----BEGIN PRIVATE KEY-----\n' +
-				privateKey +
-				'\n-----END PRIVATE KEY-----',
-			APPLE_TEAM_ID: 'KLMNOPQRST',
-			ASSETS: { fetch: async () => new Response('asset') },
-			DB
-		}
-	};
+	if (email) {
+		const tokenHash = Buffer.from(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('test-session'))).toString('hex');
+		sqlite.prepare('INSERT INTO app_sessions VALUES (?, ?, ?, ?)').run(tokenHash, email, Date.now(), Date.now() + 60_000);
+		sqlite.prepare('INSERT INTO accounts VALUES (?, ?, ?, ?)').run(email, 'test-account', Date.now(), Date.now());
+	}
+	return { DB, ASSETS: { fetch: async () => new Response('asset') } };
 }
 
 function managedAIEnvironment(initialState = {}) {

@@ -457,6 +457,10 @@ extension SQLiteLibrary {
                     // Keep the parent row alive while replacing its contents. Channel items
                     // can reference this document, so a delete-and-insert replacement violates
                     // their foreign key even though it occurs within one transaction.
+                    try run(
+                        "DELETE FROM document_texts WHERE document_id = ?",
+                        bindings: [.text(document.id)]
+                    )
                     try update(document)
                 } else {
                     try insert(document)

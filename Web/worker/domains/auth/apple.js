@@ -11,6 +11,7 @@ import { accountPayload } from './account-status.js';
 import { createSession } from './session.js';
 
 const oauthStateLifetimeMilliseconds = 10 * 60 * 1000;
+const appleStateCookieName = '__Host-briefly_apple_state';
 
 function appleTokenConfig(env, clientID) {
 	const teamID = String(env.APPLE_TEAM_ID || '').trim();
@@ -36,10 +37,22 @@ function nativeAppleAuthConfig(env) {
 	return appleTokenConfig(env, clientID);
 }
 
-function safeReturnTo(value, fallback = '/') {
-	return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')
-		? value
-		: fallback;
+function safeReturnTo(value, baseURL) {
+	if (typeof value !== 'string' || !value.startsWith('/')) return '/';
+	try {
+		const origin = new URL(baseURL).origin;
+		const destination = new URL(value, origin);
+		return destination.origin === origin
+			? destination.pathname + destination.search + destination.hash
+			: '/';
+	} catch {
+		return '/';
+	}
+}
+
+function appleStateCookie(state, maximumAgeSeconds) {
+	// Apple's form_post callback is cross-site, so the binding must use SameSite=None.
+	return `${appleStateCookieName}=${state}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=${maximumAgeSeconds}`;
 }
 
 async function identityEmail(env, provider, subject, verifiedEmail) {
@@ -67,11 +80,13 @@ async function identityEmail(env, provider, subject, verifiedEmail) {
 async function authenticatedRedirect(request, env, email, returnTo, provider) {
 	const { token, cookie } = await createSession(env, email);
 	void token;
-	const destination = new URL(safeReturnTo(returnTo), request.url);
+	const destination = new URL(safeReturnTo(returnTo, request.url), request.url);
 	destination.searchParams.set(provider, 'signed-in');
+	const headers = new Headers({ Location: destination.toString(), 'Set-Cookie': cookie });
+	headers.append('Set-Cookie', appleStateCookie('', 0));
 	return new Response(null, {
 		status: 302,
-		headers: { Location: destination.toString(), 'Set-Cookie': cookie }
+		headers
 	});
 }
 
@@ -240,7 +255,7 @@ async function startAppleLogin(request, env) {
 			.bind(
 				state,
 				nonce,
-				safeReturnTo(new URL(request.url).searchParams.get('return_to')),
+				safeReturnTo(new URL(request.url).searchParams.get('return_to'), request.url),
 				now
 			)
 	]);
@@ -255,7 +270,13 @@ async function startAppleLogin(request, env) {
 	authorizationURL.searchParams.set('scope', 'name email');
 	authorizationURL.searchParams.set('state', state);
 	authorizationURL.searchParams.set('nonce', nonce);
-	return Response.redirect(authorizationURL.toString(), 302);
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: authorizationURL.toString(),
+			'Set-Cookie': appleStateCookie(state, oauthStateLifetimeMilliseconds / 1000)
+		}
+	});
 }
 
 async function finishAppleLogin(request, env) {
@@ -270,15 +291,23 @@ async function finishAppleLogin(request, env) {
 	if (typeof state !== 'string' || typeof code !== 'string') {
 		return redirectWithProviderResult(request, 'apple', 'error');
 	}
+	const browserState = (request.headers.get('Cookie') ?? '')
+		.split(';')
+		.map((cookie) => cookie.trim())
+		.find((cookie) => cookie.startsWith(appleStateCookieName + '='))
+		?.slice(appleStateCookieName.length + 1);
+	if (!browserState || browserState !== state) {
+		return redirectWithProviderResult(request, 'apple', 'error');
+	}
 	const pending = await env.DB.prepare(
-		'SELECT nonce, return_to, created_at FROM apple_login_states WHERE state = ?'
+		'DELETE FROM apple_login_states WHERE state = ? AND created_at >= ?\n' +
+			'RETURNING nonce, return_to'
 	)
-		.bind(state)
+		.bind(state, Date.now() - oauthStateLifetimeMilliseconds)
 		.first();
-	if (!pending || Date.now() - pending.created_at > oauthStateLifetimeMilliseconds) {
+	if (!pending) {
 		return redirectWithProviderResult(request, 'apple', 'expired');
 	}
-	await env.DB.prepare('DELETE FROM apple_login_states WHERE state = ?').bind(state).run();
 	const config = appleAuthConfig(env);
 	if (!config) return redirectWithProviderResult(request, 'apple', 'error');
 	const { response, value } = await exchangeAppleAuthorizationCode(
@@ -366,9 +395,15 @@ async function finishNativeAppleLogin(request, env) {
 }
 
 function redirectWithProviderResult(request, provider, result, path = '/') {
-	const destination = new URL(path, request.url);
+	const destination = new URL(safeReturnTo(path, request.url), request.url);
 	destination.searchParams.set(provider, result);
-	return Response.redirect(destination.toString(), 302);
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: destination.toString(),
+			'Set-Cookie': appleStateCookie('', 0)
+		}
+	});
 }
 
 export {

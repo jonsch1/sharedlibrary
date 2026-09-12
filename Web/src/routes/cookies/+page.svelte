@@ -2,19 +2,26 @@
 	import LegalShell from '$lib/LegalShell.svelte';
 	import { browser } from '$app/environment';
 
-	let analyticsConsent = $state(
-		browser ? localStorage.getItem('briefly_analytics_consent') : null
-	);
+	function readConsent(): string | null {
+		try { return browser ? localStorage.getItem('briefly_analytics_consent') : null; }
+		catch { return null; }
+	}
+	let analyticsConsent = $state(readConsent());
+	let storageError = $state('');
 
 	function chooseAnalytics(value: 'yes' | 'no'): void {
-		if (value === 'no') {
-			for (const key of Object.keys(localStorage)) {
-				if (key.startsWith('ph_')) localStorage.removeItem(key);
+		try {
+			if (value === 'no') {
+				for (const key of Object.keys(localStorage)) {
+					if (key.startsWith('ph_')) localStorage.removeItem(key);
+				}
 			}
+			localStorage.setItem('briefly_analytics_consent', value);
+			analyticsConsent = value;
+			location.reload();
+		} catch {
+			storageError = 'Browser storage is unavailable. Analytics remain disabled.';
 		}
-		localStorage.setItem('briefly_analytics_consent', value);
-		analyticsConsent = value;
-		location.reload();
 	}
 </script>
 
@@ -107,8 +114,9 @@
 			capture, and session recording. Events are not connected to your Briefly email.
 		</p>
 		<p>
-			Current choice: <strong>{analyticsConsent === 'yes' ? 'enabled' : analyticsConsent === 'no' ? 'disabled' : 'not chosen (disabled)'}</strong>.
-		</p>
+				Current choice: <strong>{analyticsConsent === 'yes' ? 'enabled' : analyticsConsent === 'no' ? 'disabled' : 'not chosen (disabled)'}</strong>.
+			</p>
+			{#if storageError}<p role="status">{storageError}</p>{/if}
 		<p>
 			<button type="button" onclick={() => chooseAnalytics('yes')}>Allow anonymous analytics</button>
 			<button type="button" onclick={() => chooseAnalytics('no')}>Disable analytics</button>

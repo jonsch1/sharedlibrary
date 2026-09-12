@@ -132,12 +132,7 @@ struct ContentView: View {
             }
         }
         .task {
-            if model.session.environment.isUITesting {
-                await model.workflows.start()
-            } else {
-                await model.account.refreshAccount()
-                await model.workflows.start()
-            }
+            await model.workflows.start()
         }
         .task {
             guard model.lifecycle.runsScheduledWork else { return }

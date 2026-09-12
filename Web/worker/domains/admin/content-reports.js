@@ -58,12 +58,16 @@ async function adminContentReports(request, env, context) {
 			report.id +
 			'. Email hello@readbriefly.fyi to appeal.';
 		await env.DB.batch([
-			env.DB.prepare('DELETE FROM share_texts WHERE share_token = ?').bind(report.share_token),
+			env.DB.prepare(
+				'DELETE FROM share_texts WHERE share_token IN (\n' +
+					'    SELECT token FROM share_links WHERE owner_email = ? AND capture_id = ?)'
+			).bind(report.owner_email, report.capture_id),
 			env.DB.prepare(
 				'UPDATE share_links\n' +
-					'SET status = \'failed\', error_message = ?, updated_at = ?\n' +
-					'WHERE token = ?'
-			).bind(message, new Date(resolvedAt).toISOString(), report.share_token),
+					'SET status = \'failed\', generation = ?, error_message = ?, updated_at = ?\n' +
+					'WHERE owner_email = ? AND capture_id = ?'
+			).bind(crypto.randomUUID(), message, new Date(resolvedAt).toISOString(),
+				report.owner_email, report.capture_id),
 			env.DB.prepare(
 				'UPDATE content_reports\n' +
 					'SET status = \'removed\', resolved_at = ? WHERE id = ?'

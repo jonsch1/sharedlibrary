@@ -297,6 +297,7 @@ extension SQLiteLibrary {
     public func acceptChannelItem(source: String, itemID: String, entryID: String) throws {
         try locked {
             try transaction {
+                let document = try getDocument(entryID)
                 guard try scalarInt(
                     "SELECT count(*) FROM channel_items ci JOIN channels c ON c.id = ci.channel_id " +
                         "WHERE c.source_url = ? AND c.deleted_at IS NULL AND ci.item_id = ? " +
@@ -312,6 +313,10 @@ extension SQLiteLibrary {
                         .text(source), .text(itemID)
                     ]
                 )
+                // Provenance is part of the document's cloud payload.
+                _ = try commitDocument(SQLiteDocumentCommit(
+                    id: entryID, baseRevision: document.revision
+                ))
             }
         }
     }

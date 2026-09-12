@@ -14,7 +14,6 @@ final class LibrarySettingsModel {
     static let processingCommandKey = "BrieflyProcessingCommand"
     static let processingPromptKey = "BrieflyProcessingPrompt"
     static let processingVerificationKey = "BrieflyProcessingVerification"
-    static let aboutYouKey = "BrieflyAboutYou"
 
     let session: LibrarySession
     var topicsText = ""
@@ -22,7 +21,6 @@ final class LibrarySettingsModel {
     var processingCommand: String
     var processingPrompt: String
     var openRouterAPIKey: String
-    var aboutYou: String
     var processingVerificationFingerprint: String
     var processingTestMessage: String?
     var processingTestSucceeded = false
@@ -40,7 +38,6 @@ final class LibrarySettingsModel {
         processingPrompt = UserDefaults.standard.string(forKey: Self.processingPromptKey)
             ?? defaultProcessingPrompt
         openRouterAPIKey = OpenRouterCredentialStore.load() ?? ""
-        aboutYou = UserDefaults.standard.string(forKey: Self.aboutYouKey) ?? ""
         processingVerificationFingerprint = UserDefaults.standard.string(
             forKey: Self.processingVerificationKey
         ) ?? ""
@@ -231,17 +228,6 @@ final class LibrarySettingsModel {
         return SHA256.hash(data: Data(configuration.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
-    }
-
-    func savePersonalizationSettings() {
-        let context = aboutYou.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard context.count <= 10_000 else {
-            session.errorMessage = "Personal context must be 10,000 characters or fewer."
-            return
-        }
-        aboutYou = context
-        UserDefaults.standard.set(context, forKey: Self.aboutYouKey)
-        session.status = "Personalization settings saved"
     }
 
     @discardableResult

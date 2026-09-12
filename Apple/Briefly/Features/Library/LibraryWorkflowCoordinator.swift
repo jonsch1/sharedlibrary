@@ -57,6 +57,7 @@ final class LibraryWorkflowCoordinator {
     private var acceptedChannelSummaryTask: Task<Void, Never>?
     private var acceptedChannelSummaryRequested = false
     private var isImportingSharedCaptures = false
+    private var textWrites = [String: (id: UUID, task: Task<Void, Never>)]()
 
     init(
         session: LibrarySession,
@@ -290,8 +291,19 @@ final class LibraryWorkflowCoordinator {
     }
 
     func saveText(_ text: String, entryID: String, variant: LibraryVariant) async {
-        if await selection.saveText(text, entryID: entryID, variant: variant) {
-            requestSync()
+        let key = "\(entryID):\(variant.rawValue)"
+        let previous = textWrites[key]?.task
+        let id = UUID()
+        let task = Task {
+            await previous?.value
+            if await selection.saveText(text, entryID: entryID, variant: variant) {
+                requestSync()
+            }
+        }
+        textWrites[key] = (id, task)
+        await task.value
+        if textWrites[key]?.id == id {
+            textWrites.removeValue(forKey: key)
         }
     }
 
@@ -305,7 +317,7 @@ final class LibraryWorkflowCoordinator {
 
     // MARK: Capture and processing
 
-    func importPendingSharedCaptures() async {
+    func importPendingSharedCaptures(retryFailed: Bool = false) async {
         #if os(iOS)
         guard session.library != nil,
               account.account.reviewAccess != true,
@@ -318,13 +330,16 @@ final class LibraryWorkflowCoordinator {
         do {
             let inbox = try SharedCaptureInbox()
             try inbox.recoverInterruptedClaims()
+            if retryFailed { try inbox.retryFailedCaptures() }
             let initialCount = try inbox.pendingCaptures().count
             guard initialCount > 0 else { return }
 
             var importedIDs = [String]()
             var failedCount = 0
+            var attemptedIDs = Set<UUID>()
             for _ in 0..<initialCount {
-                guard let capture = try inbox.claimNext() else { break }
+                guard let capture = try inbox.claimNext(excluding: attemptedIDs) else { break }
+                attemptedIDs.insert(capture.id)
                 do {
                     let request = try inbox.inputRequest(for: capture)
                     let entryID = try await processing.captureShared(
@@ -348,9 +363,12 @@ final class LibraryWorkflowCoordinator {
                 requestSync()
             }
             if failedCount > 0 {
-                session.errorMessage = failedCount == 1
+                let message = failedCount == 1
                     ? "A shared item could not be imported. Briefly will retry it next time."
                     : "\(failedCount) shared items could not be imported. Briefly will retry them next time."
+                session.errorMessage = try inbox.failedCaptures().isEmpty
+                    ? message
+                    : "Some shared items still could not be imported. Retry them in Settings → Library & Sync."
             }
         } catch {
             session.errorMessage = error.localizedDescription
@@ -377,8 +395,9 @@ final class LibraryWorkflowCoordinator {
         if !results.isEmpty { requestSync() }
     }
 
-    func capture(_ text: String) async {
+    func capture(_ text: String, onCaptured: (() -> Void)? = nil) async {
         guard let entryID = await processing.capture(text) else { return }
+        onCaptured?()
         navigation.activeSection = .items
         await refreshLibrary(selecting: entryID)
         #if os(macOS)

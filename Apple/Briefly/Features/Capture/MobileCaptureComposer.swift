@@ -7,11 +7,12 @@ struct MobileCaptureComposer: View {
     let openPDFImporter: () -> Void
     let openBrowser: () -> Void
     @State private var draft = ""
+    @State private var isSaving = false
     @FocusState private var focused: Bool
 
     private var canCapture: Bool {
         !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !model.processing.isProcessing
+            !model.processing.isProcessing && !isSaving
     }
 
     var body: some View {
@@ -21,6 +22,7 @@ struct MobileCaptureComposer: View {
                     .font(.system(size: 19))
                     .scrollContentBackground(.hidden)
                     .focused($focused)
+                    .disabled(isSaving)
                     .accessibilityIdentifier("capture.text")
                     .padding(.horizontal, 14)
                     .padding(.top, 12)
@@ -45,6 +47,14 @@ struct MobileCaptureComposer: View {
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 58)
+                .disabled(isSaving)
+                if let error = model.session.errorMessage, !isSaving {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                }
             }
             .background { BrieflyAtmosphere().ignoresSafeArea() }
             .navigationTitle("Capture")
@@ -52,12 +62,17 @@ struct MobileCaptureComposer: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         let value = draft
-                        dismiss()
-                        Task { await model.workflows.capture(value) }
+                        isSaving = true
+                        model.workflows.clearError()
+                        Task {
+                            await model.workflows.capture(value, onCaptured: { dismiss() })
+                            isSaving = false
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.roundedRectangle(radius: 0))
@@ -66,6 +81,7 @@ struct MobileCaptureComposer: View {
                 }
             }
         }
+        .interactiveDismissDisabled(isSaving)
         .task { focused = true }
     }
 

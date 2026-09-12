@@ -1,19 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { page } from '$app/state';
+  import { browser } from '$app/environment';
   import PublicShareReader from '$lib/PublicShareReader.svelte';
 
-  let publicShareToken = $state('');
+  const publicShareToken = $derived(browser ? page.url.searchParams.get('shared') ?? '' : '');
+  const validToken = $derived(/^[A-Za-z0-9_-]{32}$/.test(publicShareToken));
 
-  onMount(() => {
-    const token = new URL(window.location.href).searchParams.get('shared') ?? '';
-    if (/^[A-Za-z0-9_-]{32}$/.test(token)) {
-      publicShareToken = token;
-    } else {
-      window.location.replace('/landing');
-    }
+  $effect(() => {
+    if (!validToken) window.location.replace('/landing');
   });
 </script>
 
-{#if publicShareToken}
-  <PublicShareReader token={publicShareToken} />
+{#if validToken}
+  {#key publicShareToken}
+    <PublicShareReader token={publicShareToken} />
+  {/key}
 {/if}

@@ -5,12 +5,19 @@ import Foundation
 public enum BrieflyAgentIPC {
     public static let version = 1
     public static let appBundleIdentifier = "fyi.readbriefly.BrieflyNative"
+    public static let appGroupIdentifier = "Z9ZRF2T37C.fyi.readbriefly.agent"
     static let maximumFrameBytes = 2_000_000
 
     public static func socketURL(fileManager: FileManager = .default) throws -> URL {
-        let directory = fileManager
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appending(path: "Briefly", directoryHint: .isDirectory)
+        guard let container = fileManager.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+        ) else {
+            throw BrieflyAgentFailure(
+                code: "ipc_unavailable",
+                message: "Briefly could not open its shared agent container."
+            )
+        }
+        let directory = container
             .appending(path: "Agent", directoryHint: .isDirectory)
         try fileManager.createDirectory(
             at: directory,
@@ -139,28 +146,22 @@ public final class BrieflyAgentSocketServer: @unchecked Sendable {
 
 public struct BrieflyAgentSocketClient: Sendable {
     private let requestedSocketURL: URL?
-    private let launchesApp: Bool
 
-    public init(socketURL: URL? = nil, launchesApp: Bool = true) {
+    public init(socketURL: URL? = nil) {
         requestedSocketURL = socketURL
-        self.launchesApp = launchesApp
     }
 
     public func call(_ request: BrieflyAgentCall) async throws -> BrieflyAgentReply {
         let requestedSocketURL = self.requestedSocketURL
-        let launchesApp = self.launchesApp
         return try await Task.detached {
             let url = try requestedSocketURL ?? BrieflyAgentIPC.socketURL()
-            var descriptor = connectSocket(at: url.path)
-            if descriptor < 0, launchesApp {
-                try launchBriefly()
-                let deadline = Date().addingTimeInterval(15)
-                repeat {
-                    usleep(100_000)
-                    descriptor = connectSocket(at: url.path)
-                } while descriptor < 0 && Date() < deadline
+            let descriptor = connectSocket(at: url.path)
+            guard descriptor >= 0 else {
+                throw BrieflyAgentFailure(
+                    code: "library_unavailable",
+                    message: "Open Briefly to use its library."
+                )
             }
-            guard descriptor >= 0 else { throw BrieflyAgentFailure.unavailable }
             defer { Darwin.close(descriptor) }
             setTimeout(on: descriptor, seconds: 180)
             try writeFrame(try JSONEncoder().encode(request), to: descriptor)
@@ -283,21 +284,6 @@ private func setTimeout(on descriptor: Int32, seconds: Int) {
             socklen_t(MemoryLayout<timeval>.size)
         )
     }
-}
-
-private func launchBriefly() throws {
-    let process = Process()
-    process.executableURL = URL(filePath: "/usr/bin/open")
-    if let appPath = ProcessInfo.processInfo.environment["BRIEFLY_APP_PATH"], !appPath.isEmpty {
-        process.arguments = ["-gj", appPath]
-    } else {
-        process.arguments = ["-gj", "-b", BrieflyAgentIPC.appBundleIdentifier]
-    }
-    process.standardOutput = FileHandle.nullDevice
-    process.standardError = FileHandle.nullDevice
-    try process.run()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else { throw BrieflyAgentFailure.unavailable }
 }
 
 private func posixFailure(_ action: String) -> BrieflyAgentFailure {

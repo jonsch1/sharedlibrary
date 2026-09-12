@@ -84,11 +84,13 @@ async function publishShareLink(request, env, context) {
 			'\tmetadata_json, source_filename, error_message, created_at, updated_at\n' +
 			')\n' +
 			'SELECT ?, ?, ?, ?, 1, \'preparing\', NULL, NULL, NULL, ?, ?\n' +
-			'WHERE EXISTS (\n' +
+			'WHERE NOT EXISTS (SELECT 1 FROM content_reports\n' +
+			"    WHERE owner_email = ? AND capture_id = ? AND status = 'removed')\n" +
+			'AND (EXISTS (\n' +
 			'\tSELECT 1 FROM share_links WHERE owner_email = ? AND capture_id = ?\n' +
 			') OR (\n' +
 			'\tSELECT COUNT(*) FROM share_links WHERE owner_email = ?\n' +
-			') < ?\n' +
+			') < ?)\n' +
 			'ON CONFLICT(owner_email, capture_id) DO UPDATE SET\n' +
 			'\tgeneration = excluded.generation,\n' +
 			'\trevision = share_links.revision + 1,\n' +
@@ -103,6 +105,8 @@ async function publishShareLink(request, env, context) {
 			generation,
 			now,
 			now,
+			email,
+			captureID,
 			email,
 			captureID,
 			email,

@@ -23,7 +23,6 @@ extension SettingsView {
 
                 Section("Briefly") {
                     settingsRow(.capture)
-                    settingsRow(.personalization)
                 }
 
                 Section("Advanced") {
@@ -181,6 +180,14 @@ extension SettingsView {
                         )
                     }
                     .disabled(model.lifecycle.isSyncing)
+                    #if os(iOS)
+                    Button {
+                        Task { await model.workflows.importPendingSharedCaptures(retryFailed: true) }
+                    } label: {
+                        Label("Retry shared captures", systemImage: "square.and.arrow.down")
+                    }
+                    .disabled(model.processing.isProcessing || !model.session.canEdit)
+                    #endif
                 }
 
                     case .capture:
@@ -256,26 +263,6 @@ extension SettingsView {
                         .signInWithAppleButtonStyle(.black)
                         .frame(maxWidth: 280, minHeight: 42, maxHeight: 42)
                         .accessibilityLabel("Sign in with Apple")
-                    }
-                }
-
-                    case .personalization:
-                Section("Personalization") {
-                    TextField(
-                        "About you",
-                        text: $model.settings.aboutYou,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...8)
-                    Text("Used only when “Prioritize for me” is enabled.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Spacer()
-                        Button("Save") {
-                            model.settings.savePersonalizationSettings()
-                        }
-                        .buttonStyle(.borderedProminent)
                     }
                 }
 

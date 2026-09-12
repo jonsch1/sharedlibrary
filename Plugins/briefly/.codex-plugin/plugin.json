@@ -1,6 +1,6 @@
 {
   "name": "briefly",
-  "version": "0.1.0+codex.20260810200616",
+  "version": "0.1.0+codex.20260912061021",
   "description": "Ingest URLs, save supplied documents, and recall compact Briefly summaries.",
   "author": {
     "name": "Briefly",

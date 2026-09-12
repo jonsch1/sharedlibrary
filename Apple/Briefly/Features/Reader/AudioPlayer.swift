@@ -16,6 +16,8 @@ final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
     private var currentURL: URL?
     private var currentTitle: String?
     private var currentPlaybackID: String?
+    private var completedEntryID: String?
+    private var completedPlaybackID: String?
     private var positionKey: String?
     private var segments = [Segment]()
     private var segmentIndex = 0
@@ -158,13 +160,19 @@ final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
 
     func resume() {
         shouldPlay = true
+        guard !segments.isEmpty else { return }
+        if currentEntryID == nil {
+            currentEntryID = completedEntryID
+            currentPlaybackID = completedPlaybackID
+        }
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        setRemoteCommandsEnabled(true)
+        #endif
         guard let player else {
             try? startNextSegmentIfAvailable()
             return
         }
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(true)
-        #endif
         guard player.play() else {
             isPlaying = false
             return
@@ -217,6 +225,8 @@ final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         currentEntryID = nil
         currentTitle = nil
         currentPlaybackID = nil
+        completedEntryID = nil
+        completedPlaybackID = nil
         positionKey = nil
         segments.removeAll()
         segmentIndex = 0
@@ -320,7 +330,13 @@ final class NativeAudioPlayer: NSObject, AVAudioPlayerDelegate {
         player?.stop()
         player = nil
         currentURL = nil
+        completedEntryID = currentEntryID
+        completedPlaybackID = currentPlaybackID
+        currentEntryID = nil
         currentPlaybackID = nil
+        segmentIndex = 0
+        segmentStartTime = 0
+        resumeTarget = nil
         shouldPlay = false
         streamIsFinished = true
         isPlaying = false

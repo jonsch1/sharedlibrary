@@ -30,13 +30,27 @@
     detailed: 'Detailed',
     source: 'Original'
   };
+  function moveSelection(event: KeyboardEvent): void {
+    const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(event.key)) return;
+    const buttons = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+    const current = buttons.indexOf(event.target as HTMLButtonElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const index = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+      : (current + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[index].focus();
+    buttons[index].click();
+  }
 </script>
 
 {#if summaryVariants.length > 0}
   <div
     class="segmented-depth segmented-depth--{presentation}"
     role="radiogroup"
+    tabindex="-1"
     aria-label="Reading version"
+    onkeydown={moveSelection}
   >
     {#each summaryVariants as variant}
       {@const depth = variantOrder.indexOf(variant) + 1}
@@ -47,6 +61,7 @@
           class:is-active={selected === variant}
           role="radio"
           aria-checked={selected === variant}
+          tabindex={selected === variant || (!variants.includes(selected) && summaryVariants[0] === variant) ? 0 : -1}
           aria-label={variantNames[variant]}
           title={variantNames[variant]}
           onclick={() => onselect(variant)}
@@ -67,6 +82,7 @@
           class:is-active={selected === sourceVariant}
           role="radio"
           aria-checked={selected === sourceVariant}
+          tabindex={selected === sourceVariant ? 0 : -1}
           aria-label={variantNames.source}
           title={variantNames.source}
           onclick={() => onselect(sourceVariant)}

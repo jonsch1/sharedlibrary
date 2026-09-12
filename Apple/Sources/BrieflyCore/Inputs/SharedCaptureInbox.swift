@@ -181,6 +181,15 @@ public struct SharedCaptureInbox: Sendable {
         try manifests(in: failedDirectory).sorted { $0.createdAt < $1.createdAt }
     }
 
+    public func retryFailedCaptures() throws {
+        for var capture in try failedCaptures() {
+            capture.attempts = 0
+            capture.lastError = nil
+            try write(capture, to: pendingDirectory)
+            try FileManager.default.removeItem(at: manifestURL(for: capture.id, in: failedDirectory))
+        }
+    }
+
     /// Returns interrupted claims to the pending queue. Only the containing app
     /// calls this before beginning a new drain.
     public func recoverInterruptedClaims() throws {
@@ -195,8 +204,8 @@ public struct SharedCaptureInbox: Sendable {
     }
 
     /// Atomically claims the oldest pending capture for one importer.
-    public func claimNext() throws -> PendingSharedCapture? {
-        for capture in try pendingCaptures() {
+    public func claimNext(excluding attemptedIDs: Set<UUID> = []) throws -> PendingSharedCapture? {
+        for capture in try pendingCaptures() where !attemptedIDs.contains(capture.id) {
             let source = manifestURL(for: capture.id, in: pendingDirectory)
             let destination = manifestURL(for: capture.id, in: processingDirectory)
             do {

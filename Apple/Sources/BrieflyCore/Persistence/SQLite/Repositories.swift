@@ -5,6 +5,10 @@ import Foundation
 struct SQLiteDocumentRepository {
     let database: SQLiteLibrary
 
+    func transaction<T>(_ operation: () throws -> T) throws -> T {
+        try database.locked { try database.transaction(operation) }
+    }
+
     func create(
         title: String,
         body: String,
@@ -98,6 +102,17 @@ struct SQLiteChannelRepository {
 
     func saveRecords(_ records: [SQLiteChannelRecord]) throws {
         try database.saveChannelRecords(records)
+    }
+
+    func updateRecords<T>(_ operation: (inout [SQLiteChannelRecord]) throws -> T) throws -> T {
+        try database.locked {
+            try database.transaction {
+                var records = try database.channelRecords()
+                let result = try operation(&records)
+                try database.saveChannelRecords(records)
+                return result
+            }
+        }
     }
 
     @discardableResult

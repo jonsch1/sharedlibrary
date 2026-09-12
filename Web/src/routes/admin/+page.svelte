@@ -87,23 +87,30 @@
 	}
 
 	async function load(): Promise<void> {
-		const [accessResponse, usageResponse, reportsResponse] = await Promise.all([
-			accessRequest('GET'),
-			usageRequest('GET'),
-			reportsRequest('GET')
-		]);
-		if ([accessResponse, usageResponse, reportsResponse].some((response) => response.status === 401))
-			denied = 'signed-out';
-		else if (
-			[accessResponse, usageResponse, reportsResponse].some((response) => response.status === 403)
-		)
-			denied = 'forbidden';
-		else if (accessResponse.ok && usageResponse.ok && reportsResponse.ok) {
-			emails = ((await accessResponse.json()) as { emails: Access[] }).emails;
-			accounts = ((await usageResponse.json()) as { accounts: Account[] }).accounts;
-			reports = ((await reportsResponse.json()) as { reports: ContentReport[] }).reports;
-		} else error = 'The admin dashboard could not be loaded.';
-		loading = false;
+		loading = true;
+		error = '';
+		try {
+			const [accessResponse, usageResponse, reportsResponse] = await Promise.all([
+				accessRequest('GET'),
+				usageRequest('GET'),
+				reportsRequest('GET')
+			]);
+			if ([accessResponse, usageResponse, reportsResponse].some((response) => response.status === 401))
+				denied = 'signed-out';
+			else if (
+				[accessResponse, usageResponse, reportsResponse].some((response) => response.status === 403)
+			)
+				denied = 'forbidden';
+			else if (accessResponse.ok && usageResponse.ok && reportsResponse.ok) {
+				emails = ((await accessResponse.json()) as { emails: Access[] }).emails;
+				accounts = ((await usageResponse.json()) as { accounts: Account[] }).accounts;
+				reports = ((await reportsResponse.json()) as { reports: ContentReport[] }).reports;
+			} else error = 'The admin dashboard could not be loaded.';
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			loading = false;
+		}
 	}
 
 	async function decideReport(
@@ -113,14 +120,19 @@
 		if (busy) return;
 		busy = report.id;
 		error = '';
-		const response = await reportsRequest('PATCH', { id: report.id, decision });
-		const result = (await response.json()) as { error?: string; resolvedAt?: number };
-		if (!response.ok) error = result.error ?? 'The report decision could not be saved.';
-		else {
-			report.status = decision;
-			report.resolvedAt = result.resolvedAt ?? Date.now();
+		try {
+			const response = await reportsRequest('PATCH', { id: report.id, decision });
+			const result = (await response.json()) as { error?: string; resolvedAt?: number };
+			if (!response.ok) error = result.error ?? 'The report decision could not be saved.';
+			else {
+				report.status = decision;
+				report.resolvedAt = result.resolvedAt ?? Date.now();
+			}
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			busy = '';
 		}
-		busy = '';
 	}
 
 	function replyURL(email: string, report: ContentReport, recipient: 'reporter' | 'owner'): string {
@@ -138,28 +150,38 @@
 		if (!value || busy) return;
 		busy = value;
 		error = '';
-		const response = await accessRequest('POST', value);
-		const result = (await response.json()) as { error?: string; createdAt?: number };
-		if (!response.ok) error = result.error ?? 'Access could not be added.';
-		else {
-			emails = [
-				{ email: value, createdAt: result.createdAt ?? Date.now() },
-				...emails.filter((entry) => entry.email !== value)
-			];
-			email = '';
+		try {
+			const response = await accessRequest('POST', value);
+			const result = (await response.json()) as { error?: string; createdAt?: number };
+			if (!response.ok) error = result.error ?? 'Access could not be added.';
+			else {
+				emails = [
+					{ email: value, createdAt: result.createdAt ?? Date.now() },
+					...emails.filter((entry) => entry.email !== value)
+				];
+				email = '';
+			}
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			busy = '';
 		}
-		busy = '';
 	}
 
 	async function remove(value: string): Promise<void> {
 		if (busy) return;
 		busy = value;
 		error = '';
-		const response = await accessRequest('DELETE', value);
-		const result = (await response.json()) as { error?: string };
-		if (!response.ok) error = result.error ?? 'Access could not be removed.';
-		else emails = emails.filter((entry) => entry.email !== value);
-		busy = '';
+		try {
+			const response = await accessRequest('DELETE', value);
+			const result = (await response.json()) as { error?: string };
+			if (!response.ok) error = result.error ?? 'Access could not be removed.';
+			else emails = emails.filter((entry) => entry.email !== value);
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			busy = '';
+		}
 	}
 
 	async function saveLimits(account: Account, service: Service): Promise<void> {
@@ -167,18 +189,23 @@
 		if (busy) return;
 		busy = key;
 		error = '';
-		const response = await usageRequest('PUT', {
-			email: account.email,
-			service: service.service,
-			limits: service.limits
-		});
-		const result = (await response.json()) as { error?: string; limits: Limits; custom: boolean };
-		if (!response.ok) error = result.error ?? 'Usage limits could not be saved.';
-		else {
-			service.limits = result.limits;
-			service.custom = result.custom;
+		try {
+			const response = await usageRequest('PUT', {
+				email: account.email,
+				service: service.service,
+				limits: service.limits
+			});
+			const result = (await response.json()) as { error?: string; limits: Limits; custom: boolean };
+			if (!response.ok) error = result.error ?? 'Usage limits could not be saved.';
+			else {
+				service.limits = result.limits;
+				service.custom = result.custom;
+			}
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			busy = '';
 		}
-		busy = '';
 	}
 
 	async function resetLimits(account: Account, service: Service): Promise<void> {
@@ -186,17 +213,22 @@
 		if (busy) return;
 		busy = key;
 		error = '';
-		const response = await usageRequest('DELETE', {
-			email: account.email,
-			service: service.service
-		});
-		const result = (await response.json()) as { error?: string; limits: Limits; custom: boolean };
-		if (!response.ok) error = result.error ?? 'Usage limits could not be reset.';
-		else {
-			service.limits = result.limits;
-			service.custom = result.custom;
+		try {
+			const response = await usageRequest('DELETE', {
+				email: account.email,
+				service: service.service
+			});
+			const result = (await response.json()) as { error?: string; limits: Limits; custom: boolean };
+			if (!response.ok) error = result.error ?? 'Usage limits could not be reset.';
+			else {
+				service.limits = result.limits;
+				service.custom = result.custom;
+			}
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : 'The request failed. Please try again.';
+		} finally {
+			busy = '';
 		}
-		busy = '';
 	}
 
 	function formatUnits(service: string, units: number): string {
@@ -241,7 +273,7 @@
 		<section><p>This account is not an administrator.</p></section>
 	{:else}
 		<div class="dashboard">
-			{#if error}<p class="error" role="alert">{error}</p>{/if}
+			{#if error}<p class="error" role="alert">{error} <button type="button" onclick={() => void load()}>Retry</button></p>{/if}
 			<section class="reports-panel">
 				<h2>Content reports</h2>
 				<p class="intro">Review open notices promptly, then contact the reporter and share owner.</p>

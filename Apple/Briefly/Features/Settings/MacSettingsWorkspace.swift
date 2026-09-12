@@ -255,15 +255,6 @@ struct MacXSettingsWorkspace: View {
                 }
             }
 
-        case .personalization:
-            editorGroup(
-                title: "Personalization",
-                description: "Context used when Prioritize for me is enabled.",
-                firstTitle: "About you",
-                firstText: $model.settings.aboutYou,
-                save: model.settings.savePersonalizationSettings
-            )
-
         case .topics:
             detailGroup("Topics") {
                 VStack(alignment: .leading, spacing: 10) {
@@ -505,34 +496,6 @@ struct MacXSettingsWorkspace: View {
         .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
     }
 
-    private func editorGroup(
-        title: String,
-        description: String,
-        firstTitle: String,
-        firstText: Binding<String>,
-        save: @escaping () -> Void
-    ) -> some View {
-        detailGroup(title) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(description).font(.caption).foregroundStyle(.secondary)
-                Text(firstTitle).font(.callout.weight(.semibold))
-                TextField(firstTitle, text: firstText, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(3...7)
-                    .padding(11)
-                    .background(Color.primary.opacity(0.04))
-                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                HStack {
-                    Spacer()
-                    Button("Save", action: save)
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.roundedRectangle(radius: 0))
-                }
-            }
-            .padding(20)
-        }
-    }
-
     private func indexLink(_ title: String, icon: String, url: String) -> some View {
         Link(destination: URL(string: url)!) {
             HStack(spacing: 12) {
@@ -555,7 +518,6 @@ struct MacXSettingsWorkspace: View {
         case .library: "Storage, refresh, and iCloud"
         case .capture: "System-wide keyboard shortcut"
         case .account: "Sign-in and beta access"
-        case .personalization: "Your context"
         case .topics: "Reusable library topics"
         case .ai: "Provider, command, and prompt"
         }
@@ -567,7 +529,6 @@ struct MacXSettingsWorkspace: View {
         case .library: "Manage local storage, refresh, and synchronization."
         case .capture: "Choose the keyboard shortcut used to capture from anywhere."
         case .account: "See account information and optional Apple sign-in."
-        case .personalization: "Tell Briefly what matters to you."
         case .topics: "Manage the reusable topics applied to saved notes."
         case .ai: "Choose how Briefly processes and summarizes content."
         }

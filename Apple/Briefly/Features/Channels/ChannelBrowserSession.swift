@@ -331,24 +331,19 @@ final class ChannelBrowserSession {
             preferred.flatMap { URL(string: $0) },
             fallback
         ].compactMap { $0 }
-        let cookies = await withCheckedContinuation { continuation in
-            dataStore.httpCookieStore.getAllCookies {
-                continuation.resume(returning: $0)
-            }
-        }
-        for url in candidates where ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        for url in candidates where ["http", "https"].contains(url.scheme?.lowercased() ?? "") &&
+            url.user == nil && url.password == nil {
             do {
                 var request = URLRequest(url: url, timeoutInterval: 5)
                 request.setValue("image/*", forHTTPHeaderField: "Accept")
-                let matching = cookies.filter {
-                    url.host?.hasSuffix($0.domain.trimmingCharacters(
-                        in: CharacterSet(charactersIn: ".")
-                    )) == true
-                }
-                for (field, value) in HTTPCookie.requestHeaderFields(with: matching) {
-                    request.setValue(value, forHTTPHeaderField: field)
-                }
-                let (data, response) = try await URLSession.shared.data(for: request)
+                request.httpShouldHandleCookies = false
+                let (data, response) = try await session.data(for: request)
                 guard
                     let response = response as? HTTPURLResponse,
                     (200..<300).contains(response.statusCode),

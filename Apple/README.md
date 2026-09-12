@@ -94,7 +94,7 @@ To build, install Briefly directly into `/Applications`, and launch it:
 Launched builds keep development signing enabled so capabilities such as Sign
 in with Apple remain available. The iOS command requires a booted simulator.
 
-The live input tests run as part of `swift test`. They ingest the registered
+Live input tests are skipped unless `BRIEFLY_RUN_LIVE_TESTS=1` is set. They ingest the registered
 public URL for every item input, then enumerate every channel and ingest one
 of its discovered items. The filtered command runs only those live journeys.
 The iOS check requires the iOS Simulator platform installed in Xcode.

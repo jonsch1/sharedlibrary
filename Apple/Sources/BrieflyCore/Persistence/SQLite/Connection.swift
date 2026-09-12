@@ -18,13 +18,18 @@ extension SQLiteLibrary {
         return try operation()
     }
 
-    func transaction(_ operation: () throws -> Void) throws {
-        try execute("BEGIN IMMEDIATE")
+    func transaction<T>(_ operation: () throws -> T) throws -> T {
+        // Repository operations may participate in a larger capture or channel commit.
+        let savepoint = sqlite3_get_autocommit(connection) == 0
+            ? "nested_" + UUID().uuidString.replacingOccurrences(of: "-", with: "") : nil
+        try execute(savepoint.map { "SAVEPOINT \($0)" } ?? "BEGIN IMMEDIATE")
         do {
-            try operation()
-            try execute("COMMIT")
+            let result = try operation()
+            try execute(savepoint.map { "RELEASE SAVEPOINT \($0)" } ?? "COMMIT")
+            return result
         } catch {
-            try? execute("ROLLBACK")
+            try? execute(savepoint.map { "ROLLBACK TO SAVEPOINT \($0)" } ?? "ROLLBACK")
+            if let savepoint { try? execute("RELEASE SAVEPOINT \(savepoint)") }
             throw error
         }
     }

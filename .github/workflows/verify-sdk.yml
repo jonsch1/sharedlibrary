@@ -1,0 +1,36 @@
+name: Verify TypeScript SDK
+
+on:
+  pull_request:
+    paths:
+      - "SDK/TypeScript/**"
+      - "Apple/Sources/BrieflyCore/**"
+      - "Apple/Sources/BrieflyMCP/**"
+      - "Apple/Package.swift"
+      - ".github/workflows/verify-sdk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sdk:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: SDK/TypeScript/package-lock.json
+      - name: Build the real MCP helper
+        run: swift build --product briefly-mcp
+        working-directory: Apple
+      - run: npm ci
+        working-directory: SDK/TypeScript
+      - run: npm run check
+        working-directory: SDK/TypeScript
+      - run: npm test
+        working-directory: SDK/TypeScript
+      - run: npm pack --dry-run
+        working-directory: SDK/TypeScript

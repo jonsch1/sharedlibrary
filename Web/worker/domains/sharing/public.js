@@ -97,7 +97,16 @@ async function publicContentReport(request, env, token) {
 }
 
 async function publicShareDocument(request, env, token) {
-	const record = await shareLinkByToken(env, token);
+	// Read metadata and its text generation from one SQLite snapshot.
+	const result = await env.DB.prepare(
+		'SELECT link.token, link.status, link.revision, link.metadata_json,\n' +
+			'       link.error_message, link.updated_at, text.variant, text.markdown, text.word_count\n' +
+			'FROM share_links link LEFT JOIN share_texts text\n' +
+			'    ON text.share_token = link.token AND text.generation = link.generation\n' +
+			'    AND text.variant <> ?\n' +
+			'WHERE link.token = ?'
+	).bind(sourceVariant, token).all();
+	const record = result.results?.[0];
 	if (!record) return json({ error: 'This share link is no longer available.' }, { status: 404 });
 	if (record.status !== 'ready') {
 		return json(
@@ -108,19 +117,13 @@ async function publicShareDocument(request, env, token) {
 			{ status: record.status === 'preparing' ? 202 : 409 }
 		);
 	}
-	const textResult = await env.DB.prepare(
-		'SELECT variant, markdown, word_count FROM share_texts\n' +
-			'WHERE share_token = ? AND generation = ? AND variant <> ?'
-	)
-		.bind(token, record.generation, sourceVariant)
-		.all();
 	let metadata = {};
 	try {
 		metadata = JSON.parse(record.metadata_json ?? '{}');
 	} catch {
 		metadata = {};
 	}
-	const texts = (textResult.results ?? [])
+	const texts = (result.results ?? [])
 		.filter((document) => shareVariants.includes(document.variant))
 		.map((document) => ({
 			variant: document.variant,

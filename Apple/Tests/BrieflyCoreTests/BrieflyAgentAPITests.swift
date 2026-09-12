@@ -59,7 +59,7 @@ final class BrieflyAgentAPITests: XCTestCase {
         }
         try server.start()
         defer { server.stop() }
-        let client = BrieflyAgentSocketClient(socketURL: socketURL, launchesApp: false)
+        let client = BrieflyAgentSocketClient(socketURL: socketURL)
 
         let suppliedURL = "https://unavailable.example/agent-extracted-document"
         let saved = try await client.call(BrieflyAgentCall(
@@ -134,6 +134,13 @@ final class BrieflyAgentAPITests: XCTestCase {
         ))
         XCTAssertNil(pendingRead.read?.text)
         XCTAssertEqual(pendingRead.read?.status, "processing")
+        server.stop()
+        do {
+            _ = try await client.call(BrieflyAgentCall(op: "search", search: .init()))
+            XCTFail("A closed app must remain unavailable to agent requests.")
+        } catch let failure as BrieflyAgentFailure {
+            XCTAssertEqual(failure.code, "library_unavailable")
+        }
         #else
         let hiddenSource = try await agent.search(.init(q: "classified-source-token"))
         XCTAssertEqual(hiddenSource.items, [])

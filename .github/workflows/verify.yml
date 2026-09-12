@@ -59,3 +59,16 @@ jobs:
       - name: Test Swift package
         run: swift test
         working-directory: Apple
+
+  native:
+    name: Compile native apps
+    runs-on: macos-latest
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        destination: ['platform=macOS', 'generic/platform=iOS Simulator']
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build app and share extension
+        run: xcodebuild -project Briefly.xcodeproj -scheme Briefly -destination '${{ matrix.destination }}' CODE_SIGNING_ALLOWED=NO build
+        working-directory: Apple

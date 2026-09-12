@@ -101,23 +101,48 @@ final class NativeItemInputTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let inbox = try SharedCaptureInbox(directoryURL: root.appending(path: "Inbox"))
         let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+        let database = try await store.documentDatabase()
 
         let queued = try inbox.enqueue(text: "A durable shared note\nWith useful detail.")
         let firstClaim = try XCTUnwrap(inbox.claimNext())
-        let firstDraft = try await router.ingest(try inbox.inputRequest(for: firstClaim))
+        var firstDraft = try await router.ingest(try inbox.inputRequest(for: firstClaim))
+        firstDraft.audioData = Data("recorded audio".utf8)
+        firstDraft.audioMimeType = "audio/mp4"
+        try database.execute("""
+            CREATE TEMP TRIGGER fail_capture_attachment BEFORE INSERT ON attachments
+            BEGIN SELECT RAISE(ABORT, 'Attachment storage unavailable'); END
+            """)
+        do {
+            _ = try await store.captureItem(firstDraft, captureID: firstClaim.captureID)
+            XCTFail("Capture must fail when its attachment cannot be saved")
+        } catch is SQLiteLibraryError {}
+        XCTAssertTrue(try database.allDocuments().isEmpty)
+        XCTAssertTrue(try database.outbox().isEmpty)
+        try database.execute("DROP TRIGGER fail_capture_attachment")
         let firstID = try await store.captureItem(firstDraft, captureID: firstClaim.captureID)
 
+        // An older interrupted capture may already have the document but no attachment.
+        try database.execute("DELETE FROM attachments")
         try inbox.release(firstClaim, error: NativeInputError.requestFailed(503))
+        XCTAssertNil(try inbox.claimNext(excluding: [firstClaim.id]))
         let retriedClaim = try XCTUnwrap(inbox.claimNext())
-        let retriedDraft = try await router.ingest(try inbox.inputRequest(for: retriedClaim))
-        let retriedID = try await store.captureItem(retriedDraft, captureID: retriedClaim.captureID)
+        let retriedID = try await store.captureItem(firstDraft, captureID: retriedClaim.captureID)
         try inbox.complete(retriedClaim)
 
         XCTAssertEqual(queued.id, retriedClaim.id)
         XCTAssertEqual(firstID, retriedID)
         XCTAssertTrue(try inbox.pendingCaptures().isEmpty)
-        let database = try await store.documentDatabase()
         XCTAssertEqual(try database.allDocuments().count, 1)
+        XCTAssertEqual(try database.attachment(documentID: firstID, kind: "audio")?.1, firstDraft.audioData)
+
+        _ = try inbox.enqueue(text: "A recoverable failed capture")
+        for _ in 0..<SharedCaptureInbox.maximumAttempts {
+            let failed = try XCTUnwrap(inbox.claimNext())
+            try inbox.release(failed, error: NativeInputError.requestFailed(503))
+        }
+        XCTAssertNil(try inbox.claimNext())
+        try inbox.retryFailedCaptures()
+        XCTAssertNotNil(try inbox.claimNext())
     }
 
     func testSharedCaptureInboxKeepsItsOwnPDFCopy() async throws {
@@ -792,6 +817,69 @@ final class NativeItemInputTests: XCTestCase {
 @MainActor
 final class NativeChannelInputTests: XCTestCase {
     private let router = NativeChannelInputRouter()
+
+    func testChannelRefreshPreservesDecisionsAndCloudDocumentState() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "channel-sync-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "local.sqlite3"))
+        let database = try await store.documentDatabase()
+        let source = "https://example.com/feed.xml"
+        let storyURL = URL(string: "https://example.com/story")!
+        let batch = ChannelInputBatch(inputID: .feed, title: "Feed", kind: .feed, items: [
+            .init(id: "original-feed-id", title: "Story", url: storyURL),
+            .init(id: "rejected", title: "Rejected", url: URL(string: "https://example.com/rejected")!)
+        ])
+        try await store.addChannel(source)
+        _ = try await store.checkChannelInput(source) { _ in batch }
+        let document = try database.createDocument(
+            title: "Story", body: "Full story", texts: [.source: "Full story", .concise: "Summary"],
+            sourceURL: storyURL.absoluteString
+        )
+        try database.acknowledgeOutbox(documentID: document.id, revision: document.revision)
+
+        let refreshed = try await store.checkChannelInput(source) { _ in
+            _ = try await store.acceptChannelItem(channelID: source, itemID: "original-feed-id") { _ in
+                document.id
+            }
+            try await store.rejectChannelItem(channelID: source, itemID: "rejected")
+            try await store.updateChannel(source, reviewLimit: 3, schedule: "daily 08:30")
+            return batch
+        }
+        XCTAssertTrue(refreshed.channel.items.isEmpty)
+        XCTAssertEqual(refreshed.channel.reviewLimit, 3)
+        XCTAssertEqual(refreshed.channel.schedule, "daily 08:30")
+        XCTAssertEqual(try database.channelSources(documentID: document.id), [source])
+        XCTAssertTrue(try database.outbox().contains {
+            $0.recordType == "document" && $0.documentID == document.id && $0.revision > document.revision
+        })
+
+        let otherStore = SQLiteLibraryStore(databaseURL: root.appending(path: "remote.sqlite3"))
+        let otherDatabase = try await otherStore.documentDatabase()
+        var remote = try database.getDocument(document.id)
+        try otherDatabase.applyRemote(remote)
+        remote.texts.removeValue(forKey: .concise)
+        remote.revision += 1
+        try otherDatabase.applyRemote(remote)
+        try otherDatabase.restoreCloudChannelSources([source], for: document.id)
+        let synced = try await otherStore.checkChannelInput(source) { _ in
+            ChannelInputBatch(inputID: .feed, title: "Feed", kind: .feed, items: [batch.items[0]])
+        }
+        XCTAssertTrue(synced.channel.items.isEmpty)
+        XCTAssertNil(try otherDatabase.getDocument(document.id).texts[.concise])
+        XCTAssertTrue(try otherDatabase.search("Summary").isEmpty)
+        XCTAssertTrue(try otherDatabase.outbox().allSatisfy { $0.recordType != "document" })
+
+        do {
+            _ = try await store.checkChannelInput(source) { _ in
+                try await store.removeChannel(source)
+                return batch
+            }
+            XCTFail("A deleted channel must not be restored by a completed refresh")
+        } catch LibraryError.missingChannel {}
+        let remaining = try await store.loadChannels()
+        XCTAssertTrue(remaining.isEmpty)
+        XCTAssertEqual(try database.getDocument(document.id).texts[.source], "Full story")
+    }
 
     func testEveryChannelInputHasARealTestURL() {
         assertRealTestURLs(

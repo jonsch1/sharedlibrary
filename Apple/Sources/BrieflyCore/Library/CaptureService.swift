@@ -58,9 +58,14 @@ struct LibraryCaptureService {
     }
 
     func captureItem(_ draft: ItemDraft, captureID: String? = nil) throws -> String {
+        try documents.transaction { try persistItem(draft, captureID: captureID) }
+    }
+
+    private func persistItem(_ draft: ItemDraft, captureID: String?) throws -> String {
         let content = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { throw LibraryError.emptyCapture }
         if let captureID, let existing = try documents.find(captureID: captureID) {
+            try saveDraftAttachments(draft, documentID: existing.id)
             return existing.id
         }
         if let key = draft.canonicalKey,
@@ -178,27 +183,29 @@ struct LibraryCaptureService {
         audioMimeType: String? = nil,
         captureID: String? = nil
     ) throws -> String {
-        let document = try documents.create(
-            title: title,
-            body: content,
-            type: entryType,
-            sourceURL: sourceURL?.absoluteString,
-            mediaURL: mediaURL?.absoluteString,
-            captureID: captureID
-        )
-        try saveDraftAttachments(
-            ItemDraft(
-                inputID: .text,
+        try documents.transaction {
+            let document = try documents.create(
                 title: title,
-                content: content,
-                faviconData: faviconData,
-                faviconFileExtension: faviconFileExtension,
-                audioData: audioData,
-                audioMimeType: audioMimeType
-            ),
-            documentID: document.id
-        )
-        return document.id
+                body: content,
+                type: entryType,
+                sourceURL: sourceURL?.absoluteString,
+                mediaURL: mediaURL?.absoluteString,
+                captureID: captureID
+            )
+            try saveDraftAttachments(
+                ItemDraft(
+                    inputID: .text,
+                    title: title,
+                    content: content,
+                    faviconData: faviconData,
+                    faviconFileExtension: faviconFileExtension,
+                    audioData: audioData,
+                    audioMimeType: audioMimeType
+                ),
+                documentID: document.id
+            )
+            return document.id
+        }
     }
 
     private func saveDraftAttachments(_ draft: ItemDraft, documentID: String) throws {

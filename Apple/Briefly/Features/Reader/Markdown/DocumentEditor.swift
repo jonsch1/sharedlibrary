@@ -10,6 +10,8 @@ struct DocumentEditor: View {
     let isEditing: Bool
     @State private var draft: String
     @State private var pendingSave: Task<Void, Never>?
+    @State private var savesInProgress = 0
+    @State private var saveGeneration = 0
 
     init(
         model: LibraryModel,
@@ -41,18 +43,27 @@ struct DocumentEditor: View {
             } : nil
         )
         .onChange(of: sourceText) { oldValue, newValue in
-            if draft == oldValue { draft = newValue }
+            if draft == oldValue, pendingSave == nil, savesInProgress == 0 {
+                draft = newValue
+            }
         }
         .onChange(of: draft) {
-            guard model.session.canEdit, !model.navigation.showingTrash, isEditing, draft != sourceText else {
+            pendingSave?.cancel()
+            pendingSave = nil
+            saveGeneration += 1
+            guard model.session.canEdit, !model.navigation.showingTrash, isEditing,
+                  draft != sourceText || savesInProgress > 0 else {
                 return
             }
-            pendingSave?.cancel()
             let text = draft
+            let generation = saveGeneration
             pendingSave = Task {
                 try? await Task.sleep(for: .milliseconds(450))
                 guard !Task.isCancelled else { return }
+                savesInProgress += 1
                 await model.workflows.saveText(text, entryID: entryID, variant: variant)
+                savesInProgress -= 1
+                if saveGeneration == generation { pendingSave = nil }
             }
         }
     }
