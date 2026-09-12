@@ -16,6 +16,7 @@ does not expose a private library, account manager, or checkout.
 | Public sharing and hosted backend | `Web/` |
 | Shared web rendering primitives | `Shared/` |
 | Native capture and channel inputs | `Apple/Sources/BrieflyCore/Inputs/` |
+| External TypeScript capture SDK | [`SDK/TypeScript/`](SDK/TypeScript/README.md) |
 
 ## Build and test
 

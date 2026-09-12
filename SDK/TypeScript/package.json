@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Capture resources with custom TypeScript adapters and save them to Briefly.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22.18.0" },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
