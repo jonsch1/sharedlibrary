@@ -1,1 +1,0 @@
-ALTER TABLE `managed_ai_usage` ADD `reservation_id` text;
