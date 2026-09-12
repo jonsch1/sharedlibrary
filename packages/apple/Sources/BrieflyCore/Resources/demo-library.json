@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 6,
+  "generatedAt": "2026-07-31T08:00:00Z",
+  "files": [],
+  "entries": [
+    {
+      "id": "demo:network-inference",
+      "captureID": "network-inference",
+      "title": "A practical guide to biological network inference",
+      "excerpt": "How prior knowledge, perturbation data, and careful validation work together when reconstructing signaling networks.",
+      "topicIDs": ["systems-biology", "methods"],
+      "topicNames": ["Systems Biology", "Methods"],
+      "tags": ["networks", "inference"],
+      "sourceURL": "https://example.com/network-inference",
+      "createdAt": "2026-07-18T09:30:00Z",
+      "origin": "personal",
+      "texts": [
+        {
+          "variant": "concise",
+          "text": "## Core idea\n\nBiological network inference combines well-designed perturbations, a transparent prior network, and validation against held-out observations."
+        },
+        {
+          "variant": "source",
+          "text": "This sample document illustrates the format exported by Briefly."
+        }
+      ]
+    },
+    {
+      "id": "demo:data-pipelines",
+      "captureID": "data-pipelines",
+      "title": "Designing reliable scientific data pipelines",
+      "excerpt": "A compact checklist for reproducible transformations, observable failures, and outputs that can be rebuilt.",
+      "topicIDs": ["engineering", "research-practice"],
+      "topicNames": ["Engineering", "Research Practice"],
+      "tags": ["pipelines", "reproducibility"],
+      "createdAt": "2026-07-14T14:00:00Z",
+      "origin": "personal",
+      "texts": [
+        {
+          "variant": "concise",
+          "text": "## Reliable pipeline principles\n\nMake transformations explicit and deterministic, record inputs and versions, and fail loudly at the boundary where invalid data first appears."
+        },
+        {
+          "variant": "source",
+          "text": "Reliable research pipelines make provenance visible and turn recovery from partial failure into a normal operation."
+        }
+      ]
+    },
+    {
+      "id": "demo:cell-communication",
+      "captureID": "cell-communication",
+      "title": "Cell–cell communication workflows",
+      "excerpt": "An annotated comparison of ligand–receptor analysis choices and the assumptions hidden inside common scoring strategies.",
+      "topicIDs": ["single-cell", "methods"],
+      "topicNames": ["Single-cell", "Methods"],
+      "tags": ["communication", "ligand-receptor"],
+      "createdAt": "2026-07-10T11:45:00Z",
+      "origin": "shared",
+      "sharedByUsername": "alex",
+      "texts": [
+        {
+          "variant": "concise",
+          "text": "## Interpreting communication scores\n\nMost workflows combine expression thresholds, a ligand–receptor resource, and an aggregation rule. Results change substantially with each choice."
+        },
+        {
+          "variant": "source",
+          "text": "This item demonstrates how a document shared with you appears beside personal library content."
+        }
+      ]
+    }
+  ]
+}

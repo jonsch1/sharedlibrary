@@ -1,0 +1,306 @@
+<script lang="ts">
+	import LegalShell from '$lib/LegalShell.svelte';
+</script>
+
+<LegalShell
+	active="privacy"
+	title="Privacy notice"
+	description="How Briefly processes personal data, the choices you control, and your rights under the GDPR."
+	updated="24 August 2026"
+>
+	<section>
+		<h2>1. Who is responsible</h2>
+		<p>
+			Briefly is operated by <strong>Jonathan Schaul</strong>, Lutherstr. 36, 69120 Heidelberg,
+			Germany. Briefly is the data controller for the server-side processing described in this
+			notice. Full provider details are available in the <a href="/imprint">Imprint</a>.
+		</p>
+		<p>
+			For any privacy question or request, email
+			<a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>. Briefly has not appointed
+			a data protection officer because its current processing does not require one.
+		</p>
+		<div class="legal-callout">
+			<p>
+				<strong>Local-first by default.</strong> The native apps keep your library on
+				your device. Briefly does not receive that library unless you choose a connected
+				feature such as cloud synchronization, extraction, AI processing, transcription,
+				voice generation, or a public share link. Private
+				iCloud sync passes directly between your device and Apple.
+			</p>
+		</div>
+	</section>
+
+	<section>
+		<h2>2. What we process and why</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Activity</th>
+					<th>Personal data</th>
+					<th>Purpose</th>
+					<th>Legal basis</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>Website delivery</td>
+					<td>IP address, request details, device/browser information, and security events.</td>
+					<td>Deliver and secure the site, prevent abuse, and diagnose failures.</td>
+					<td>Legitimate interests in a secure and reliable service.</td>
+				</tr>
+				<tr>
+					<td>Sign in with Apple</td>
+					<td>Email address, provider account identifier, a hashed session token, session dates, and short-lived OAuth state.</td>
+					<td>Authenticate you and keep the correct account connected.</td>
+					<td>Performance of our contract with you.</td>
+				</tr>
+				<tr>
+					<td>iCloud sync</td>
+					<td>Apple processes the private CloudKit records and documents exchanged directly with your device.</td>
+					<td>Synchronize the Briefly files you choose without sending private iCloud content through Briefly's application server.</td>
+					<td>Performance of our contract; you choose whether to connect iCloud.</td>
+				</tr>
+				<tr>
+					<td>Summaries and voice-brief scripts</td>
+					<td>The source title, URL, text, selected topics, and processing prompt. On macOS, these are sent directly to the provider you choose when you request processing; iOS does not generate summaries in this beta.</td>
+					<td>Create the summaries or voice-brief script you request. Briefly does not use this content to train its own models.</td>
+					<td>Performance of your processing request.</td>
+				</tr>
+				<tr>
+					<td>Web extraction fallback</td>
+					<td>The source URL and page content returned for it. Firecrawl caching is disabled by Briefly.</td>
+					<td>Extract readable Markdown when the native capture path cannot read a page.</td>
+					<td>Performance of your capture request.</td>
+				</tr>
+				<tr>
+					<td>Transcription and voice generation</td>
+					<td>Uploaded audio or video for transcription, voice-brief-script text for speech generation, account-scoped usage units, and short-lived concurrency leases.</td>
+					<td>Transcribe media and create the voice-brief audio you request while enforcing fair-use and abuse limits.</td>
+					<td>Performance of your request and legitimate interests in preventing abuse and controlling service cost.</td>
+				</tr>
+				<tr>
+					<td>Public share links</td>
+					<td>Your account email, document summaries and metadata, source URL, share token, and timestamps. Captured original text and its narration are not published.</td>
+					<td>Publish the summaries for the specific document you deliberately select at a forwardable public link.</td>
+					<td>Performance of your sharing request.</td>
+				</tr>
+				<tr>
+					<td>Illegal-content reports</td>
+					<td>The reported share and version, allegation, good-faith confirmation, reporter name and email except where law permits an anonymous child-safety report, and our decision.</td>
+					<td>Review alleged illegal content, communicate with affected people, prevent abuse, and document compliance.</td>
+					<td>Legal obligations and legitimate interests in operating a lawful service and defending claims.</td>
+				</tr>
+				<tr>
+					<td>Optional product analytics</td>
+					<td>Only after consent: manually named interaction events, client error details, and ordinary request/device information. Automatic interaction capture, page views, session recording, and account-email identification are disabled.</td>
+					<td>Understand whether key product workflows are useful and diagnose client errors.</td>
+					<td>Your consent, which you may withdraw at any time.</td>
+				</tr>
+				<tr>
+					<td>Support and rights requests</td>
+					<td>Your email, message, and any information you include.</td>
+					<td>Reply, resolve a problem, verify identity where necessary, and document compliance.</td>
+					<td>Contract, legal obligation, or legitimate interests, depending on the request.</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>
+			We do not use your data for advertising, sell personal data, build marketing profiles, or
+			use solely automated decision-making that produces legal or similarly significant effects.
+			Please do not put special-category or highly sensitive personal data in a public share link.
+		</p>
+	</section>
+
+	<section>
+		<h2>3. Where data comes from</h2>
+		<ul>
+			<li>Directly from you when you sign in, connect a provider, contact us, or publish a document.</li>
+			<li>From Apple when it confirms your account email for Sign in with Apple. CloudKit file content passes directly between Apple and your device.</li>
+			<li>From OpenRouter or a custom AI provider, Firecrawl, Modal, and PostHog when they return requested processing or operational results.</li>
+			<li>Automatically from your device and network when it requests the service.</li>
+			<li>From a share-link owner when that person publishes content that contains information about somebody else.</li>
+		</ul>
+	</section>
+
+	<section>
+		<h2>4. Providers and recipients</h2>
+		<p>We disclose only what is needed to operate the feature concerned:</p>
+		<table>
+			<thead>
+				<tr>
+					<th>Provider</th>
+					<th>Role and data</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td><a href="https://www.cloudflare.com/privacypolicy/" rel="noreferrer">Cloudflare</a></td>
+					<td>Hosting, database, content delivery, and security; processes account, share, request, and technical data for Briefly.</td>
+				</tr>
+				<tr>
+					<td><a href="https://www.apple.com/legal/privacy/" rel="noreferrer">Apple</a></td>
+					<td>Account sign-in and private CloudKit storage; processes authentication and iCloud data under Apple's terms.</td>
+				</tr>
+				<tr>
+					<td><a href="https://openrouter.ai/privacy" rel="noreferrer">OpenRouter</a></td>
+					<td>Processes source content when you choose OpenRouter directly in the macOS app, under OpenRouter's current terms and privacy policy. Source content is sent only when you request processing.</td>
+				</tr>
+				<tr>
+					<td><a href="https://openai.com/policies/privacy-policy/" rel="noreferrer">OpenAI</a></td>
+					<td>Processes source content only if you deliberately choose a separately installed and authenticated Codex CLI instead of Briefly AI.</td>
+				</tr>
+				<tr>
+					<td><a href="https://modal.com/legal/privacy-policy" rel="noreferrer">Modal</a></td>
+					<td>Hosts Briefly's Whisper transcription and Kokoro voice-generation workloads and processes the media or script submitted for those features.</td>
+				</tr>
+				<tr>
+					<td><a href="https://www.firecrawl.dev/privacy" rel="noreferrer">Firecrawl</a></td>
+					<td>Optional extraction fallback for a source URL. Briefly requests Markdown with provider caching disabled.</td>
+				</tr>
+				<tr>
+					<td><a href="https://posthog.com/privacy" rel="noreferrer">PostHog</a></td>
+					<td>EU-hosted, consent-only anonymous product events. Briefly disables automatic capture and session recording.</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>
+			We may also disclose information where law requires it, to protect users and the service,
+			or in a reorganization with appropriate confidentiality and transparency safeguards. We do
+			not disclose your private library to other Briefly users. A public share is available to
+			anyone who obtains its link.
+		</p>
+	</section>
+
+	<section>
+		<h2>5. International transfers</h2>
+		<p>
+			Some providers operate globally, including in the United States. As a result, personal data
+			may be processed outside the European Economic Area. Where a destination does not benefit
+			from an EU adequacy decision, we rely on provider contractual safeguards such as the
+			European Commission's Standard Contractual Clauses, together with supplementary measures
+			where appropriate. Providers may also rely on an applicable adequacy framework for
+			certified entities.
+		</p>
+		<p>
+			You can ask for more information about the relevant safeguard by emailing us. Provider
+			terms include the
+			<a href="https://www.cloudflare.com/cloudflare-customer-dpa/" rel="noreferrer">Cloudflare DPA</a>.
+		</p>
+	</section>
+
+	<section>
+		<h2>6. How long we keep data</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Data</th>
+					<th>Retention</th>
+				</tr>
+			</thead>
+			<tbody>
+				<tr>
+					<td>OAuth state</td>
+					<td>Intended to expire after 10 minutes and removed during subsequent connection attempts.</td>
+				</tr>
+				<tr>
+					<td>Sign-in session</td>
+					<td>Up to 90 days, until you sign out, or until the session is otherwise revoked.</td>
+				</tr>
+				<tr>
+					<td>iCloud records</td>
+					<td>Controlled by you in your Apple account. Stopping iCloud sync does not delete private CloudKit records.</td>
+				</tr>
+				<tr>
+					<td>Public shares</td>
+					<td>Until you revoke or replace the share. Revocation deletes its text from Briefly's active systems; provider backups may age out later.</td>
+				</tr>
+				<tr>
+					<td>Illegal-content reports</td>
+					<td>Normally up to 2 years after the decision, longer only where needed for a legal obligation, appeal, dispute, or claim.</td>
+				</tr>
+				<tr>
+					<td>Transcription and voice inputs</td>
+					<td>Kept only for the active processing job by Briefly's Modal workloads, then deleted from temporary job storage. Generated audio is saved only to your private library destination.</td>
+				</tr>
+				<tr>
+					<td>AI processing inputs</td>
+					<td>When you request macOS processing, the app sends the prompt and source content directly to your selected OpenRouter or CLI provider. Briefly does not receive that request; the selected provider's own retention terms apply.</td>
+				</tr>
+				<tr>
+					<td>Fair-use counters and leases</td>
+					<td>Expired leases are removed automatically. Daily usage rows are retained for up to approximately two months so current monthly allowances can be enforced.</td>
+				</tr>
+				<tr>
+					<td>Optional analytics</td>
+					<td>Only after consent and subject to the configured PostHog project retention, which Briefly limits operationally to no more than 12 months. Withdrawing consent stops future collection.</td>
+				</tr>
+				<tr>
+					<td>Support and rights requests</td>
+					<td>Normally up to 2 years after closure, longer only where needed for a dispute or legal obligation.</td>
+				</tr>
+				<tr>
+					<td>Local browser data</td>
+					<td>Until you clear Briefly's site data or uninstall/remove it. See the <a href="/cookies">Cookies & Local Storage Notice</a>.</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>
+			We may retain a minimal record where required by law or necessary to establish, exercise,
+			or defend legal claims. When retention ends, data is deleted or irreversibly anonymized.
+		</p>
+	</section>
+
+	<section>
+		<h2>7. Your choices and rights</h2>
+		<p>Depending on the circumstances, the GDPR gives you the right to:</p>
+		<ul>
+			<li>access your personal data and receive a copy;</li>
+			<li>correct inaccurate or incomplete data;</li>
+			<li>request erasure or restriction of processing;</li>
+			<li>receive data you provided in a structured, commonly used, machine-readable format;</li>
+			<li>object to processing based on legitimate interests;</li>
+			<li>withdraw consent where processing relies on consent, without affecting earlier processing; and</li>
+			<li>lodge a complaint with a supervisory authority.</li>
+		</ul>
+		<p>
+			Use <strong>Settings → Account → Delete Briefly account</strong> in the app to delete
+			your server-side account, active sessions, public shares, feedback, and hosted-usage data.
+			This does not delete your local or private iCloud library. Moderation records are retained
+			only for the periods described above. You can also email <a href="mailto:hello@readbriefly.fyi">hello@readbriefly.fyi</a>
+			to exercise a right. We may ask for limited information to verify that the request concerns your account.
+			We will respond without undue delay and normally within one month. Rights can have lawful
+			exceptions—for example, records we must keep for tax or legal claims.
+		</p>
+		<p>
+			Briefly's competent supervisory authority is the
+			<a href="https://www.baden-wuerttemberg.datenschutz.de/kontakt-aufnehmen/" rel="noreferrer">State Commissioner for Data Protection and Freedom of Information Baden-Württemberg (LfDI BW)</a>.
+			You may also complain to the authority where you live or work, or where you believe an
+			infringement occurred. The
+			<a href="https://www.datenschutzkonferenz-online.de/datenschutzaufsichtsbehoerden.html" rel="noreferrer">German Data Protection Conference</a>
+			lists all federal and state authorities. We would appreciate the chance to resolve your
+			concern first, but you do not have to contact us before complaining.
+		</p>
+	</section>
+
+	<section>
+		<h2>8. Security, children, and changes</h2>
+		<p>
+			Briefly uses encrypted transport, secure HTTP-only session cookies, signed Apple credentials,
+			App Store transaction verification, and same-origin checks. Access is scoped to the signed-in account.
+			iCloud content is protected by Apple's private CloudKit database and does not
+			pass through Briefly's Worker. No internet service is risk-free, so protect forwardable share links and revoke a
+			link if it reaches the wrong person.
+		</p>
+		<p>
+			Briefly is not directed to children under 16, and we do not knowingly create their accounts
+			without authorization from a parent or guardian where required. Contact us if you believe a
+			child has provided data improperly.
+		</p>
+		<p>
+			We will update this notice when our processing materially changes. The current version and
+			date will remain available here. If a change materially affects an account holder, we will
+			use a reasonable in-product or direct notice where practicable.
+		</p>
+	</section>
+</LegalShell>

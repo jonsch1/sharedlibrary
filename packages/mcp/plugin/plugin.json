@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "briefly",
+  "version": "0.1.0",
+  "description": "Ingest URLs, save supplied documents, and recall compact Briefly summaries.",
+  "author": {
+    "name": "Briefly",
+    "email": "hello@readbriefly.fyi",
+    "url": "https://www.readbriefly.fyi"
+  },
+  "homepage": "https://www.readbriefly.fyi/landing",
+  "keywords": ["briefly", "library", "summaries"]
+}

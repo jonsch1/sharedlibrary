@@ -1,0 +1,26 @@
+{
+  "name": "briefly-monorepo",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/web",
+    "packages/sdk"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @readbriefly/web",
+    "build": "npm run build --workspaces --if-present",
+    "build:mcp": "swift build --package-path packages/mcp --product briefly-mcp",
+    "build:migrate": "swift build --package-path packages/apple --product briefly-migrate",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test:web && npm run test:sdk && npm run test:apple",
+    "test:web": "npm test --workspace @readbriefly/web",
+    "test:sdk": "npm run build:mcp && npm run check --workspace @readbriefly/sdk && npm test --workspace @readbriefly/sdk",
+    "test:apple": "swift test --package-path packages/apple",
+    "app:mac": "./packages/apple/scripts/rebuild-and-reopen.sh macos",
+    "app:iphone": "./packages/apple/scripts/rebuild-and-reopen.sh ios",
+    "app:all": "./packages/apple/scripts/rebuild-and-reopen.sh all"
+  }
+}

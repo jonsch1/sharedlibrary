@@ -1,0 +1,1472 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000100 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000100 /* AppEnvironment.swift */; };
+		100000000000000000000101 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000101 /* AppNotifications.swift */; };
+		100000000000000000000102 /* BrieflyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000102 /* BrieflyApp.swift */; };
+		100000000000000000000103 /* BrieflyAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000103 /* BrieflyAppDelegate.swift */; };
+		100000000000000000000104 /* BrieflyMenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000104 /* BrieflyMenuBar.swift */; };
+		100000000000000000000105 /* CaptureShortcut.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000105 /* CaptureShortcut.swift */; };
+		100000000000000000000106 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000106 /* ContentView.swift */; };
+		100000000000000000000107 /* Appearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000107 /* Appearance.swift */; };
+		100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000108 /* BrieflyAtmosphere.swift */; };
+		100000000000000000000190 /* BrieflyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000190 /* BrieflyBackground.swift */; };
+		100000000000000000000109 /* GlassEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000109 /* GlassEffects.swift */; };
+		100000000000000000000110 /* GrainyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000110 /* GrainyCard.swift */; };
+		100000000000000000000112 /* MacCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* MacCaptureComposer.swift */; };
+		100000000000000000000113 /* MobileCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000113 /* MobileCaptureComposer.swift */; };
+		100000000000000000000186 /* LibraryInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000186 /* LibraryInputService.swift */; };
+		100000000000000000000114 /* ChannelBrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000114 /* ChannelBrowserSession.swift */; };
+		100000000000000000000115 /* ChannelBrowserState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000115 /* ChannelBrowserState.swift */; };
+		100000000000000000000116 /* ChannelBrowserViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000116 /* ChannelBrowserViews.swift */; };
+		100000000000000000000117 /* ChannelModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000117 /* ChannelModels.swift */; };
+		100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000118 /* ChannelPresentationHelpers.swift */; };
+		100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000119 /* ChannelSidebarComponents.swift */; };
+		100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000120 /* ChannelWebViewAdapter.swift */; };
+		100000000000000000000121 /* LibraryChannelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000121 /* LibraryChannelModel.swift */; };
+		100000000000000000000122 /* MobileFeedScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000122 /* MobileFeedScreen.swift */; };
+		100000000000000000000123 /* EntryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000123 /* EntryContextMenu.swift */; };
+		100000000000000000000124 /* HighlightsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000124 /* HighlightsDocument.swift */; };
+		100000000000000000000125 /* LibraryBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000125 /* LibraryBrowserView.swift */; };
+		100000000000000000000126 /* LibraryDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000126 /* LibraryDetail.swift */; };
+		100000000000000000000127 /* LibraryEntryCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000127 /* LibraryEntryCard.swift */; };
+		100000000000000000000128 /* LibraryFeedComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000128 /* LibraryFeedComponents.swift */; };
+		100000000000000000000129 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000129 /* LibraryModel.swift */; };
+		100000000000000000000131 /* LibraryLifecycleModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000131 /* LibraryLifecycleModel.swift */; };
+		100000000000000000000132 /* LibraryNavigationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000132 /* LibraryNavigationModel.swift */; };
+		100000000000000000000133 /* LibraryProcessingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000133 /* LibraryProcessingModel.swift */; };
+		100000000000000000000134 /* LibrarySelectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000134 /* LibrarySelectionModel.swift */; };
+		100000000000000000000187 /* LibraryWorkflowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000187 /* LibraryWorkflowCoordinator.swift */; };
+		100000000000000000000135 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000135 /* LibrarySidebar.swift */; };
+		100000000000000000000136 /* MacSidebarFilters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000136 /* MacSidebarFilters.swift */; };
+		100000000000000000000137 /* MobileCollections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000137 /* MobileCollections.swift */; };
+		100000000000000000000138 /* MobileEntryCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000138 /* MobileEntryCards.swift */; };
+		100000000000000000000139 /* MobileHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000139 /* MobileHome.swift */; };
+		100000000000000000000140 /* MobileLibraryRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000140 /* MobileLibraryRows.swift */; };
+		100000000000000000000141 /* MobileLibraryScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000141 /* MobileLibraryScreen.swift */; };
+		100000000000000000000142 /* SyncActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000142 /* SyncActivityView.swift */; };
+		100000000000000000000143 /* LibrarySharingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000143 /* LibrarySharingModel.swift */; };
+		100000000000000000000189 /* LibraryAudioModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000189 /* LibraryAudioModel.swift */; };
+		100000000000000000000144 /* ShareDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000144 /* ShareDocumentView.swift */; };
+		100000000000000000000145 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000145 /* AudioPlayer.swift */; };
+		100000000000000000000146 /* AudioPlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000146 /* AudioPlayerScreen.swift */; };
+		100000000000000000000147 /* AudioTime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000147 /* AudioTime.swift */; };
+		100000000000000000000148 /* MobileDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000148 /* MobileDetail.swift */; };
+		100000000000000000000149 /* ReaderDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000149 /* ReaderDocumentView.swift */; };
+		100000000000000000000150 /* ReaderLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000150 /* ReaderLayouts.swift */; };
+		100000000000000000000151 /* ReadingDepthIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000151 /* ReadingDepthIcon.swift */; };
+		100000000000000000000152 /* ReadingDepthStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000152 /* ReadingDepthStrip.swift */; };
+		100000000000000000000153 /* DocumentEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000153 /* DocumentEditor.swift */; };
+		100000000000000000000154 /* MarkdownArticle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000154 /* MarkdownArticle.swift */; };
+		100000000000000000000155 /* MarkdownEditorIOS.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000155 /* MarkdownEditorIOS.swift */; };
+		100000000000000000000156 /* MarkdownEditorMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000156 /* MarkdownEditorMac.swift */; };
+		100000000000000000000157 /* MarkdownParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000157 /* MarkdownParsing.swift */; };
+		100000000000000000000158 /* ChannelSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000158 /* ChannelSettings.swift */; };
+		100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000159 /* ChannelSettingsComponents.swift */; };
+		100000000000000000000160 /* LibraryAccountModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000160 /* LibraryAccountModel.swift */; };
+		100000000000000000000161 /* LibrarySettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000161 /* LibrarySettingsModel.swift */; };
+		100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000162 /* MacSettingsWorkspace.swift */; };
+		100000000000000000000164 /* SettingsHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000164 /* SettingsHelpers.swift */; };
+		100000000000000000000165 /* SettingsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000165 /* SettingsSections.swift */; };
+		100000000000000000000166 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000166 /* SettingsView.swift */; };
+		100000000000000000000167 /* SettingsViewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000167 /* SettingsViewLayout.swift */; };
+		100000000000000000000168 /* SettingsViewNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000168 /* SettingsViewNavigation.swift */; };
+		100000000000000000000192 /* BrieflyOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000192 /* BrieflyOnboarding.swift */; };
+		100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000172 /* LocalSpeechSynthesizer.swift */; };
+		100000000000000000000173 /* NativeLibraryError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000173 /* NativeLibraryError.swift */; };
+		100000000000000000000175 /* BrieflyBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000175 /* BrieflyBackend.swift */; };
+		100000000000000000000176 /* BrieflyBackendModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000176 /* BrieflyBackendModels.swift */; };
+		100000000000000000000177 /* MobileAppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000177 /* MobileAppShell.swift */; };
+		100000000000000000000178 /* MobileHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000178 /* MobileHeader.swift */; };
+		100000000000000000000179 /* MobileNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000179 /* MobileNavigation.swift */; };
+		100000000000000000000180 /* MobilePrimaryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000180 /* MobilePrimaryTab.swift */; };
+		100000000000000000000181 /* MacErrorBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000181 /* MacErrorBanner.swift */; };
+		100000000000000000000182 /* MacLoadingWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000182 /* MacLoadingWorkspace.swift */; };
+		100000000000000000000183 /* MacNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000183 /* MacNavigation.swift */; };
+		100000000000000000000184 /* MacRightRail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000184 /* MacRightRail.swift */; };
+		100000000000000000000185 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000185 /* ShortcutRecorder.swift */; };
+		100000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* Assets.xcassets */; };
+		100000000000000000000004 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000002 /* BrieflyCore */; };
+		100000000000000000000008 /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000004 /* FluidAudio */; };
+		E10000000000000000000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000001 /* ShareViewController.swift */; };
+		E10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = ED0000000000000000000001 /* BrieflyCore */; };
+		E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E30000000000000000000004 /* BrieflyShareExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		F10000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F20000000000000000000001 /* PrivacyInfo.xcprivacy */; };
+		C10000000000000000000001 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40000000000000000000001 /* main.swift */; };
+		C10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000001 /* BrieflyCore */; };
+		C10000000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* MCP */; };
+		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilters = (macos, ); };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		C00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 500000000000000000000001;
+			remoteInfo = Briefly;
+		};
+		E20000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E90000000000000000000001;
+			remoteInfo = BrieflyShareExtension;
+		};
+		C20000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 800000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C70000000000000000000001;
+			remoteInfo = BrieflyMCP;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E80000000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				E10000000000000000000003 /* BrieflyShareExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C30000000000000000000001 /* Embed MCP Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */,
+			);
+			name = "Embed MCP Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		200000000000000000000100 /* AppEnvironment.swift */ = {path = "App/Shared/Sources/App/AppEnvironment.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AppEnvironment.swift"; };
+		200000000000000000000101 /* AppNotifications.swift */ = {path = "App/Shared/Sources/App/AppNotifications.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AppNotifications.swift"; };
+		200000000000000000000102 /* BrieflyApp.swift */ = {path = "App/Shared/Sources/App/BrieflyApp.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyApp.swift"; };
+		200000000000000000000103 /* BrieflyAppDelegate.swift */ = {path = "App/macOS/Sources/App/BrieflyAppDelegate.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyAppDelegate.swift"; };
+		200000000000000000000104 /* BrieflyMenuBar.swift */ = {path = "App/macOS/Sources/App/BrieflyMenuBar.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyMenuBar.swift"; };
+		200000000000000000000105 /* CaptureShortcut.swift */ = {path = "App/macOS/Sources/App/CaptureShortcut.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "CaptureShortcut.swift"; };
+		200000000000000000000106 /* ContentView.swift */ = {path = "App/Shared/Sources/App/ContentView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ContentView.swift"; };
+		200000000000000000000107 /* Appearance.swift */ = {path = "App/Shared/Sources/DesignSystem/Appearance.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "Appearance.swift"; };
+		200000000000000000000108 /* BrieflyAtmosphere.swift */ = {path = "App/Shared/Sources/DesignSystem/BrieflyAtmosphere.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyAtmosphere.swift"; };
+		200000000000000000000190 /* BrieflyBackground.swift */ = {path = "App/Shared/Sources/DesignSystem/BrieflyBackground.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyBackground.swift"; };
+		200000000000000000000109 /* GlassEffects.swift */ = {path = "App/Shared/Sources/DesignSystem/GlassEffects.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GlassEffects.swift"; };
+		200000000000000000000110 /* GrainyCard.swift */ = {path = "App/Shared/Sources/DesignSystem/GrainyCard.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GrainyCard.swift"; };
+		200000000000000000000112 /* MacCaptureComposer.swift */ = {path = "App/macOS/Sources/Features/Capture/MacCaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacCaptureComposer.swift"; };
+		200000000000000000000113 /* MobileCaptureComposer.swift */ = {path = "App/iOS/Sources/Features/Capture/MobileCaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileCaptureComposer.swift"; };
+		200000000000000000000186 /* LibraryInputService.swift */ = {path = "App/Shared/Sources/Features/Capture/LibraryInputService.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryInputService.swift"; };
+		200000000000000000000114 /* ChannelBrowserSession.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserSession.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserSession.swift"; };
+		200000000000000000000115 /* ChannelBrowserState.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserState.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserState.swift"; };
+		200000000000000000000116 /* ChannelBrowserViews.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserViews.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserViews.swift"; };
+		200000000000000000000117 /* ChannelModels.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelModels.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelModels.swift"; };
+		200000000000000000000118 /* ChannelPresentationHelpers.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelPresentationHelpers.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelPresentationHelpers.swift"; };
+		200000000000000000000119 /* ChannelSidebarComponents.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelSidebarComponents.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelSidebarComponents.swift"; };
+		200000000000000000000120 /* ChannelWebViewAdapter.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelWebViewAdapter.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelWebViewAdapter.swift"; };
+		200000000000000000000121 /* LibraryChannelModel.swift */ = {path = "App/Shared/Sources/Features/Channels/LibraryChannelModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryChannelModel.swift"; };
+		200000000000000000000122 /* MobileFeedScreen.swift */ = {path = "App/iOS/Sources/Features/Channels/MobileFeedScreen.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileFeedScreen.swift"; };
+		200000000000000000000123 /* EntryContextMenu.swift */ = {path = "App/Shared/Sources/Features/Library/EntryContextMenu.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "EntryContextMenu.swift"; };
+		200000000000000000000124 /* HighlightsDocument.swift */ = {path = "App/Shared/Sources/Features/Library/HighlightsDocument.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "HighlightsDocument.swift"; };
+		200000000000000000000125 /* LibraryBrowserView.swift */ = {path = "App/macOS/Sources/Features/Library/LibraryBrowserView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryBrowserView.swift"; };
+		200000000000000000000126 /* LibraryDetail.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryDetail.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryDetail.swift"; };
+		200000000000000000000127 /* LibraryEntryCard.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryEntryCard.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryEntryCard.swift"; };
+		200000000000000000000128 /* LibraryFeedComponents.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryFeedComponents.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryFeedComponents.swift"; };
+		200000000000000000000129 /* LibraryModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryModel.swift"; };
+		200000000000000000000131 /* LibraryLifecycleModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryLifecycleModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryLifecycleModel.swift"; };
+		200000000000000000000132 /* LibraryNavigationModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryNavigationModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryNavigationModel.swift"; };
+		200000000000000000000133 /* LibraryProcessingModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryProcessingModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryProcessingModel.swift"; };
+		200000000000000000000134 /* LibrarySelectionModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibrarySelectionModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySelectionModel.swift"; };
+		200000000000000000000187 /* LibraryWorkflowCoordinator.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryWorkflowCoordinator.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryWorkflowCoordinator.swift"; };
+		200000000000000000000135 /* LibrarySidebar.swift */ = {path = "App/Shared/Sources/Features/Library/LibrarySidebar.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySidebar.swift"; };
+		200000000000000000000136 /* MacSidebarFilters.swift */ = {path = "App/macOS/Sources/Features/Library/MacSidebarFilters.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacSidebarFilters.swift"; };
+		200000000000000000000137 /* MobileCollections.swift */ = {path = "App/iOS/Sources/Features/Library/MobileCollections.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileCollections.swift"; };
+		200000000000000000000138 /* MobileEntryCards.swift */ = {path = "App/iOS/Sources/Features/Library/MobileEntryCards.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileEntryCards.swift"; };
+		200000000000000000000139 /* MobileHome.swift */ = {path = "App/iOS/Sources/Features/Library/MobileHome.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileHome.swift"; };
+		200000000000000000000140 /* MobileLibraryRows.swift */ = {path = "App/iOS/Sources/Features/Library/MobileLibraryRows.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileLibraryRows.swift"; };
+		200000000000000000000141 /* MobileLibraryScreen.swift */ = {path = "App/iOS/Sources/Features/Library/MobileLibraryScreen.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileLibraryScreen.swift"; };
+		200000000000000000000142 /* SyncActivityView.swift */ = {path = "App/Shared/Sources/Features/Library/SyncActivityView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SyncActivityView.swift"; };
+		200000000000000000000143 /* LibrarySharingModel.swift */ = {path = "App/Shared/Sources/Features/Library/Sharing/LibrarySharingModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySharingModel.swift"; };
+		200000000000000000000189 /* LibraryAudioModel.swift */ = {path = "App/Shared/Sources/Features/Library/Sharing/LibraryAudioModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryAudioModel.swift"; };
+		200000000000000000000144 /* ShareDocumentView.swift */ = {path = "App/Shared/Sources/Features/Library/Sharing/ShareDocumentView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ShareDocumentView.swift"; };
+		200000000000000000000145 /* AudioPlayer.swift */ = {path = "App/Shared/Sources/Features/Reader/AudioPlayer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AudioPlayer.swift"; };
+		200000000000000000000146 /* AudioPlayerScreen.swift */ = {path = "App/Shared/Sources/Features/Reader/AudioPlayerScreen.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AudioPlayerScreen.swift"; };
+		200000000000000000000147 /* AudioTime.swift */ = {path = "App/Shared/Sources/Features/Reader/AudioTime.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AudioTime.swift"; };
+		200000000000000000000148 /* MobileDetail.swift */ = {path = "App/iOS/Sources/Features/Reader/MobileDetail.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileDetail.swift"; };
+		200000000000000000000149 /* ReaderDocumentView.swift */ = {path = "App/Shared/Sources/Features/Reader/ReaderDocumentView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ReaderDocumentView.swift"; };
+		200000000000000000000150 /* ReaderLayouts.swift */ = {path = "App/macOS/Sources/Features/Reader/ReaderLayouts.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ReaderLayouts.swift"; };
+		200000000000000000000151 /* ReadingDepthIcon.swift */ = {path = "App/Shared/Sources/Features/Reader/ReadingDepthIcon.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ReadingDepthIcon.swift"; };
+		200000000000000000000152 /* ReadingDepthStrip.swift */ = {path = "App/Shared/Sources/Features/Reader/ReadingDepthStrip.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ReadingDepthStrip.swift"; };
+		200000000000000000000153 /* DocumentEditor.swift */ = {path = "App/Shared/Sources/Features/Reader/Markdown/DocumentEditor.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "DocumentEditor.swift"; };
+		200000000000000000000154 /* MarkdownArticle.swift */ = {path = "App/Shared/Sources/Features/Reader/Markdown/MarkdownArticle.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MarkdownArticle.swift"; };
+		200000000000000000000155 /* MarkdownEditorIOS.swift */ = {path = "App/iOS/Sources/Features/Reader/Markdown/MarkdownEditorIOS.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MarkdownEditorIOS.swift"; };
+		200000000000000000000156 /* MarkdownEditorMac.swift */ = {path = "App/macOS/Sources/Features/Reader/Markdown/MarkdownEditorMac.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MarkdownEditorMac.swift"; };
+		200000000000000000000157 /* MarkdownParsing.swift */ = {path = "App/Shared/Sources/Features/Reader/Markdown/MarkdownParsing.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MarkdownParsing.swift"; };
+		200000000000000000000158 /* ChannelSettings.swift */ = {path = "App/Shared/Sources/Features/Settings/ChannelSettings.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelSettings.swift"; };
+		200000000000000000000159 /* ChannelSettingsComponents.swift */ = {path = "App/Shared/Sources/Features/Settings/ChannelSettingsComponents.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelSettingsComponents.swift"; };
+		200000000000000000000160 /* LibraryAccountModel.swift */ = {path = "App/Shared/Sources/Features/Settings/LibraryAccountModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryAccountModel.swift"; };
+		200000000000000000000161 /* LibrarySettingsModel.swift */ = {path = "App/Shared/Sources/Features/Settings/LibrarySettingsModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySettingsModel.swift"; };
+		200000000000000000000162 /* MacSettingsWorkspace.swift */ = {path = "App/macOS/Sources/Features/Settings/MacSettingsWorkspace.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacSettingsWorkspace.swift"; };
+		200000000000000000000185 /* ShortcutRecorder.swift */ = {path = "App/macOS/Sources/Features/Settings/ShortcutRecorder.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ShortcutRecorder.swift"; };
+		200000000000000000000164 /* SettingsHelpers.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsHelpers.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsHelpers.swift"; };
+		200000000000000000000165 /* SettingsSections.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsSections.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsSections.swift"; };
+		200000000000000000000166 /* SettingsView.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsView.swift"; };
+		200000000000000000000167 /* SettingsViewLayout.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsViewLayout.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsViewLayout.swift"; };
+		200000000000000000000168 /* SettingsViewNavigation.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsViewNavigation.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsViewNavigation.swift"; };
+		200000000000000000000192 /* BrieflyOnboarding.swift */ = {path = "App/Shared/Sources/Features/Onboarding/BrieflyOnboarding.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyOnboarding.swift"; };
+		200000000000000000000172 /* LocalSpeechSynthesizer.swift */ = {path = "App/Shared/Sources/Features/Library/Sharing/LocalSpeechSynthesizer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LocalSpeechSynthesizer.swift"; };
+		200000000000000000000173 /* NativeLibraryError.swift */ = {path = "App/Shared/Sources/Features/Library/Sharing/NativeLibraryError.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "NativeLibraryError.swift"; };
+		200000000000000000000175 /* BrieflyBackend.swift */ = {path = "App/Shared/Sources/Infrastructure/Backend/BrieflyBackend.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyBackend.swift"; };
+		200000000000000000000176 /* BrieflyBackendModels.swift */ = {path = "App/Shared/Sources/Infrastructure/Backend/BrieflyBackendModels.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyBackendModels.swift"; };
+		200000000000000000000177 /* MobileAppShell.swift */ = {path = "App/iOS/Sources/Platform/MobileAppShell.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileAppShell.swift"; };
+		200000000000000000000178 /* MobileHeader.swift */ = {path = "App/iOS/Sources/Platform/MobileHeader.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileHeader.swift"; };
+		200000000000000000000179 /* MobileNavigation.swift */ = {path = "App/iOS/Sources/Platform/MobileNavigation.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileNavigation.swift"; };
+		200000000000000000000180 /* MobilePrimaryTab.swift */ = {path = "App/iOS/Sources/Platform/MobilePrimaryTab.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobilePrimaryTab.swift"; };
+		200000000000000000000181 /* MacErrorBanner.swift */ = {path = "App/macOS/Sources/Platform/MacErrorBanner.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacErrorBanner.swift"; };
+		200000000000000000000182 /* MacLoadingWorkspace.swift */ = {path = "App/macOS/Sources/Platform/MacLoadingWorkspace.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacLoadingWorkspace.swift"; };
+		200000000000000000000183 /* MacNavigation.swift */ = {path = "App/macOS/Sources/Platform/MacNavigation.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacNavigation.swift"; };
+		200000000000000000000184 /* MacRightRail.swift */ = {path = "App/macOS/Sources/Platform/MacRightRail.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacRightRail.swift"; };
+		200000000000000000000004 /* Briefly.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Briefly.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		200000000000000000000005 /* Assets.xcassets */ = {path = "App/Shared/Resources/Assets.xcassets"; isa = PBXFileReference; lastKnownFileType = "folder.assetcatalog"; sourceTree = SOURCE_ROOT; name = "Assets.xcassets"; };
+		200000000000000000000009 /* BrieflyApplicationTours.swift */ = {path = "BrieflyUITests/BrieflyApplicationTours.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyApplicationTours.swift"; };
+		20000000000000000000000A /* BrieflyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrieflyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E30000000000000000000001 /* ShareViewController.swift */ = {path = "App/iOS/BrieflyShareExtension/ShareViewController.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ShareViewController.swift"; };
+		E30000000000000000000002 /* Info.plist */ = {path = "App/iOS/BrieflyShareExtension/Info.plist"; isa = PBXFileReference; lastKnownFileType = "text.plist.xml"; sourceTree = SOURCE_ROOT; name = "Info.plist"; };
+		E30000000000000000000003 /* BrieflyShareExtension.entitlements */ = {path = "App/iOS/BrieflyShareExtension/BrieflyShareExtension.entitlements"; isa = PBXFileReference; lastKnownFileType = "text.plist.entitlements"; sourceTree = SOURCE_ROOT; name = "BrieflyShareExtension.entitlements"; };
+		E30000000000000000000004 /* BrieflyShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrieflyShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F20000000000000000000001 /* PrivacyInfo.xcprivacy */ = {path = "App/Shared/Resources/PrivacyInfo.xcprivacy"; isa = PBXFileReference; lastKnownFileType = "text.xml"; sourceTree = SOURCE_ROOT; name = "PrivacyInfo.xcprivacy"; };
+		C40000000000000000000001 /* main.swift */ = {path = "../mcp/Sources/BrieflyMCP/main.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "main.swift"; };
+		C40000000000000000000002 /* briefly-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "briefly-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		300000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000004 /* BrieflyCore in Frameworks */,
+				100000000000000000000008 /* FluidAudio in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		300000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E50000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000000000000000000002 /* BrieflyCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C50000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000002 /* BrieflyCore in Frameworks */,
+				C10000000000000000000003 /* MCP in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		400000000000000000000001 /* Briefly */ = {
+			isa = PBXGroup;
+			children = (
+				4CED9BC165D97817BA4F4A85 /* App */,
+				E481F61C108DD4E438A79A25 /* BrieflyUITests */,
+				24C7CB25E6B5331B770ABF46 /* mcp */,
+				400000000000000000000003 /* Products */,
+			);
+			name = "Briefly";
+			sourceTree = "<group>";
+		};
+		4CED9BC165D97817BA4F4A85 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				FCAE15DA8968C0DE516F1325 /* Shared */,
+				62789DC16263A6332F42E273 /* iOS */,
+				D2D3BAB7BB20C54507050E5C /* macOS */,
+			);
+			name = "App";
+			sourceTree = "<group>";
+		};
+		FCAE15DA8968C0DE516F1325 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				6EF0297D1F4337AA0238B98D /* Resources */,
+				77FF9E1BB823C93274F1A6F4 /* Sources */,
+			);
+			name = "Shared";
+			sourceTree = "<group>";
+		};
+		6EF0297D1F4337AA0238B98D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000005 /* Assets.xcassets */,
+				F20000000000000000000001 /* PrivacyInfo.xcprivacy */,
+			);
+			name = "Resources";
+			sourceTree = "<group>";
+		};
+		77FF9E1BB823C93274F1A6F4 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				9A5E8FC75EB68F5E8ABD1769 /* App */,
+				6582DF33AAA4D59B5F03D749 /* DesignSystem */,
+				051A03028198124D029D490B /* Features */,
+				06AA7DBF89CEA42D57E5CFF6 /* Infrastructure */,
+			);
+			name = "Sources";
+			sourceTree = "<group>";
+		};
+		9A5E8FC75EB68F5E8ABD1769 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000100 /* AppEnvironment.swift */,
+				200000000000000000000101 /* AppNotifications.swift */,
+				200000000000000000000102 /* BrieflyApp.swift */,
+				200000000000000000000106 /* ContentView.swift */,
+			);
+			name = "App";
+			sourceTree = "<group>";
+		};
+		6582DF33AAA4D59B5F03D749 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000107 /* Appearance.swift */,
+				200000000000000000000108 /* BrieflyAtmosphere.swift */,
+				200000000000000000000190 /* BrieflyBackground.swift */,
+				200000000000000000000109 /* GlassEffects.swift */,
+				200000000000000000000110 /* GrainyCard.swift */,
+			);
+			name = "DesignSystem";
+			sourceTree = "<group>";
+		};
+		051A03028198124D029D490B /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				AA51F5466C6BBE88896CDB60 /* Capture */,
+				BFDCD0E1BCB52B7EA4FF9D91 /* Channels */,
+				F0E33E2458CA8711CE7E59F4 /* Library */,
+				216394D58861BE3FD76645BD /* Onboarding */,
+				90AFB4EFBB28157D7B409EC6 /* Reader */,
+				B9D4E4D7A14D23F66897C08E /* Settings */,
+			);
+			name = "Features";
+			sourceTree = "<group>";
+		};
+		AA51F5466C6BBE88896CDB60 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000186 /* LibraryInputService.swift */,
+			);
+			name = "Capture";
+			sourceTree = "<group>";
+		};
+		BFDCD0E1BCB52B7EA4FF9D91 /* Channels */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000114 /* ChannelBrowserSession.swift */,
+				200000000000000000000115 /* ChannelBrowserState.swift */,
+				200000000000000000000116 /* ChannelBrowserViews.swift */,
+				200000000000000000000117 /* ChannelModels.swift */,
+				200000000000000000000118 /* ChannelPresentationHelpers.swift */,
+				200000000000000000000119 /* ChannelSidebarComponents.swift */,
+				200000000000000000000120 /* ChannelWebViewAdapter.swift */,
+				200000000000000000000121 /* LibraryChannelModel.swift */,
+			);
+			name = "Channels";
+			sourceTree = "<group>";
+		};
+		F0E33E2458CA8711CE7E59F4 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				4789291E63CFC4FC5FD679B3 /* Sharing */,
+				200000000000000000000123 /* EntryContextMenu.swift */,
+				200000000000000000000124 /* HighlightsDocument.swift */,
+				200000000000000000000126 /* LibraryDetail.swift */,
+				200000000000000000000127 /* LibraryEntryCard.swift */,
+				200000000000000000000128 /* LibraryFeedComponents.swift */,
+				200000000000000000000131 /* LibraryLifecycleModel.swift */,
+				200000000000000000000129 /* LibraryModel.swift */,
+				200000000000000000000132 /* LibraryNavigationModel.swift */,
+				200000000000000000000133 /* LibraryProcessingModel.swift */,
+				200000000000000000000134 /* LibrarySelectionModel.swift */,
+				200000000000000000000135 /* LibrarySidebar.swift */,
+				200000000000000000000187 /* LibraryWorkflowCoordinator.swift */,
+				200000000000000000000142 /* SyncActivityView.swift */,
+			);
+			name = "Library";
+			sourceTree = "<group>";
+		};
+		4789291E63CFC4FC5FD679B3 /* Sharing */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000189 /* LibraryAudioModel.swift */,
+				200000000000000000000143 /* LibrarySharingModel.swift */,
+				200000000000000000000172 /* LocalSpeechSynthesizer.swift */,
+				200000000000000000000173 /* NativeLibraryError.swift */,
+				200000000000000000000144 /* ShareDocumentView.swift */,
+			);
+			name = "Sharing";
+			sourceTree = "<group>";
+		};
+		216394D58861BE3FD76645BD /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000192 /* BrieflyOnboarding.swift */,
+			);
+			name = "Onboarding";
+			sourceTree = "<group>";
+		};
+		90AFB4EFBB28157D7B409EC6 /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				5F254F57002D03F2A5D18506 /* Markdown */,
+				200000000000000000000145 /* AudioPlayer.swift */,
+				200000000000000000000146 /* AudioPlayerScreen.swift */,
+				200000000000000000000147 /* AudioTime.swift */,
+				200000000000000000000149 /* ReaderDocumentView.swift */,
+				200000000000000000000151 /* ReadingDepthIcon.swift */,
+				200000000000000000000152 /* ReadingDepthStrip.swift */,
+			);
+			name = "Reader";
+			sourceTree = "<group>";
+		};
+		5F254F57002D03F2A5D18506 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000153 /* DocumentEditor.swift */,
+				200000000000000000000154 /* MarkdownArticle.swift */,
+				200000000000000000000157 /* MarkdownParsing.swift */,
+			);
+			name = "Markdown";
+			sourceTree = "<group>";
+		};
+		B9D4E4D7A14D23F66897C08E /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000158 /* ChannelSettings.swift */,
+				200000000000000000000159 /* ChannelSettingsComponents.swift */,
+				200000000000000000000160 /* LibraryAccountModel.swift */,
+				200000000000000000000161 /* LibrarySettingsModel.swift */,
+				200000000000000000000164 /* SettingsHelpers.swift */,
+				200000000000000000000165 /* SettingsSections.swift */,
+				200000000000000000000166 /* SettingsView.swift */,
+				200000000000000000000167 /* SettingsViewLayout.swift */,
+				200000000000000000000168 /* SettingsViewNavigation.swift */,
+			);
+			name = "Settings";
+			sourceTree = "<group>";
+		};
+		06AA7DBF89CEA42D57E5CFF6 /* Infrastructure */ = {
+			isa = PBXGroup;
+			children = (
+				5E8CD1459FF10EEB3D456C88 /* Backend */,
+			);
+			name = "Infrastructure";
+			sourceTree = "<group>";
+		};
+		5E8CD1459FF10EEB3D456C88 /* Backend */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000175 /* BrieflyBackend.swift */,
+				200000000000000000000176 /* BrieflyBackendModels.swift */,
+			);
+			name = "Backend";
+			sourceTree = "<group>";
+		};
+		62789DC16263A6332F42E273 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				28B5718E994173DB9C91B5E3 /* BrieflyShareExtension */,
+				7B2011B6943C397A045CA4B6 /* Sources */,
+			);
+			name = "iOS";
+			sourceTree = "<group>";
+		};
+		28B5718E994173DB9C91B5E3 /* BrieflyShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				E30000000000000000000003 /* BrieflyShareExtension.entitlements */,
+				E30000000000000000000002 /* Info.plist */,
+				E30000000000000000000001 /* ShareViewController.swift */,
+			);
+			name = "BrieflyShareExtension";
+			sourceTree = "<group>";
+		};
+		7B2011B6943C397A045CA4B6 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				612D01D01C8946C391000255 /* Features */,
+				DB5AD72286F64CFAB196EBB4 /* Platform */,
+			);
+			name = "Sources";
+			sourceTree = "<group>";
+		};
+		612D01D01C8946C391000255 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				7A1B248E7DC88755104143AE /* Capture */,
+				1DF0292D3A6E9C3B2F270E55 /* Channels */,
+				2C83D96A4EE73902E6FE989A /* Library */,
+				2776E076446EEE04482B065A /* Reader */,
+			);
+			name = "Features";
+			sourceTree = "<group>";
+		};
+		7A1B248E7DC88755104143AE /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000113 /* MobileCaptureComposer.swift */,
+			);
+			name = "Capture";
+			sourceTree = "<group>";
+		};
+		1DF0292D3A6E9C3B2F270E55 /* Channels */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000122 /* MobileFeedScreen.swift */,
+			);
+			name = "Channels";
+			sourceTree = "<group>";
+		};
+		2C83D96A4EE73902E6FE989A /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000137 /* MobileCollections.swift */,
+				200000000000000000000138 /* MobileEntryCards.swift */,
+				200000000000000000000139 /* MobileHome.swift */,
+				200000000000000000000140 /* MobileLibraryRows.swift */,
+				200000000000000000000141 /* MobileLibraryScreen.swift */,
+			);
+			name = "Library";
+			sourceTree = "<group>";
+		};
+		2776E076446EEE04482B065A /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				BA2FF3893473ECF4B8862B39 /* Markdown */,
+				200000000000000000000148 /* MobileDetail.swift */,
+			);
+			name = "Reader";
+			sourceTree = "<group>";
+		};
+		BA2FF3893473ECF4B8862B39 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000155 /* MarkdownEditorIOS.swift */,
+			);
+			name = "Markdown";
+			sourceTree = "<group>";
+		};
+		DB5AD72286F64CFAB196EBB4 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000177 /* MobileAppShell.swift */,
+				200000000000000000000178 /* MobileHeader.swift */,
+				200000000000000000000179 /* MobileNavigation.swift */,
+				200000000000000000000180 /* MobilePrimaryTab.swift */,
+			);
+			name = "Platform";
+			sourceTree = "<group>";
+		};
+		D2D3BAB7BB20C54507050E5C /* macOS */ = {
+			isa = PBXGroup;
+			children = (
+				50FB3F9702CFB99EF45F20B5 /* Sources */,
+			);
+			name = "macOS";
+			sourceTree = "<group>";
+		};
+		50FB3F9702CFB99EF45F20B5 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				D55340D3347D341C5F4E9A0B /* App */,
+				CE23ED8EFC2F330B090F5694 /* Features */,
+				763C2A05718EC6A9BBEDCAD5 /* Platform */,
+			);
+			name = "Sources";
+			sourceTree = "<group>";
+		};
+		D55340D3347D341C5F4E9A0B /* App */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000103 /* BrieflyAppDelegate.swift */,
+				200000000000000000000104 /* BrieflyMenuBar.swift */,
+				200000000000000000000105 /* CaptureShortcut.swift */,
+			);
+			name = "App";
+			sourceTree = "<group>";
+		};
+		CE23ED8EFC2F330B090F5694 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				FC5CA38D9CAC35A32D1F4FB0 /* Capture */,
+				AC6EAB1EA518624E9A7FE653 /* Library */,
+				89C83B6F9A50A2FBA19874B2 /* Reader */,
+				87ABDF017812458EBA050799 /* Settings */,
+			);
+			name = "Features";
+			sourceTree = "<group>";
+		};
+		FC5CA38D9CAC35A32D1F4FB0 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000112 /* MacCaptureComposer.swift */,
+			);
+			name = "Capture";
+			sourceTree = "<group>";
+		};
+		AC6EAB1EA518624E9A7FE653 /* Library */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000125 /* LibraryBrowserView.swift */,
+				200000000000000000000136 /* MacSidebarFilters.swift */,
+			);
+			name = "Library";
+			sourceTree = "<group>";
+		};
+		89C83B6F9A50A2FBA19874B2 /* Reader */ = {
+			isa = PBXGroup;
+			children = (
+				F6C15A6673002FF49A4BEF00 /* Markdown */,
+				200000000000000000000150 /* ReaderLayouts.swift */,
+			);
+			name = "Reader";
+			sourceTree = "<group>";
+		};
+		F6C15A6673002FF49A4BEF00 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000156 /* MarkdownEditorMac.swift */,
+			);
+			name = "Markdown";
+			sourceTree = "<group>";
+		};
+		87ABDF017812458EBA050799 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000162 /* MacSettingsWorkspace.swift */,
+				200000000000000000000185 /* ShortcutRecorder.swift */,
+			);
+			name = "Settings";
+			sourceTree = "<group>";
+		};
+		763C2A05718EC6A9BBEDCAD5 /* Platform */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000181 /* MacErrorBanner.swift */,
+				200000000000000000000182 /* MacLoadingWorkspace.swift */,
+				200000000000000000000183 /* MacNavigation.swift */,
+				200000000000000000000184 /* MacRightRail.swift */,
+			);
+			name = "Platform";
+			sourceTree = "<group>";
+		};
+		E481F61C108DD4E438A79A25 /* BrieflyUITests */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000009 /* BrieflyApplicationTours.swift */,
+			);
+			name = "BrieflyUITests";
+			sourceTree = "<group>";
+		};
+		24C7CB25E6B5331B770ABF46 /* mcp */ = {
+			isa = PBXGroup;
+			children = (
+				13F338BB72CB528404BD0B6F /* Sources */,
+			);
+			name = "mcp";
+			sourceTree = "<group>";
+		};
+		13F338BB72CB528404BD0B6F /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				F75A5F0514ED9FF55935C013 /* BrieflyMCP */,
+			);
+			name = "Sources";
+			sourceTree = "<group>";
+		};
+		F75A5F0514ED9FF55935C013 /* BrieflyMCP */ = {
+			isa = PBXGroup;
+			children = (
+				C40000000000000000000001 /* main.swift */,
+			);
+			name = "BrieflyMCP";
+			sourceTree = "<group>";
+		};
+		400000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				200000000000000000000004 /* Briefly.app */,
+				C40000000000000000000002 /* briefly-mcp */,
+				E30000000000000000000004 /* BrieflyShareExtension.appex */,
+				20000000000000000000000A /* BrieflyUITests.xctest */,
+			);
+			name = "Products";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		500000000000000000000001 /* Briefly */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 900000000000000000000002 /* Build configuration list for PBXNativeTarget "Briefly" */;
+			buildPhases = (
+				700000000000000000000001 /* Sources */,
+				300000000000000000000001 /* Frameworks */,
+				600000000000000000000001 /* Resources */,
+				C30000000000000000000001 /* Embed MCP Helper */,
+				E80000000000000000000001 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C80000000000000000000001 /* PBXTargetDependency */,
+				EA0000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = Briefly;
+			packageProductDependencies = (
+				A00000000000000000000002 /* BrieflyCore */,
+				A00000000000000000000004 /* FluidAudio */,
+			);
+			productName = Briefly;
+			productReference = 200000000000000000000004 /* Briefly.app */;
+			productType = "com.apple.product-type.application";
+		};
+		500000000000000000000002 /* BrieflyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 900000000000000000000003 /* Build configuration list for PBXNativeTarget "BrieflyUITests" */;
+			buildPhases = (
+				700000000000000000000002 /* Sources */,
+				300000000000000000000002 /* Frameworks */,
+				600000000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D00000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = BrieflyUITests;
+			packageProductDependencies = (
+			);
+			productName = BrieflyUITests;
+			productReference = 20000000000000000000000A /* BrieflyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		C70000000000000000000001 /* BrieflyMCP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CA0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyMCP" */;
+			buildPhases = (
+				C50000000000000000000001 /* Frameworks */,
+				C70000000000000000000002 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BrieflyMCP;
+			packageProductDependencies = (
+				CC0000000000000000000001 /* BrieflyCore */,
+				CC0000000000000000000002 /* MCP */,
+			);
+			productName = "briefly-mcp";
+			productReference = C40000000000000000000002 /* briefly-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
+		E90000000000000000000001 /* BrieflyShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyShareExtension" */;
+			buildPhases = (
+				E60000000000000000000001 /* Sources */,
+				E50000000000000000000001 /* Frameworks */,
+				E70000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BrieflyShareExtension;
+			packageProductDependencies = (
+				ED0000000000000000000001 /* BrieflyCore */,
+			);
+			productName = BrieflyShareExtension;
+			productReference = E30000000000000000000004 /* BrieflyShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		800000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					C70000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					500000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+							com.apple.BackgroundModes = {
+								enabled = 1;
+							};
+							com.apple.iCloud = {
+								enabled = 1;
+							};
+							com.apple.Push = {
+								enabled = 1;
+							};
+							com.apple.SignInWithApple = {
+								enabled = 1;
+							};
+						};
+					};
+					500000000000000000000002 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 500000000000000000000001;
+					};
+					E90000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
+					};
+				};
+			};
+			buildConfigurationList = 900000000000000000000001 /* Build configuration list for PBXProject "Briefly" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 400000000000000000000001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
+				A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 400000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				500000000000000000000001 /* Briefly */,
+				C70000000000000000000001 /* BrieflyMCP */,
+				E90000000000000000000001 /* BrieflyShareExtension */,
+				500000000000000000000002 /* BrieflyUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		600000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000005 /* Assets.xcassets in Resources */,
+				F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		600000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E70000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F10000000000000000000002 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		700000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000100 /* AppEnvironment.swift in Sources */,
+				100000000000000000000101 /* AppNotifications.swift in Sources */,
+				100000000000000000000102 /* BrieflyApp.swift in Sources */,
+				100000000000000000000103 /* BrieflyAppDelegate.swift in Sources */,
+				100000000000000000000104 /* BrieflyMenuBar.swift in Sources */,
+				100000000000000000000105 /* CaptureShortcut.swift in Sources */,
+				100000000000000000000106 /* ContentView.swift in Sources */,
+				100000000000000000000107 /* Appearance.swift in Sources */,
+				100000000000000000000108 /* BrieflyAtmosphere.swift in Sources */,
+				100000000000000000000190 /* BrieflyBackground.swift in Sources */,
+				100000000000000000000109 /* GlassEffects.swift in Sources */,
+				100000000000000000000110 /* GrainyCard.swift in Sources */,
+				100000000000000000000112 /* MacCaptureComposer.swift in Sources */,
+				100000000000000000000113 /* MobileCaptureComposer.swift in Sources */,
+				100000000000000000000186 /* LibraryInputService.swift in Sources */,
+				100000000000000000000114 /* ChannelBrowserSession.swift in Sources */,
+				100000000000000000000115 /* ChannelBrowserState.swift in Sources */,
+				100000000000000000000116 /* ChannelBrowserViews.swift in Sources */,
+				100000000000000000000117 /* ChannelModels.swift in Sources */,
+				100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */,
+				100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */,
+				100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */,
+				100000000000000000000121 /* LibraryChannelModel.swift in Sources */,
+				100000000000000000000122 /* MobileFeedScreen.swift in Sources */,
+				100000000000000000000123 /* EntryContextMenu.swift in Sources */,
+				100000000000000000000124 /* HighlightsDocument.swift in Sources */,
+				100000000000000000000125 /* LibraryBrowserView.swift in Sources */,
+				100000000000000000000126 /* LibraryDetail.swift in Sources */,
+				100000000000000000000127 /* LibraryEntryCard.swift in Sources */,
+				100000000000000000000128 /* LibraryFeedComponents.swift in Sources */,
+				100000000000000000000129 /* LibraryModel.swift in Sources */,
+				100000000000000000000131 /* LibraryLifecycleModel.swift in Sources */,
+				100000000000000000000132 /* LibraryNavigationModel.swift in Sources */,
+				100000000000000000000133 /* LibraryProcessingModel.swift in Sources */,
+				100000000000000000000134 /* LibrarySelectionModel.swift in Sources */,
+				100000000000000000000187 /* LibraryWorkflowCoordinator.swift in Sources */,
+				100000000000000000000135 /* LibrarySidebar.swift in Sources */,
+				100000000000000000000136 /* MacSidebarFilters.swift in Sources */,
+				100000000000000000000137 /* MobileCollections.swift in Sources */,
+				100000000000000000000138 /* MobileEntryCards.swift in Sources */,
+				100000000000000000000139 /* MobileHome.swift in Sources */,
+				100000000000000000000140 /* MobileLibraryRows.swift in Sources */,
+				100000000000000000000141 /* MobileLibraryScreen.swift in Sources */,
+				100000000000000000000143 /* LibrarySharingModel.swift in Sources */,
+				100000000000000000000189 /* LibraryAudioModel.swift in Sources */,
+				100000000000000000000144 /* ShareDocumentView.swift in Sources */,
+				100000000000000000000142 /* SyncActivityView.swift in Sources */,
+				100000000000000000000145 /* AudioPlayer.swift in Sources */,
+				100000000000000000000146 /* AudioPlayerScreen.swift in Sources */,
+				100000000000000000000147 /* AudioTime.swift in Sources */,
+				100000000000000000000153 /* DocumentEditor.swift in Sources */,
+				100000000000000000000154 /* MarkdownArticle.swift in Sources */,
+				100000000000000000000155 /* MarkdownEditorIOS.swift in Sources */,
+				100000000000000000000156 /* MarkdownEditorMac.swift in Sources */,
+				100000000000000000000157 /* MarkdownParsing.swift in Sources */,
+				100000000000000000000148 /* MobileDetail.swift in Sources */,
+				100000000000000000000149 /* ReaderDocumentView.swift in Sources */,
+				100000000000000000000150 /* ReaderLayouts.swift in Sources */,
+				100000000000000000000151 /* ReadingDepthIcon.swift in Sources */,
+				100000000000000000000152 /* ReadingDepthStrip.swift in Sources */,
+				100000000000000000000158 /* ChannelSettings.swift in Sources */,
+				100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */,
+				100000000000000000000160 /* LibraryAccountModel.swift in Sources */,
+				100000000000000000000161 /* LibrarySettingsModel.swift in Sources */,
+				100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */,
+				100000000000000000000164 /* SettingsHelpers.swift in Sources */,
+				100000000000000000000165 /* SettingsSections.swift in Sources */,
+				100000000000000000000166 /* SettingsView.swift in Sources */,
+				100000000000000000000167 /* SettingsViewLayout.swift in Sources */,
+				100000000000000000000168 /* SettingsViewNavigation.swift in Sources */,
+				100000000000000000000192 /* BrieflyOnboarding.swift in Sources */,
+				100000000000000000000172 /* LocalSpeechSynthesizer.swift in Sources */,
+				100000000000000000000173 /* NativeLibraryError.swift in Sources */,
+				100000000000000000000175 /* BrieflyBackend.swift in Sources */,
+				100000000000000000000176 /* BrieflyBackendModels.swift in Sources */,
+				100000000000000000000177 /* MobileAppShell.swift in Sources */,
+				100000000000000000000178 /* MobileHeader.swift in Sources */,
+				100000000000000000000179 /* MobileNavigation.swift in Sources */,
+				100000000000000000000180 /* MobilePrimaryTab.swift in Sources */,
+				100000000000000000000181 /* MacErrorBanner.swift in Sources */,
+				100000000000000000000182 /* MacLoadingWorkspace.swift in Sources */,
+				100000000000000000000183 /* MacNavigation.swift in Sources */,
+				100000000000000000000184 /* MacRightRail.swift in Sources */,
+				100000000000000000000185 /* ShortcutRecorder.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		700000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				10000000000000000000000A /* BrieflyApplicationTours.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E60000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E10000000000000000000001 /* ShareViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C70000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000001 /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 500000000000000000000001 /* Briefly */;
+			targetProxy = C00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		EA0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = E90000000000000000000001 /* BrieflyShareExtension */;
+			targetProxy = E20000000000000000000001 /* PBXContainerItemProxy */;
+		};
+		C80000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
+			target = C70000000000000000000001 /* BrieflyMCP */;
+			targetProxy = C20000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B00000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B00000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		B00000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = development;
+				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = App/iOS/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = App/iOS/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/macOS/Briefly.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = App/iOS/Info.plist;
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = App/iOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		B00000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = production;
+				BRIEFLY_CLOUDKIT_CONTAINER_IDENTIFIER = iCloud.fyi.readbriefly;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = App/iOS/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = App/iOS/Briefly.entitlements;
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "App/macOS/Briefly.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = App/iOS/Info.plist;
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = App/iOS/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Briefly;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		B00000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Briefly;
+			};
+			name = Debug;
+		};
+		B00000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Briefly;
+			};
+			name = Release;
+		};
+		EB0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = App/iOS/BrieflyShareExtension/BrieflyShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/iOS/BrieflyShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		EB0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = App/iOS/BrieflyShareExtension/BrieflyShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 3;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/iOS/BrieflyShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		C90000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ../mcp/BrieflyMCP.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
+				PRODUCT_NAME = "briefly-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C90000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ../mcp/BrieflyMCP.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				DEVELOPMENT_TEAM = Z9ZRF2T37C;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
+				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
+				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
+				PRODUCT_NAME = "briefly-mcp";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		900000000000000000000001 /* Build configuration list for PBXProject "Briefly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000001 /* Debug */,
+				B00000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		900000000000000000000002 /* Build configuration list for PBXNativeTarget "Briefly" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000003 /* Debug */,
+				B00000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		900000000000000000000003 /* Build configuration list for PBXNativeTarget "BrieflyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B00000000000000000000005 /* Debug */,
+				B00000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EC0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB0000000000000000000001 /* Debug */,
+				EB0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CA0000000000000000000001 /* Build configuration list for PBXNativeTarget "BrieflyMCP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C90000000000000000000001 /* Debug */,
+				C90000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = revision;
+				revision = 5390df9752c8fc583596018360c5fd70d6fa6c75;
+			};
+		};
+		CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.11.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A00000000000000000000002 /* BrieflyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = BrieflyCore;
+		};
+		A00000000000000000000004 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000003 /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		ED0000000000000000000001 /* BrieflyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = BrieflyCore;
+		};
+		CC0000000000000000000001 /* BrieflyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = BrieflyCore;
+		};
+		CC0000000000000000000002 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CB0000000000000000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 800000000000000000000001 /* Project object */;
+}

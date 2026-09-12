@@ -3,11 +3,14 @@ name: Verify TypeScript SDK
 on:
   pull_request:
     paths:
-      - "SDK/TypeScript/**"
-      - "Apple/Sources/BrieflyCore/**"
-      - "Apple/Sources/BrieflyMCP/**"
-      - "Apple/Package.swift"
+      - "packages/sdk/**"
+      - "packages/apple/**"
+      - "packages/mcp/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
       - ".github/workflows/verify-sdk.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,15 +25,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: SDK/TypeScript/package-lock.json
-      - name: Build the real MCP helper
-        run: swift build --product briefly-mcp
-        working-directory: Apple
+          cache-dependency-path: package-lock.json
       - run: npm ci
-        working-directory: SDK/TypeScript
-      - run: npm run check
-        working-directory: SDK/TypeScript
-      - run: npm test
-        working-directory: SDK/TypeScript
-      - run: npm pack --dry-run
-        working-directory: SDK/TypeScript
+      - name: Build the real MCP helper and test SDK
+        run: npm run test:sdk
+      - run: npm pack --workspace @readbriefly/sdk --dry-run

@@ -5,8 +5,10 @@ on:
     branches:
       - main
     paths:
-      - "Web/**"
-      - "Shared/**"
+      - "packages/web/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
@@ -25,9 +27,6 @@ jobs:
     environment:
       name: production
       url: https://www.readbriefly.fyi
-    defaults:
-      run:
-        working-directory: Web
     env:
       PUBLIC_POSTHOG_PROJECT_TOKEN: phc_w66BqjKTdB2kHnyvyurtEGH2uKaVNqJ7ywf5ZtaKGqJW
       PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
@@ -41,33 +40,33 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            Shared/package-lock.json
-            Web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Test shared library contract
-        run: npm --prefix ../Shared test
+      - name: Test reader contract
+        run: npm run test:reader --workspace @readbriefly/web
 
       - name: Check application
-        run: npm run check
+        run: npm run check --workspace @readbriefly/web
 
       - name: Test Worker
-        run: npm run test:worker
+        run: npm run test:worker --workspace @readbriefly/web
 
       - name: Build application
-        run: npm run build
+        run: npm run build --workspace @readbriefly/web
 
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply briefly-db --remote
+        working-directory: packages/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker
         run: npx wrangler deploy
+        working-directory: packages/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

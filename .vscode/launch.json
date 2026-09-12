@@ -4,49 +4,49 @@
         {
             "type": "node-terminal",
             "request": "launch",
-            "name": "Run Shared Library Web",
+            "name": "Run Briefly Web",
             "command": "npm run dev",
-            "cwd": "${workspaceFolder}/Web"
+            "cwd": "${workspaceFolder}/packages/web"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
-            "name": "Debug briefly-migrate (Apple)",
-            "target": "briefly-migrate",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug briefly-migrate (Apple)"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
-            "name": "Release briefly-migrate (Apple)",
-            "target": "briefly-migrate",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release briefly-migrate (Apple)"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
-            "name": "Debug briefly-mcp (Apple)",
+            "cwd": "${workspaceFolder:sharedlibrary}/packages/mcp",
+            "name": "Debug briefly-mcp (packages/mcp)",
             "target": "briefly-mcp",
             "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug briefly-mcp (Apple)"
+            "preLaunchTask": "swift: Build Debug briefly-mcp (packages/mcp)"
         },
         {
             "type": "swift",
             "request": "launch",
             "args": [],
-            "cwd": "${workspaceFolder:sharedlibrary}/Apple",
-            "name": "Release briefly-mcp (Apple)",
+            "cwd": "${workspaceFolder:sharedlibrary}/packages/mcp",
+            "name": "Release briefly-mcp (packages/mcp)",
             "target": "briefly-mcp",
             "configuration": "release",
-            "preLaunchTask": "swift: Build Release briefly-mcp (Apple)"
+            "preLaunchTask": "swift: Build Release briefly-mcp (packages/mcp)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/packages/apple",
+            "name": "Debug briefly-migrate (packages/apple)",
+            "target": "briefly-migrate",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug briefly-migrate (packages/apple)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:sharedlibrary}/packages/apple",
+            "name": "Release briefly-migrate (packages/apple)",
+            "target": "briefly-migrate",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release briefly-migrate (packages/apple)"
         }
     ]
 }

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "briefly": {
+      "type": "stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "set -eu; if ! app_path=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import(\"AppKit\"); const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(\"fyi.readbriefly.BrieflyNative\"); if (url.isNil()) throw new Error(\"Briefly is not installed\"); url.path.js' 2>/dev/null); then printf '%s\\n' 'Briefly is not installed. Install Briefly before enabling its Codex plugin.' >&2; exit 1; fi; helper=\"$app_path/Contents/MacOS/briefly-mcp\"; if [ ! -x \"$helper\" ]; then printf '%s\\n' 'This Briefly installation does not include the MCP helper. Update Briefly and try again.' >&2; exit 1; fi; exec \"$helper\""
+      ]
+    }
+  }
+}

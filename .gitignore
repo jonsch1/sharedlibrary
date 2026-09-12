@@ -1,22 +1,19 @@
-# Shared reader package
-Shared/node_modules/
+# JavaScript workspace dependencies and generated output
+node_modules/
+packages/*/dist/
+packages/web/.svelte-kit/
+packages/web/build/
 
-# Svelte web app
-Web/node_modules/
-Web/.svelte-kit/
-Web/build/
-Web/dist/
+# SwiftPM and repo-local Xcode output
+.build/
+.swiftpm/
+.derived-*/
+xcuserdata/
+*.xcuserstate
 
-# Native Apple apps and repo-local Xcode derived data
-Apple/.build/
-Apple/.swiftpm/
-
-# macOS
+# Local settings and generated files
 .DS_Store
-
-# Local tool settings
 .claude/settings.local.json
 .env
-
-# Python bytecode
 __pycache__/
+*.pyc
