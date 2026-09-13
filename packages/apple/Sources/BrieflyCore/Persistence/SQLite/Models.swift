@@ -16,6 +16,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
     public var sourceIDs: [String]
     public var sourceURLs: [String]
     public var texts: [LibraryVariant: String]
+    public var captureRequest: CaptureRequest?
     public var cloudRecordData: Data?
 
     public init(
@@ -34,6 +35,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         sourceIDs: [String] = [],
         sourceURLs: [String] = [],
         texts: [LibraryVariant: String],
+        captureRequest: CaptureRequest? = nil,
         cloudRecordData: Data? = nil
     ) {
         self.id = id
@@ -51,6 +53,7 @@ public struct SQLiteDocument: Codable, Equatable, Sendable {
         self.sourceIDs = sourceIDs
         self.sourceURLs = sourceURLs
         self.texts = texts
+        self.captureRequest = captureRequest
         self.cloudRecordData = cloudRecordData
     }
 }
@@ -81,6 +84,7 @@ public struct SQLiteDocumentCommit: Sendable {
     public let texts: [LibraryVariant: String]
     public let removedTexts: Set<LibraryVariant>
     public let deleted: Bool?
+    public let captureRequest: CaptureRequest?
 
     public init(
         id: String,
@@ -93,7 +97,8 @@ public struct SQLiteDocumentCommit: Sendable {
         tags: [String]? = nil,
         texts: [LibraryVariant: String] = [:],
         removedTexts: Set<LibraryVariant> = [],
-        deleted: Bool? = nil
+        deleted: Bool? = nil,
+        captureRequest: CaptureRequest? = nil
     ) {
         self.id = id
         self.baseRevision = baseRevision
@@ -106,6 +111,7 @@ public struct SQLiteDocumentCommit: Sendable {
         self.texts = texts
         self.removedTexts = removedTexts
         self.deleted = deleted
+        self.captureRequest = captureRequest
     }
 }
 

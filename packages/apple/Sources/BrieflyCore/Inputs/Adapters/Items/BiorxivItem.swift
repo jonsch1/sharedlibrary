@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestBiorxiv(
@@ -120,3 +121,5 @@ private func fetchBiorxivPDF(
         }
     }
 }
+
+#endif

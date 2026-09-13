@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestPodcast(
@@ -115,3 +116,5 @@ func ingestPodcast(
         transcriptError: transcriptError
     )
 }
+
+#endif

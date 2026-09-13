@@ -32,6 +32,7 @@ public struct BrieflyCustomCaptureFailure: Error, LocalizedError, Sendable {
     }
 }
 
+#if os(macOS)
 /// The app owns routing and persistence. The optional local runner only returns source data.
 @MainActor
 public final class BrieflyCaptureCoordinator {
@@ -104,6 +105,24 @@ public final class BrieflyCaptureCoordinator {
             try await library.enqueueProcessingJob(entryID: id, selectWhenFinished: false)
         }
         return result
+    }
+
+    /// Queued phone captures use the Mac's custom source handlers as well as its
+    /// native adapters, while persistence keeps the original pending-item identity.
+    public func extractSource(
+        _ request: ItemInputRequest,
+        context: ItemInputContext
+    ) async throws -> ItemDraft {
+        if case .url(let url) = request.source {
+            guard isNativeHTTPURL(url), url.user == nil, url.password == nil else {
+                throw BrieflyAgentFailure.invalid("Capture requires an HTTP(S) URL without embedded credentials.")
+            }
+            if let document = try await customDocument(for: url) {
+                return ItemDraft(inputID: .webPage, title: document.title, content: document.content,
+                                 sourceURL: document.url.flatMap(URL.init(string:)) ?? url)
+            }
+        }
+        return try await NativeItemInputRouter().ingest(request, context: context)
     }
 
     private var activeRunner: Runner? {
@@ -186,3 +205,5 @@ private final class RunnerRedirectDelegate: NSObject, URLSessionTaskDelegate, @u
         completionHandler(nil)
     }
 }
+
+#endif

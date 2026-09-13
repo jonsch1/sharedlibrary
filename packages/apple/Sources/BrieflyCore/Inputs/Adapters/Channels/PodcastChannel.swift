@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumeratePodcastChannel(
@@ -35,3 +36,5 @@ func enumeratePodcastChannel(
     }
     throw NativeInputError.unreadableContent
 }
+
+#endif

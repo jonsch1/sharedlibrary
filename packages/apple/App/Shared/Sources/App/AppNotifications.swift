@@ -5,6 +5,6 @@ extension Notification.Name {
     static let brieflyCaptureShortcutChanged = Self("BrieflyCaptureShortcutChanged")
     static let brieflyCaptureShortcutRegistrationChanged =
         Self("BrieflyCaptureShortcutRegistrationChanged")
-    static let brieflyImportPDF = Self("BrieflyImportPDF")
+    static let brieflyImportFile = Self("BrieflyImportFile")
     static let brieflyRefreshLibrary = Self("BrieflyRefreshLibrary")
 }

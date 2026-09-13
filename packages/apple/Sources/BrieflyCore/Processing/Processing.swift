@@ -23,6 +23,7 @@ public func spokenText(_ markdown: String) -> String {
     return text.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+#if os(macOS)
 public let defaultProcessingCommand =
     "codex exec --ephemeral --sandbox read-only " +
     "--skip-git-repo-check --color never -"
@@ -304,4 +305,6 @@ private func conciseProcessError(_ url: URL) throws -> String {
         ? "\(message.prefix(319).trimmingCharacters(in: .whitespaces))…"
         : message
 }
+#endif
+
 #endif

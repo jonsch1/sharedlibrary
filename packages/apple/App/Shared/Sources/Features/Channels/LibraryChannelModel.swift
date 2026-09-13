@@ -51,19 +51,21 @@ final class LibraryChannelModel {
     static let maximumReviewWindow = channelReviewLimitRange.upperBound
 
     let session: LibrarySession
+    #if os(macOS)
     let inputService: LibraryInputService
+    #endif
 
     var libraryChannels = [LibraryChannel]()
     var newChannelSources = [String]()
-    var channelBrowserAddress = ""
-    var channelBrowserStagesSource = false
     var isCheckingChannel = false
     var hasLoadedChannels = false
     var isAcceptingReviewCandidate = false
 
-    init(session: LibrarySession, inputService: LibraryInputService) {
+    init(session: LibrarySession) {
         self.session = session
-        self.inputService = inputService
+        #if os(macOS)
+        self.inputService = LibraryInputService(session: session)
+        #endif
     }
 
     var channels: [LibraryChannel] {
@@ -101,6 +103,7 @@ final class LibraryChannelModel {
     }
 
     func resolvedPreview(for item: LibraryChannelReviewItem) async -> String? {
+        #if os(macOS)
         guard let url = item.url else { return nil }
         let host = url.host?.lowercased() ?? ""
         guard host == "x.com" || host.hasSuffix(".x.com") ||
@@ -116,6 +119,9 @@ final class LibraryChannelModel {
             ItemInputRequest(source: .url(url), hints: hints),
             context: inputService.itemInputContext()
         ).content
+            #else
+        return nil
+        #endif
     }
 
     func filteredChannels(query: String) -> [LibraryChannel] {
@@ -228,6 +234,7 @@ final class LibraryChannelModel {
 
     @discardableResult
     func checkChannel(source: String) async -> LibraryChannelCheckResult? {
+        #if os(macOS)
         guard
             let library = session.library,
             let channel = selectedChannel(for: source),
@@ -273,10 +280,15 @@ final class LibraryChannelModel {
             session.errorMessage = error.localizedDescription
             return nil
         }
+            #else
+        session.status = "Channels are checked on your Mac. Sync to see new candidates."
+        return nil
+        #endif
     }
 
     @discardableResult
     func loadMoreChannel(source: String) async -> LibraryChannelCheckResult? {
+        #if os(macOS)
         guard
             let library = session.library,
             let channel = selectedChannel(for: source),
@@ -320,6 +332,10 @@ final class LibraryChannelModel {
             session.status = "Could not find more candidates."
             return nil
         }
+            #else
+        session.status = "Channels are checked on your Mac. Sync to see new candidates."
+        return nil
+        #endif
     }
 
     func checkAllChannels(loadMore: Bool = false) async {
@@ -355,6 +371,7 @@ final class LibraryChannelModel {
         _ library: SQLiteLibraryStore,
         source: String
     ) async throws -> LibraryChannelRefresh {
+        #if os(macOS)
         return try await library.checkChannelInput(
             source,
             maximumItems: nil,
@@ -366,9 +383,13 @@ final class LibraryChannelModel {
                 )
             }
         )
+            #else
+        throw LibraryError.processingUnavailable
+        #endif
     }
 
     func runDueChannelChecks() async -> LibraryDueChannelResult {
+        #if os(macOS)
         guard let library = session.library, !isCheckingChannel else {
             return LibraryDueChannelResult(candidates: [])
         }
@@ -393,6 +414,9 @@ final class LibraryChannelModel {
             session.status = "Candidates ready to review"
         }
         return LibraryDueChannelResult(candidates: candidates)
+            #else
+        return LibraryDueChannelResult(candidates: [])
+        #endif
     }
 
     @discardableResult
@@ -423,7 +447,7 @@ final class LibraryChannelModel {
             session.projection = try await library.loadLibraryIndex()
             try await refreshChannels(from: library)
             if let requestSummary {
-                session.status = "Accepted. Preparing summaries…"
+                session.status = "Saved. Waiting for Mac."
                 await requestSummary([entryID])
             } else {
                 session.status = "Accepted."
@@ -458,6 +482,7 @@ final class LibraryChannelModel {
         _ candidate: LibraryChannelCandidate,
         in library: SQLiteLibraryStore
     ) async throws -> String {
+        #if os(macOS)
         guard let url = URL(string: candidate.url) else {
             throw LibraryError.invalidChannel
         }
@@ -475,6 +500,10 @@ final class LibraryChannelModel {
             context: inputService.itemInputContext()
         )
         return try await library.captureItem(draft)
+            #else
+        guard let url = URL(string: candidate.url) else { throw LibraryError.invalidChannel }
+        return try await library.queueCapture(.init(source: .url(url), hints: .init(title: candidate.title)))
+        #endif
     }
 
 }

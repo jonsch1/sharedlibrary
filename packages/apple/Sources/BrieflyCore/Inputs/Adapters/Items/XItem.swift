@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestX(
@@ -397,3 +398,5 @@ private func xCountLabel(_ raw: Any?, _ singular: String, _ plural: String) -> S
     let rendered = formatter.string(from: NSNumber(value: number)) ?? string
     return "\(rendered) \(number == 1 ? singular : plural)"
 }
+
+#endif

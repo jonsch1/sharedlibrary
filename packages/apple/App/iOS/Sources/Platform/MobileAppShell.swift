@@ -7,7 +7,6 @@ struct MobileXAppShell: View {
     @Bindable var model: LibraryModel
     let openSettings: (BrieflySettingsSection?) -> Void
     @Binding var showsCaptureComposer: Bool
-    @Binding var showsChannelBrowser: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
     @Binding var audioEntry: LibraryEntry?
     @AppStorage("BrieflyMobileTab") private var selectedTab = MobilePrimaryTab.home
@@ -32,7 +31,6 @@ struct MobileXAppShell: View {
                 .navigationDestination(isPresented: $showsDetail) {
                     MobileXDetail(
                         model: model,
-                        showsChannelBrowser: $showsChannelBrowser,
                         audioPlayer: audioPlayer,
                         audioEntry: $audioEntry
                     )
@@ -123,7 +121,6 @@ struct MobileXAppShell: View {
             .navigationDestination(isPresented: $showsDetail) {
                 MobileXDetail(
                     model: model,
-                    showsChannelBrowser: $showsChannelBrowser,
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
@@ -151,7 +148,9 @@ struct MobileXAppShell: View {
 
     private var isPlayableDetail: Bool {
         selectedTab != .channels && model.navigation.activeSection == .items &&
-            showsDetail && model.selection.selectedEntry != nil
+            showsDetail && model.selection.selectedEntry != nil &&
+            (model.selection.selectedEntry?.captureRequest == nil ||
+             model.selection.selectedEntry?.captureRequest?.state == .ready)
     }
 
     private var playingEntry: LibraryEntry? {

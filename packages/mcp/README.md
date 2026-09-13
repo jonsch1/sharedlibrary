@@ -3,7 +3,8 @@
 The `briefly-mcp` executable exposes Briefly's local library to agent clients.
 It depends on `BrieflyCore` from the sibling Apple package and the Swift MCP SDK.
 The Apple Xcode project also builds and signs this executable for embedding in
-the macOS app.
+the macOS app, inside `Contents/Helpers/BrieflyMCP.app`. This gives the helper
+its own sandbox container and preserves the existing shared app-group IPC connection.
 
 From the repository root:
 

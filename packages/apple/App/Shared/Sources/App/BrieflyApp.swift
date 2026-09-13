@@ -32,9 +32,9 @@ struct BrieflyApp: App {
                     )
                 }
                 .keyboardShortcut("g", modifiers: .command)
-                Button("Import PDF…") {
+                Button("Import file…") {
                     NotificationCenter.default.post(
-                        name: .brieflyImportPDF,
+                        name: .brieflyImportFile,
                         object: nil
                     )
                 }

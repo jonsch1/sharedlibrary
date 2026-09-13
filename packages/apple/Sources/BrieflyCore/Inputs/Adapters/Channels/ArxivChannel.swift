@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumerateArxivChannel(
@@ -76,3 +77,5 @@ func arxivAPIQuery(_ value: String) -> String {
         return "all:\(token)"
     }.joined(separator: " ")
 }
+
+#endif

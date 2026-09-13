@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestArxiv(
@@ -63,3 +64,5 @@ private func arxivPDFURL(for url: URL) throws -> URL {
     guard let pdfURL = components.url else { throw NativeInputError.unsupportedInput }
     return pdfURL
 }
+
+#endif

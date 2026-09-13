@@ -36,7 +36,18 @@ async function resolveHelperPath(explicitPath: string | undefined, signal: Abort
     try {
       const { stdout } = await execFileAsync("/usr/bin/osascript", [
         "-l", "JavaScript", "-e",
-        'ObjC.import("AppKit"); const app = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier("fyi.readbriefly.BrieflyNative"); app.isNil() ? "" : ObjC.unwrap(app.path);',
+        `ObjC.import("AppKit");
+         const id = "fyi.readbriefly.BrieflyNative";
+         const running = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(id);
+         let selected = null;
+         let latest = -1;
+         for (let index = 0; index < running.count; index++) {
+           const app = running.objectAtIndex(index);
+           const launched = app.launchDate.isNil() ? 0 : app.launchDate.timeIntervalSince1970;
+           if (!app.bundleURL.isNil() && launched >= latest) { selected = app.bundleURL; latest = launched; }
+         }
+         const url = selected || $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(id);
+         url.isNil() ? "" : ObjC.unwrap(url.path);`,
       ], { encoding: "utf8", timeout: INITIALIZE_TIMEOUT_MS, maxBuffer: 16_384, signal });
       appPath = stdout.trim();
     } catch (cause) {
@@ -52,7 +63,7 @@ async function resolveHelperPath(explicitPath: string | undefined, signal: Abort
         "Briefly is not installed. Install the macOS app or supply its absolute briefly-mcp helperPath.",
       );
     }
-    helperPath = join(appPath, "Contents", "MacOS", "briefly-mcp");
+    helperPath = join(appPath, "Contents", "Helpers", "BrieflyMCP.app", "Contents", "MacOS", "briefly-mcp");
   }
   try {
     await access(helperPath, constants.X_OK);

@@ -1,20 +1,15 @@
+#if os(macOS)
 import BrieflyCore
 import Foundation
 import WebKit
 
 @MainActor
-final class ChannelBrowserSession {
-    static let shared = ChannelBrowserSession()
+final class MacPageExtractor {
+    static let shared = MacPageExtractor()
 
-    let dataStore: WKWebsiteDataStore
+    let dataStore = BrieflyWebSession.dataStore
 
-    private init(arguments: [String] = ProcessInfo.processInfo.arguments) {
-        dataStore = arguments.contains("--app-review-testing")
-            ? .nonPersistent()
-            : WKWebsiteDataStore(
-                forIdentifier: UUID(uuidString: "F5D5198E-24BC-4E08-AAC0-D275EE8620D1")!
-            )
-    }
+    private init() {}
 
     func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -233,7 +228,7 @@ final class ChannelBrowserSession {
             """) as? String
         }
         guard let text = extractedText, !text.isEmpty else {
-            throw ChannelBrowserError.emptyPage
+            throw PageExtractionError.emptyPage
         }
         var items = [SignedInChannelItem]()
         if
@@ -384,3 +379,82 @@ private func oldRedditURL(_ url: URL) -> URL? {
     components.host = "old.reddit.com"
     return components.url
 }
+
+func faviconFileExtension(_ data: Data) -> String? {
+    let bytes = [UInt8](data.prefix(12))
+    if bytes.starts(with: [0x89, 0x50, 0x4e, 0x47]) { return "png" }
+    if bytes.starts(with: [0xff, 0xd8, 0xff]) { return "jpg" }
+    if bytes.starts(with: Array("GIF8".utf8)) { return "gif" }
+    if bytes.starts(with: [0x00, 0x00, 0x01, 0x00]) { return "ico" }
+    if
+        bytes.starts(with: Array("RIFF".utf8)),
+        bytes.dropFirst(8).starts(with: Array("WEBP".utf8))
+    {
+        return "webp"
+    }
+    return nil
+}
+
+
+@MainActor
+final class NavigationWaiter: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var timeout: DispatchWorkItem?
+
+    func load(_ url: URL, in webView: WKWebView) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let timeout = DispatchWorkItem { [weak self, weak webView] in
+                webView?.stopLoading()
+                self?.finish(.failure(PageExtractionError.timeout))
+            }
+            self.timeout = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeout)
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(.success(()))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFail navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        finish(.failure(error))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        timeout?.cancel()
+        timeout = nil
+        continuation.resume(with: result)
+    }
+}
+
+enum PageExtractionError: LocalizedError {
+    case emptyPage
+    case timeout
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyPage:
+            "This page returned no readable text."
+        case .timeout:
+            "This page took too long to load."
+        }
+    }
+}
+
+#endif

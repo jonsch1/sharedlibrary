@@ -3,7 +3,6 @@ import SwiftUI
 
 struct ChannelSourceCard: View {
     let source: String
-    let openInBrowser: (() -> Void)?
     let remove: () -> Void
 
     private var displaySource: String {
@@ -33,16 +32,7 @@ struct ChannelSourceCard: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            if let openInBrowser {
-                Button(action: openInBrowser) {
-                    Image(systemName: "globe")
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Open \(displaySource) in browser")
-            }
+
             Button(action: remove) {
                 Image(systemName: "xmark")
                     .frame(width: 28, height: 28)

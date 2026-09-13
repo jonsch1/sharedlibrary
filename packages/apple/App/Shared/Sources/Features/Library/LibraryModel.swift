@@ -44,6 +44,7 @@ final class LibrarySession {
     var cloud: CloudDocumentSync?
     var library: SQLiteLibraryStore?
     var projection = LibraryProjection.empty
+    var pendingUploadIDs = Set<String>()
     var status = "Loading library…"
     var errorMessage: String?
     var customCaptureFailure: BrieflyCustomCaptureFailure?
@@ -73,7 +74,10 @@ final class LibraryModel {
     var navigation: LibraryNavigationModel
     let selection: LibrarySelectionModel
     let channels: LibraryChannelModel
-    let processing: LibraryProcessingModel
+    let capture: LibraryCaptureModel
+    #if os(macOS)
+    var processing: LibraryProcessingModel { workflows.processing }
+    #endif
     let account: LibraryAccountModel
     var settings: LibrarySettingsModel
     let audio: LibraryAudioModel
@@ -87,12 +91,11 @@ final class LibraryModel {
 
     init(environment: AppEnvironment = .current()) {
         let session = LibrarySession(environment: environment)
-        let inputService = LibraryInputService(session: session)
         let selection = LibrarySelectionModel(session: session)
         let navigation = LibraryNavigationModel(session: session)
         let settings = LibrarySettingsModel(session: session)
-        let processing = LibraryProcessingModel(session: session, inputService: inputService)
-        let channels = LibraryChannelModel(session: session, inputService: inputService)
+        let capture = LibraryCaptureModel(session: session)
+        let channels = LibraryChannelModel(session: session)
         let account = LibraryAccountModel(session: session)
         let audio = LibraryAudioModel(session: session)
         let sharing = LibrarySharingModel(session: session)
@@ -102,7 +105,7 @@ final class LibraryModel {
             navigation: navigation,
             selection: selection,
             channels: channels,
-            processing: processing,
+            capture: capture,
             account: account,
             settings: settings,
             audio: audio,
@@ -113,7 +116,7 @@ final class LibraryModel {
         self.navigation = navigation
         self.selection = selection
         self.channels = channels
-        self.processing = processing
+        self.capture = capture
         self.account = account
         self.settings = settings
         self.audio = audio
@@ -133,8 +136,24 @@ final class LibraryModel {
         #endif
     }
 
+    var isProcessing: Bool {
+        #if os(macOS)
+        processing.isProcessing
+        #else
+        false
+        #endif
+    }
+
+    func captureStatus(for entry: LibraryEntry) -> String {
+        guard let request = entry.captureRequest else { return "Ready" }
+        if request.state == .queued, session.pendingUploadIDs.contains(entry.id) {
+            return "Waiting to sync"
+        }
+        return request.status
+    }
+
     var isWorking: Bool {
-        processing.isIngesting || channels.isCheckingChannel || processing.isProcessing ||
+        capture.isIngesting || channels.isCheckingChannel || isProcessing ||
             audio.isGeneratingSpeech ||
             audio.isPreparingSpeech || lifecycle.isSyncing || settings.isTestingAI
     }
@@ -154,8 +173,8 @@ final class LibraryModel {
     var menuBarActivity: String? {
         if audio.isGeneratingSpeech { return "Creating audio" }
         if audio.isPreparingSpeech { return "Preparing voice" }
-        if processing.isProcessing { return "Processing" }
-        if processing.isIngesting || channels.isCheckingChannel { return "Ingesting" }
+        if isProcessing { return "Processing" }
+        if capture.isIngesting || channels.isCheckingChannel { return "Ingesting" }
         if lifecycle.isSyncing {
             return lifecycle.syncTotal > 0
                 ? "Syncing \(lifecycle.syncCompleted)/\(lifecycle.syncTotal)"
@@ -169,8 +188,8 @@ final class LibraryModel {
         if audio.isGeneratingSpeech || audio.isPreparingSpeech {
             return "waveform"
         }
-        if processing.isProcessing || settings.isTestingAI { return "sparkles" }
-        if processing.isIngesting || channels.isCheckingChannel {
+        if isProcessing || settings.isTestingAI { return "sparkles" }
+        if capture.isIngesting || channels.isCheckingChannel {
             return "square.and.arrow.down"
         }
         if lifecycle.isSyncing { return "arrow.triangle.2.circlepath" }

@@ -337,6 +337,7 @@ public struct LibraryEntry: Codable, Hashable, Identifiable, Sendable {
     public let sharedByDisplayName: String?
     public let inboxReferenceID: String?
     public let texts: [LibraryText]
+    public var captureRequest: CaptureRequest? = nil
 
     public var ownerUsername: String? {
         sharedByUsername ?? sharedByDisplayName

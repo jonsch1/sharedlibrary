@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumerateHackerNewsChannel(
@@ -14,3 +15,5 @@ func enumerateHackerNewsChannel(
     ) else { throw NativeInputError.unreadableContent }
     return try inputBatch(channel, channelInput: .hackerNews)
 }
+
+#endif

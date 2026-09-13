@@ -258,7 +258,9 @@ struct LibraryChannelCoordinator {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !entryID.isEmpty else { throw LibraryError.emptyCapture }
         try channels.acceptItem(source: source, itemID: itemID, entryID: entryID)
+        #if os(macOS)
         try processing.enqueue(documentID: entryID, selectWhenFinished: false)
+        #endif
         return entryID
     }
 

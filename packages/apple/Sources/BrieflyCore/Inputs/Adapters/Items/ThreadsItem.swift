@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestThreads(
@@ -22,3 +23,5 @@ func ingestThreads(
         faviconURL: metadata.faviconURL ?? URL(string: "https://www.threads.net/favicon.ico")
     )
 }
+
+#endif

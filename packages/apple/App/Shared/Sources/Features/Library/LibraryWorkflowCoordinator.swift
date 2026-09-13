@@ -36,6 +36,7 @@ final class LibrarySyncScheduler {
             guard !Task.isCancelled else { return }
             guard let self, let request = self.pendingRequest else { return }
             self.pendingRequest = nil
+            self.pendingSync = nil
             await self.operation?(request)
         }
     }
@@ -47,7 +48,10 @@ final class LibraryWorkflowCoordinator {
     let navigation: LibraryNavigationModel
     let selection: LibrarySelectionModel
     let channels: LibraryChannelModel
+    let capture: LibraryCaptureModel
+    #if os(macOS)
     let processing: LibraryProcessingModel
+    #endif
     let account: LibraryAccountModel
     let settings: LibrarySettingsModel
     let audio: LibraryAudioModel
@@ -64,7 +68,7 @@ final class LibraryWorkflowCoordinator {
         navigation: LibraryNavigationModel,
         selection: LibrarySelectionModel,
         channels: LibraryChannelModel,
-        processing: LibraryProcessingModel,
+        capture: LibraryCaptureModel,
         account: LibraryAccountModel,
         settings: LibrarySettingsModel,
         audio: LibraryAudioModel,
@@ -75,12 +79,21 @@ final class LibraryWorkflowCoordinator {
         self.navigation = navigation
         self.selection = selection
         self.channels = channels
-        self.processing = processing
+        self.capture = capture
+        #if os(macOS)
+        self.processing = LibraryProcessingModel(session: session, inputService: capture.inputService)
+        #endif
         self.account = account
         self.settings = settings
         self.audio = audio
         self.lifecycle = lifecycle
         self.syncScheduler = syncScheduler
+        #if os(macOS)
+        processing.onStateChanged = { [weak lifecycle] in
+            try? await lifecycle?.refreshSession()
+            await lifecycle?.sync()
+        }
+        #endif
         syncScheduler.setOperation { [weak self] request in
             switch request {
             case .lifecycle:
@@ -146,12 +159,6 @@ final class LibraryWorkflowCoordinator {
             async let cloudSync: Void = sync()
             _ = await (selectedText, accountRefresh, cloudSync)
             await importPendingSharedCaptures()
-            #if os(macOS)
-            let results = await processing.drainProcessingQueue(
-                configuration: settings.processingConfiguration
-            )
-            if !results.isEmpty { await refreshLibrary() }
-            #endif
             await runDueChannelChecks()
         } else {
             _ = await (selectedText, accountRefresh)
@@ -192,6 +199,12 @@ final class LibraryWorkflowCoordinator {
 
     func sync() async {
         await lifecycle.sync()
+        #if os(macOS)
+        if !processing.isProcessing {
+            _ = await processing.drainProcessingQueue(configuration: settings.processingConfiguration)
+            await lifecycle.sync()
+        }
+        #endif
         guard let library = session.library else { return }
         do {
             try await refreshFeatureCaches(from: library)
@@ -290,6 +303,26 @@ final class LibraryWorkflowCoordinator {
         requestSync()
     }
 
+    func permanentlyDelete(entryID: String) async {
+        guard let library = session.library else { return }
+        do {
+            try await library.permanentlyDelete([entryID])
+            if selection.selectedID == entryID { selection.clear() }
+            await refreshLibrary()
+            requestSync()
+        } catch { session.errorMessage = error.localizedDescription }
+    }
+
+    func emptyTrash() async {
+        guard let library = session.library else { return }
+        do {
+            try await library.emptyTrash()
+            if navigation.showingTrash { selection.clear() }
+            await refreshLibrary()
+            requestSync()
+        } catch { session.errorMessage = error.localizedDescription }
+    }
+
     func saveText(_ text: String, entryID: String, variant: LibraryVariant) async {
         let key = "\(entryID):\(variant.rawValue)"
         let previous = textWrites[key]?.task
@@ -342,9 +375,8 @@ final class LibraryWorkflowCoordinator {
                 attemptedIDs.insert(capture.id)
                 do {
                     let request = try inbox.inputRequest(for: capture)
-                    let entryID = try await processing.captureShared(
-                        request,
-                        captureID: capture.captureID
+                    let entryID = try await session.library!.queueCapture(
+                        request, captureID: capture.captureID, createdAt: capture.createdAt
                     )
                     try inbox.complete(capture)
                     importedIDs.append(entryID)
@@ -376,6 +408,7 @@ final class LibraryWorkflowCoordinator {
         #endif
     }
 
+    #if os(macOS)
     func processSelected() async {
         guard !selection.selectedID.isEmpty else { return }
         await enqueueProcessing([selection.selectedID], selectWhenFinished: true)
@@ -395,25 +428,21 @@ final class LibraryWorkflowCoordinator {
         if !results.isEmpty { requestSync() }
     }
 
+    #endif
+
     func capture(_ text: String, useNative: Bool = false, onCaptured: (() -> Void)? = nil) async {
         session.customCaptureFailure = nil
         clearError()
-        guard let entryID = await processing.capture(text, useNative: useNative) else { return }
+        guard let entryID = await capture.capture(text, useNative: useNative) else { return }
         onCaptured?()
         navigation.activeSection = .items
-        await finishCapturedItem(entryID)
-    }
-
-    func captureWebPage(url: URL, page: SignedInChannelPage) async {
-        session.customCaptureFailure = nil
-        guard let entryID = await processing.captureWebPage(url: url, page: page) else { return }
         await finishCapturedItem(entryID)
     }
 
     private func finishCapturedItem(_ entryID: String) async {
         await refreshLibrary(selecting: entryID)
         requestSync()
-        session.status = "Captured"
+        session.status = "Saved to inbox"
         #if os(macOS)
         if let library = session.library,
            let result = try? await BrieflyAgentLibrary(store: library).writeResult(id: entryID),
@@ -424,19 +453,17 @@ final class LibraryWorkflowCoordinator {
         #endif
     }
 
-    func capturePDF(_ url: URL) async {
-        guard let entryID = await processing.capturePDF(url) else { return }
+    func captureFile(_ url: URL, onCaptured: (() -> Void)? = nil) async {
+        guard let entryID = await capture.captureFile(url) else { return }
+        onCaptured?()
         await refreshLibrary(selecting: entryID)
         #if os(macOS)
-        session.status = "PDF captured. Preparing summaries…"
+        session.status = "File saved. Preparing summaries…"
         await enqueueProcessing([entryID], selectWhenFinished: true)
         #else
-        session.status = "PDF captured"
+        session.status = "Saved to inbox"
+        requestSync()
         #endif
-    }
-
-    func setBrowserIngesting(_ ingesting: Bool) {
-        processing.setBrowserIngesting(ingesting)
     }
 
     func streamPlayableAudio(
@@ -453,15 +480,27 @@ final class LibraryWorkflowCoordinator {
         )
     }
 
+    func retryCapture(_ id: String) async {
+        do {
+            try await session.library?.retryCapture(id)
+            await refreshLibrary()
+            requestSync()
+        } catch { session.errorMessage = error.localizedDescription }
+    }
+
     // MARK: Channels
 
     func checkSelectedChannel(loadMore: Bool = false) async {
+        #if os(macOS)
         guard !navigation.selectedChannelSource.isEmpty else { return }
         if loadMore {
             _ = await channels.loadMoreChannel(source: navigation.selectedChannelSource)
         } else {
             _ = await channels.checkChannel(source: navigation.selectedChannelSource)
         }
+        #else
+        await sync()
+        #endif
     }
 
     func checkAllChannels(loadMore: Bool = false) async {
@@ -502,7 +541,9 @@ final class LibraryWorkflowCoordinator {
     }
 
     func runDueChannelChecks() async {
+        #if os(macOS)
         _ = await channels.runDueChannelChecks()
+        #endif
     }
 
     func finishAcceptedChannelItems(_ entryIDs: [String]) async {

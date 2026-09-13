@@ -33,6 +33,217 @@ private let realChannelTestURLs: [(ChannelInputID, URL)] = [
 final class NativeItemInputTests: XCTestCase {
     private let router = NativeItemInputRouter()
 
+    func testPermanentDeletionClearsTrashAndSurvivesOfflineSync() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "trash-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "local.sqlite3"))
+        let database = try await store.documentDatabase()
+        let peer = try SQLiteLibrary(databaseURL: root.appending(path: "peer.sqlite3"))
+        let saved = try database.createDocument(title: "Private item", body: "Private original")
+        try database.saveAttachment(documentID: saved.id, kind: "original-pdf", mimeType: "application/pdf", data: Data("%PDF-original".utf8))
+        let attachment = try XCTUnwrap(database.attachment(saved.id + ":original-pdf"))
+        try peer.applyRemote(saved)
+        try peer.applyRemote(attachment)
+        do {
+            try await store.permanentlyDelete([saved.id])
+            XCTFail("Active items cannot be permanently deleted")
+        } catch {}
+        XCTAssertEqual(try database.getDocument(saved.id).texts[.source], "Private original")
+        _ = try database.commitDocument(.init(id: saved.id, baseRevision: saved.revision, deleted: true))
+        try await store.permanentlyDelete([saved.id])
+        XCTAssertTrue(try database.deletedDocuments().isEmpty)
+        XCTAssertTrue(try database.allDocuments(includeDeleted: true).isEmpty)
+        XCTAssertNil(try database.attachment(saved.id + ":original-pdf"))
+        XCTAssertThrowsError(try database.getDocument(saved.id, includeDeleted: true))
+        let marker = try XCTUnwrap(database.readDocument(saved.id))
+        XCTAssertTrue(marker.isPermanentlyDeleted)
+        XCTAssertTrue(marker.title.isEmpty)
+        XCTAssertTrue(marker.texts.isEmpty)
+        XCTAssertNil(marker.captureRequest)
+        XCTAssertTrue(try database.outbox().contains { $0.recordType == "attachment" && $0.operation == "delete" })
+        try peer.applyRemote(marker)
+        XCTAssertTrue(try peer.allDocuments(includeDeleted: true).isEmpty)
+        XCTAssertNil(try peer.attachment(saved.id + ":original-pdf"))
+        var offlineEdit = saved
+        offlineEdit.revision = marker.revision + 10
+        offlineEdit.updatedAt = Date().addingTimeInterval(60)
+        try database.applyRemote(offlineEdit)
+        try database.applyRemote(attachment)
+        XCTAssertTrue(try database.allDocuments(includeDeleted: true).isEmpty)
+        XCTAssertNil(try database.attachment(saved.id + ":original-pdf"))
+        XCTAssertThrowsError(try database.saveAttachment(documentID: saved.id, kind: "audio", mimeType: "audio/mp4", data: Data([1])))
+        XCTAssertThrowsError(try database.commitDocument(.init(id: saved.id, baseRevision: marker.revision, deleted: false)))
+        let active = try database.createDocument(title: "Keep", body: "Keep this")
+        let trash = try database.createDocument(title: "Remove", body: "Delete this")
+        _ = try database.commitDocument(.init(id: trash.id, baseRevision: trash.revision, deleted: true))
+        try await store.emptyTrash()
+        XCTAssertEqual(try database.allDocuments().map(\.id), [active.id])
+        XCTAssertTrue(try database.deletedDocuments().isEmpty)
+    }
+
+    func testCompleteLibraryExportsPreserveContentAndPendingFiles() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "export-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "live.sqlite3"))
+        let database = try await store.documentDatabase()
+        let item = try database.createDocument(title: "../../Same title", body: "Original",
+            texts: [.source: "Original", .concise: "Short", .detailed: "Detailed"], tags: ["saved"])
+        let duplicate = try database.createDocument(title: "../../Same title", body: "Another")
+        _ = try database.commitDocument(SQLiteDocumentCommit(id: duplicate.id, baseRevision: duplicate.revision, deleted: true))
+        try await store.addHighlight(entryID: item.id, variant: .source, text: "Original")
+        try database.saveChannelRecords([SQLiteChannelRecord(source: "https://example.com/feed")])
+        let pdf = Data("%PDF-1.4\noriginal queued bytes".utf8)
+        let pdfURL = root.appending(path: "Original.pdf")
+        try pdf.write(to: pdfURL)
+        let pendingID = try await store.queueCapture(ItemInputRequest(source: .file(pdfURL)))
+        try FileManager.default.removeItem(at: pdfURL)
+        let before = try database.allDocuments(includeDeleted: true)
+        let snapshot = root.appending(path: "Library.sqlite3")
+        try await store.exportLibrary(as: .sqlite, to: snapshot)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshot.path + "-wal"))
+        let exported = try SQLiteLibrary(databaseURL: snapshot)
+        XCTAssertEqual(try exported.query("PRAGMA integrity_check") { columnText($0, 0) }, ["ok"])
+        XCTAssertEqual(try exported.allDocuments(includeDeleted: true), before)
+        XCTAssertEqual(try exported.attachment(documentID: pendingID, kind: "original-pdf")?.1, pdf)
+        XCTAssertEqual(try exported.channelRecords().first?.source, "https://example.com/feed")
+        _ = try database.createDocument(title: "After snapshot", body: "Later")
+        XCTAssertEqual(try exported.allDocuments(includeDeleted: true).count, before.count)
+
+        let folder = root.appending(path: "Markdown")
+        try await store.exportLibrary(as: .markdown, to: folder)
+        let pathsData = try Data(contentsOf: folder.appending(path: "Metadata/item-paths.json"))
+        let paths = try JSONDecoder().decode([String: String].self, from: pathsData)
+        let itemFolder = folder.appending(path: try XCTUnwrap(paths[item.id]))
+        XCTAssertEqual(try String(contentsOf: itemFolder.appending(path: "source.md"), encoding: .utf8), "Original")
+        XCTAssertEqual(try String(contentsOf: itemFolder.appending(path: "concise.md"), encoding: .utf8), "Short")
+        XCTAssertEqual(try String(contentsOf: itemFolder.appending(path: "detailed.md"), encoding: .utf8), "Detailed")
+        XCTAssertTrue(try XCTUnwrap(paths[duplicate.id]).hasPrefix("Trash/"))
+        XCTAssertNotEqual(paths[item.id], paths[duplicate.id])
+        XCTAssertTrue(paths.values.allSatisfy { !$0.contains("..") })
+        XCTAssertNotNil(paths["system:highlights"])
+        let attachments = try JSONSerialization.jsonObject(with: Data(contentsOf: folder.appending(path: "Metadata/attachments.json"))) as! [[String: Any]]
+        let attachment = try XCTUnwrap(attachments.first { $0["document_id"] as? String == pendingID })
+        let relativeFile = try XCTUnwrap((attachment["data"] as? [String: String])?["file"])
+        XCTAssertEqual(try Data(contentsOf: folder.appending(path: relativeFile)), pdf)
+        let pendingMetadata = try Data(contentsOf: folder.appending(path: try XCTUnwrap(paths[pendingID])).appending(path: "metadata.json"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        XCTAssertEqual(try decoder.decode(SQLiteDocument.self, from: pendingMetadata).captureRequest?.state, .queued)
+        do {
+            try await store.exportLibrary(as: .sqlite, to: snapshot)
+            XCTFail("Exports must not overwrite an existing file")
+        } catch { XCTAssertEqual((error as NSError).code, CocoaError.fileWriteFileExists.rawValue) }
+        XCTAssertEqual(try exported.allDocuments(includeDeleted: true), before)
+    }
+
+    func testPhoneInboxSurvivesHandoffAndMacProcessing() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "handoff-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let phone = SQLiteLibraryStore(databaseURL: root.appending(path: "phone.sqlite3"))
+        let phoneDB = try await phone.documentDatabase()
+        let inbox = try SharedCaptureInbox(directoryURL: root.appending(path: "Inbox"))
+        let url = URL(string: "https://example.com/saved.txt")!
+        let shared = try inbox.enqueue(url: url)
+        let claim = try XCTUnwrap(inbox.claimNext())
+        let id = try await phone.queueCapture(try inbox.inputRequest(for: claim), captureID: claim.captureID)
+        // Simulate termination after the database commit but before extension acknowledgement.
+        try inbox.recoverInterruptedClaims()
+        let retried = try XCTUnwrap(inbox.claimNext())
+        let retryID = try await phone.queueCapture(try inbox.inputRequest(for: retried), captureID: retried.captureID)
+        XCTAssertEqual(id, retryID)
+        try inbox.complete(retried)
+        XCTAssertEqual(try phoneDB.allDocuments().count, 1)
+        let saved = try phoneDB.getDocument(id)
+        XCTAssertEqual(saved.captureRequest?.payload, .url(url.absoluteString))
+        XCTAssertEqual(saved.captureRequest?.state, .queued)
+        XCTAssertTrue(saved.texts.isEmpty, "Saving must not produce extracted source or summaries")
+        let phoneJob = try await phone.claimNextProcessingJob()
+        XCTAssertNil(phoneJob, "The phone creates no local worker job")
+        XCTAssertTrue(try phoneDB.outbox().contains { $0.documentID == id })
+
+        let mac = SQLiteLibraryStore(databaseURL: root.appending(path: "mac.sqlite3"))
+        let macDB = try await mac.documentDatabase()
+        // Exercise the same remote-document boundary CloudKit uses, including its encoded payload.
+        try macDB.applyRemote(JSONDecoder().decode(SQLiteDocument.self, from: JSONEncoder().encode(saved)))
+        do {
+            try await mac.extractQueuedCapture(id, context: .init(http: fixtureHTTP([:])))
+            XCTFail("Unavailable extraction must remain visible as a failed capture")
+        } catch {}
+        let failed = try macDB.getDocument(id)
+        XCTAssertEqual(failed.captureRequest?.state, .failed)
+        XCTAssertEqual(failed.captureRequest?.payload, saved.captureRequest?.payload)
+        XCTAssertNotNil(failed.captureRequest?.error)
+        try phoneDB.applyRemote(failed)
+        try await phone.retryCapture(id)
+        try macDB.applyRemote(phoneDB.getDocument(id))
+        try await mac.extractQueuedCapture(id, context: .init(http: fixtureHTTP([
+            "saved.txt": .text("Saved article\nThe original body is available now.", "text/plain")
+        ])))
+        let extracted = try macDB.getDocument(id)
+        XCTAssertEqual(extracted.captureRequest?.state, .summarizing)
+        XCTAssertTrue(extracted.texts[.source]?.contains("original body") == true)
+        let job = try await mac.claimNextProcessingJob()
+        XCTAssertEqual(job?.documentID, id)
+        _ = try await mac.applyProcessingSuggestion(entryID: id, suggestion: .init(
+            shortFilename: "saved-article", topicName: "Saved Reading",
+            summaries: .init(concise: "A concise summary.", detailed: "A detailed summary.")
+        ))
+        try await mac.completeProcessingJob(entryID: id)
+        try phoneDB.applyRemote(macDB.getDocument(id))
+        let ready = try await phone.loadLibraryIndex().entries.first { $0.id == id }
+        XCTAssertEqual(ready?.captureRequest?.state, .ready)
+        XCTAssertEqual(try phoneDB.getDocument(id).texts[.concise], "A concise summary.")
+        XCTAssertEqual(try phoneDB.getDocument(id).captureID, shared.captureID)
+        XCTAssertEqual(try phoneDB.allDocuments().count, 1)
+        // Repeated delivery of the original queue record cannot replace completed results.
+        try macDB.applyRemote(saved)
+        XCTAssertEqual(try macDB.getDocument(id).captureRequest?.state, .ready)
+        let remaining = try await mac.pendingCaptureIDs()
+        XCTAssertTrue(remaining.isEmpty)
+
+        let pdfURL = root.appending(path: "original.pdf")
+        let pdf = fixturePDF(text: "A durable PDF body", title: "Original PDF")
+        try pdf.write(to: pdfURL)
+        // If storing the original fails, the pending item must not be acknowledged.
+        try phoneDB.execute("CREATE TEMP TRIGGER reject_original BEFORE INSERT ON attachments BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+        do {
+            _ = try await phone.queueCapture(.init(source: .file(pdfURL)))
+            XCTFail("A missing original must roll back the item")
+        } catch {}
+        XCTAssertEqual(try phoneDB.allDocuments().count, 1)
+        try phoneDB.execute("DROP TRIGGER reject_original")
+        let pdfID = try await phone.queueCapture(.init(source: .file(pdfURL)))
+        try FileManager.default.removeItem(at: pdfURL)
+        let reopened = try SQLiteLibrary(databaseURL: root.appending(path: "phone.sqlite3"))
+        XCTAssertEqual(try reopened.attachment(documentID: pdfID, kind: "original-pdf")?.1, pdf)
+        try macDB.applyRemote(reopened.getDocument(pdfID))
+        try await mac.extractQueuedCapture(pdfID, context: .init(http: fixtureHTTP([:])))
+        XCTAssertEqual(try macDB.getDocument(pdfID).captureRequest?.state, .queued,
+                       "A document arriving before its PDF must wait for the attachment")
+        let originalID = try XCTUnwrap(reopened.outbox().first { $0.recordType == "attachment" }?.documentID)
+        try macDB.applyRemote(XCTUnwrap(reopened.attachment(originalID)))
+        try await mac.extractQueuedCapture(pdfID, context: .init(http: fixtureHTTP([:])))
+        XCTAssertTrue(try macDB.getDocument(pdfID).texts[.source]?.contains("durable PDF body") == true)
+
+        let textURL = root.appending(path: "Reading notes.md")
+        try Data("# Reading notes\n\nA note from a text file.".utf8).write(to: textURL)
+        let textID = try await phone.queueCapture(CaptureFileInput.read(textURL))
+        try FileManager.default.removeItem(at: textURL)
+        let textDocument = try phoneDB.getDocument(textID)
+        XCTAssertEqual(textDocument.title, "Reading notes")
+        XCTAssertTrue(textDocument.texts.isEmpty)
+        try macDB.applyRemote(textDocument)
+        try await mac.extractQueuedCapture(textID, context: .init(http: fixtureHTTP([:])))
+        XCTAssertTrue(try macDB.getDocument(textID).texts[.source]?.contains("A note from a text file") == true)
+
+        let removedID = try await phone.queueCapture(.init(source: .text("Do not process this removed item")))
+        let removed = try phoneDB.getDocument(removedID)
+        _ = try phoneDB.commitDocument(.init(id: removedID, baseRevision: removed.revision, deleted: true))
+        try macDB.applyRemote(phoneDB.getDocument(removedID, includeDeleted: true))
+        let pending = try await mac.pendingCaptureIDs()
+        XCTAssertFalse(pending.contains(removedID))
+    }
+
     func testEveryItemInputHasARealTestURL() {
         assertRealTestURLs(
             realItemTestURLs.map { ($0.0.rawValue, $0.1) },

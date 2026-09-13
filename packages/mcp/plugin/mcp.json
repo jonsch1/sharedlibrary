@@ -1,12 +1,11 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
     "briefly": {
       "type": "stdio",
       "command": "sh",
       "args": [
         "-c",
-        "set -eu; if ! app_path=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import(\"AppKit\"); const url = $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(\"fyi.readbriefly.BrieflyNative\"); if (url.isNil()) throw new Error(\"Briefly is not installed\"); url.path.js' 2>/dev/null); then printf '%s\\n' 'Briefly is not installed. Install Briefly before enabling its Codex plugin.' >&2; exit 1; fi; helper=\"$app_path/Contents/MacOS/briefly-mcp\"; if [ ! -x \"$helper\" ]; then printf '%s\\n' 'This Briefly installation does not include the MCP helper. Update Briefly and try again.' >&2; exit 1; fi; exec \"$helper\""
+        "set -eu; if ! app_path=$(/usr/bin/osascript -l JavaScript -e 'ObjC.import(\"AppKit\");\nconst id = \"fyi.readbriefly.BrieflyNative\";\nconst running = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(id);\nlet selected = null;\nlet latest = -1;\nfor (let index = 0; index < running.count; index++) {\n  const app = running.objectAtIndex(index);\n  const launched = app.launchDate.isNil() ? 0 : app.launchDate.timeIntervalSince1970;\n  if (!app.bundleURL.isNil() && launched >= latest) { selected = app.bundleURL; latest = launched; }\n}\nconst url = selected || $.NSWorkspace.sharedWorkspace.URLForApplicationWithBundleIdentifier(id);\nif (url.isNil()) throw new Error(\"Briefly is not installed\");\nObjC.unwrap(url.path);' 2>/dev/null); then printf '%s\\n' 'Briefly is not installed. Install Briefly before enabling its plugin.' >&2; exit 1; fi; helper=\"$app_path/Contents/Helpers/BrieflyMCP.app/Contents/MacOS/briefly-mcp\"; if [ ! -x \"$helper\" ]; then printf '%s\\n' 'This Briefly installation does not include the MCP helper. Update Briefly and try again.' >&2; exit 1; fi; exec \"$helper\""
       ]
     }
   }

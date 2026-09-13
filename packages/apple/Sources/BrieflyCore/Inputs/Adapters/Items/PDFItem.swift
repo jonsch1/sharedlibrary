@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 import PDFKit
 
@@ -64,3 +65,5 @@ private func pdfFilenameTitle(_ url: URL) -> String? {
         filename.replacingOccurrences(of: #"[-_]+"#, with: " ", options: .regularExpression)
     )
 }
+
+#endif

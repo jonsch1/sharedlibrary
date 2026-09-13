@@ -353,6 +353,7 @@ public actor SQLiteLibraryStore {
         try services().processing.fail(entryID: entryID, error: error)
     }
 
+    #if os(macOS)
     public func processingPrompt(
         entryID: String,
         template: String = defaultProcessingPrompt
@@ -367,4 +368,5 @@ public actor SQLiteLibraryStore {
     ) throws -> String {
         try services().processing.apply(entryID: entryID, suggestion: suggestion)
     }
+    #endif
 }

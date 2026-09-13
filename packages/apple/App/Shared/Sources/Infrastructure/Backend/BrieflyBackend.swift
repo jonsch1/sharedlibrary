@@ -1,6 +1,7 @@
 import Foundation
 import BrieflyCore
 import Security
+import WebKit
 
 @MainActor
 final class BrieflyBackend {
@@ -100,6 +101,7 @@ final class BrieflyBackend {
         return try JSONDecoder().decode(BrieflyAccountStatus.self, from: data)
     }
 
+    #if os(macOS)
     func firecrawl(_ url: URL) async throws -> ItemDraft {
         let body = try JSONSerialization.data(withJSONObject: ["url": url.absoluteString])
         let (data, response) = try await request(
@@ -183,6 +185,8 @@ final class BrieflyBackend {
             .split(separator: ";").first.map(String.init) ?? "audio/mpeg"
         return (data, mime.hasPrefix("audio/") ? mime : "audio/mpeg")
     }
+
+    #endif
 
     func shareStatus(captureID: String) async throws -> BrieflyShareLinkStatus {
         let encoded = captureID.addingPercentEncoding(
@@ -269,7 +273,7 @@ final class BrieflyBackend {
                 BrieflySessionTokenStore.save(cookie.value)
             }
             await withCheckedContinuation { continuation in
-                ChannelBrowserSession.shared.dataStore.httpCookieStore.setCookie(cookie) {
+                BrieflyWebSession.dataStore.httpCookieStore.setCookie(cookie) {
                     continuation.resume()
                 }
             }
@@ -279,7 +283,7 @@ final class BrieflyBackend {
     private func cookies(for url: URL) async -> [HTTPCookie] {
         let cookies = await withCheckedContinuation {
             (continuation: CheckedContinuation<[HTTPCookie], Never>) in
-            ChannelBrowserSession.shared.dataStore.httpCookieStore.getAllCookies {
+            BrieflyWebSession.dataStore.httpCookieStore.getAllCookies {
                 continuation.resume(returning: $0)
             }
         }
@@ -314,13 +318,13 @@ final class BrieflyBackend {
         BrieflySessionTokenStore.remove()
         let cookies = await withCheckedContinuation {
             (continuation: CheckedContinuation<[HTTPCookie], Never>) in
-            ChannelBrowserSession.shared.dataStore.httpCookieStore.getAllCookies {
+            BrieflyWebSession.dataStore.httpCookieStore.getAllCookies {
                 continuation.resume(returning: $0)
             }
         }
         for cookie in cookies where cookie.name == Self.sessionCookieName {
             await withCheckedContinuation { continuation in
-                ChannelBrowserSession.shared.dataStore.httpCookieStore.delete(cookie) {
+                BrieflyWebSession.dataStore.httpCookieStore.delete(cookie) {
                     continuation.resume()
                 }
             }
@@ -406,4 +410,11 @@ enum BrieflyBackendError: LocalizedError {
 
 extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+@MainActor
+enum BrieflyWebSession {
+    static let dataStore: WKWebsiteDataStore = ProcessInfo.processInfo.arguments.contains("--app-review-testing")
+        ? .nonPersistent()
+        : WKWebsiteDataStore(forIdentifier: UUID(uuidString: "F5D5198E-24BC-4E08-AAC0-D275EE8620D1")!)
 }

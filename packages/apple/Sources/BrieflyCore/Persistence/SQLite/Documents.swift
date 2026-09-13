@@ -20,6 +20,7 @@ extension SQLiteLibrary {
         id requestedID: String? = nil,
         captureID requestedCaptureID: String? = nil,
         createdAt: Date = Date(),
+        captureRequest: CaptureRequest? = nil,
         addToOutbox: Bool = true
     ) throws -> SQLiteDocument {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,7 +31,7 @@ extension SQLiteLibrary {
             }
         } ?? [.source: trimmed]
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !texts.isEmpty, !normalizedTitle.isEmpty else {
+        guard (!texts.isEmpty || captureRequest != nil), !normalizedTitle.isEmpty else {
             throw SQLiteLibraryError.invalidDocument
         }
         let captureID = requestedCaptureID ?? UUID().uuidString.uppercased()
@@ -48,7 +49,8 @@ extension SQLiteLibrary {
             tags: tags,
             sourceIDs: sourceIDs,
             sourceURLs: sourceURLs,
-            texts: texts
+            texts: texts,
+            captureRequest: captureRequest
         )
         return try locked {
             try transaction {
@@ -61,7 +63,7 @@ extension SQLiteLibrary {
 
     public func getDocument(_ id: String, includeDeleted: Bool = false) throws -> SQLiteDocument {
         try locked {
-            guard let document = try readDocument(id), includeDeleted || !document.deleted else {
+            guard let document = try readDocument(id), !document.isPermanentlyDeleted, includeDeleted || !document.deleted else {
                 throw SQLiteLibraryError.missingDocument
             }
             return document
@@ -80,19 +82,19 @@ extension SQLiteLibrary {
     }
 
     public func allDocuments(includeDeleted: Bool = false) throws -> [SQLiteDocument] {
-        try documents(where: includeDeleted ? nil : "deleted = 0")
+        try documents(where: includeDeleted ? "type != 'tombstone'" : "deleted = 0")
     }
 
     public func deletedDocuments() throws -> [SQLiteDocument] {
-        try documents(where: "deleted = 1")
+        try documents(where: "deleted = 1 AND type != 'tombstone'")
     }
 
     func documentIndex(includeDeleted: Bool = false) throws -> [SQLiteDocumentIndex] {
-        try indexDocuments(where: includeDeleted ? nil : "deleted = 0")
+        try indexDocuments(where: includeDeleted ? "type != 'tombstone'" : "deleted = 0")
     }
 
     func deletedDocumentIndex() throws -> [SQLiteDocumentIndex] {
-        try indexDocuments(where: "deleted = 1")
+        try indexDocuments(where: "deleted = 1 AND type != 'tombstone'")
     }
 
     public func search(_ text: String, limit: Int = 50) throws -> [SQLiteSearchResult] {
@@ -174,7 +176,7 @@ extension SQLiteLibrary {
             var results = [SQLiteDocument]()
             try transaction {
                 for commit in commits {
-                    guard var current = try readDocument(commit.id) else {
+                    guard var current = try readDocument(commit.id), !current.isPermanentlyDeleted else {
                         throw SQLiteLibraryError.missingDocument
                     }
                     guard current.revision == commit.baseRevision else {
@@ -184,6 +186,7 @@ extension SQLiteLibrary {
                         guard !title.isEmpty else { throw SQLiteLibraryError.invalidDocument }
                         current.title = title
                     }
+                    if let request = commit.captureRequest { current.captureRequest = request }
                     if let type = commit.type { current.type = type }
                     if let sourceURL = commit.sourceURL { current.sourceURL = sourceURL }
                     if let mediaURL = commit.mediaURL { current.mediaURL = mediaURL }
@@ -222,10 +225,10 @@ extension SQLiteLibrary {
             """
             INSERT INTO documents(
                 id, capture_id, type, title, source_url, media_url,
-                created_at, updated_at, revision, deleted, cloud_record
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, revision, deleted, cloud_record, capture_request
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            bindings: documentBindings(document)
+            bindings: try documentBindings(document)
         )
         try replaceTopics(document.id, document.topicIDs)
         try replaceTags(document.id, document.tags)
@@ -239,13 +242,14 @@ extension SQLiteLibrary {
         try run(
             """
             UPDATE documents SET type = ?, title = ?, source_url = ?,
-                media_url = ?, updated_at = ?, revision = ?, deleted = ?, cloud_record = ? WHERE id = ?
+                media_url = ?, updated_at = ?, revision = ?, deleted = ?, cloud_record = ?, capture_request = ? WHERE id = ?
             """,
             bindings: [
                 .text(document.type), .text(document.title),
                 .optionalText(document.sourceURL), .optionalText(document.mediaURL),
                 .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
                 .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData),
+                .optionalBlob(try document.captureRequest.map { try JSONEncoder().encode($0) }),
                 .text(document.id)
             ]
         )
@@ -261,10 +265,10 @@ extension SQLiteLibrary {
         let documents = try query(
             """
             SELECT id, capture_id, type, title, source_url, created_at, updated_at,
-                   media_url, revision, deleted, cloud_record FROM documents WHERE id = ?
+                   media_url, revision, deleted, cloud_record, capture_request FROM documents WHERE id = ?
             """,
             bindings: [.text(id)]
-        ) { decodeDocument($0) }
+        ) { try decodeDocument($0) }
         guard var document = documents.first else { return nil }
         document.topicIDs = try query(
             "SELECT topic_id FROM document_topics WHERE document_id = ? ORDER BY topic_id",
@@ -354,11 +358,11 @@ extension SQLiteLibrary {
     func documentMetadata(where predicate: String?) throws -> [SQLiteDocument] {
         let documentSQL =
             "SELECT id, capture_id, type, title, source_url, " +
-            "created_at, updated_at, media_url, revision, deleted, cloud_record " +
+            "created_at, updated_at, media_url, revision, deleted, cloud_record, capture_request " +
             "FROM documents" +
             (predicate.map { " WHERE \($0)" } ?? "") +
             " ORDER BY updated_at DESC, id"
-        var documents = try query(documentSQL) { decodeDocument($0) }
+        var documents = try query(documentSQL) { try decodeDocument($0) }
         guard !documents.isEmpty else { return [] }
         let indices = documentIndices(documents)
 
@@ -433,7 +437,7 @@ extension SQLiteLibrary {
             " ORDER BY r.document_id, \(order)"
     }
 
-    func decodeDocument(_ statement: OpaquePointer) -> SQLiteDocument {
+    func decodeDocument(_ statement: OpaquePointer) throws -> SQLiteDocument {
         SQLiteDocument(
             id: columnText(statement, 0),
             captureID: columnText(statement, 1),
@@ -450,6 +454,9 @@ extension SQLiteLibrary {
             sourceIDs: [],
             sourceURLs: [],
             texts: [:],
+            captureRequest: try columnOptionalBlob(statement, 11).map {
+                try JSONDecoder().decode(CaptureRequest.self, from: $0)
+            },
             cloudRecordData: columnOptionalBlob(statement, 10)
         )
     }

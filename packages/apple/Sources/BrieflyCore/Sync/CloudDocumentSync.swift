@@ -44,6 +44,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         let sourceURLs: [String]
         let channelSources: [String]?
         let texts: [LibraryVariant: String]
+        let captureRequest: CaptureRequest?
     }
 
     private let store: SQLiteLibrary
@@ -112,9 +113,10 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         try await onFetchedChanges?()
 
         let pending = try store.outbox().map { item in
-            CKSyncEngine.PendingRecordZoneChange.saveRecord(
-                recordID(item.recordType, item.documentID)
-            )
+            let id = recordID(item.recordType, item.documentID)
+            return item.recordType == "attachment" && item.operation == "delete"
+                ? CKSyncEngine.PendingRecordZoneChange.deleteRecord(id)
+                : CKSyncEngine.PendingRecordZoneChange.saveRecord(id)
         }
         totalChangeCount = pending.count
         engine.state.add(pendingRecordZoneChanges: pending)
@@ -177,6 +179,13 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                     }
                     removeTemporaryAssets(for: record)
                 }
+                for id in changes.deletedRecordIDs {
+                    if let item = try store.outbox().first(where: {
+                        $0.recordType == "attachment" && $0.operation == "delete" && recordID($0.recordType, $0.documentID) == id
+                    }) {
+                        try store.acknowledgeOutbox(recordType: item.recordType, id: item.documentID, revision: item.revision)
+                    }
+                }
                 var retries = [CKSyncEngine.PendingRecordZoneChange]()
                 for failure in changes.failedRecordSaves {
                     removeTemporaryAssets(for: failure.record)
@@ -205,7 +214,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
                 syncEngine.state.add(pendingRecordZoneChanges: retries)
                 completedChangeCount = min(
                     totalChangeCount,
-                    completedChangeCount + changes.savedRecords.count
+                    completedChangeCount + changes.savedRecords.count + changes.deletedRecordIDs.count
                 )
                 await progressHandler?(completedChangeCount, totalChangeCount)
             case .didFetchRecordZoneChanges(let result):
@@ -247,15 +256,14 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
     }
 
     private func removePendingChangesWithoutOutbox() throws {
-        let activeRecordIDs = Set(try store.outbox().map {
-            recordID($0.recordType, $0.documentID)
+        let expected = Dictionary(uniqueKeysWithValues: try store.outbox().map {
+            (recordID($0.recordType, $0.documentID), $0.recordType == "attachment" && $0.operation == "delete")
         })
         let obsolete = engine.state.pendingRecordZoneChanges.filter { change in
             switch change {
-            case .saveRecord(let id), .deleteRecord(let id):
-                !activeRecordIDs.contains(id)
-            @unknown default:
-                false
+            case .saveRecord(let id): expected[id] != false
+            case .deleteRecord(let id): expected[id] != true
+            @unknown default: false
             }
         }
         engine.state.remove(pendingRecordZoneChanges: obsolete)
@@ -308,7 +316,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
         if item.recordType != "document" {
             return try logicalRecord(item.recordType, item.documentID, id: id)
         }
-        let document = try store.getDocument(item.documentID, includeDeleted: true)
+        guard let document = try store.readDocument(item.documentID) else { throw SQLiteLibraryError.missingDocument }
         let record = try document.cloudRecordData.flatMap {
             try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: $0)
         } ?? CKRecord(recordType: "BrieflyDocument", recordID: id)
@@ -328,7 +336,8 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             sourceIDs: document.sourceIDs,
             sourceURLs: document.sourceURLs,
             channelSources: try store.channelSources(documentID: document.id),
-            texts: document.texts
+            texts: document.texts,
+            captureRequest: document.captureRequest
         ))
         try FileManager.default.createDirectory(
             at: assetDirectory,
@@ -402,6 +411,7 @@ public final actor CloudDocumentSync: CKSyncEngineDelegate {
             sourceIDs: payload.sourceIDs,
             sourceURLs: payload.sourceURLs,
             texts: payload.texts,
+            captureRequest: payload.captureRequest,
             cloudRecordData: try archived(record)
         ))
         try store.restoreCloudChannelSources(

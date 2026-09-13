@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestTikTok(
@@ -38,3 +39,5 @@ private func cleanTikTokText(_ value: String?) -> String? {
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .nativeNilIfEmpty
 }
+
+#endif

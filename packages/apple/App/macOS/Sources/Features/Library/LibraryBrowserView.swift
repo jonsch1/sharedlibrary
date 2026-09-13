@@ -80,7 +80,7 @@ struct LibraryCardBrowser: View {
                         action: { Task { await model.workflows.select(entry.id) } }
                     )
                     if model.navigation.showingTrash {
-                        row
+                        row.modifier(TrashItemContextMenu(model: model, entry: entry))
                     } else {
                         row.modifier(EntryContextMenu(model: model, entry: entry))
                     }
@@ -93,7 +93,15 @@ struct LibraryCardBrowser: View {
 
     private var feedHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
-            feedTabs
+            if model.navigation.showingTrash {
+                HStack {
+                    Text("Trash").font(.headline)
+                    Spacer()
+                    EmptyTrashButton(model: model)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            } else { feedTabs }
 
             Color.clear
                 .frame(height: 1)

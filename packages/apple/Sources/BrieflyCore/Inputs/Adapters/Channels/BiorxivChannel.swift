@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 private struct EuropePMCSearchResponse: Decodable {
@@ -85,3 +86,5 @@ func enumerateBiorxivChannel(
         maximumItems: maximumItems
     )
 }
+
+#endif

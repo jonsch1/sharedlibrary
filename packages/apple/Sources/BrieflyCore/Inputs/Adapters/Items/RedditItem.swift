@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestReddit(
@@ -228,3 +229,5 @@ func redditComments(_ listing: [String: Any]?) -> [RedditComment] {
     append(children)
     return result
 }
+
+#endif

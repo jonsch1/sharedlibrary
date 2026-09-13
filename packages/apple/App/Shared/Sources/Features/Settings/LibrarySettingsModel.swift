@@ -10,14 +10,17 @@ import AppKit
 @MainActor
 @Observable
 final class LibrarySettingsModel {
+    #if os(macOS)
     static let processingDefaultCommand = BrieflyCore.defaultProcessingCommand
     static let processingCommandKey = "BrieflyProcessingCommand"
     static let processingPromptKey = "BrieflyProcessingPrompt"
     static let processingVerificationKey = "BrieflyProcessingVerification"
 
+    #endif
     let session: LibrarySession
     var topicsText = ""
     var isTestingAI = false
+    #if os(macOS)
     var processingCommand: String
     var processingPrompt: String
     var openRouterAPIKey: String
@@ -25,8 +28,11 @@ final class LibrarySettingsModel {
     var processingTestMessage: String?
     var processingTestSucceeded = false
 
+    #endif
+
     init(session: LibrarySession) {
         self.session = session
+        #if os(macOS)
         let savedCommand = UserDefaults.standard.string(forKey: Self.processingCommandKey)
         processingCommand = switch savedCommand {
         case "briefly://openrouter/openai/gpt-5.6-luna",
@@ -41,8 +47,10 @@ final class LibrarySettingsModel {
         processingVerificationFingerprint = UserDefaults.standard.string(
             forKey: Self.processingVerificationKey
         ) ?? ""
+        #endif
     }
 
+    #if os(macOS)
     var processingConfiguration: LibraryProcessingConfiguration {
         #if os(macOS)
         let codexHome = CodexAccessStore.resolve()
@@ -120,12 +128,15 @@ final class LibrarySettingsModel {
         #endif
     }
 
+    #endif
+
     func refreshTopics(from library: SQLiteLibraryStore) async throws {
         topicsText = try await library.topicDefinitions()
             .map { "\($0.id): \($0.title)" }
             .joined(separator: "\n")
     }
 
+    #if os(macOS)
     func saveProcessingSettings() {
         let command = processingCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = processingPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -229,6 +240,8 @@ final class LibrarySettingsModel {
             .map { String(format: "%02x", $0) }
             .joined()
     }
+
+    #endif
 
     @discardableResult
     func saveTopics() async -> Bool {
@@ -350,6 +363,7 @@ private enum CodexAccessStore {
 }
 #endif
 
+#if os(macOS)
 private enum OpenRouterCredentialStore {
     private static let service = "fyi.readbriefly.BrieflyNative.openrouter"
     private static let account = "openrouter_api_key"
@@ -402,3 +416,5 @@ private enum OpenRouterCredentialStore {
         ]
     }
 }
+
+#endif

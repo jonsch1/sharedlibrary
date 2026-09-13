@@ -108,7 +108,7 @@ struct LibraryDocument: View {
                             Button("Regenerate summaries", systemImage: "arrow.clockwise") {
                                 Task { await model.workflows.processSelected() }
                             }
-                            .disabled(model.processing.isProcessing)
+                            .disabled(model.isProcessing)
                             Button("Move to Trash", systemImage: "trash", role: .destructive) {
                                 Task { await model.workflows.trashSelected() }
                             }
@@ -159,18 +159,20 @@ struct LibraryDocument: View {
         .onChange(of: entry.id) {
             isEditing = false
         }
+        #if os(macOS)
         .contextMenu {
             if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
                 Button("Regenerate summaries") {
                     Task { await model.workflows.processSelected() }
                 }
-                .disabled(model.processing.isProcessing)
+                .disabled(model.isProcessing)
                 Divider()
                 Button("Move to Trash", role: .destructive) {
                     Task { await model.workflows.trashSelected() }
                 }
             }
         }
+        #endif
         .sheet(isPresented: $showsSharing) {
             ShareDocumentView(model: model, entry: entry)
         }
@@ -193,12 +195,8 @@ struct LibraryDocument: View {
                                 )
                             }
                         }
-                        if model.session.canEdit && model.supportsAIProcessing && !model.navigation.showingTrash {
+                        if model.session.canEdit && !model.navigation.showingTrash {
                             Divider()
-                            Button("Regenerate summaries", systemImage: "arrow.clockwise") {
-                                Task { await model.workflows.processSelected() }
-                            }
-                            .disabled(model.processing.isProcessing)
                             Button("Move to Trash", systemImage: "trash", role: .destructive) {
                                 Task { await model.workflows.trashSelected() }
                             }

@@ -157,9 +157,16 @@ extension SettingsView {
                 }
 
                     case .library:
+                Section("Export library") {
+                    LibraryExportControls(model: model)
+                }
                 Section("Library") {
                     LabeledContent("Storage", value: "Local SQLite database")
                     LabeledContent("Status", value: model.session.status)
+                    if let error = model.lifecycle.syncError {
+                        Label(error, systemImage: "icloud.slash")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if model.lifecycle.isSyncing {
                         SyncActivityView(model: model)
                             .padding(.vertical, 4)
@@ -186,7 +193,7 @@ extension SettingsView {
                     } label: {
                         Label("Retry shared captures", systemImage: "square.and.arrow.down")
                     }
-                    .disabled(model.processing.isProcessing || !model.session.canEdit)
+                    .disabled(model.isProcessing || !model.session.canEdit)
                     #endif
                 }
 

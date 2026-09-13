@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 private let feedPodcastNamespaceURLs: Set<String> = [
@@ -179,3 +180,5 @@ func stripHTML(_ value: String) -> String {
 }
 
 func decodeHTML(_ value: String) -> String { inputDecodeHTML(value) }
+
+#endif

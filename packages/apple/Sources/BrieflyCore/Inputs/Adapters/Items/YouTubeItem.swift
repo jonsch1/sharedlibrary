@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 private let youtubePlayerEndpoint = URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!
@@ -343,3 +344,5 @@ private func youtubeText(_ value: Any?) -> String? {
     }
     return nil
 }
+
+#endif

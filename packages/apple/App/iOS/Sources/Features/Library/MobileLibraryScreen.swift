@@ -69,6 +69,15 @@ struct MobileXLibraryScreen: View {
             .padding(.vertical, 12)
             .overlay(alignment: .bottom) { Divider() }
 
+            if section == .trash && !model.selection.trashEntries.isEmpty {
+                HStack {
+                    Spacer()
+                    EmptyTrashButton(model: model)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            }
+
             if section == .highlights {
                 if model.selection.highlightsText.isEmpty {
                     XEmptyState(
@@ -99,6 +108,7 @@ struct MobileXLibraryScreen: View {
                     LazyVStack(spacing: 0) {
                         ForEach(model.selection.trashEntries) { entry in
                             FeedEntryRow(entry: entry) { openEntry(entry) }
+                                .modifier(TrashItemContextMenu(model: model, entry: entry))
                         }
                     }
                     .frame(maxWidth: 720)

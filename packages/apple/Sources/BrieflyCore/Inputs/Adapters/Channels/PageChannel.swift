@@ -1,3 +1,4 @@
+#if os(macOS)
 import CryptoKit
 import Foundation
 
@@ -86,3 +87,5 @@ func isYouTubeFeedURL(_ url: URL) -> Bool {
     url.host?.lowercased() == "www.youtube.com" &&
         url.path.lowercased() == "/feeds/videos.xml"
 }
+
+#endif

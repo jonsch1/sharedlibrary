@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumerateYouTubeChannel(
@@ -39,3 +40,5 @@ func enumerateYouTubeChannel(
     }
     throw NativeInputError.unreadableContent
 }
+
+#endif

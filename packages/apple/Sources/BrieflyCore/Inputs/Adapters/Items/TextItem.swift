@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestText(_ request: ItemInputRequest) throws -> ItemDraft {
@@ -10,3 +11,5 @@ func ingestText(_ request: ItemInputRequest) throws -> ItemDraft {
         content: text
     )
 }
+
+#endif

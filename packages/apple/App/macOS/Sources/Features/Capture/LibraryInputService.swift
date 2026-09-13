@@ -1,3 +1,4 @@
+#if os(macOS)
 import BrieflyCore
 import CryptoKit
 import Foundation
@@ -11,38 +12,10 @@ final class LibraryInputService {
         self.session = session
     }
 
-    func ingestURL(
-        _ url: URL,
-        in library: SQLiteLibraryStore,
-        candidate: LibraryChannelCandidate? = nil
-    ) async throws -> String {
-        let hints = ItemInputHints(
-            preferredInput: candidate?.preferredInput,
-            title: candidate?.title,
-            content: candidate?.content,
-            mediaURL: candidate?.mediaURL.flatMap(URL.init(string:)),
-            transcriptURL: candidate?.transcriptURL.flatMap(URL.init(string:)),
-            transcriptType: candidate?.transcriptType,
-            transcriptLanguage: candidate?.transcriptLanguage
-        )
-        let draft = try await NativeItemInputRouter().ingest(
-            ItemInputRequest(source: .url(url), hints: hints),
-            context: itemInputContext()
-        )
-        return try await library.captureItem(draft)
-    }
-
-    func ingestPDF(_ url: URL) async throws -> ItemDraft {
-        try await NativeItemInputRouter().ingest(
-            ItemInputRequest(source: .file(url)),
-            context: itemInputContext()
-        )
-    }
-
     func itemInputContext() -> ItemInputContext {
         .init(
             render: { url in
-                let page = try await ChannelBrowserSession.shared.extractPage(from: url)
+                let page = try await MacPageExtractor.shared.extractPage(from: url)
                 return RenderedInputPage(
                     title: page.title,
                     content: page.text,
@@ -59,7 +32,7 @@ final class LibraryInputService {
 
     func channelInputContext() -> ChannelInputContext {
         .init(render: { url, limit in
-            let page = try await ChannelBrowserSession.shared.extractPage(from: url)
+            let page = try await MacPageExtractor.shared.extractPage(from: url)
             let host = url.host?.lowercased() ?? ""
             let isX = host == "x.com" || host.hasSuffix(".x.com") || host.contains("twitter.com")
             let isBiorxiv = (host == "biorxiv.org" || host.hasSuffix(".biorxiv.org")) &&
@@ -107,3 +80,5 @@ final class LibraryInputService {
         })
     }
 }
+
+#endif

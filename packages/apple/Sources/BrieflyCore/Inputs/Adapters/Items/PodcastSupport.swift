@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 private let podcastNamespaceURLs: Set<String> = [
@@ -410,3 +411,5 @@ private func samePodcastURL(_ left: URL?, _ right: URL) -> Bool {
     return leftComponents.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ==
         rightComponents.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 }
+
+#endif

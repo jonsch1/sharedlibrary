@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestBluesky(
@@ -65,3 +66,5 @@ func ingestBluesky(
         faviconURL: URL(string: "https://bsky.app/static/favicon-32x32.png")
     )
 }
+
+#endif

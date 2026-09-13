@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumerateRedditChannel(
@@ -30,3 +31,5 @@ func enumerateRedditChannel(
     }
     return batch
 }
+
+#endif

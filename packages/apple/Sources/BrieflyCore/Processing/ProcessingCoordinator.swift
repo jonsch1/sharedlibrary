@@ -27,6 +27,7 @@ struct LibraryProcessingCoordinator {
         try processing.fail(documentID: entryID, error: error)
     }
 
+    #if os(macOS)
     func prompt(entryID: String, template: String) throws -> String {
         let normalized = template.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized.contains("{{topics}}"), normalized.contains("{{source}}") else {
@@ -64,13 +65,17 @@ struct LibraryProcessingCoordinator {
             }
             texts[variant] = summary
         }
+        var request = document.captureRequest
+        request?.state = .ready
+        request?.error = nil
         _ = try documents.commit(SQLiteDocumentCommit(
             id: entryID,
             baseRevision: document.revision,
             title: firstHeading(document.texts[.source] ?? "") ??
                 requestedBase.replacingOccurrences(of: "-", with: " ").capitalized,
             topicIDs: [topicID],
-            texts: texts
+            texts: texts,
+            captureRequest: request
         ))
         return entryID
     }
@@ -96,4 +101,5 @@ struct LibraryProcessingCoordinator {
         try topics.replace(definitions)
         return id
     }
+    #endif
 }

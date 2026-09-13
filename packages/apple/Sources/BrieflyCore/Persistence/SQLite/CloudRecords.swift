@@ -290,6 +290,9 @@ extension SQLiteLibrary {
     ) throws {
         try locked {
             try transaction {
+                guard try readDocument(documentID)?.isPermanentlyDeleted != true else {
+                    throw SQLiteLibraryError.missingDocument
+                }
                 let id = "\(documentID):\(kind)"
                 let revision = (try query(
                     "SELECT revision FROM attachments WHERE id = ?",
@@ -358,6 +361,7 @@ extension SQLiteLibrary {
     public func applyRemote(_ attachment: SQLiteAttachment) throws {
         try locked {
             try transaction {
+                if try rejectAttachmentForPurgedDocument(attachment) { return }
                 let currentRevision = try query(
                     "SELECT revision FROM attachments WHERE id = ?",
                     bindings: [.text(attachment.id)],
@@ -444,7 +448,27 @@ extension SQLiteLibrary {
         document.tags = normalizedDocumentTags(document.tags)
         try locked {
             try transaction {
+                if document.isPermanentlyDeleted {
+                    if var current = try readDocument(document.id), current.isPermanentlyDeleted,
+                       current.revision > document.revision {
+                        current.cloudRecordData = document.cloudRecordData
+                        try update(current)
+                        return
+                    }
+                    try eraseDocumentContent(document)
+                    try acknowledgeOutbox(documentID: document.id, revision: document.revision)
+                    return
+                }
                 if let current = try readDocument(document.id) {
+                    if current.isPermanentlyDeleted {
+                        // Keep deletion authoritative, even if a disconnected device edited the old item.
+                        var marker = current
+                        marker.revision = max(current.revision, document.revision) + 1
+                        marker.cloudRecordData = document.cloudRecordData
+                        try update(marker)
+                        try enqueue(id: marker.id, revision: marker.revision, operation: "delete")
+                        return
+                    }
                     guard current.revision < document.revision ||
                         (current.revision == document.revision && current.updatedAt < document.updatedAt)
                     else {

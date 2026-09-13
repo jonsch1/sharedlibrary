@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func ingestWebPage(
@@ -85,3 +86,5 @@ func ingestWebPage(
         throw error
     }
 }
+
+#endif

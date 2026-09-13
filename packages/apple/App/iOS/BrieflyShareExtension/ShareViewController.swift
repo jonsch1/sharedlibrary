@@ -29,7 +29,7 @@ final class ShareViewController: UIViewController {
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
 
-        messageLabel.text = "Briefly will import this link, text, or PDF into your library."
+        messageLabel.text = "Save the original link, text, or PDF now. Open Briefly on your iPhone to sync it; your Mac prepares it."
         messageLabel.font = .preferredFont(forTextStyle: .subheadline)
         messageLabel.textColor = .secondaryLabel
         messageLabel.numberOfLines = 0
@@ -86,7 +86,7 @@ final class ShareViewController: UIViewController {
             do {
                 try await enqueueSharedItem()
                 titleLabel.text = "Saved to Briefly"
-                messageLabel.text = "Your library will finish importing it when Briefly runs."
+                messageLabel.text = "Saved on this device. Open Briefly to sync it to your Mac."
                 try? await Task.sleep(for: .milliseconds(350))
                 extensionContext?.completeRequest(returningItems: nil)
             } catch {

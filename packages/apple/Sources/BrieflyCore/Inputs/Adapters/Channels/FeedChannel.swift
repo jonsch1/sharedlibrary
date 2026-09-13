@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 func enumerateFeedChannel(
@@ -32,3 +33,5 @@ func loadChannelFeed(
         maximumItems: maximumItems
     )
 }
+
+#endif

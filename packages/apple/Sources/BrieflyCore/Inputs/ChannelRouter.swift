@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public struct NativeChannelInputRouter: Sendable {
@@ -55,3 +56,5 @@ public struct NativeChannelInputRouter: Sendable {
         }
     }
 }
+
+#endif

@@ -17,6 +17,9 @@ enum SQLiteLibraryMigrator {
 
     private static func migrateDocuments(_ library: SQLiteLibrary) throws {
         var columns = try library.query("PRAGMA table_info(documents)") { columnText($0, 1) }
+        if !columns.contains("capture_request") {
+            try library.execute("ALTER TABLE documents ADD COLUMN capture_request BLOB")
+        }
         if !columns.contains("media_url") {
             try library.execute("ALTER TABLE documents ADD COLUMN media_url TEXT")
             columns.append("media_url")

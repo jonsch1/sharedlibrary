@@ -2,13 +2,14 @@ import Foundation
 import SQLite3
 
 extension SQLiteLibrary {
-    func documentBindings(_ document: SQLiteDocument) -> [Binding] {
+    func documentBindings(_ document: SQLiteDocument) throws -> [Binding] {
         [
             .text(document.id), .text(document.captureID), .text(document.type),
             .text(document.title), .optionalText(document.sourceURL), .optionalText(document.mediaURL),
             .double(document.createdAt.timeIntervalSince1970),
             .double(document.updatedAt.timeIntervalSince1970), .int(document.revision),
-            .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData)
+            .int(document.deleted ? 1 : 0), .optionalBlob(document.cloudRecordData),
+            .optionalBlob(try document.captureRequest.map { try JSONEncoder().encode($0) })
         ]
     }
 

@@ -120,8 +120,68 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
 ## Platform-specific limits
 
 - macOS summaries use either a user-supplied OpenRouter API key or a local
-  command-line provider such as Codex, Claude, or Gemini. iOS captures and
-  stores items without summaries in this beta.
-- Scheduled channel checks run at launch while the app remains active. Reliable
-  background iOS execution still needs an App Refresh task.
+  command-line provider such as Codex, Claude, or Gemini. iOS reads synced content
+  and can queue original items for Mac processing.
+- Scheduled channel checks run on the Mac at launch and while the app remains active.
 - The native clients can generate local speech for ordinary library documents.
+
+## Capture and processing responsibilities
+
+- iPhone/iPad primarily consume the library prepared on the Mac. Optionally, they
+  and the Share Extension save original URLs, text, and PDFs to its queue. They never
+  extract pages, enumerate channels, run custom adapters, or generate summaries.
+  `SharedCaptureInbox` is the extension-to-app outbox; opening the app transfers its
+  contents into SQLite with `queueCapture`, then syncs through iCloud.
+- A pending capture is a real document with a stable capture ID and a typed
+  `CaptureRequest` in its existing CloudKit payload. Original PDFs are attachments.
+  Saving the document, original file, and upload intents is one transaction. An
+  interrupted extension import can safely repeat without making another item.
+- The Mac owns `LibraryInputService`, a headless page renderer, custom source handlers,
+  and `LibraryProcessingModel`. After sync it resumes pending captures, writes the
+  extracted source to the same document, and runs the local summary queue. Native
+  extraction adapters and AI execution are excluded from iOS compilation.
+- Pending UI shows waiting to sync, waiting for Mac, extraction, summarization, or
+  a retained failure. Retry preserves the original; removal uses the normal trash.
+  Documents arriving before their PDF attachments wait for a subsequent sync.
+  Completed documents leave the inbox and appear in the reader.
+- Both devices need the same iCloud Apple Account. Briefly account sign-in is
+  separate. The Mac must be awake with Briefly running; periodic sync also checks
+  for captures while the app stays open. This is eventual processing, not a promise
+  of an immediate background handoff from the iOS Share Extension.
+- The queue guarantees a stable item identity and resumable stages, not exactly-once
+  execution across multiple Macs. Two Macs can repeat extraction or model work before
+  observing each other's changes; only one Mac should act as the processing host.
+
+The capture dialog has two inputs on both platforms: Files (PDF, plain text, or
+Markdown, via drop or picker) and Text or link (initially the current clipboard).
+There is no in-app browser UI. The Mac may render a page in a hidden WebKit view as
+part of extraction. Text files are read as UTF-8 or BOM-marked UTF-16 and sent through
+the same plain-text capture boundary; reading a file on iOS never invokes an extractor.
+
+## Library export
+
+Library settings offer SQLite and Markdown exports on both platforms. SQLite uses
+SQLite's online backup API to create a self-contained snapshot, including WAL writes,
+attachments, and all persisted state. Markdown exports source and summary files per
+item, original queued input, attachments, and JSON metadata for every library table
+(except derived search indexes). Deleted items are under Trash. Stable ID hashes keep
+folder names unique and titles cannot create paths outside the export.
+
+Export snapshots include what is stored on the current device. Sync first to receive
+changes and attachments from other devices. Exports never replace an existing file;
+failed copies are cleaned up before publishing the destination. The Mac asks for a
+folder; iOS uses the system document exporter to save either the database or folder.
+
+## Trash and helper packaging
+
+Trash offers permanent deletion per item and Empty Trash, with confirmation on both
+platforms. Permanent deletion clears content, attachments, and pending processing jobs.
+A content-free document tombstone remains for synchronization so an offline edit cannot
+restore a purged item. Attachment removals are sent as CloudKit record deletions.
+
+The MCP executable lives in `Contents/Helpers/BrieflyMCP.app/Contents/MacOS/briefly-mcp`.
+Its own app bundle gives the sandbox a distinct identity and container while retaining
+the existing app-group entitlement for authenticated IPC. Putting a separately signed,
+sandboxed tool directly in the main app's MacOS directory caused macOS to compare the
+helper's identity against the main app's private container and show an unnamed consent
+prompt. The SDK and plugin select the most recently launched Briefly installation.

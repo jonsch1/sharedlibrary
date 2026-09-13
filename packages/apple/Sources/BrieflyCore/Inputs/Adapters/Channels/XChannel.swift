@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 @MainActor
@@ -49,3 +50,5 @@ func enumerateXChannel(
     guard let render = context.render else { throw NativeInputError.missingBrowserSession }
     return inputLimitedBatch(try await render(url, maximumItems), maximumItems: maximumItems)
 }
+
+#endif

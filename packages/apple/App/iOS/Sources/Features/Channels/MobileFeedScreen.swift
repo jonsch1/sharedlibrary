@@ -57,7 +57,22 @@ struct MobileXFeedScreen: View {
                         Color.clear
                             .frame(height: floatingHeaderHeight)
 
-                        ForEach(entries) { entry in
+                        let pending = entries.filter { $0.captureRequest.map { $0.state != .ready } ?? false }
+                        if !pending.isEmpty {
+                            HStack {
+                                Text("Inbox").font(.headline)
+                                Text("\(pending.count)").foregroundStyle(.secondary)
+                                Spacer()
+                            }.padding(16)
+                            ForEach(pending) { entry in
+                                PendingCaptureRow(entry: entry, status: model.captureStatus(for: entry)) {
+                                    openEntry(entry)
+                                }
+                                .modifier(EntryContextMenu(model: model, entry: entry))
+                            }
+                        }
+
+                        ForEach(entries.filter { $0.captureRequest == nil || $0.captureRequest?.state == .ready }) { entry in
                             FeedEntryRow(entry: entry) {
                                 openEntry(entry)
                             }
@@ -215,7 +230,7 @@ struct MobileXFeedScreen: View {
 
     private func refresh() async {
         switch tab {
-        case .home: await model.workflows.refreshLibrary()
+        case .home: await model.workflows.sync()
         case .channels:
             if model.channels.selectedChannel(for: model.navigation.selectedChannelSource) != nil {
                 await model.workflows.checkSelectedChannel()

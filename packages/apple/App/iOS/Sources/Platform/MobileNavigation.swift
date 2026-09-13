@@ -6,7 +6,7 @@ import SwiftUI
 struct MobileLibraryNavigation: View {
     @Bindable var model: LibraryModel
     @Binding var preferredCompactColumn: NavigationSplitViewColumn
-    @Binding var showsPDFImporter: Bool
+    @Binding var showsFileImporter: Bool
     @Binding var homeSelected: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
     @Binding var audioEntry: LibraryEntry?
@@ -195,9 +195,9 @@ struct MobileLibraryNavigation: View {
     }
 
     private var createLabel: String {
-        if homeSelected { return "Import PDF" }
+        if homeSelected { return "Import file" }
         switch model.navigation.activeSection {
-        case .items: return "Import PDF"
+        case .items: return "Import file"
         case .channels: return "Manage Channels"
         }
     }
@@ -293,12 +293,12 @@ struct MobileLibraryNavigation: View {
         model.selection.selectedID = ""
         model.selection.selectedIDs = []
         if homeSelected {
-            showsPDFImporter = true
+            showsFileImporter = true
             return
         }
         switch model.navigation.activeSection {
         case .items:
-            showsPDFImporter = true
+            showsFileImporter = true
         case .channels:
             model.workflows.showChannelSettings("new")
             preferredCompactColumn = .detail

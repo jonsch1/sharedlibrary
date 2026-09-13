@@ -3,7 +3,6 @@ import BrieflyCore
 
 struct LibraryDetail: View {
     @Bindable var model: LibraryModel
-    @Binding var showsChannelBrowser: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
     @Binding var audioEntry: LibraryEntry?
 
@@ -12,6 +11,9 @@ struct LibraryDetail: View {
             #if os(macOS)
             if model.navigation.showingHighlights {
                 HighlightsDocument(model: model)
+            } else if let entry = model.selection.selectedEntry,
+                      let request = entry.captureRequest, request.state != .ready {
+                PendingCaptureView(model: model, entry: entry)
             } else if let entry = model.selection.selectedEntry {
                 LibraryDocument(
                     model: model,
@@ -22,10 +24,7 @@ struct LibraryDetail: View {
             } else if model.navigation.activeSection == .channels &&
                 model.navigation.showingChannelSettings
             {
-                ChannelConfiguration(
-                    model: model,
-                    showsChannelBrowser: $showsChannelBrowser
-                )
+                ChannelConfiguration(model: model)
             } else if model.navigation.activeSection == .channels,
                 let channel = model.channels.selectedChannel(
                     for: model.navigation.selectedChannelSource
@@ -42,6 +41,9 @@ struct LibraryDetail: View {
             #else
             if model.navigation.showingHighlights {
                 HighlightsDocument(model: model)
+            } else if let entry = model.selection.selectedEntry,
+                      let request = entry.captureRequest, request.state != .ready {
+                PendingCaptureView(model: model, entry: entry)
             } else if let entry = model.selection.selectedEntry {
                 LibraryDocument(
                     model: model,
@@ -52,10 +54,7 @@ struct LibraryDetail: View {
             } else if model.navigation.activeSection == .channels &&
                 model.navigation.showingChannelSettings
             {
-                ChannelConfiguration(
-                    model: model,
-                    showsChannelBrowser: $showsChannelBrowser
-                )
+                ChannelConfiguration(model: model)
             } else if model.navigation.activeSection == .channels,
                 let channel = model.channels.selectedChannel(
                     for: model.navigation.selectedChannelSource

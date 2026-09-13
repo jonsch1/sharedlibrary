@@ -67,9 +67,11 @@ export async function startAdapterRunner(options: AdapterRunnerOptions): Promise
       if (Buffer.byteLength(json) > 2_000_000) throw new Error("Extracted document is too large.");
       response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }).end(json);
     } catch {
-      response.writeHead(422, { "content-type": "application/json" }).end(JSON.stringify({
-        error: { code: "adapter_failed", message: "Custom handling failed. Inspect the adapter with preview before retrying." },
-      }));
+      if (!response.destroyed && !response.headersSent) {
+        response.writeHead(422, { "content-type": "application/json" }).end(JSON.stringify({
+          error: { code: "adapter_failed", message: "Custom handling failed. Inspect the adapter with preview before retrying." },
+        }));
+      }
     } finally {
       active--;
     }

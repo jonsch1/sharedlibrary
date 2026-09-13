@@ -10,6 +10,7 @@ final class LibraryLifecycleModel {
     var started = false
     var isReady = false
     var isSyncing = false
+    var syncError: String?
     var syncCompleted = 0
     var syncTotal = 0
 
@@ -35,6 +36,7 @@ final class LibraryLifecycleModel {
             let next = SQLiteLibraryStore(databaseURL: databaseURL)
             session.projection = try await next.loadLibraryIndex()
             session.library = next
+            try await refreshUploadState()
             session.status = "Opened local SQLite library"
             isReady = true
             let database = try await next.documentDatabase()
@@ -58,6 +60,7 @@ final class LibraryLifecycleModel {
 
     func refreshSession() async throws {
         guard let library = session.library else { return }
+        try await refreshUploadState()
         updateProjectionIfNeeded(try await library.loadLibraryIndex())
     }
 
@@ -79,9 +82,11 @@ final class LibraryLifecycleModel {
             syncTotal = 0
             await synchronizeOnce()
         } while syncRequested
+        try? await refreshUploadState()
     }
 
     private func synchronizeOnce() async {
+        syncError = nil
         do {
             guard let library = session.library else { return }
             guard let cloud = session.cloud else {
@@ -107,11 +112,18 @@ final class LibraryLifecycleModel {
                 }
             )
             updateProjectionIfNeeded(try await library.loadLibraryIndex())
+            try await refreshUploadState()
             session.status = "Sync complete"
         } catch {
-            session.errorMessage = error.localizedDescription
-            session.status = "Using the last complete offline library"
+            syncError = error.localizedDescription
+            session.status = "Using the local library. Sync is unavailable."
         }
+    }
+
+    func refreshUploadState() async throws {
+        guard let library = session.library else { return }
+        let database = try await library.documentDatabase()
+        session.pendingUploadIDs = Set(try database.outbox().filter { $0.recordType == "document" }.map(\.documentID))
     }
 
     private func updateProjectionIfNeeded(_ next: LibraryProjection) {

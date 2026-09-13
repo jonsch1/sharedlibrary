@@ -200,9 +200,15 @@ struct MacXSettingsWorkspace: View {
             }
 
         case .library:
+            detailGroup("Export library") {
+                LibraryExportControls(model: model)
+            }
             detailGroup("Library") {
                 valueRow(icon: "internaldrive", title: "Storage", value: "Local SQLite database")
                 valueRow(icon: "checkmark.circle", title: "Status", value: model.session.status)
+                if let error = model.lifecycle.syncError {
+                    Text(error).font(.caption).foregroundStyle(.secondary)
+                }
                 actionRow(icon: "arrow.clockwise", title: "Refresh library", subtitle: "Reload all saved notes from local storage") {
                     Task { await model.workflows.refreshLibrary() }
                 }

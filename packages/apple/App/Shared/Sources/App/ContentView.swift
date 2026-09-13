@@ -11,13 +11,12 @@ struct ContentView: View {
     @AppStorage("BrieflyAppearance") private var appearance = "system"
     @AppStorage(BrieflyOnboarding.completionKey) private var completedOnboardingVersion = 0
     @Bindable var model: LibraryModel
-    @State private var showsChannelBrowser = false
     @State private var showsSettings = false
     #if os(iOS)
     @State private var initialSettingsSection: BrieflySettingsSection?
     #endif
     @State private var showsCaptureComposer = false
-    @State private var showsPDFImporter = false
+    @State private var showsFileImporter = false
     @State private var windowControlsVisible = true
     #if os(macOS)
     @State private var selectedSettingsSection = BrieflySettingsSection.general
@@ -53,7 +52,6 @@ struct ContentView: View {
                         } else {
                             LibraryDetail(
                                 model: model,
-                                showsChannelBrowser: $showsChannelBrowser,
                                 audioPlayer: audioPlayer,
                                 audioEntry: $audioEntry
                             )
@@ -116,7 +114,6 @@ struct ContentView: View {
                         showsSettings = true
                     },
                     showsCaptureComposer: $showsCaptureComposer,
-                    showsChannelBrowser: $showsChannelBrowser,
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
                 )
@@ -167,45 +164,8 @@ struct ContentView: View {
                 if model.session.canEdit { await model.workflows.sync() }
             }
         }
-        .sheet(isPresented: $showsChannelBrowser) {
-            if model.session.canEdit {
-                ChannelLoginView(
-                    initialAddress: model.channels.channelBrowserAddress.isEmpty
-                        ? model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.primarySource ?? ""
-                        : model.channels.channelBrowserAddress,
-                    onCapture: { url, page in
-                        if model.navigation.selectedChannelSource == "new" ||
-                            model.channels.channelBrowserStagesSource
-                        {
-                            model.channels.stageChannelSource(url.absoluteString)
-                        } else {
-                            await model.workflows.captureWebPage(url: url, page: page)
-                        }
-                    },
-                    onActivity: model.workflows.setBrowserIngesting
-                )
-            } else {
-                ChannelLoginView(
-                    initialAddress: model.channels.channelBrowserAddress.isEmpty
-                        ? model.channels.selectedChannel(for: model.navigation.selectedChannelSource)?.primarySource ?? ""
-                        : model.channels.channelBrowserAddress
-                )
-            }
-        }
         #if os(macOS)
-        .sheet(isPresented: $showsCaptureComposer) {
-            MacCaptureComposer(
-                model: model,
-                openPDFImporter: {
-                    showsCaptureComposer = false
-                    showsPDFImporter = true
-                },
-                openBrowser: {
-                    showsCaptureComposer = false
-                    showsChannelBrowser = true
-                }
-            )
-        }
+        .sheet(isPresented: $showsCaptureComposer) { CaptureComposer(model: model) }
         #endif
         #if os(iOS)
         .fullScreenCover(isPresented: $showsSettings, onDismiss: {
@@ -213,27 +173,15 @@ struct ContentView: View {
         }) {
             SettingsView(model: model, initialSection: initialSettingsSection)
         }
-        .fullScreenCover(isPresented: $showsCaptureComposer) {
-            MobileCaptureComposer(
-                model: model,
-                openPDFImporter: {
-                    showsCaptureComposer = false
-                    showsPDFImporter = true
-                },
-                openBrowser: {
-                    showsCaptureComposer = false
-                    showsChannelBrowser = true
-                }
-            )
-        }
+        .fullScreenCover(isPresented: $showsCaptureComposer) { CaptureComposer(model: model) }
         #endif
         .fileImporter(
-            isPresented: $showsPDFImporter,
-            allowedContentTypes: [.pdf]
+            isPresented: $showsFileImporter,
+            allowedContentTypes: CaptureComposer.fileTypes
         ) { result in
             switch result {
             case .success(let url):
-                Task { await model.workflows.capturePDF(url) }
+                Task { await model.workflows.captureFile(url) }
             case .failure(let error):
                 model.session.errorMessage = error.localizedDescription
             }
@@ -243,22 +191,22 @@ struct ContentView: View {
                 model.session.errorMessage = "Drop one document or link at a time."
                 return false
             }
-            if urls[0].pathExtension.lowercased() == "pdf" {
-                Task { await model.workflows.capturePDF(urls[0]) }
+            if urls[0].isFileURL {
+                Task { await model.workflows.captureFile(urls[0]) }
                 return true
             }
             if ["http", "https"].contains(urls[0].scheme?.lowercased() ?? "") {
                 Task { await model.workflows.capture(urls[0].absoluteString) }
                 return true
             }
-            model.session.errorMessage = "Drop a PDF or web link."
+            model.session.errorMessage = "Drop a PDF, text file, or web link."
             return false
         }
         #if os(iOS)
         .alert(
             "Briefly",
             isPresented: Binding(
-                get: { model.session.errorMessage != nil },
+                get: { !needsOnboarding && model.session.errorMessage != nil },
                 set: { if !$0 { model.workflows.clearError() } }
             )
         ) {
@@ -268,13 +216,14 @@ struct ContentView: View {
         }
         #else
         .overlay(alignment: .top) {
-            if let message = model.session.errorMessage {
+            if !needsOnboarding, let message = model.session.errorMessage {
                 XErrorBanner(message: message, dismiss: model.workflows.clearError)
                     .padding(.top, 18)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         #endif
+        #if os(macOS)
         .alert(
             "Custom capture failed",
             isPresented: Binding(
@@ -293,6 +242,7 @@ struct ContentView: View {
         } message: { failure in
             Text(failure.localizedDescription)
         }
+        #endif
         .sheet(item: $audioEntry) { entry in
             AudioPlayerScreen(
                 text: model.selection.selectedID == entry.id && !model.selection.selectedText.isEmpty
@@ -309,9 +259,9 @@ struct ContentView: View {
             Task { await model.workflows.capture(text) }
         }
         .onReceive(
-            NotificationCenter.default.publisher(for: .brieflyImportPDF)
+            NotificationCenter.default.publisher(for: .brieflyImportFile)
         ) { _ in
-            showsPDFImporter = true
+            showsFileImporter = true
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .brieflyRefreshLibrary)

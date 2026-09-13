@@ -59,6 +59,7 @@ struct ChannelDiscovery {
         _ source: String,
         maximumItems: Int
     ) async throws -> DiscoveredChannel {
+        #if os(macOS)
         let batch = try await NativeChannelInputRouter().enumerate(
             source: source,
             maximumItems: maximumItems
@@ -82,9 +83,13 @@ struct ChannelDiscovery {
                 )
             }
         )
+        #else
+        throw LibraryError.processingUnavailable
+        #endif
     }
 }
 
+#if os(macOS)
 func youtubeFeedURL(in html: String, relativeTo pageURL: URL) -> URL? {
     let host = pageURL.host?.lowercased() ?? ""
     guard host == "youtube.com" || host.hasSuffix(".youtube.com") else {
@@ -180,6 +185,8 @@ func parseHackerNews(
 private func htmlAttribute(_ name: String, in tag: String) -> String {
     inputHTMLAttribute(name, in: tag)
 }
+
+#endif
 
 func validChannelSource(_ source: String) -> Bool {
     let value = source.trimmingCharacters(in: .whitespacesAndNewlines)

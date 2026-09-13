@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -60,8 +61,12 @@ async function main(): Promise<void> {
 <key>StandardErrorPath</key><string>${xml(join(logDirectory, "adapter-runner-error.log"))}</string>
 </dict></plist>\n`;
     const domain = `gui/${process.getuid!()}`;
-    await execFileAsync("/bin/launchctl", ["bootout", `${domain}/${label}`]).catch(() => {});
-    await writeFile(agentPath, plist, { mode: 0o600 });
+    const temporaryPath = `${agentPath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, plist, { mode: 0o600, flag: "wx" });
+      await execFileAsync("/bin/launchctl", ["bootout", `${domain}/${label}`]).catch(() => {});
+      await rename(temporaryPath, agentPath);
+    } finally { await rm(temporaryPath, { force: true }); }
     await execFileAsync("/bin/launchctl", ["bootstrap", domain, agentPath]);
     console.log("Installed the adapter runner for this login and future logins. Open Briefly and check Settings → Capture.");
     return;

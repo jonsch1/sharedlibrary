@@ -4,7 +4,6 @@ import SwiftUI
 
 struct ChannelConfiguration: View {
     @Bindable var model: LibraryModel
-    @Binding var showsChannelBrowser: Bool
     @State private var source = ""
     @State private var channelTitle = ""
     @State private var reviewWindow = defaultChannelReviewLimit
@@ -53,21 +52,13 @@ struct ChannelConfiguration: View {
                             if model.channels.isCheckingChannel {
                                 ProgressView().controlSize(.small)
                             } else {
-                                Label("Fetch fresh", systemImage: "arrow.clockwise")
+                                Label(model.supportsAIProcessing ? "Fetch fresh" : "Sync candidates", systemImage: "arrow.clockwise")
                             }
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.channels.isCheckingChannel)
 
                         Menu {
-                            Button {
-                                model.channels.channelBrowserAddress = channel.primarySource
-                                model.channels.channelBrowserStagesSource = false
-                                showsChannelBrowser = true
-                            } label: {
-                                Label("Sign in", systemImage: "person.crop.circle")
-                            }
-                            Divider()
                             Button("Remove channel", role: .destructive) {
                                 confirmsRemoval = true
                             }
@@ -81,7 +72,7 @@ struct ChannelConfiguration: View {
 
                     Divider()
 
-                    channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
+                    channelSourceEditor(listTitle: "Included sources")
 
                     Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
                         GridRow {
@@ -186,7 +177,7 @@ struct ChannelConfiguration: View {
                             .foregroundStyle(.red)
                             .textSelection(.enabled)
                     }
-                    channelSourceEditor(listTitle: "Included sources", allowsOpening: true)
+                    channelSourceEditor(listTitle: "Included sources")
                     Text("Review window")
                         .font(.headline)
                     Stepper(
@@ -205,7 +196,7 @@ struct ChannelConfiguration: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Label("Fetch fresh", systemImage: "arrow.clockwise")
+                                Label(model.supportsAIProcessing ? "Fetch fresh" : "Sync candidates", systemImage: "arrow.clockwise")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -286,8 +277,6 @@ struct ChannelConfiguration: View {
             model.channels.newChannelSources = model.navigation.selectedChannelSource == "new"
                 ? []
                 : selectedChannel?.sources ?? []
-            model.channels.channelBrowserAddress = ""
-            model.channels.channelBrowserStagesSource = model.navigation.selectedChannelSource == "new"
             sourceFieldFocused = model.navigation.selectedChannelSource == "new"
         }
         .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
@@ -364,7 +353,7 @@ struct ChannelConfiguration: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 16) {
-                channelSourceEditor(listTitle: "Added sources", allowsOpening: false)
+                channelSourceEditor(listTitle: "Added sources")
 
                 if model.channels.newChannelSources.isEmpty {
                     Label(
@@ -418,7 +407,7 @@ struct ChannelConfiguration: View {
             title: "Add channel",
             description: "Add websites, blogs, podcasts, profiles, or pages to this channel."
         ) {
-            channelSourceEditor(listTitle: "Added sources", allowsOpening: false)
+            channelSourceEditor(listTitle: "Added sources")
             HStack {
                 Text(stagedSourceCountLabel)
                     .foregroundStyle(.secondary)
@@ -450,8 +439,7 @@ struct ChannelConfiguration: View {
 
     @ViewBuilder
     private func channelSourceEditor(
-        listTitle: String,
-        allowsOpening: Bool
+        listTitle: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sources")
@@ -478,39 +466,6 @@ struct ChannelConfiguration: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: 58)
 
-                Divider()
-                    .padding(.leading, 48)
-
-                Button {
-                    model.channels.channelBrowserAddress = ""
-                    model.channels.channelBrowserStagesSource = true
-                    showsChannelBrowser = true
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "globe")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(width: 28, height: 28)
-                            .background(Color.accentColor.opacity(0.10), in: Circle())
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Choose from browser")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.primary)
-                            Text("Pick a page from a site where you're signed in")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 58)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("channels.browser")
             }
             .background(.primary.opacity(0.035), in: Rectangle())
             .overlay {
@@ -535,11 +490,6 @@ struct ChannelConfiguration: View {
                 ForEach(model.channels.newChannelSources, id: \.self) { source in
                     ChannelSourceCard(
                         source: source,
-                        openInBrowser: allowsOpening ? {
-                            model.channels.channelBrowserAddress = source
-                            model.channels.channelBrowserStagesSource = false
-                            showsChannelBrowser = true
-                        } : nil,
                         remove: {
                             model.channels.removeStagedChannelSource(source)
                         }

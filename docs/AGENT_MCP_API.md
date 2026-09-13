@@ -37,7 +37,7 @@ flowchart LR
 ```
 
 The MCP executable is embedded at
-`Briefly.app/Contents/MacOS/briefly-mcp` and signed as part of the app build.
+`Briefly.app/Contents/Helpers/BrieflyMCP.app/Contents/MacOS/briefly-mcp` and signed as part of the app build.
 It never opens the production database. The running app owns extraction,
 capture, summary queueing, UI refresh, and sync. Briefly must already be open. Agent requests return `library_unavailable` while
 the app is closed; connecting the plugin or retrying a request never launches it.

@@ -54,6 +54,7 @@ struct MacXNavigation: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("navigation.trash")
+            .modifier(EmptyTrashContextMenu(model: model))
 
             Button {
                 switch model.navigation.activeSection {

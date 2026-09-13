@@ -14,6 +14,7 @@ public struct PendingSharedCapture: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let createdAt: Date
     public let payload: Payload
+    public var originalFilename: String?
     public var attempts: Int
     public var lastError: String?
 
@@ -21,12 +22,14 @@ public struct PendingSharedCapture: Codable, Equatable, Identifiable, Sendable {
         id: UUID = UUID(),
         createdAt: Date = Date(),
         payload: Payload,
+        originalFilename: String? = nil,
         attempts: Int = 0,
         lastError: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
         self.payload = payload
+        self.originalFilename = originalFilename
         self.attempts = attempts
         self.lastError = lastError
     }
@@ -156,7 +159,8 @@ public struct SharedCaptureInbox: Sendable {
             let capture = PendingSharedCapture(
                 id: id,
                 createdAt: date,
-                payload: .pdf(filename: filename)
+                payload: .pdf(filename: filename),
+                originalFilename: sourceURL.lastPathComponent
             )
             do {
                 return try enqueue(capture)
@@ -242,7 +246,7 @@ public struct SharedCaptureInbox: Sendable {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw SharedCaptureInboxError.corruptedCapture
             }
-            return ItemInputRequest(source: .file(url))
+            return ItemInputRequest(source: .file(url), hints: .init(title: capture.originalFilename))
         }
     }
 

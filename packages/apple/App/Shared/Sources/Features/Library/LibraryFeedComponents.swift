@@ -59,6 +59,11 @@ struct FeedEntryRow: View {
             .font(.callout)
             .foregroundStyle(.secondary)
 
+            if let request = entry.captureRequest, request.state != .ready {
+                Label(request.status, systemImage: "tray.and.arrow.down")
+                    .font(.caption).foregroundStyle(Color.accentColor)
+            }
+
             Text(entry.title)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.primary)

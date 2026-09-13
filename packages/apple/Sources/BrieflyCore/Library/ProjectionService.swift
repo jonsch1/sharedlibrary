@@ -175,7 +175,8 @@ struct LibraryProjectionService {
             sharedByUsername: nil,
             sharedByDisplayName: nil,
             inboxReferenceID: nil,
-            texts: references
+            texts: references,
+            captureRequest: document.captureRequest
         )
     }
 

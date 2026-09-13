@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AC1000000000000000000001 = {isa = PBXBuildFile; fileRef = AC2000000000000000000001; };
 		100000000000000000000100 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000100 /* AppEnvironment.swift */; };
 		100000000000000000000101 /* AppNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000101 /* AppNotifications.swift */; };
 		100000000000000000000102 /* BrieflyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000102 /* BrieflyApp.swift */; };
@@ -19,16 +20,12 @@
 		100000000000000000000190 /* BrieflyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000190 /* BrieflyBackground.swift */; };
 		100000000000000000000109 /* GlassEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000109 /* GlassEffects.swift */; };
 		100000000000000000000110 /* GrainyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000110 /* GrainyCard.swift */; };
-		100000000000000000000112 /* MacCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* MacCaptureComposer.swift */; };
-		100000000000000000000113 /* MobileCaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000113 /* MobileCaptureComposer.swift */; };
+		100000000000000000000112 /* CaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* CaptureComposer.swift */; };
 		100000000000000000000186 /* LibraryInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000186 /* LibraryInputService.swift */; };
-		100000000000000000000114 /* ChannelBrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000114 /* ChannelBrowserSession.swift */; };
-		100000000000000000000115 /* ChannelBrowserState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000115 /* ChannelBrowserState.swift */; };
-		100000000000000000000116 /* ChannelBrowserViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000116 /* ChannelBrowserViews.swift */; };
+		100000000000000000000114 /* MacPageExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000114 /* MacPageExtractor.swift */; };
 		100000000000000000000117 /* ChannelModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000117 /* ChannelModels.swift */; };
 		100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000118 /* ChannelPresentationHelpers.swift */; };
 		100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000119 /* ChannelSidebarComponents.swift */; };
-		100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000120 /* ChannelWebViewAdapter.swift */; };
 		100000000000000000000121 /* LibraryChannelModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000121 /* LibraryChannelModel.swift */; };
 		100000000000000000000122 /* MobileFeedScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000122 /* MobileFeedScreen.swift */; };
 		100000000000000000000123 /* EntryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000123 /* EntryContextMenu.swift */; };
@@ -40,7 +37,7 @@
 		100000000000000000000129 /* LibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000129 /* LibraryModel.swift */; };
 		100000000000000000000131 /* LibraryLifecycleModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000131 /* LibraryLifecycleModel.swift */; };
 		100000000000000000000132 /* LibraryNavigationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000132 /* LibraryNavigationModel.swift */; };
-		100000000000000000000133 /* LibraryProcessingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000133 /* LibraryProcessingModel.swift */; };
+		100000000000000000000133 /* LibraryCaptureModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000133 /* LibraryCaptureModel.swift */; };
 		100000000000000000000134 /* LibrarySelectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000134 /* LibrarySelectionModel.swift */; };
 		100000000000000000000187 /* LibraryWorkflowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000187 /* LibraryWorkflowCoordinator.swift */; };
 		100000000000000000000135 /* LibrarySidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000135 /* LibrarySidebar.swift */; };
@@ -103,6 +100,8 @@
 		C10000000000000000000002 /* BrieflyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000001 /* BrieflyCore */; };
 		C10000000000000000000003 /* MCP in Frameworks */ = {isa = PBXBuildFile; productRef = CC0000000000000000000002 /* MCP */; };
 		C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */ = {isa = PBXBuildFile; fileRef = C40000000000000000000002 /* briefly-mcp */; platformFilters = (macos, ); };
+		AB1000000000000000000001 /* LibraryProcessingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2000000000000000000001; platformFilter = macos; };
+		AB1000000000000000000002 = {isa = PBXBuildFile; fileRef = AB2000000000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -144,8 +143,8 @@
 		C30000000000000000000001 /* Embed MCP Helper */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
 			files = (
 				C10000000000000000000004 /* briefly-mcp in Embed MCP Helper */,
 			);
@@ -155,6 +154,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		AC2000000000000000000001 = {isa = PBXFileReference; path = "App/Shared/Sources/Features/Settings/LibraryExportControls.swift"; sourceTree = SOURCE_ROOT; lastKnownFileType = "sourcecode.swift"; };
 		200000000000000000000100 /* AppEnvironment.swift */ = {path = "App/Shared/Sources/App/AppEnvironment.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AppEnvironment.swift"; };
 		200000000000000000000101 /* AppNotifications.swift */ = {path = "App/Shared/Sources/App/AppNotifications.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AppNotifications.swift"; };
 		200000000000000000000102 /* BrieflyApp.swift */ = {path = "App/Shared/Sources/App/BrieflyApp.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyApp.swift"; };
@@ -167,16 +167,12 @@
 		200000000000000000000190 /* BrieflyBackground.swift */ = {path = "App/Shared/Sources/DesignSystem/BrieflyBackground.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyBackground.swift"; };
 		200000000000000000000109 /* GlassEffects.swift */ = {path = "App/Shared/Sources/DesignSystem/GlassEffects.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GlassEffects.swift"; };
 		200000000000000000000110 /* GrainyCard.swift */ = {path = "App/Shared/Sources/DesignSystem/GrainyCard.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GrainyCard.swift"; };
-		200000000000000000000112 /* MacCaptureComposer.swift */ = {path = "App/macOS/Sources/Features/Capture/MacCaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacCaptureComposer.swift"; };
-		200000000000000000000113 /* MobileCaptureComposer.swift */ = {path = "App/iOS/Sources/Features/Capture/MobileCaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileCaptureComposer.swift"; };
-		200000000000000000000186 /* LibraryInputService.swift */ = {path = "App/Shared/Sources/Features/Capture/LibraryInputService.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryInputService.swift"; };
-		200000000000000000000114 /* ChannelBrowserSession.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserSession.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserSession.swift"; };
-		200000000000000000000115 /* ChannelBrowserState.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserState.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserState.swift"; };
-		200000000000000000000116 /* ChannelBrowserViews.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelBrowserViews.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelBrowserViews.swift"; };
+		200000000000000000000112 /* CaptureComposer.swift */ = {path = "App/Shared/Sources/Features/Capture/CaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "CaptureComposer.swift"; };
+		200000000000000000000186 /* LibraryInputService.swift */ = {path = "App/macOS/Sources/Features/Capture/LibraryInputService.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryInputService.swift"; };
+		200000000000000000000114 /* MacPageExtractor.swift */ = {path = "App/macOS/Sources/Features/Capture/MacPageExtractor.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacPageExtractor.swift"; };
 		200000000000000000000117 /* ChannelModels.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelModels.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelModels.swift"; };
 		200000000000000000000118 /* ChannelPresentationHelpers.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelPresentationHelpers.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelPresentationHelpers.swift"; };
 		200000000000000000000119 /* ChannelSidebarComponents.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelSidebarComponents.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelSidebarComponents.swift"; };
-		200000000000000000000120 /* ChannelWebViewAdapter.swift */ = {path = "App/Shared/Sources/Features/Channels/ChannelWebViewAdapter.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelWebViewAdapter.swift"; };
 		200000000000000000000121 /* LibraryChannelModel.swift */ = {path = "App/Shared/Sources/Features/Channels/LibraryChannelModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryChannelModel.swift"; };
 		200000000000000000000122 /* MobileFeedScreen.swift */ = {path = "App/iOS/Sources/Features/Channels/MobileFeedScreen.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MobileFeedScreen.swift"; };
 		200000000000000000000123 /* EntryContextMenu.swift */ = {path = "App/Shared/Sources/Features/Library/EntryContextMenu.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "EntryContextMenu.swift"; };
@@ -188,7 +184,7 @@
 		200000000000000000000129 /* LibraryModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryModel.swift"; };
 		200000000000000000000131 /* LibraryLifecycleModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryLifecycleModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryLifecycleModel.swift"; };
 		200000000000000000000132 /* LibraryNavigationModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryNavigationModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryNavigationModel.swift"; };
-		200000000000000000000133 /* LibraryProcessingModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryProcessingModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryProcessingModel.swift"; };
+		200000000000000000000133 /* LibraryCaptureModel.swift */ = {path = "App/Shared/Sources/Features/Capture/LibraryCaptureModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryCaptureModel.swift"; };
 		200000000000000000000134 /* LibrarySelectionModel.swift */ = {path = "App/Shared/Sources/Features/Library/LibrarySelectionModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySelectionModel.swift"; };
 		200000000000000000000187 /* LibraryWorkflowCoordinator.swift */ = {path = "App/Shared/Sources/Features/Library/LibraryWorkflowCoordinator.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryWorkflowCoordinator.swift"; };
 		200000000000000000000135 /* LibrarySidebar.swift */ = {path = "App/Shared/Sources/Features/Library/LibrarySidebar.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySidebar.swift"; };
@@ -249,7 +245,9 @@
 		E30000000000000000000004 /* BrieflyShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrieflyShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F20000000000000000000001 /* PrivacyInfo.xcprivacy */ = {path = "App/Shared/Resources/PrivacyInfo.xcprivacy"; isa = PBXFileReference; lastKnownFileType = "text.xml"; sourceTree = SOURCE_ROOT; name = "PrivacyInfo.xcprivacy"; };
 		C40000000000000000000001 /* main.swift */ = {path = "../mcp/Sources/BrieflyMCP/main.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "main.swift"; };
-		C40000000000000000000002 /* briefly-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "briefly-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+		C40000000000000000000002 /* briefly-mcp */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrieflyMCP.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB2000000000000000000001 /* LibraryProcessingModel.swift */ = {isa = PBXFileReference; path = "App/macOS/Sources/Features/Capture/LibraryProcessingModel.swift"; sourceTree = SOURCE_ROOT; lastKnownFileType = "sourcecode.swift"; };
+		AB2000000000000000000002 = {isa = PBXFileReference; path = "App/Shared/Sources/Features/Capture/PendingCaptureView.swift"; sourceTree = SOURCE_ROOT; lastKnownFileType = "sourcecode.swift"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -386,13 +384,10 @@
 		BFDCD0E1BCB52B7EA4FF9D91 /* Channels */ = {
 			isa = PBXGroup;
 			children = (
-				200000000000000000000114 /* ChannelBrowserSession.swift */,
-				200000000000000000000115 /* ChannelBrowserState.swift */,
-				200000000000000000000116 /* ChannelBrowserViews.swift */,
+				200000000000000000000114 /* MacPageExtractor.swift */,
 				200000000000000000000117 /* ChannelModels.swift */,
 				200000000000000000000118 /* ChannelPresentationHelpers.swift */,
 				200000000000000000000119 /* ChannelSidebarComponents.swift */,
-				200000000000000000000120 /* ChannelWebViewAdapter.swift */,
 				200000000000000000000121 /* LibraryChannelModel.swift */,
 			);
 			name = "Channels";
@@ -410,7 +405,10 @@
 				200000000000000000000131 /* LibraryLifecycleModel.swift */,
 				200000000000000000000129 /* LibraryModel.swift */,
 				200000000000000000000132 /* LibraryNavigationModel.swift */,
-				200000000000000000000133 /* LibraryProcessingModel.swift */,
+				200000000000000000000133 /* LibraryCaptureModel.swift */,
+				AB2000000000000000000001 /* LibraryProcessingModel.swift */,
+				AB2000000000000000000002 /* PendingCaptureView.swift */,
+				AC2000000000000000000001 /* LibraryExportControls.swift */,
 				200000000000000000000134 /* LibrarySelectionModel.swift */,
 				200000000000000000000135 /* LibrarySidebar.swift */,
 				200000000000000000000187 /* LibraryWorkflowCoordinator.swift */,
@@ -538,7 +536,6 @@
 		7A1B248E7DC88755104143AE /* Capture */ = {
 			isa = PBXGroup;
 			children = (
-				200000000000000000000113 /* MobileCaptureComposer.swift */,
 			);
 			name = "Capture";
 			sourceTree = "<group>";
@@ -633,7 +630,7 @@
 		FC5CA38D9CAC35A32D1F4FB0 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
-				200000000000000000000112 /* MacCaptureComposer.swift */,
+				200000000000000000000112 /* CaptureComposer.swift */,
 			);
 			name = "Capture";
 			sourceTree = "<group>";
@@ -791,9 +788,9 @@
 				CC0000000000000000000001 /* BrieflyCore */,
 				CC0000000000000000000002 /* MCP */,
 			);
-			productName = "briefly-mcp";
+			productName = BrieflyMCP;
 			productReference = C40000000000000000000002 /* briefly-mcp */;
-			productType = "com.apple.product-type.tool";
+			productType = "com.apple.product-type.application";
 		};
 		E90000000000000000000001 /* BrieflyShareExtension */ = {
 			isa = PBXNativeTarget;
@@ -933,16 +930,12 @@
 				100000000000000000000190 /* BrieflyBackground.swift in Sources */,
 				100000000000000000000109 /* GlassEffects.swift in Sources */,
 				100000000000000000000110 /* GrainyCard.swift in Sources */,
-				100000000000000000000112 /* MacCaptureComposer.swift in Sources */,
-				100000000000000000000113 /* MobileCaptureComposer.swift in Sources */,
+				100000000000000000000112 /* CaptureComposer.swift in Sources */,
 				100000000000000000000186 /* LibraryInputService.swift in Sources */,
-				100000000000000000000114 /* ChannelBrowserSession.swift in Sources */,
-				100000000000000000000115 /* ChannelBrowserState.swift in Sources */,
-				100000000000000000000116 /* ChannelBrowserViews.swift in Sources */,
+				100000000000000000000114 /* MacPageExtractor.swift in Sources */,
 				100000000000000000000117 /* ChannelModels.swift in Sources */,
 				100000000000000000000118 /* ChannelPresentationHelpers.swift in Sources */,
 				100000000000000000000119 /* ChannelSidebarComponents.swift in Sources */,
-				100000000000000000000120 /* ChannelWebViewAdapter.swift in Sources */,
 				100000000000000000000121 /* LibraryChannelModel.swift in Sources */,
 				100000000000000000000122 /* MobileFeedScreen.swift in Sources */,
 				100000000000000000000123 /* EntryContextMenu.swift in Sources */,
@@ -954,7 +947,10 @@
 				100000000000000000000129 /* LibraryModel.swift in Sources */,
 				100000000000000000000131 /* LibraryLifecycleModel.swift in Sources */,
 				100000000000000000000132 /* LibraryNavigationModel.swift in Sources */,
-				100000000000000000000133 /* LibraryProcessingModel.swift in Sources */,
+				100000000000000000000133 /* LibraryCaptureModel.swift in Sources */,
+				AB1000000000000000000001 /* LibraryProcessingModel.swift in Sources */,
+				AB1000000000000000000002 /* PendingCaptureView.swift in Sources */,
+				AC1000000000000000000001 /* LibraryExportControls.swift in Sources */,
 				100000000000000000000134 /* LibrarySelectionModel.swift in Sources */,
 				100000000000000000000187 /* LibraryWorkflowCoordinator.swift in Sources */,
 				100000000000000000000135 /* LibrarySidebar.swift in Sources */,
@@ -1326,7 +1322,6 @@
 				CODE_SIGN_ENTITLEMENTS = ../mcp/BrieflyMCP.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1334,7 +1329,11 @@
 				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
-				PRODUCT_NAME = "briefly-mcp";
+				PRODUCT_NAME = BrieflyMCP;
+				EXECUTABLE_NAME = "briefly-mcp";
+				INFOPLIST_KEY_CFBundleDisplayName = "Briefly Helper";
+				INFOPLIST_KEY_LSUIElement = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;
@@ -1348,7 +1347,6 @@
 				CODE_SIGN_ENTITLEMENTS = ../mcp/BrieflyMCP.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEVELOPMENT_TEAM = Z9ZRF2T37C;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1356,7 +1354,11 @@
 				OTHER_CODE_SIGN_FLAGS = "$(inherited) -i $(PRODUCT_BUNDLE_IDENTIFIER)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -parse-as-library";
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative.MCP;
-				PRODUCT_NAME = "briefly-mcp";
+				PRODUCT_NAME = BrieflyMCP;
+				EXECUTABLE_NAME = "briefly-mcp";
+				INFOPLIST_KEY_CFBundleDisplayName = "Briefly Helper";
+				INFOPLIST_KEY_LSUIElement = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = macosx;

@@ -1,3 +1,4 @@
+#if os(macOS)
 import Foundation
 
 public struct NativeItemInputRouter: Sendable {
@@ -99,3 +100,5 @@ private func validateNativeDraft(_ value: ItemDraft) throws -> ItemDraft {
     }
     return draft
 }
+
+#endif

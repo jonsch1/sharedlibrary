@@ -1,3 +1,4 @@
+#if os(macOS)
 import BrieflyCore
 import Foundation
 import Observation
@@ -15,8 +16,8 @@ final class LibraryProcessingModel {
     let session: LibrarySession
     let inputService: LibraryInputService
 
-    var isIngesting = false
     var isProcessing = false
+    var onStateChanged: (@MainActor @Sendable () async -> Void)?
 
     init(session: LibrarySession, inputService: LibraryInputService) {
         self.session = session
@@ -31,6 +32,15 @@ final class LibraryProcessingModel {
         guard let library = session.library else { return [] }
         do {
             for entryID in entryIDs {
+                let document = try await library.getDocument(entryID)
+                if var request = document.captureRequest {
+                    guard request.hasExtractedSource else { continue }
+                    request.state = .summarizing
+                    request.error = nil
+                    _ = try await library.batch([.init(
+                        id: entryID, baseRevision: document.revision, captureRequest: request
+                    )])
+                }
                 try await library.enqueueProcessingJob(
                     entryID: entryID,
                     selectWhenFinished: selectWhenFinished
@@ -48,13 +58,28 @@ final class LibraryProcessingModel {
     func drainProcessingQueue(
         configuration: LibraryProcessingConfiguration
     ) async -> [ProcessingJobResult] {
-        #if os(iOS)
-        return []
-        #else
         guard let library = session.library, !isProcessing else { return [] }
         isProcessing = true
         session.status = "Preparing summaries…"
         defer { isProcessing = false }
+
+        do {
+            for id in try await library.pendingCaptureIDs() {
+                do {
+                    try await library.extractQueuedCapture(
+                        id, context: inputService.itemInputContext(),
+                        extract: { [inputService] request in
+                            try await inputService.captureCoordinator.extractSource(
+                                request, context: inputService.itemInputContext()
+                            )
+                        },
+                        onStateChanged: onStateChanged ?? {}
+                    )
+                } catch {
+                    session.errorMessage = error.localizedDescription
+                }
+            }
+        } catch { session.errorMessage = error.localizedDescription }
 
         var results = [ProcessingJobResult]()
         await withTaskGroup(of: ProcessingJobResult.self) { group in
@@ -82,120 +107,6 @@ final class LibraryProcessingModel {
         }
         session.status = "Summaries ready"
         return results
-        #endif
-    }
-
-    @discardableResult
-    func capture(_ text: String, useNative: Bool = false) async -> String? {
-        guard let library = session.library else {
-            session.errorMessage = "Open a Briefly library before capturing."
-            return nil
-        }
-        isIngesting = true
-        defer { isIngesting = false }
-        do {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let url = URL(string: trimmed).flatMap {
-                ["http", "https"].contains($0.scheme?.lowercased() ?? "") &&
-                    $0.host != nil &&
-                    !trimmed.contains(where: \.isWhitespace)
-                    ? $0
-                    : nil
-            }
-            session.status = url == nil ? "Capturing text…" : "Extracting the item…"
-            let request = ItemInputRequest(source: url.map(ItemInputSource.url) ?? .text(trimmed))
-            let result = try await inputService.captureCoordinator.capture(
-                request, in: library, context: inputService.itemInputContext(), useNative: useNative
-            )
-            session.status = "Captured"
-            return result.id
-        } catch let failure as BrieflyCustomCaptureFailure {
-            session.customCaptureFailure = failure
-            return nil
-        } catch {
-            session.errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
-    func captureShared(
-        _ request: ItemInputRequest,
-        captureID: String
-    ) async throws -> String {
-        guard let library = session.library else { throw LibraryError.missingEntry }
-        isIngesting = true
-        defer { isIngesting = false }
-        session.status = switch request.source {
-        case .url: "Importing a shared link…"
-        case .text: "Importing shared text…"
-        case .file: "Importing a shared PDF…"
-        }
-        let draft = try await NativeItemInputRouter().ingest(
-            request,
-            context: inputService.itemInputContext()
-        )
-        return try await library.captureItem(draft, captureID: captureID)
-    }
-
-    func setBrowserIngesting(_ ingesting: Bool) {
-        isIngesting = ingesting
-        if ingesting {
-            session.status = "Extracting the signed-in page…"
-        }
-    }
-
-    @discardableResult
-    func captureWebPage(url: URL, page: SignedInChannelPage) async -> String? {
-        guard let library = session.library else {
-            session.errorMessage = "Open a Briefly library before saving web pages."
-            return nil
-        }
-        isIngesting = true
-        defer { isIngesting = false }
-        do {
-            let result = try await inputService.captureCoordinator.capture(
-                .init(source: .url(url)), in: library, context: inputService.itemInputContext(),
-                nativeDraft: ItemDraft(
-                inputID: .webPage,
-                title: page.title,
-                content: page.text,
-                sourceURL: url,
-                canonicalURL: url,
-                faviconData: page.faviconData,
-                faviconFileExtension: page.faviconFileExtension
-            ))
-            session.status = "Saved the signed-in page"
-            return result.id
-        } catch let failure as BrieflyCustomCaptureFailure {
-            session.customCaptureFailure = failure
-            return nil
-        } catch {
-            session.errorMessage = error.localizedDescription
-            return nil
-        }
-    }
-
-    @discardableResult
-    func capturePDF(_ url: URL) async -> String? {
-        guard let library = session.library else {
-            session.errorMessage = "Choose a local Briefly library before importing a PDF."
-            return nil
-        }
-        isIngesting = true
-        defer { isIngesting = false }
-        let hasAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if hasAccess { url.stopAccessingSecurityScopedResource() }
-        }
-        do {
-            let draft = try await inputService.ingestPDF(url)
-            let entryID = try await library.captureItem(draft)
-            session.status = "PDF captured"
-            return entryID
-        } catch {
-            session.errorMessage = error.localizedDescription
-            return nil
-        }
     }
 
     private func process(
@@ -211,6 +122,10 @@ final class LibraryProcessingModel {
         }
         let entryID = job.documentID
         do {
+            if try await library.getDocument(entryID).captureRequest?.state == .ready {
+                try await library.completeProcessingJob(entryID: entryID)
+                return ProcessingJobResult(entryID: entryID, selectedID: nil, succeeded: true)
+            }
             let prompt = try await library.processingPrompt(
                 entryID: entryID,
                 template: configuration.prompt
@@ -262,6 +177,7 @@ final class LibraryProcessingModel {
                 succeeded: false
             )
         } catch {
+            try? await library.failCapture(entryID, error: error.localizedDescription)
             try? await library.failProcessingJob(
                 entryID: entryID,
                 error: error.localizedDescription
@@ -372,3 +288,5 @@ func runOpenRouterProcessing(
     }
     return output
 }
+
+#endif
