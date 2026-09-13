@@ -1,1 +1,1 @@
-Stay curious. Build a library.
+A library for what you read

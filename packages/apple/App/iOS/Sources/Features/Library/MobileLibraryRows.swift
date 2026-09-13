@@ -144,6 +144,18 @@ struct MobileLibraryRows: View {
                 Task { await model.workflows.showTopic("All") }
             }
 
+            if notes.isEmpty && model.navigation.query.isEmpty {
+                MobileCollectionCard(
+                    key: "sample:library",
+                    icon: "books.vertical",
+                    eyebrow: "SAMPLE",
+                    title: "Sample items",
+                    subtitle: "Add five prepared items"
+                ) {
+                    Task { await model.workflows.addSampleLibrary() }
+                }
+            }
+
             if model.navigation.query.isEmpty {
                 MobileCollectionCard(
                     key: "notes:highlights",

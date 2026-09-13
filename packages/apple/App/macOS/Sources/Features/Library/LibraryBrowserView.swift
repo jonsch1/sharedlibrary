@@ -42,7 +42,11 @@ struct LibraryCardBrowser: View {
                             XEmptyState(
                                 icon: emptyIcon,
                                 title: emptyTitle,
-                                message: emptyDescription
+                                message: emptyDescription,
+                                actionTitle: offersSampleLibrary ? "Add sample items" : nil,
+                                action: offersSampleLibrary ? {
+                                    Task { await model.workflows.addSampleLibrary() }
+                                } : nil
                             )
                             .frame(minHeight: 360)
                         }
@@ -264,6 +268,14 @@ struct LibraryCardBrowser: View {
                 ? "Add a channel to follow its updates."
                 : "Fetch fresh candidates when you are ready."
         }
+    }
+
+    private var offersSampleLibrary: Bool {
+        model.navigation.activeSection == .items &&
+            !model.navigation.showingTrash &&
+            model.navigation.query.isEmpty &&
+            model.navigation.selectedTopic == "All" &&
+            model.session.projection.entries.isEmpty
     }
 }
 

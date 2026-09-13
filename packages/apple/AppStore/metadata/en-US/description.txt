@@ -1,25 +1,14 @@
-Stay curious. Skip the feed.
+Briefly keeps articles, PDFs, notes, podcasts, and videos in one reading library.
 
-Briefly turns the articles, videos, podcasts, and notes you want to understand into a quiet, private library of clear summaries. Start with the shortest version, then add detail only when you want it.
+On Mac, add a public link, paste text, or import a PDF or text file. Briefly extracts the material and prepares concise and detailed versions using the AI service you choose. You can also follow sources through channels and decide which items to keep.
 
-SAVE ANYTHING
-Send a link, capture a note, import a PDF, or save a podcast or video. Briefly keeps it all together in one searchable place.
+On iPhone and iPad, read the library that your Mac prepared. Choose a concise summary, a detailed version, or the original source. Search your library, add highlights, and listen to saved material. You can also send a link, PDF, or text to the pending queue when you want your Mac to prepare it later.
 
-CHOOSE THE DEPTH
-Get the point first. Move from a brief summary to concise, detailed, or comprehensive context whenever the subject deserves more time.
+Your library is stored locally and can sync privately between your Apple devices through iCloud. Nothing becomes public unless you create an unlisted share link. Sign in with Apple is optional.
 
-FOLLOW SOURCES WITHOUT LIVING IN A FEED
-Choose the channels and sources you trust. Review what is new on your terms, without an endless algorithmic timeline.
+The Mac app can use your own OpenRouter API key or a supported local AI command. The iPhone and iPad apps do not extract or summarize content.
 
-READ OR LISTEN
-Turn saved material and briefs into audio, then continue at your preferred playback speed.
-
-PRIVATE BY DEFAULT
-Your library is local-first and can sync privately through your iCloud account. Nothing becomes public unless you deliberately create a share link.
-
-This TestFlight beta is free to use. Sign in with Apple is optional for local
-library use. On macOS, summaries can use your own OpenRouter API key. iOS currently
-captures and stores items without AI summaries.
+You can export the complete library as its SQLite database or as a folder of Markdown files.
 
 Privacy Policy: https://www.readbriefly.fyi/privacy
 Terms of Use: https://www.readbriefly.fyi/terms

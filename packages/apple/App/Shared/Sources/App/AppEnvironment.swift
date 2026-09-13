@@ -75,7 +75,7 @@ struct AppEnvironment {
         return databaseURL
     }
 
-    private func seedSampleLibrary(_ database: SQLiteLibrary) throws {
+    func seedSampleLibrary(_ database: SQLiteLibrary) throws {
         let createdAt = Date(timeIntervalSince1970: 1_767_268_800)
         let channelSource = "https://fixture.example/feed"
         try database.replaceTopicDefinitions([

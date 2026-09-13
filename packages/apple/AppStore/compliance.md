@@ -6,7 +6,8 @@ Use the current questionnaire and answer conservatively:
 
 - Parental controls: No
 - Age assurance: No
-- Unrestricted web access: Yes
+- Unrestricted web access: No (the app has no general-purpose browser; it only
+  displays items already in the user's library)
 - User-generated content: No (shares are unlisted and there is no broad in-app
   distribution or discovery)
 - Social media: No
@@ -15,8 +16,7 @@ Use the current questionnaire and answer conservatively:
 - Every content-frequency descriptor: None, unless the finished app ships its own
   editorial content in one of those categories
 
-Expected result: 16+ on Apple OS version 26 storefronts and 17+ on earlier OS
-versions because the app contains a user-directed embedded browser.
+Expected result: 4+ when every content-frequency descriptor remains None.
 
 ## Export compliance
 

@@ -185,6 +185,20 @@ final class LibraryWorkflowCoordinator {
         }
     }
 
+    func addSampleLibrary() async {
+        guard let library = session.library else { return }
+        do {
+            let database = try await library.documentDatabase()
+            guard try database.isEmpty() else { return }
+            try session.environment.seedSampleLibrary(database)
+            try await lifecycle.refreshSession()
+            try await channels.refreshChannels(from: library)
+            session.status = "Sample items added"
+        } catch {
+            session.errorMessage = error.localizedDescription
+        }
+    }
+
     func refreshLibrary(selecting entryID: String? = nil) async {
         guard let library = session.library else { return }
         do {
