@@ -4,5 +4,6 @@ enum MobilePrimaryTab: String, Hashable {
     case home
     case channels
     case highlights
+    case settings
 }
 #endif

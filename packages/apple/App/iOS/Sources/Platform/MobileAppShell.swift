@@ -14,7 +14,6 @@ enum MobileRoute: Hashable {
 
 struct MobileXAppShell: View {
     @Bindable var model: LibraryModel
-    let openSettings: (BrieflySettingsSection?) -> Void
     @Binding var showsCaptureComposer: Bool
     @Bindable var audioPlayer: NativeAudioPlayer
     @Binding var audioEntry: LibraryEntry?
@@ -22,6 +21,7 @@ struct MobileXAppShell: View {
     @State private var paths: [MobilePrimaryTab: [MobileRoute]] = [:]
     @State private var variants: [MobilePrimaryTab: LibraryVariant] = [:]
     @State private var homeTopic = ""
+    @State private var settingsPath: [BrieflySettingsSection] = []
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -39,15 +39,16 @@ struct MobileXAppShell: View {
             .tag(MobilePrimaryTab.channels)
 
             mobileStack(.highlights) {
-                MobileXHighlightsScreen(
-                    model: model,
-                    openSettings: openSettings,
-                    openTrash: openTrash
-                )
-                .overlay(alignment: .bottomTrailing) { nowPlayingButton }
+                MobileXHighlightsScreen(model: model, openTrash: openTrash)
+                    .overlay(alignment: .bottomTrailing) { nowPlayingButton }
             }
             .tabItem { Label("Highlights", systemImage: "highlighter") }
             .tag(MobilePrimaryTab.highlights)
+
+            SettingsView(model: model, path: $settingsPath)
+                .tabItem { Label("Settings", systemImage: "gearshape") }
+                .tag(MobilePrimaryTab.settings)
+                .accessibilityIdentifier("settings.open")
         }
         .tint(Color.accentColor)
         .onChange(of: selectedTab) { previousTab, tab in
@@ -126,7 +127,7 @@ struct MobileXAppShell: View {
 
     private func primaryCreate() {
         switch selectedTab {
-        case .home, .highlights:
+        case .home, .highlights, .settings:
             showsCaptureComposer = true
         case .channels:
             model.workflows.showChannelSettings("new")
@@ -156,6 +157,8 @@ struct MobileXAppShell: View {
             } else {
                 model.workflows.showHighlights()
             }
+        case .settings:
+            return
         }
 
         // Read the stack only after the section switch: a screen pushed while it was

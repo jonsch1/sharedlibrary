@@ -12,9 +12,6 @@ struct ContentView: View {
     @AppStorage(BrieflyOnboarding.completionKey) private var completedOnboardingVersion = 0
     @Bindable var model: LibraryModel
     @State private var showsSettings = false
-    #if os(iOS)
-    @State private var initialSettingsSection: BrieflySettingsSection?
-    #endif
     @State private var showsCaptureComposer = false
     @State private var showsFileImporter = false
     @State private var windowControlsVisible = true
@@ -58,10 +55,6 @@ struct ContentView: View {
                 #else
                 MobileXAppShell(
                     model: model,
-                    openSettings: { section in
-                        initialSettingsSection = section
-                        showsSettings = true
-                    },
                     showsCaptureComposer: $showsCaptureComposer,
                     audioPlayer: audioPlayer,
                     audioEntry: $audioEntry
@@ -123,13 +116,6 @@ struct ContentView: View {
         .sheet(isPresented: $showsCaptureComposer) { CaptureComposer(model: model) }
         #endif
         #if os(iOS)
-        .fullScreenCover(isPresented: $showsSettings, onDismiss: {
-            initialSettingsSection = nil
-        }) { [initialSettingsSection] in
-            // The capture list reads the section during body evaluation, so the first
-            // presentation doesn't open with a stale value.
-            SettingsView(model: model, initialSection: initialSettingsSection)
-        }
         .fullScreenCover(isPresented: $showsCaptureComposer) { CaptureComposer(model: model) }
         #endif
         .fileImporter(

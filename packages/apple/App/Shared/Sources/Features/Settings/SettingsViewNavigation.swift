@@ -37,11 +37,23 @@ struct SettingsIndex: View {
                 SettingsGroup(title: "Help & legal") {
                     SettingsWebLinks()
                 }
+
+                Text("Briefly \(appVersion)")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            .padding(.bottom, 40)
+            .padding(.bottom, 120)
         }
+    }
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let release = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(release) (\($0))" } ?? release
     }
 
     private func value(for section: BrieflySettingsSection) -> String? {

@@ -16,7 +16,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home:
             candidates = model.navigation.filteredEntries
-        case .channels, .highlights:
+        case .channels, .highlights, .settings:
             candidates = []
         }
         return candidates
@@ -141,7 +141,7 @@ struct MobileXFeedScreen: View {
                     switch tab {
                     case .home: Task { await model.workflows.showTopic("All") }
                     case .channels: model.navigation.selectedChannelSource = ""
-                    case .highlights: break
+                    case .highlights, .settings: break
                     }
                 }
 
@@ -161,7 +161,7 @@ struct MobileXFeedScreen: View {
                             openChannel(channel)
                         }
                     }
-                case .highlights:
+                case .highlights, .settings:
                     EmptyView()
                 }
             }
@@ -180,7 +180,7 @@ struct MobileXFeedScreen: View {
             } else {
                 await model.workflows.runDueChannelChecks()
             }
-        case .highlights: break
+        case .highlights, .settings: break
         }
     }
 
@@ -188,7 +188,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Home"
         case .channels: "Channels"
-        case .highlights: "Highlights"
+        case .highlights, .settings: "Highlights"
         }
     }
 
@@ -196,7 +196,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Search Home"
         case .channels: "Search Channels"
-        case .highlights: "Search Highlights"
+        case .highlights, .settings: "Search Highlights"
         }
     }
 
@@ -204,7 +204,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Capture"
         case .channels: "Manage Channels"
-        case .highlights: "Capture"
+        case .highlights, .settings: "Capture"
         }
     }
 
@@ -216,7 +216,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: model.navigation.selectedTopic == "All" || model.navigation.selectedTopic.isEmpty
         case .channels: model.navigation.selectedChannelSource.isEmpty
-        case .highlights: false
+        case .highlights, .settings: false
         }
     }
 
@@ -225,7 +225,7 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "tray"
         case .channels: "dot.radiowaves.left.and.right"
-        case .highlights: "highlighter"
+        case .highlights, .settings: "highlighter"
         }
     }
 
@@ -234,7 +234,7 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "Nothing here yet"
         case .channels: "No channels yet"
-        case .highlights: "No highlights yet"
+        case .highlights, .settings: "No highlights yet"
         }
     }
 
@@ -243,7 +243,7 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "Capture a link or note to start your feed."
         case .channels: "Add a channel, then pull to check it for new items."
-        case .highlights: "Select a passage in any item, then choose Highlight."
+        case .highlights, .settings: "Select a passage in any item, then choose Highlight."
         }
     }
 }
