@@ -1,19 +1,76 @@
 import SwiftUI
 
 #if os(macOS)
+/// Column geometry for the main window. The reading column is centered in the window
+/// with the sidebar beside it, rather than at the window edge. Settings starts where
+/// the reading column does and may
+/// extend further right, so opening it never moves the sidebar.
+struct MacWorkspaceLayout {
+    static let sidebarCollapsedKey = "BrieflySidebarCollapsed"
+    static let minimumWindowSize = CGSize(width: 760, height: 600)
+    static let outerPadding: CGFloat = 20
+    static let spacing: CGFloat = 24
+    static let readerWidth: CGFloat = 680
+    static let maximumSettingsWidth: CGFloat = 1_014
+    /// WindowControlPositioner moves the traffic lights to end around x = 76;
+    /// the sidebar logo must start to the right of this.
+    private static let windowControlsEnd: CGFloat = 84
+    private static let logoPadding: CGFloat = 12
+
+    let sidebarWidth: CGFloat
+    let readerColumnWidth: CGFloat
+    let settingsWidth: CGFloat
+    let settingsIndexWidth: CGFloat
+    /// Distance from the window's leading edge to the sidebar.
+    let leadingOffset: CGFloat
+    /// Extra leading space the expanded sidebar header needs to clear the traffic lights.
+    let windowControlsInset: CGFloat
+
+    static func sidebarWidth(collapsed: Bool) -> CGFloat {
+        collapsed ? 56 : 220
+    }
+
+    init(windowWidth: CGFloat, sidebarCollapsed: Bool) {
+        sidebarWidth = Self.sidebarWidth(collapsed: sidebarCollapsed)
+        let sidebarSpan = sidebarWidth + Self.spacing
+        readerColumnWidth = max(0, min(Self.readerWidth, windowWidth - Self.outerPadding * 2 - sidebarSpan))
+        // Center the reading column in the window; only shift it right when the
+        // sidebar would otherwise run past the leading padding.
+        let contentStart = max(
+            ((windowWidth - readerColumnWidth) / 2).rounded(),
+            Self.outerPadding + sidebarSpan
+        )
+        leadingOffset = contentStart - sidebarSpan
+        settingsWidth = max(0, min(Self.maximumSettingsWidth, windowWidth - Self.outerPadding - contentStart))
+        settingsIndexWidth = min(220, max(170, (settingsWidth * 0.25).rounded()))
+        windowControlsInset = max(0, Self.windowControlsEnd - leadingOffset - Self.logoPadding)
+    }
+}
+
 struct MacXNavigation: View {
     @Bindable var model: LibraryModel
     @Binding var showsSettings: Bool
     @Binding var showsCaptureComposer: Bool
     @Binding var selectedSettingsSection: BrieflySettingsSection
+    @Binding var collapsed: Bool
+    var windowControlsInset: CGFloat = 0
 
     var body: some View {
+        if collapsed {
+            compactBody
+        } else {
+            expandedBody
+        }
+    }
+
+    private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack {
+            HStack(spacing: 2) {
                 BrieflyLogo()
-                Spacer()
+                Spacer(minLength: 8)
+                sidebarToggle
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, 12 + windowControlsInset)
             .frame(height: 42)
             .padding(.bottom, 10)
 
@@ -56,15 +113,7 @@ struct MacXNavigation: View {
             .accessibilityIdentifier("navigation.trash")
             .modifier(EmptyTrashContextMenu(model: model))
 
-            Button {
-                switch model.navigation.activeSection {
-                case .items:
-                    showsCaptureComposer = true
-                case .channels:
-                    model.navigation.query = ""
-                    model.workflows.showChannelSettings("new")
-                }
-            } label: {
+            Button(action: primaryAction) {
                 Label(primaryActionTitle, systemImage: primaryActionIcon)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
@@ -90,7 +139,7 @@ struct MacXNavigation: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("AI setup needed")
                                 .font(.caption.weight(.semibold))
-                            Text("Test your processing setup in Settings.")
+                            Text(model.settings.isOpenRouterConnected ? "Check your OpenRouter connection in Settings." : "Connect OpenRouter to create summaries.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -121,6 +170,131 @@ struct MacXNavigation: View {
         }
         .padding(.vertical, 12)
         .frame(maxHeight: .infinity)
+    }
+
+    /// Icon-only rail used while the sidebar is collapsed.
+    private var compactBody: some View {
+        VStack(spacing: 5) {
+            Color.clear
+                .frame(height: 42)
+                .padding(.bottom, 10)
+                .accessibilityHidden(true)
+
+            sidebarToggle
+
+            ForEach(LibrarySection.allCases) { section in
+                compactButton(
+                    section.title,
+                    icon: section.icon,
+                    selected: model.navigation.activeSection == section &&
+                        !model.navigation.showingHighlights && !model.navigation.showingTrash
+                ) {
+                    showsSettings = false
+                    Task { await model.workflows.show(section) }
+                }
+                .accessibilityIdentifier("navigation.\(section.rawValue)")
+            }
+            compactButton(
+                "Highlights",
+                icon: "highlighter",
+                selected: model.navigation.showingHighlights
+            ) {
+                showsSettings = false
+                model.workflows.showHighlights()
+            }
+            .accessibilityIdentifier("navigation.highlights")
+            compactButton(
+                "Trash",
+                icon: "trash",
+                selected: model.navigation.showingTrash
+            ) {
+                showsSettings = false
+                model.workflows.showTrash()
+            }
+            .accessibilityIdentifier("navigation.trash")
+            .modifier(EmptyTrashContextMenu(model: model))
+
+            Button(action: primaryAction) {
+                Image(systemName: primaryActionIcon)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.accentColor, in: Rectangle())
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(primaryActionTitle)
+            .accessibilityLabel(primaryActionTitle)
+            .accessibilityIdentifier(
+                model.navigation.activeSection == .items ? "capture.open" : "navigation.primaryAction"
+            )
+            .padding(.top, 12)
+
+            if !model.settings.isProcessingConfigured {
+                compactButton(
+                    "AI setup needed",
+                    icon: "exclamationmark.triangle.fill",
+                    selected: false,
+                    tint: .orange
+                ) {
+                    selectedSettingsSection = .ai
+                    showsSettings = true
+                }
+                .accessibilityIdentifier("settings.aiWarning")
+            }
+
+            Spacer(minLength: 18)
+
+            compactButton("Settings", icon: "gearshape", selected: showsSettings) {
+                showsSettings = true
+            }
+            .accessibilityIdentifier("settings.open")
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var sidebarToggle: some View {
+        let title = collapsed ? "Show Sidebar" : "Hide Sidebar"
+        return Button { collapsed.toggle() } label: {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("\(title) (⌃⌘S)")
+        .accessibilityLabel(title)
+    }
+
+    private func compactButton(
+        _ title: String,
+        icon: String,
+        selected: Bool,
+        tint: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 21, weight: selected ? .semibold : .regular))
+                .foregroundStyle(tint ?? (selected ? Color.primary : Color.primary.opacity(0.72)))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+    }
+
+    private func primaryAction() {
+        switch model.navigation.activeSection {
+        case .items:
+            showsCaptureComposer = true
+        case .channels:
+            model.navigation.query = ""
+            model.workflows.showChannelSettings("new")
+        }
     }
 
     private var primaryActionTitle: String {

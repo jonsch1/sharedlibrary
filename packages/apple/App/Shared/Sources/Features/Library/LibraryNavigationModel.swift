@@ -51,6 +51,7 @@ final class LibraryNavigationModel {
     }
 
     func selectChannel(_ source: String) {
+        activeSection = .channels
         showingHighlights = false
         showingTrash = false
         showingChannelSettings = false

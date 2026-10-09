@@ -2,6 +2,24 @@ import Foundation
 import SwiftUI
 import BrieflyCore
 
+extension LibraryEntry {
+    /// Who shared the item, or the host it was saved from.
+    var sourceName: String {
+        if let sharedBy = sharedByDisplayName, !sharedBy.isEmpty {
+            return sharedBy
+        }
+        if let host = sourceURL.flatMap(URL.init(string:))?.host {
+            return host.replacingOccurrences(of: "www.", with: "")
+        }
+        return "Briefly"
+    }
+
+    var savedDate: Date? {
+        guard let rawDate = createdAt ?? updatedAt else { return nil }
+        return try? Date(rawDate, strategy: .iso8601)
+    }
+}
+
 struct FeedEntryRow: View {
     let entry: LibraryEntry
     let action: () -> Void
@@ -10,22 +28,8 @@ struct FeedEntryRow: View {
         entry.sourceURL.flatMap(URL.init(string:))
     }
 
-    private var sourceName: String {
-        if let sharedBy = entry.sharedByDisplayName, !sharedBy.isEmpty {
-            return sharedBy
-        }
-        if let host = sourceURL?.host {
-            return host.replacingOccurrences(of: "www.", with: "")
-        }
-        return "Briefly"
-    }
-
     private var relativeDate: String? {
-        guard
-            let rawDate = entry.createdAt ?? entry.updatedAt,
-            let date = try? Date(rawDate, strategy: .iso8601)
-        else { return nil }
-        return date.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+        entry.savedDate?.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
     }
 
     private var displayExcerpt: String {
@@ -41,7 +45,7 @@ struct FeedEntryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 5) {
-                Text(sourceName)
+                Text(entry.sourceName)
                     .font(.system(size: 15, weight: .semibold))
                     .lineLimit(1)
                 if let username = entry.sharedByUsername, !username.isEmpty {
@@ -81,7 +85,7 @@ struct FeedEntryRow: View {
 
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         .accessibilityElement(children: .combine)
@@ -98,11 +102,8 @@ struct FeedEntryRow: View {
                 .foregroundStyle(.secondary)
                 .help("Open original")
                 .padding(.trailing, 6)
-                .padding(.top, 2)
+                .padding(.top, 6)
             }
-        }
-        .overlay(alignment: .bottom) {
-            Divider()
         }
     }
 }
@@ -226,7 +227,7 @@ struct XEmptyState: View {
     var action: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 28, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -243,7 +244,8 @@ struct XEmptyState: View {
                     .padding(.top, 4)
             }
         }
-        .frame(maxWidth: 360, alignment: .leading)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 360)
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
@@ -254,7 +256,7 @@ struct XLoadingState: View {
     let message: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
             ProgressView()
                 .controlSize(.small)
             Text(title)
@@ -263,7 +265,8 @@ struct XLoadingState: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: 360, alignment: .leading)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: 360)
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }

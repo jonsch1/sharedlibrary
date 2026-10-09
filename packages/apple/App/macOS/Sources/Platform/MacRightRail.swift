@@ -33,7 +33,7 @@ struct MacXRightRail: View {
             .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
 
             if let entry = model.selection.selectedEntry {
-                FeedRailCard(title: "About this post") {
+                FeedRailCard(title: "About this item") {
                     if let source = entry.sourceURL,
                         let url = URL(string: source)
                     {
@@ -82,8 +82,8 @@ struct MacXRightRail: View {
         }
         .padding(.top, 16)
         .frame(maxHeight: .infinity)
-        .alert("Rename collection", isPresented: renamingCollection) {
-            TextField("Collection name", text: $renamedTopic)
+        .alert("Rename topic", isPresented: renamingCollection) {
+            TextField("Topic name", text: $renamedTopic)
             Button("Cancel", role: .cancel) {}
             Button("Rename") {
                 guard let topicBeingRenamed else { return }
@@ -91,14 +91,14 @@ struct MacXRightRail: View {
             }
             .disabled(renamedTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .alert("Delete collection?", isPresented: deletingCollection) {
+        .alert("Delete topic?", isPresented: deletingCollection) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 guard let topicBeingDeleted else { return }
                 Task { await model.workflows.deleteTopic(topicBeingDeleted) }
             }
         } message: {
-            Text("The collection will be removed, but its notes will stay in your library.")
+            Text("The topic will be removed, but its items will stay in your library.")
         }
     }
 
@@ -120,7 +120,7 @@ struct MacXRightRail: View {
     private var contextualCard: some View {
         switch model.navigation.activeSection {
         case .items:
-            FeedRailCard(title: "Collections") {
+            FeedRailCard(title: "Topics") {
                 ForEach(Array(model.session.projection.documentTopics.prefix(6)), id: \.self) { topic in
                     collectionRow(topic)
                 }

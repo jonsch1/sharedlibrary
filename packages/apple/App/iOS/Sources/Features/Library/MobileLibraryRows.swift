@@ -67,9 +67,9 @@ struct MobileLibraryRows: View {
                 ? model.navigation.showingTrash
                     ? "Trash is empty"
                     : model.navigation.selectedTopic == "All"
-                    ? "No documents yet"
-                    : "No documents in \(model.navigation.selectedTopic)"
-                : "No matching documents"
+                    ? "No items yet"
+                    : "No items in \(model.navigation.selectedTopic)"
+                : "No matching items"
         case .channels:
             model.navigation.query.isEmpty ? "No channel items" : "No matching channel items"
         }
@@ -139,7 +139,7 @@ struct MobileLibraryRows: View {
                 icon: "tray",
                 eyebrow: "LIBRARY",
                 title: "Inbox",
-                subtitle: "\(notes.count) notes"
+                subtitle: "\(notes.count) items"
             ) {
                 Task { await model.workflows.showTopic("All") }
             }
@@ -175,7 +175,7 @@ struct MobileLibraryRows: View {
                     icon: "folder",
                     eyebrow: "TOPIC",
                     title: topic.name,
-                    subtitle: "\(topic.count) notes"
+                    subtitle: "\(topic.count) items"
                 ) {
                     Task { await model.workflows.showTopic(topic.name) }
                 }
@@ -187,7 +187,7 @@ struct MobileLibraryRows: View {
                     icon: "trash",
                     eyebrow: "LIBRARY",
                     title: "Trash",
-                    subtitle: model.selection.loadedTrashCount.map { "\($0) notes" } ?? "Open to load"
+                    subtitle: model.selection.loadedTrashCount.map { "\($0) items" } ?? "Open to load"
                 ) {
                     model.workflows.showTrash()
                 }
@@ -213,7 +213,7 @@ struct MobileLibraryRows: View {
                             : "dot.radiowaves.left.and.right",
                         eyebrow: channelDomain(channel.primarySource).uppercased(),
                         title: channel.title,
-                        subtitle: "\(model.channels.channelEntries(for: channel.source).count) notes",
+                        subtitle: "\(model.channels.channelEntries(for: channel.source).count) items",
                         settingsLabel: "Settings for \(channel.title)",
                         settingsAction: {
                             model.workflows.showChannelSettings(channel.source)

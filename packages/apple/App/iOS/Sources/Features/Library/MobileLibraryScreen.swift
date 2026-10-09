@@ -2,23 +2,42 @@ import SwiftUI
 import BrieflyCore
 
 #if os(iOS)
-struct MobileXLibraryScreen: View {
-    enum Section: String, CaseIterable, Hashable {
-        case highlights = "Highlights"
-        case trash = "Trash"
-    }
-
+struct MobileXHighlightsScreen: View {
     @Bindable var model: LibraryModel
     let openSettings: (BrieflySettingsSection?) -> Void
-    let openEntry: (LibraryEntry) -> Void
-    @State private var section = Section.highlights
+    let openTrash: () -> Void
     @State private var showsAbout = false
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
+            if model.selection.highlightsText.isEmpty {
+                XEmptyState(
+                    icon: "highlighter",
+                    title: "No highlights yet",
+                    message: "Select a passage in any item, then choose Highlight."
+                )
+                .frame(maxWidth: 720, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+            } else {
+                ScrollView {
+                    MarkdownArticle(model.selection.highlightsText)
+                        .frame(maxWidth: 680, alignment: .leading)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 28)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .mobileHeaderBar {
             MobileXHeader(
-                title: "Library",
+                title: "Highlights",
                 menuItems: [
+                    MobileXHeaderMenuItem(
+                        title: "Trash",
+                        icon: "trash",
+                        identifier: "library.trash.open",
+                        action: openTrash
+                    ),
                     MobileXHeaderMenuItem(
                         title: "Settings",
                         icon: "gearshape",
@@ -42,67 +61,29 @@ struct MobileXLibraryScreen: View {
                     )
                 ]
             )
-            .mobileGlass(
-                in: Rectangle(),
-                interactive: false
-            )
-            .padding(.horizontal, 8)
-            .padding(.top, 4)
+        }
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
+        .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $showsAbout) {
+            MobileAboutFeedbackView()
+        }
+    }
+}
 
-            HStack(spacing: 8) {
-                ForEach(Section.allCases, id: \.self) { item in
-                    Button {
-                        section = item
-                        if item == .highlights { model.workflows.showHighlights() }
-                        else { model.workflows.showTrash() }
-                    } label: {
-                        Text(item.rawValue)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(section == item ? Color.primary : Color.primary.opacity(0.06), in: Rectangle())
-                            .foregroundStyle(section == item ? Color(uiColor: .systemBackground) : Color.primary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .overlay(alignment: .bottom) { Divider() }
+struct MobileXTrashScreen: View {
+    @Bindable var model: LibraryModel
+    let openEntry: (LibraryEntry) -> Void
 
-            if section == .trash && !model.selection.trashEntries.isEmpty {
-                HStack {
-                    Spacer()
-                    EmptyTrashButton(model: model)
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-            }
-
-            if section == .highlights {
-                if model.selection.highlightsText.isEmpty {
-                    XEmptyState(
-                        icon: "highlighter",
-                        title: "No highlights yet",
-                        message: "Select a passage in any saved document, then choose Highlight."
-                    )
-                    .frame(maxWidth: 720, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        MarkdownArticle(model.selection.highlightsText)
-                            .frame(maxWidth: 680, alignment: .leading)
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 28)
-                            .padding(.bottom, 80)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-            } else if model.selection.trashEntries.isEmpty {
+    var body: some View {
+        Group {
+            if model.selection.trashEntries.isEmpty {
                 XEmptyState(
                     icon: "trash",
                     title: "Trash is empty",
-                    message: "Deleted notes remain available here."
+                    message: "Deleted items stay here until you empty the trash."
                 )
                 .frame(maxWidth: 720, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -113,15 +94,16 @@ struct MobileXLibraryScreen: View {
                     }
                     .frame(maxWidth: 720)
                     .frame(maxWidth: .infinity)
-                    .padding(.bottom, 96)
                 }
             }
         }
         .background { BrieflyAtmosphere().ignoresSafeArea() }
-        .toolbar(.hidden, for: .navigationBar)
-        .task { model.workflows.showHighlights() }
-        .sheet(isPresented: $showsAbout) {
-            MobileAboutFeedbackView()
+        .navigationTitle("Trash")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                EmptyTrashButton(model: model)
+            }
         }
     }
 }

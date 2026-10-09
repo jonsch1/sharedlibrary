@@ -8,7 +8,6 @@ struct MobileXFeedScreen: View {
     let tab: MobilePrimaryTab
     let openEntry: (LibraryEntry) -> Void
     let openChannel: (LibraryChannel) -> Void
-    let openConfiguration: () -> Void
     let create: () -> Void
     @State private var showsSearch = false
 
@@ -17,9 +16,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home:
             candidates = model.navigation.filteredEntries
-        case .channels:
-            candidates = []
-        case .library:
+        case .channels, .highlights:
             candidates = []
         }
         return candidates
@@ -36,27 +33,19 @@ struct MobileXFeedScreen: View {
                 channelContent
             } else if entries.isEmpty {
                 ScrollView {
-                    VStack(spacing: 0) {
-                        Color.clear
-                            .frame(height: floatingHeaderHeight)
-
-                        XEmptyState(
-                            icon: emptyIcon,
-                            title: emptyTitle,
-                            message: emptyMessage
-                        )
-                        .frame(maxWidth: 720, minHeight: 420)
-                        .frame(maxWidth: .infinity)
-                    }
+                    XEmptyState(
+                        icon: emptyIcon,
+                        title: emptyTitle,
+                        message: emptyMessage
+                    )
+                    .frame(maxWidth: 720, minHeight: 420)
+                    .frame(maxWidth: .infinity)
                 }
                 .scrollIndicators(.hidden)
                 .refreshable { await refresh() }
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        Color.clear
-                            .frame(height: floatingHeaderHeight)
-
                         let pending = entries.filter { $0.captureRequest.map { $0.state != .ready } ?? false }
                         if !pending.isEmpty {
                             HStack {
@@ -87,7 +76,7 @@ struct MobileXFeedScreen: View {
                 .refreshable { await refresh() }
             }
         }
-        .overlay(alignment: .top) { floatingHeader }
+        .mobileHeaderBar { floatingHeader }
         .background { BrieflyAtmosphere().ignoresSafeArea() }
         .toolbar(.hidden, for: .navigationBar)
         .animation(.snappy(duration: 0.24), value: showsSearch)
@@ -98,15 +87,11 @@ struct MobileXFeedScreen: View {
     }
 
     private var channelContent: some View {
-        VStack(spacing: 0) {
-            Color.clear
-                .frame(height: floatingHeaderHeight)
-            ChannelCandidateDocument(
-                model: model,
-                channelID: "",
-                showsNavigationHeader: false
-            )
-        }
+        ChannelCandidateDocument(
+            model: model,
+            channelID: "",
+            showsNavigationHeader: false
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -114,8 +99,6 @@ struct MobileXFeedScreen: View {
         model.navigation.query = ""
         showsSearch = false
     }
-
-    private let floatingHeaderHeight: CGFloat = 95
 
     private var floatingHeader: some View {
         VStack(spacing: 0) {
@@ -136,96 +119,56 @@ struct MobileXFeedScreen: View {
                         identifier: "library.search.open",
                         action: { showsSearch = true }
                     ),
-                    searchesTrailing: tab == .home,
                     primary: MobileXHeaderAction(
                         icon: createIcon,
                         label: createLabel,
                         identifier: createLabel == "Capture" ? "capture.open" : nil,
                         action: create
-                    ),
-                    trailing: configurationAction
+                    )
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             choices
         }
-        .padding(.top, 5)
-        .mobileGlass(
-            in: Rectangle(),
-            interactive: false
-        )
-        .padding(.horizontal, 8)
-        .padding(.top, 4)
         .zIndex(10)
     }
 
     private var choices: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                choiceButton("All", selected: allSelected) {
+                ChoiceChip(title: "All", isSelected: allSelected) {
                     switch tab {
                     case .home: Task { await model.workflows.showTopic("All") }
                     case .channels: model.navigation.selectedChannelSource = ""
-                    case .library: break
+                    case .highlights: break
                     }
                 }
 
                 switch tab {
                 case .home:
                     ForEach(model.session.projection.documentTopics, id: \.self) { topic in
-                        choiceButton(topic, selected: model.navigation.selectedTopic == topic) {
+                        ChoiceChip(title: topic, isSelected: model.navigation.selectedTopic == topic) {
                             Task { await model.workflows.showTopic(topic) }
                         }
                     }
                 case .channels:
                     ForEach(model.channels.channels) { channel in
-                        choiceButton(
-                            channel.title,
-                            selected: model.navigation.selectedChannelSource == channel.source
+                        ChoiceChip(
+                            title: channel.title,
+                            isSelected: model.navigation.selectedChannelSource == channel.source
                         ) {
                             openChannel(channel)
                         }
                     }
-                case .library:
+                case .highlights:
                     EmptyView()
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 8)
+            .padding(.bottom, 4)
         }
         .defaultScrollAnchor(.leading)
-    }
-
-    private func choiceButton(
-        _ label: String,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.subheadline.weight(selected ? .semibold : .regular))
-                .lineLimit(1)
-                .padding(.horizontal, 13)
-                .frame(height: 32)
-                .background(selected ? Color.primary : Color.primary.opacity(0.06), in: Rectangle())
-                .foregroundStyle(selected ? Color(uiColor: .systemBackground) : Color.primary)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var configurationAction: MobileXHeaderAction? {
-        switch tab {
-        case .channels:
-            guard let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) else { return nil }
-            return MobileXHeaderAction(icon: "ellipsis", label: "Channel settings") {
-                model.workflows.showChannelSettings(channel.source)
-                openConfiguration()
-            }
-        default:
-            return nil
-        }
     }
 
     private func refresh() async {
@@ -237,7 +180,7 @@ struct MobileXFeedScreen: View {
             } else {
                 await model.workflows.runDueChannelChecks()
             }
-        case .library: break
+        case .highlights: break
         }
     }
 
@@ -245,7 +188,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Home"
         case .channels: "Channels"
-        case .library: "Library"
+        case .highlights: "Highlights"
         }
     }
 
@@ -253,7 +196,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Search Home"
         case .channels: "Search Channels"
-        case .library: "Search Library"
+        case .highlights: "Search Highlights"
         }
     }
 
@@ -261,7 +204,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: "Capture"
         case .channels: "Manage Channels"
-        case .library: "Capture"
+        case .highlights: "Capture"
         }
     }
 
@@ -273,7 +216,7 @@ struct MobileXFeedScreen: View {
         switch tab {
         case .home: model.navigation.selectedTopic == "All" || model.navigation.selectedTopic.isEmpty
         case .channels: model.navigation.selectedChannelSource.isEmpty
-        case .library: false
+        case .highlights: false
         }
     }
 
@@ -282,7 +225,7 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "tray"
         case .channels: "dot.radiowaves.left.and.right"
-        case .library: "bookmark"
+        case .highlights: "highlighter"
         }
     }
 
@@ -291,7 +234,7 @@ struct MobileXFeedScreen: View {
         return switch tab {
         case .home: "Nothing here yet"
         case .channels: "No channels yet"
-        case .library: "Library is empty"
+        case .highlights: "No highlights yet"
         }
     }
 
@@ -299,8 +242,8 @@ struct MobileXFeedScreen: View {
         if !model.navigation.query.isEmpty { return "Try another search." }
         return switch tab {
         case .home: "Capture a link or note to start your feed."
-        case .channels: "Add a channel, then pull to fetch candidates for review."
-        case .library: "Highlights and recently deleted notes appear here."
+        case .channels: "Add a channel, then pull to check it for new items."
+        case .highlights: "Select a passage in any item, then choose Highlight."
         }
     }
 }

@@ -2,6 +2,35 @@ import SwiftUI
 
 #if os(macOS)
 import AppKit
+import BrieflyCore
+
+/// Title, source line, and topics drawn above the reader text so they scroll with it.
+struct MacReaderHeading: Equatable {
+    let title: String
+    let sourceName: String
+    let sourceURL: URL?
+    let date: String?
+    let topics: [String]
+    let openTopic: (String) -> Void
+
+    init(entry: LibraryEntry, openTopic: @escaping (String) -> Void) {
+        title = entry.title
+        sourceName = entry.sourceName
+        sourceURL = entry.sourceURL.flatMap(URL.init(string:))
+        date = entry.savedDate?.formatted(date: .abbreviated, time: .omitted)
+        topics = entry.topicNames
+        self.openTopic = openTopic
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.title == rhs.title && lhs.sourceName == rhs.sourceName &&
+            lhs.sourceURL == rhs.sourceURL && lhs.date == rhs.date && lhs.topics == rhs.topics
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var macReaderHeading: MacReaderHeading? = nil
+}
 
 struct EditableDocumentTextView: NSViewRepresentable {
     @Binding var text: String
@@ -42,6 +71,7 @@ struct EditableDocumentTextView: NSViewRepresentable {
         textView.highlightAction = onHighlight
         textView.removeHighlightAction = onRemoveHighlight
         textView.highlightedPassages = highlightedPassages
+        textView.heading = context.environment.macReaderHeading
         textView.isSelectable = true
         textView.isEditable = isEditable
         textView.setMarkdown(text)
@@ -58,6 +88,7 @@ struct EditableDocumentTextView: NSViewRepresentable {
         textView.highlightAction = onHighlight
         textView.removeHighlightAction = onRemoveHighlight
         textView.highlightedPassages = highlightedPassages
+        textView.heading = context.environment.macReaderHeading
         if textView.string != text { textView.setMarkdown(text) }
         else { textView.renderMarkdown() }
     }
@@ -99,6 +130,26 @@ private final class MarkdownTextView: NSTextView {
     var highlightAction: ((String) -> Void)?
     var removeHighlightAction: ((String) -> Void)?
     var highlightedPassages = [String]()
+    var heading: MacReaderHeading? {
+        didSet {
+            if let heading {
+                if let headingController {
+                    headingController.rootView = MacReaderHeadingView(heading: heading)
+                } else {
+                    let controller = NSHostingController(rootView: MacReaderHeadingView(heading: heading))
+                    controller.sizingOptions = []
+                    addSubview(controller.view)
+                    headingController = controller
+                }
+            } else {
+                headingController?.view.removeFromSuperview()
+                headingController = nil
+            }
+            guard heading != oldValue else { return }
+            layoutHeading()
+        }
+    }
+    private var headingController: NSHostingController<MacReaderHeadingView>?
     private var highlightButton: NSButton?
     private var highlightedText = ""
     private var removesHighlight = false
@@ -106,10 +157,23 @@ private final class MarkdownTextView: NSTextView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        textContainerInset = NSSize(
-            width: max(32, (newSize.width - 780) / 2),
-            height: 90
-        )
+        layoutHeading()
+    }
+
+    /// Places the heading above the text and pushes the text container below it.
+    private func layoutHeading() {
+        let horizontal = max(32, (frame.width - 780) / 2)
+        var top: CGFloat = 90
+        if let headingController {
+            let width = max(0, frame.width - horizontal * 2)
+            let height = headingController.sizeThatFits(
+                in: NSSize(width: width, height: .greatestFiniteMagnitude)
+            ).height
+            headingController.view.frame = NSRect(x: horizontal, y: 44, width: width, height: height)
+            top = 44 + height + 32
+        }
+        let inset = NSSize(width: horizontal, height: top)
+        if textContainerInset != inset { textContainerInset = inset }
     }
 
     func setMarkdown(_ text: String) {
@@ -284,6 +348,107 @@ private final class MarkdownTextView: NSTextView {
         }
         highlightButton?.removeFromSuperview()
         highlightButton = nil
+    }
+}
+
+private struct MacReaderHeadingView: View {
+    let heading: MacReaderHeading
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(heading.title)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                if let url = heading.sourceURL {
+                    Link(destination: url) {
+                        HStack(spacing: 3) {
+                            Text(heading.sourceName)
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .help("Open original source")
+                } else {
+                    Text(heading.sourceName)
+                }
+                if let date = heading.date {
+                    Text("·")
+                    Text(date)
+                }
+            }
+            .font(.system(size: 15, weight: .medium, design: .rounded))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+
+            if !heading.topics.isEmpty {
+                TopicChipLayout(spacing: 6) {
+                    ForEach(heading.topics, id: \.self) { topic in
+                        Button {
+                            heading.openTopic(topic)
+                        } label: {
+                            Text(topic)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .frame(height: 26)
+                                .background(Color.primary.opacity(0.06), in: Rectangle())
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Show items in \(topic)")
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Wraps topic chips onto as many rows as they need.
+private struct TopicChipLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(width: proposal.width ?? .infinity, subviews: subviews).size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let frames = arrange(width: bounds.width, subviews: subviews).frames
+        for (subview, frame) in zip(subviews, frames) {
+            subview.place(
+                at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                proposal: ProposedViewSize(frame.size)
+            )
+        }
+    }
+
+    private func arrange(width: CGFloat, subviews: Subviews) -> (frames: [CGRect], size: CGSize) {
+        var frames = [CGRect]()
+        var origin = CGPoint.zero
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+            if origin.x > 0 && origin.x + size.width > width {
+                origin = CGPoint(x: 0, y: origin.y + rowHeight + spacing)
+                rowHeight = 0
+            }
+            frames.append(CGRect(origin: origin, size: size))
+            usedWidth = max(usedWidth, origin.x + size.width)
+            origin.x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (frames, CGSize(width: usedWidth, height: origin.y + rowHeight))
     }
 }
 #endif

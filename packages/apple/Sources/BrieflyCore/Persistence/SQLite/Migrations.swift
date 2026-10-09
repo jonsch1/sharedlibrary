@@ -10,9 +10,21 @@ enum SQLiteLibraryMigrator {
         try migrateChannels(library)
         try migrateChannelItems(library)
         try migrateDocuments(library)
+        try migrateExcerptFormat(library)
         try migrateAttachments(library)
         try library.execute("UPDATE processing_jobs SET state = 'queued' WHERE state = 'running'")
         try removeRetiredGeneratedSchema(from: library)
+    }
+
+    /// Stored excerpts are derived text; regenerate them when the excerpt format changes.
+    private static func migrateExcerptFormat(_ library: SQLiteLibrary) throws {
+        let excerptFormat = 1
+        let stored = try library.query("PRAGMA user_version") { columnText($0, 0) }
+        guard (stored.first.flatMap { Int($0) } ?? 0) < excerptFormat else { return }
+        try library.transaction {
+            try library.backfillExcerpts()
+            try library.execute("PRAGMA user_version = \(excerptFormat)")
+        }
     }
 
     private static func migrateDocuments(_ library: SQLiteLibrary) throws {

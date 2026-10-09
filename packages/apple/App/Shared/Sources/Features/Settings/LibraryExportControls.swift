@@ -14,13 +14,25 @@ struct LibraryExportControls: View {
     @State private var showsExporter = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Export everything stored on this device, including summaries, sources, attachments, and pending items. Sync first to include changes from other devices.")
-                .font(.callout).foregroundStyle(.secondary)
-            Button("Export SQLite database…") { begin(.sqlite) }
-            Button("Export Markdown folder…") { begin(.markdown) }
-            if isExporting { ProgressView("Preparing export…").controlSize(.small) }
-            if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+        VStack(alignment: .leading, spacing: 4) {
+            SettingsActionRow(
+                icon: "folder",
+                title: "Export as Markdown…",
+                subtitle: "A folder of readable files for other apps."
+            ) { begin(.markdown) }
+            SettingsActionRow(
+                icon: "cylinder.split.1x2",
+                title: "Export database…",
+                subtitle: "A complete SQLite copy for backups."
+            ) { begin(.sqlite) }
+            Text(message ?? (isExporting
+                ? "Preparing export…"
+                : "Exports include summaries, sources, attachments, and pending items on this device. Sync first to include changes from your other devices."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
         }
         .disabled(isExporting || model.session.library == nil)
         #if os(iOS)

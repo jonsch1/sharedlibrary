@@ -2,6 +2,27 @@ import SwiftUI
 
 #if os(iOS)
 import UIKit
+import BrieflyCore
+
+/// Title and source line drawn above the reader text so they scroll with it.
+struct ReaderHeading: Equatable {
+    let title: String
+    let byline: String
+
+    init(entry: LibraryEntry) {
+        title = entry.title
+        byline = [
+            entry.sourceName,
+            entry.savedDate?.formatted(date: .abbreviated, time: .omitted)
+        ]
+        .compactMap { $0 }
+        .joined(separator: " · ")
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var readerHeading: ReaderHeading? = nil
+}
 
 struct EditableDocumentTextView: UIViewRepresentable {
     @Binding var text: String
@@ -20,12 +41,13 @@ struct EditableDocumentTextView: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.alwaysBounceVertical = true
         textView.textContainerInset = UIEdgeInsets(
-            top: 90,
-            left: 32,
-            bottom: 240,
-            right: 32
+            top: MarkdownTextView.contentTop,
+            left: 24,
+            bottom: 160,
+            right: 24
         )
         textView.textContainer.lineFragmentPadding = 0
+        textView.heading = context.environment.readerHeading
         textView.highlightedPassages = highlightedPassages
         textView.setMarkdown(text)
         return textView
@@ -35,6 +57,7 @@ struct EditableDocumentTextView: UIViewRepresentable {
         context.coordinator.parent = self
         textView.isEditable = isEditable
         textView.isSelectable = true
+        textView.heading = context.environment.readerHeading
         textView.highlightedPassages = highlightedPassages
         if textView.text != text { textView.setMarkdown(text) }
         else { textView.renderMarkdown() }
@@ -85,8 +108,76 @@ struct EditableDocumentTextView: UIViewRepresentable {
 }
 
 final class MarkdownTextView: UITextView {
+    static let contentTop: CGFloat = 24
     var highlightedPassages = [String]()
+    var heading: ReaderHeading? {
+        didSet {
+            guard heading != oldValue else { return }
+            titleLabel.text = heading?.title
+            bylineLabel.text = heading?.byline
+            headingView.isHidden = heading == nil
+            setNeedsLayout()
+        }
+    }
     private var isRendering = false
+    private let titleLabel = UILabel()
+    private let bylineLabel = UILabel()
+    private lazy var headingView: UIStackView = {
+        titleLabel.font = UIFontMetrics(forTextStyle: .title1).scaledFont(
+            for: roundedFont(size: 28, weight: .bold)
+        )
+        titleLabel.numberOfLines = 0
+        titleLabel.textColor = .label
+        titleLabel.accessibilityTraits = .header
+        bylineLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: roundedFont(size: 15, weight: .medium)
+        )
+        bylineLabel.numberOfLines = 1
+        bylineLabel.textColor = .secondaryLabel
+        for label in [titleLabel, bylineLabel] {
+            label.adjustsFontForContentSizeCategory = true
+        }
+        let stack = UIStackView(arrangedSubviews: [titleLabel, bylineLabel])
+        stack.axis = .vertical
+        stack.spacing = 6
+        stack.isHidden = true
+        addSubview(stack)
+        return stack
+    }()
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutHeading()
+    }
+
+    /// Places the heading in the top text inset and grows the inset to fit it.
+    private func layoutHeading() {
+        var top = Self.contentTop
+        if heading != nil {
+            let width = bounds.width - textContainerInset.left - textContainerInset.right
+            let height = headingView.systemLayoutSizeFitting(
+                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+            headingView.frame = CGRect(
+                x: textContainerInset.left,
+                y: Self.contentTop,
+                width: width,
+                height: height
+            )
+            top += height + 28
+        }
+        if textContainerInset.top != top {
+            textContainerInset.top = top
+        }
+    }
+
+    private func roundedFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
+        let font = UIFont.systemFont(ofSize: size, weight: weight)
+        guard let descriptor = font.fontDescriptor.withDesign(.rounded) else { return font }
+        return UIFont(descriptor: descriptor, size: size)
+    }
 
     func setMarkdown(_ markdown: String) {
         text = markdown

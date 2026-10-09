@@ -1,553 +1,95 @@
-import Foundation
-import CryptoKit
-import AuthenticationServices
 import SwiftUI
-import BrieflyCore
 
 #if os(macOS)
+/// Settings inside the main window: a short section index beside the selected
+/// section, both drawn directly on the window background.
 struct MacXSettingsWorkspace: View {
-    @AppStorage("BrieflyAppearance") private var appearance = "system"
     @Bindable var model: LibraryModel
     @Binding var selectedSection: BrieflySettingsSection
-    @State private var query = ""
-    @State private var captureShortcut = CaptureShortcut.load()
-    @State private var shortcutRegistered = UserDefaults.standard.bool(
-        forKey: "BrieflyCaptureShortcutRegistered"
-    )
-    @State private var appleSignInNonce = ""
-    @State private var showingAccountDeletionConfirmation = false
-
-    private var filteredSections: [BrieflySettingsSection] {
-        guard !query.isEmpty else { return BrieflySettingsSection.allCases }
-        return BrieflySettingsSection.allCases.filter {
-            $0.title.localizedCaseInsensitiveContains(query) ||
-                subtitle(for: $0).localizedCaseInsensitiveContains(query)
-        }
-    }
+    let indexWidth: CGFloat
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             settingsIndex
-                .frame(width: 390)
+                .frame(width: indexWidth)
 
             settingsDetail
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background(.ultraThinMaterial.opacity(0.48))
-        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-        .onChange(of: captureShortcut) {
-            captureShortcut.save()
-            NotificationCenter.default.post(
-                name: .brieflyCaptureShortcutChanged,
-                object: nil
-            )
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: .brieflyCaptureShortcutRegistrationChanged
-            )
-        ) { notification in
-            shortcutRegistered = notification.object as? Bool ?? false
-        }
         .task {
             await model.account.refreshAccount()
-        }
-        .alert(
-            "Delete Briefly Account?",
-            isPresented: $showingAccountDeletionConfirmation
-        ) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete Account", role: .destructive) {
-                Task { await model.account.deleteAccount() }
-            }
-        } message: {
-            Text(
-                "This permanently removes your Briefly server account, public shares, " +
-                    "sessions, feedback, and service usage. It does not delete your local " +
-                    "or iCloud library. Content-moderation records may be retained where " +
-                    "legally required."
-            )
         }
     }
 
     private var settingsIndex: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Settings")
-                .font(.title2.weight(.bold))
-                .padding(.horizontal, 18)
-                .padding(.top, 17)
-                .padding(.bottom, 14)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Settings")
+                    .font(.title2.weight(.bold))
+                    .padding(.horizontal, 12)
+                    .frame(height: 40, alignment: .leading)
+                    .padding(.bottom, 12)
 
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search Settings", text: $query)
-                    .textFieldStyle(.plain)
-                if !query.isEmpty {
-                    Button { query = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
+                ForEach(BrieflySettingsSection.available) { section in
+                    Button { selectedSection = section } label: {
+                        indexRow(section.title, icon: section.icon, selected: selectedSection == section)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
                 }
+
+                SettingsWebLinks()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 28)
             }
-            .padding(.horizontal, 13)
-            .frame(height: 40)
-            .background(Color.primary.opacity(0.055), in: Rectangle())
-            .overlay { Rectangle().stroke(Color.primary.opacity(0.09)) }
-            .padding(.horizontal, 14)
-            .padding(.bottom, 10)
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredSections) { section in
-                        Button { selectedSection = section } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: section.icon)
-                                    .frame(width: 22)
-                                    .foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(section.title)
-                                        .font(.callout.weight(.medium))
-                                    Text(subtitle(for: section))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 55)
-                            .background(
-                                selectedSection == section
-                                    ? Color.primary.opacity(0.055)
-                                    : .clear
-                            )
-                            .overlay(alignment: .trailing) {
-                                Rectangle()
-                                    .fill(selectedSection == section ? Color.accentColor : .clear)
-                                    .frame(width: 3)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Divider().padding(.vertical, 8)
-                    indexLink("Feedback", icon: "bubble.left.and.bubble.right", url: "https://www.readbriefly.fyi/feedback")
-                    indexLink("Privacy Policy", icon: "hand.raised", url: "https://www.readbriefly.fyi/privacy")
-                    indexLink("Terms of Use", icon: "doc.text", url: "https://www.readbriefly.fyi/terms")
-                }
-            }
-        }
-        .background(.ultraThinMaterial.opacity(0.42))
-        .overlay(alignment: .trailing) { Divider() }
-    }
-
-    private var settingsDetail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(selectedSection.title)
-                        .font(.title2.weight(.bold))
-                    Text(detailSubtitle(for: selectedSection))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 14)
-
-                Divider()
-                detailContent
-            }
+            .padding(.top, 16)
+            .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
     }
 
-    @ViewBuilder
-    private var detailContent: some View {
-        switch selectedSection {
-        case .general:
-            detailGroup("Display") {
-                detailRow(icon: "circle.lefthalf.filled", title: "Appearance", subtitle: "Choose how Briefly looks on this Mac") {
-                    Picker("", selection: $appearance) {
-                        Text("System").tag("system")
-                        Text("Light").tag("light")
-                        Text("Dark").tag("dark")
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 210)
-                }
-            }
-            detailGroup("Backgrounds") {
-                BrieflyBackgroundSetting(appearance: .light)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                Divider().padding(.leading, 20)
-                BrieflyBackgroundSetting(appearance: .dark)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                Text("Custom backgrounds are stored on this Mac and can be reset independently.")
-                    .font(.caption)
+    private var settingsDetail: some View {
+        ScrollView {
+            SettingsSectionContent(section: selectedSection, model: model)
+                .frame(maxWidth: 600, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .id(selectedSection)
+        }
+        .scrollIndicators(.hidden)
+        .fadingHeaderBar {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(selectedSection.title)
+                    .font(.title2.weight(.bold))
+                    .frame(height: 40, alignment: .leading)
+                Text(selectedSection.summary)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 18)
             }
-
-        case .library:
-            detailGroup("Export library") {
-                LibraryExportControls(model: model)
-            }
-            detailGroup("Library") {
-                valueRow(icon: "internaldrive", title: "Storage", value: "Local SQLite database")
-                valueRow(icon: "checkmark.circle", title: "Status", value: model.session.status)
-                if let error = model.lifecycle.syncError {
-                    Text(error).font(.caption).foregroundStyle(.secondary)
-                }
-                actionRow(icon: "arrow.clockwise", title: "Refresh library", subtitle: "Reload all saved notes from local storage") {
-                    Task { await model.workflows.refreshLibrary() }
-                }
-                actionRow(icon: "arrow.triangle.2.circlepath", title: model.lifecycle.isSyncing ? "Syncing…" : "Sync with iCloud", subtitle: "Push and pull the latest library changes") {
-                    Task { await model.workflows.sync() }
-                }
-                .disabled(model.lifecycle.isSyncing)
-            }
-
-        case .capture:
-            detailGroup("Shortcut") {
-                detailRow(icon: "keyboard", title: "Global shortcut", subtitle: shortcutRegistered ? "Active system-wide" : "Choose another shortcut") {
-                    ShortcutRecorder(shortcut: $captureShortcut)
-                        .frame(width: 150, height: 30)
-                }
-            }
-
-            detailGroup("Custom source handling") {
-                TimelineView(.periodic(from: .now, by: 5)) { _ in
-                    let status = model.processing.inputService.captureCoordinator.runnerStatus()
-                    valueRow(icon: "puzzlepiece.extension", title: "Adapter runner",
-                             value: status.connected ? "Connected · \(status.adapterCount) handlers" : "Not connected · using native capture")
-                }
-                Text("Your capture shortcut checks connected custom handlers first. Start the adapter runner from your script to connect it.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-        case .account:
-            detailGroup("Your account") {
-                valueRow(icon: "person.crop.circle", title: "Account", value: model.account.account.authenticated ? model.account.account.email ?? "Signed in" : "Signed out")
-                if model.account.account.authenticated {
-                    valueRow(icon: "checkmark.seal", title: "Access", value: "TestFlight beta")
-                    actionRow(icon: "arrow.clockwise", title: "Refresh account", subtitle: "Check sign-in status") {
-                        Task { await model.account.refreshAccount(reportErrors: true) }
-                    }
-                    actionRow(icon: "rectangle.portrait.and.arrow.right", title: "Sign out", subtitle: "Remove this account from the Mac", destructive: true) {
-                        Task { await model.account.signOut() }
-                    }
-                    actionRow(icon: "trash", title: "Delete Briefly account", subtitle: "Permanently delete server account data", destructive: true) {
-                        showingAccountDeletionConfirmation = true
-                    }
-                    .disabled(model.account.isDeletingAccount)
-                } else {
-                    SignInWithAppleButton(.signIn) { request in
-                        let nonce = randomAppleNonce()
-                        appleSignInNonce = nonce
-                        request.requestedScopes = [.email]
-                        request.nonce = SHA256.hash(data: Data(nonce.utf8))
-                            .map { String(format: "%02x", $0) }
-                            .joined()
-                    } onCompletion: { result in
-                        let nonce = appleSignInNonce
-                        appleSignInNonce = ""
-                        Task { await model.account.signInWithApple(result, nonce: nonce) }
-                    }
-                    .signInWithAppleButtonStyle(.black)
-                    .frame(width: 260, height: 42)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 16)
-                }
-            }
-
-        case .topics:
-            detailGroup("Topics") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("One reusable topic per line, written as “id: Title”.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: $model.settings.topicsText)
-                        .font(.system(.body, design: .monospaced))
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 220)
-                        .padding(10)
-                        .background(Color.primary.opacity(0.04))
-                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                    HStack {
-                        Spacer()
-                        Button("Save topics") { Task { await model.workflows.saveTopics() } }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.roundedRectangle(radius: 0))
-                    }
-                }
-                .padding(20)
-            }
-
-        case .ai:
-            detailGroup("AI processing") {
-                Group {
-                    if model.settings.isProcessingConfigured {
-                        Label(
-                            "AI setup verified. Briefly is ready to process captures.",
-                            systemImage: "checkmark.circle.fill"
-                        )
-                        .foregroundStyle(.green)
-                    } else {
-                        Label(
-                            model.settings.processingTestMessage ??
-                                "Choose a local command or add an OpenRouter key, then test the connection.",
-                            systemImage: model.settings.processingTestMessage == nil
-                                ? "exclamationmark.triangle.fill"
-                                : "xmark.circle.fill"
-                        )
-                        .foregroundStyle(
-                            model.settings.processingTestMessage == nil ? .orange : .red
-                        )
-                    }
-                }
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("OpenRouter API key (optional)")
-                        .font(.callout.weight(.semibold))
-                    SecureField("sk-or-v1-…", text: $model.settings.openRouterAPIKey)
-                        .textFieldStyle(.plain)
-                        .padding(11)
-                        .background(Color.primary.opacity(0.04))
-                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                    Text(
-                        model.settings.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            ? "Leave blank to use a locally installed CLI such as Codex, Claude, or Gemini."
-                            : "Briefly uses this key directly with OpenRouter on this Mac."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(20)
-                Divider().padding(.leading, 58)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Codex access")
-                        .font(.callout.weight(.semibold))
-                    Text(model.settings.codexAccessDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button(model.settings.hasCodexAccess ? "Choose a different folder" : "Grant access to Codex") {
-                        model.settings.grantCodexAccess()
-                    }
-                }
-                .padding(20)
-                Divider().padding(.leading, 58)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Processing command")
-                        .font(.callout.weight(.semibold))
-                    Menu("Choose processing preset") {
-                        Button("Codex") { model.settings.processingCommand = defaultProcessingCommand }
-                        Button("Claude") {
-                            model.settings.processingCommand =
-                                #"claude -p --tools "" --strict-mcp-config --no-session-persistence"#
-                        }
-                        Button("Gemini") {
-                            model.settings.processingCommand =
-                                #"gemini --output-format json -p "$(cat)""#
-                        }
-                        Button("Pi") {
-                            model.settings.processingCommand =
-                                "pi -p --no-tools --no-session --no-context-files --no-extensions --no-skills"
-                        }
-                        Button("OpenCode") {
-                            model.settings.processingCommand = #"opencode run --pure "$(cat)""#
-                        }
-                    }
-                    TextField("Command", text: $model.settings.processingCommand, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .padding(11)
-                        .background(Color.primary.opacity(0.04))
-                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                }
-                .padding(20)
-                Divider().padding(.leading, 58)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Processing prompt")
-                        .font(.callout.weight(.semibold))
-                    TextEditor(text: $model.settings.processingPrompt)
-                        .font(.system(.caption, design: .monospaced))
-                        .scrollContentBackground(.hidden)
-                        .frame(minHeight: 230)
-                        .padding(10)
-                        .background(Color.primary.opacity(0.04))
-                        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                    HStack {
-                        Button("Restore default") { model.settings.processingPrompt = defaultProcessingPrompt }
-                        Button {
-                            Task { await model.settings.testProcessingCommand() }
-                        } label: {
-                            if model.settings.isTestingAI {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label("Test connection", systemImage: "bolt.horizontal")
-                            }
-                        }
-                            .disabled(
-                                model.settings.isTestingAI ||
-                                (model.settings.requiresCodexAccess && !model.settings.hasCodexAccess)
-                            )
-                        Spacer()
-                        Button("Save") { model.settings.saveProcessingSettings() }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.roundedRectangle(radius: 0))
-                    }
-                }
-                .padding(20)
-            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func detailGroup<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.headline)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 10)
-            content()
-        }
-    }
-
-    private func detailRow<Trailing: View>(
-        icon: String,
-        title: String,
-        subtitle: String,
-        @ViewBuilder trailing: () -> Trailing
-    ) -> some View {
-        HStack(spacing: 13) {
+    private func indexRow(_ title: String, icon: String, selected: Bool) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.callout.weight(.medium))
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            trailing()
+                .font(.system(size: 15, weight: selected ? .semibold : .regular))
+                .frame(width: 22)
+            Text(title)
+                .font(.system(size: 15, weight: selected ? .bold : .medium))
+                .lineLimit(1)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 20)
-        .frame(minHeight: 62)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
-    }
-
-    private func valueRow(icon: String, title: String, value: String) -> some View {
-        detailRow(icon: icon, title: title, subtitle: value) {
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private func actionRow(
-        icon: String,
-        title: String,
-        subtitle: String,
-        destructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 13) {
-                Image(systemName: icon)
-                    .foregroundStyle(destructive ? Color.red : Color.secondary)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(destructive ? Color.red : Color.primary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 20)
-            .frame(minHeight: 62)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
-    }
-
-    private func externalDetailRow(icon: String, title: String, url: String) -> some View {
-        Link(destination: URL(string: url)!) {
-            HStack(spacing: 13) {
-                Image(systemName: icon).foregroundStyle(.secondary).frame(width: 24)
-                Text(title).font(.callout.weight(.medium))
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 20)
-            .frame(minHeight: 62)
-        }
-        .foregroundStyle(.primary)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, 57) }
-    }
-
-    private func indexLink(_ title: String, icon: String, url: String) -> some View {
-        Link(destination: URL(string: url)!) {
-            HStack(spacing: 12) {
-                Image(systemName: icon).frame(width: 22).foregroundStyle(.secondary)
-                Text(title).font(.callout.weight(.medium))
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 46)
-        }
-        .foregroundStyle(.primary)
-    }
-
-    private func subtitle(for section: BrieflySettingsSection) -> String {
-        switch section {
-        case .general: "Color scheme and display"
-        case .library: "Storage, refresh, and iCloud"
-        case .capture: "System-wide keyboard shortcut"
-        case .account: "Sign-in and beta access"
-        case .topics: "Reusable library topics"
-        case .ai: "Provider, command, and prompt"
-        }
-    }
-
-    private func detailSubtitle(for section: BrieflySettingsSection) -> String {
-        switch section {
-        case .general: "Manage how Briefly content is displayed to you."
-        case .library: "Manage local storage, refresh, and synchronization."
-        case .capture: "Choose the keyboard shortcut used to capture from anywhere."
-        case .account: "See account information and optional Apple sign-in."
-        case .topics: "Manage the reusable topics applied to saved notes."
-        case .ai: "Choose how Briefly processes and summarizes content."
-        }
+        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.72))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+        .background(selected ? Color.primary.opacity(0.055) : .clear, in: Rectangle())
+        .contentShape(Rectangle())
     }
 }
 #endif

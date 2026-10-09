@@ -87,6 +87,11 @@ final class LibraryModel {
     #if os(macOS)
     @ObservationIgnored
     private var agentServer: BrieflyAgentSocketServer?
+    static let lastAgentRequestKey = "BrieflyLastAgentRequestAt"
+    /// When an assistant last completed a library request through briefly-mcp.
+    private(set) var lastAgentRequestAt = UserDefaults.standard.object(
+        forKey: LibraryModel.lastAgentRequestKey
+    ) as? Date
     #endif
 
     init(environment: AppEnvironment = .current()) {
@@ -129,7 +134,12 @@ final class LibraryModel {
             guard let self else {
                 return BrieflyAgentReply(error: .unavailable)
             }
-            return await self.handleAgentCall(call)
+            let reply = await self.handleAgentCall(call)
+            // Adapter runners use the same socket; only assistant requests count as a connection.
+            if reply.error == nil, call.op != "adapter_runner" {
+                await self.recordAgentRequest()
+            }
+            return reply
         }
         try? agentServer.start()
         self.agentServer = agentServer
@@ -197,6 +207,12 @@ final class LibraryModel {
     }
 
     #if os(macOS)
+    private func recordAgentRequest() {
+        let now = Date()
+        lastAgentRequestAt = now
+        UserDefaults.standard.set(now, forKey: Self.lastAgentRequestKey)
+    }
+
     private func handleAgentCall(_ call: BrieflyAgentCall) async -> BrieflyAgentReply {
         do {
             if call.op == "adapter_runner" {

@@ -16,7 +16,6 @@ struct HighlightsDocument: View {
                 Spacer()
             }
             .padding(18)
-            .background(.regularMaterial)
 
             Divider()
 
@@ -25,7 +24,7 @@ struct HighlightsDocument: View {
                     XEmptyState(
                         icon: "highlighter",
                         title: "No highlights yet",
-                        message: "Select a passage in any document, then choose Highlight."
+                        message: "Select a passage in any item, then choose Highlight."
                     )
                 } else {
                     ScrollView {
@@ -42,7 +41,5 @@ struct HighlightsDocument: View {
         }
         .frame(maxWidth: 680)
         .frame(maxWidth: .infinity, alignment: .top)
-        .background(.ultraThinMaterial.opacity(0.64))
-        .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
     }
 }

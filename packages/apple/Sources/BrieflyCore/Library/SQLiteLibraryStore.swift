@@ -18,12 +18,8 @@ public enum LibraryError: LocalizedError {
     case channelFailed(String)
     case invalidProcessingOutput
     case invalidProcessingPrompt
-    case invalidProcessingCommand
     case invalidTopic
     case invalidTopicDefinitions(String)
-    case processingFailed(String)
-    case processingOutputTooLarge
-    case processingTimedOut
     case processingUnavailable
     case invalidSynchronizedFile(String)
 
@@ -49,13 +45,9 @@ public enum LibraryError: LocalizedError {
             "AI processing did not return the required summaries and topic."
         case .invalidProcessingPrompt:
             "The processing prompt must include {{topics}} and {{source}}."
-        case .invalidProcessingCommand: "The AI command must contain 1–4,000 characters."
         case .invalidTopic: "Topic titles must contain 1–48 characters."
         case .invalidTopicDefinitions(let message): message
-        case .processingFailed(let message): message
-        case .processingOutputTooLarge: "The AI command returned more than 10 MB of output."
-        case .processingTimedOut: "AI processing timed out after 5 minutes."
-        case .processingUnavailable: "Local AI commands are only available in the macOS app."
+        case .processingUnavailable: "AI processing is available in Briefly on Mac."
         case .invalidSynchronizedFile(let path): "The synchronized copy of \(path) is invalid."
         }
     }

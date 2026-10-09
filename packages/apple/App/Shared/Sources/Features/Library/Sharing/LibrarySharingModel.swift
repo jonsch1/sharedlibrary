@@ -12,14 +12,14 @@ final class LibrarySharingModel {
 
     func shareStatus(for entry: LibraryEntry) async throws -> BrieflyShareLinkStatus {
         guard let captureID = entry.captureID else {
-            throw BrieflyBackendError.message("This document cannot be published.")
+            throw BrieflyBackendError.message("This item cannot be published.")
         }
         return try await session.backend.shareStatus(captureID: captureID)
     }
 
     func publishShare(for entry: LibraryEntry) async throws -> BrieflyShareLinkStatus {
         guard let captureID = entry.captureID else {
-            throw BrieflyBackendError.message("This document cannot be published.")
+            throw BrieflyBackendError.message("This item cannot be published.")
         }
         guard let library = session.library else {
             throw BrieflyBackendError.message("Open the local library before publishing.")
@@ -36,7 +36,7 @@ final class LibrarySharingModel {
         }
         guard !texts.isEmpty else {
             throw BrieflyBackendError.message(
-                "Create at least one summary before publishing this document."
+                "Create at least one summary before publishing this item."
             )
         }
         let source = BrieflyShareSource(

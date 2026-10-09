@@ -4,10 +4,11 @@ import Foundation
 import Observation
 
 struct LibraryProcessingConfiguration: Sendable {
-    let command: String
     let prompt: String
     let openRouterAPIKey: String?
-    let codexHome: URL?
+    let modelID: String
+    let reasoningEffort: String?
+    let model: OpenRouterModel?
 }
 
 @MainActor
@@ -130,31 +131,14 @@ final class LibraryProcessingModel {
                 entryID: entryID,
                 template: configuration.prompt
             )
-            let output: String
-            if let apiKey = configuration.openRouterAPIKey,
-               !apiKey.isEmpty {
-                output = try await runOpenRouterProcessing(
-                    prompt: prompt,
-                    format: "json",
-                    apiKey: apiKey
-                )
-            } else {
-                #if os(macOS)
-                let hasAccess = configuration.codexHome?.startAccessingSecurityScopedResource() ?? false
-                defer {
-                    if hasAccess { configuration.codexHome?.stopAccessingSecurityScopedResource() }
-                }
-                output = try await runProcessingCommand(
-                    configuration.command,
-                    prompt: prompt,
-                    environmentOverrides: configuration.codexHome.map {
-                        ["CODEX_HOME": $0.path]
-                    } ?? [:]
-                )
-                #else
-                throw LibraryError.processingUnavailable
-                #endif
+            guard let apiKey = configuration.openRouterAPIKey, !apiKey.isEmpty else {
+                throw BrieflyBackendError.message("Connect to OpenRouter in Settings → AI Processing to create summaries.")
             }
+            let output = try await runOpenRouterProcessing(
+                prompt: prompt, format: "json", apiKey: apiKey,
+                modelID: configuration.modelID, reasoningEffort: configuration.reasoningEffort,
+                model: configuration.model
+            )
             let suggestion = try ProcessingSuggestion.decode(output)
             let processedID = try await library.applyProcessingSuggestion(
                 entryID: entryID,
@@ -191,102 +175,6 @@ final class LibraryProcessingModel {
             )
         }
     }
-}
-
-private struct OpenRouterResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable {
-            let content: String?
-        }
-
-        let message: Message
-    }
-
-    let choices: [Choice]
-}
-
-private struct OpenRouterFailure: Decodable {
-    struct Detail: Decodable {
-        let message: String?
-    }
-
-    let error: Detail?
-}
-
-func runOpenRouterProcessing(
-    prompt: String,
-    format: String,
-    apiKey: String
-) async throws -> String {
-    guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-        throw BrieflyBackendError.message("Enter an OpenRouter API key first.")
-    }
-    guard let url = URL(string: "https://openrouter.ai/api/v1/chat/completions") else {
-        throw BrieflyBackendError.message("The OpenRouter service URL is invalid.")
-    }
-
-    var request = URLRequest(url: url, timeoutInterval: 15 * 60)
-    request.httpMethod = "POST"
-    request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("https://www.readbriefly.fyi", forHTTPHeaderField: "HTTP-Referer")
-    request.setValue("Briefly", forHTTPHeaderField: "X-Title")
-
-    var payload: [String: Any] = [
-        "model": "openai/gpt-5.6-luna",
-        "messages": [["role": "user", "content": prompt]],
-        "max_tokens": format == "json" ? 32_000 : 16_000,
-        "provider": [
-            "order": ["fireworks"],
-            "allow_fallbacks": true
-        ]
-    ]
-    if format == "json" {
-        payload["response_format"] = [
-            "type": "json_schema",
-            "json_schema": [
-                "name": "briefly_processing",
-                "strict": true,
-                "schema": [
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": [
-                        "short_filename": ["type": "string"],
-                        "summaries": [
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": [
-                                "detailed": ["type": "string"],
-                                "concise": ["type": "string"]
-                            ],
-                            "required": ["detailed", "concise"]
-                        ],
-                        "topic_name": ["type": "string"]
-                    ],
-                    "required": ["short_filename", "summaries", "topic_name"]
-                ]
-            ]
-        ]
-    }
-    request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-
-    let (data, rawResponse) = try await URLSession.shared.data(for: request)
-    guard let response = rawResponse as? HTTPURLResponse else {
-        throw BrieflyBackendError.message("OpenRouter returned an invalid response.")
-    }
-    guard (200..<300).contains(response.statusCode) else {
-        let failure = try? JSONDecoder().decode(OpenRouterFailure.self, from: data)
-        throw BrieflyBackendError.message(
-            failure?.error?.message ?? "OpenRouter could not process this request."
-        )
-    }
-    let result = try? JSONDecoder().decode(OpenRouterResponse.self, from: data)
-    guard let output = result?.choices.first?.message.content?
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-        !output.isEmpty else {
-        throw BrieflyBackendError.message("OpenRouter returned no output.")
-    }
-    return output
 }
 
 #endif

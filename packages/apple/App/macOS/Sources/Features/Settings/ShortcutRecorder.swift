@@ -30,7 +30,8 @@ struct ShortcutRecorder: NSViewRepresentable {
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
-            bezelStyle = .rounded
+            // Borderless so the settings field fill shows through as a square control.
+            isBordered = false
             setButtonType(.momentaryPushIn)
             title = displayedShortcut.label
         }

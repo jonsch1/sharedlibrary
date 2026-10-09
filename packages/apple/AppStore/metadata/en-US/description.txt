@@ -6,7 +6,7 @@ On iPhone and iPad, read the library that your Mac prepared. Choose a concise su
 
 Your library is stored locally and can sync privately between your Apple devices through iCloud. Nothing becomes public unless you create an unlisted share link. Sign in with Apple is optional.
 
-The Mac app can use your own OpenRouter API key or a supported local AI command. The iPhone and iPad apps do not extract or summarize content.
+On Mac, sign in with OpenRouter or connect your own API key, enter a model ID, and choose a reasoning effort when the model supports it. AI usage is billed to your OpenRouter account. The iPhone and iPad apps do not extract or summarize content.
 
 You can export the complete library as its SQLite database or as a folder of Markdown files.
 

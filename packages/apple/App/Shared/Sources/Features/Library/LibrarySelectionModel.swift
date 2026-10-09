@@ -211,7 +211,7 @@ final class LibrarySelectionModel {
                     $0.id == entryID
                 }
             }
-            session.status = "Document saved"
+            session.status = "Item saved"
             return true
         } catch {
             session.errorMessage = error.localizedDescription
@@ -256,8 +256,8 @@ final class LibrarySelectionModel {
             for id in ids { try await library.moveToTrash(entryID: id) }
             clear()
             session.status = ids.count == 1
-                ? "The document and its summaries were moved to Trash"
-                : "\(ids.count) documents and their summaries were moved to Trash"
+                ? "The item and its summaries were moved to Trash"
+                : "\(ids.count) items and their summaries were moved to Trash"
             return ids.count
         } catch {
             session.errorMessage = error.localizedDescription

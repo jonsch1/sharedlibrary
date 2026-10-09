@@ -87,8 +87,8 @@ struct BrieflyOnboarding: View {
             Screen(title: "Set up AI processing",
                    introduction: "Processing runs on this Mac. You choose the AI it uses.",
                    points: [
-                    "Open Settings → AI processing. Choose a local AI command or enter an OpenRouter key.",
-                    "Test the connection and save your settings.",
+                    "Open Settings → AI Processing and sign in with OpenRouter.",
+                    "Choose your model and, when supported, its reasoning effort. Briefly saves these choices automatically.",
                     "Keep Briefly running while it processes items. If something fails, the saved item stays in your library so you can retry."
                    ]),
             Screen(title: "Read on your phone",

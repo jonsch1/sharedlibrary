@@ -19,7 +19,9 @@ struct ContentView: View {
     @State private var showsFileImporter = false
     @State private var windowControlsVisible = true
     #if os(macOS)
+    @AppStorage(MacWorkspaceLayout.sidebarCollapsedKey) private var sidebarCollapsed = false
     @State private var selectedSettingsSection = BrieflySettingsSection.general
+    @State private var focusesSearch = false
     #endif
     @State private var audioPlayer = NativeAudioPlayer()
     @State private var audioEntry: LibraryEntry?
@@ -33,66 +35,14 @@ struct ContentView: View {
             } else {
                 if model.lifecycle.isReady {
                 #if os(macOS)
-                ZStack(alignment: .bottomTrailing) {
-                    HStack(alignment: .top, spacing: 24) {
-                        MacXNavigation(
-                            model: model,
-                            showsSettings: $showsSettings,
-                            showsCaptureComposer: $showsCaptureComposer,
-                            selectedSettingsSection: $selectedSettingsSection
+                GeometryReader { proxy in
+                    macWorkspace(
+                        MacWorkspaceLayout(
+                            windowWidth: proxy.size.width,
+                            sidebarCollapsed: sidebarCollapsed
                         )
-                        .frame(width: 220)
-
-                        if showsSettings {
-                            MacXSettingsWorkspace(
-                                model: model,
-                                selectedSection: $selectedSettingsSection
-                            )
-                                .frame(width: 1_014)
-                        } else {
-                            LibraryDetail(
-                                model: model,
-                                audioPlayer: audioPlayer,
-                                audioEntry: $audioEntry
-                            )
-                            .layoutPriority(1)
-                            .frame(width: 680)
-                            .frame(maxHeight: .infinity)
-                            .background(
-                                .ultraThinMaterial.opacity(0.56),
-                                in: Rectangle()
-                            )
-                            .clipShape(
-                                Rectangle()
-                            )
-                            .overlay {
-                                Rectangle()
-                                    .stroke(Color.primary.opacity(0.10))
-                            }
-
-                            MacXRightRail(model: model)
-                                .frame(width: 310)
-                        }
-                    }
-
-                    if showsDesktopAudioControl {
-                        HStack(spacing: 0) {
-                            MacAudioPlayButton(
-                                model: model,
-                                entry: model.selection.selectedEntry,
-                                audioPlayer: audioPlayer,
-                                audioEntry: $audioEntry
-                            )
-                            Spacer(minLength: 0)
-                        }
-                        .frame(width: 310, alignment: .leading)
-                        .padding(.bottom, 24)
-                    }
+                    )
                 }
-                .padding(.horizontal, 20)
-                .frame(maxWidth: 1298, maxHeight: .infinity, alignment: .top)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background {
                     BrieflyAtmosphere()
                         .ignoresSafeArea()
@@ -128,6 +78,12 @@ struct ContentView: View {
                 }
             }
         }
+        #if os(macOS)
+        .frame(
+            minWidth: MacWorkspaceLayout.minimumWindowSize.width,
+            minHeight: MacWorkspaceLayout.minimumWindowSize.height
+        )
+        #endif
         .task {
             await model.workflows.start()
         }
@@ -170,7 +126,9 @@ struct ContentView: View {
         #if os(iOS)
         .fullScreenCover(isPresented: $showsSettings, onDismiss: {
             initialSettingsSection = nil
-        }) {
+        }) { [initialSettingsSection] in
+            // The capture list reads the section during body evaluation, so the first
+            // presentation doesn't open with a stale value.
             SettingsView(model: model, initialSection: initialSettingsSection)
         }
         .fullScreenCover(isPresented: $showsCaptureComposer) { CaptureComposer(model: model) }
@@ -188,7 +146,7 @@ struct ContentView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard urls.count == 1 else {
-                model.session.errorMessage = "Drop one document or link at a time."
+                model.session.errorMessage = "Drop one file or link at a time."
                 return false
             }
             if urls[0].isFileURL {
@@ -218,6 +176,7 @@ struct ContentView: View {
         .overlay(alignment: .top) {
             if !needsOnboarding, let message = model.session.errorMessage {
                 XErrorBanner(message: message, dismiss: model.workflows.clearError)
+                    .padding(.horizontal, 20)
                     .padding(.top, 18)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -268,6 +227,43 @@ struct ContentView: View {
         ) { _ in
             Task<Void, Never> { await model.workflows.refreshLibrary() }
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .brieflyOpenCaptureComposer)
+        ) { _ in
+            guard showsWorkspace else { return }
+            showsCaptureComposer = true
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .brieflyOpenSettings)
+        ) { _ in
+            guard showsWorkspace else { return }
+            showsSettings = true
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .brieflyNavigateBack)
+        ) { _ in
+            guard showsWorkspace, model.selection.selectedEntry != nil else { return }
+            showsSettings = false
+            Task { await model.workflows.select("") }
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .brieflyFocusSearch)
+        ) { _ in
+            guard showsWorkspace else { return }
+            showsSettings = false
+            // The search field sits at the top of the list, so return to it first.
+            if model.navigation.showingHighlights {
+                model.workflows.showInbox()
+            } else if model.navigation.activeSection == .channels &&
+                (model.navigation.showingChannelSettings ||
+                    !model.navigation.selectedChannelSource.isEmpty)
+            {
+                model.workflows.selectChannel("")
+            } else if model.selection.selectedEntry != nil {
+                Task { await model.workflows.select("") }
+            }
+            focusesSearch = true
+        }
         #endif
         .preferredColorScheme(
             appearance == "light" ? .light :
@@ -286,11 +282,46 @@ struct ContentView: View {
     }
 
     #if os(macOS)
-    private var showsDesktopAudioControl: Bool {
-        audioPlayer.isPlaying ||
-            (!showsSettings &&
-                !model.navigation.showingHighlights &&
-                model.selection.selectedEntry != nil)
+    private var showsWorkspace: Bool {
+        !needsOnboarding && model.lifecycle.isReady
+    }
+
+    private func macWorkspace(_ layout: MacWorkspaceLayout) -> some View {
+        HStack(alignment: .top, spacing: MacWorkspaceLayout.spacing) {
+            MacXNavigation(
+                model: model,
+                showsSettings: $showsSettings,
+                showsCaptureComposer: $showsCaptureComposer,
+                selectedSettingsSection: $selectedSettingsSection,
+                collapsed: $sidebarCollapsed,
+                windowControlsInset: layout.windowControlsInset
+            )
+            .frame(width: layout.sidebarWidth)
+
+            if showsSettings {
+                MacXSettingsWorkspace(
+                    model: model,
+                    selectedSection: $selectedSettingsSection,
+                    indexWidth: layout.settingsIndexWidth
+                )
+                .frame(width: layout.settingsWidth)
+                .frame(maxHeight: .infinity)
+            } else {
+                LibraryDetail(
+                    model: model,
+                    audioPlayer: audioPlayer,
+                    audioEntry: $audioEntry
+                )
+                .environment(\.librarySearchFocusRequest, $focusesSearch)
+                .frame(width: layout.readerColumnWidth)
+                .frame(maxHeight: .infinity)
+                .clipShape(Rectangle())
+            }
+        }
+        .padding(.leading, layout.leadingOffset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .ignoresSafeArea(.container, edges: .top)
+        .animation(.snappy(duration: 0.22), value: sidebarCollapsed)
     }
     #endif
 }

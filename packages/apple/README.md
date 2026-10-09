@@ -36,8 +36,7 @@ Swift package depends on this package's `BrieflyCore` library.
   viewing only; authenticated extraction stays in-app so the session remains
   available to Briefly.
 - Native Sign in with Apple, personal context, an editable processing prompt,
-  macOS provider commands, optional user-supplied OpenRouter processing, and
-  share links.
+  macOS OpenRouter browser sign-in or user-supplied API keys, and share links.
 - Startup-warmed on-device audio generation with paragraph-level progressive
   playback, local caching, resume position, seeking, speed, and volume.
 - Local-first CKSyncEngine synchronization of logical records and attachments;
@@ -64,8 +63,25 @@ To connect the private CloudKit library:
 
 Also add **Sign in with Apple** if account-backed features are being tested. The
 TestFlight beta is free and does not use app-funded hosted AI.
-macOS users can enter their own OpenRouter API key or configure a local provider
-CLI; iOS captures and stores items without summaries.
+macOS users can sign in with OpenRouter or enter their own API key; AI usage is
+charged to their OpenRouter account. iOS captures and stores items without summaries.
+
+OpenRouter sign-in uses PKCE (S256) in the default browser. A temporary listener
+binds only to `127.0.0.1` on a random port, with a random callback path for each
+attempt. Briefly exchanges the authorization code directly with OpenRouter and
+stores the resulting key in the Mac Keychain. Canceling or completing the attempt
+closes the listener. Disconnect removes the local key; users can revoke it in
+OpenRouter settings. The Mac's network-server entitlement permits this callback
+while keeping App Sandbox enabled.
+
+AI settings link to OpenRouter’s model catalog and accept a `provider/model-id`.
+Briefly validates the ID through OpenRouter’s single-model endpoint and fetches
+that model’s supported reasoning efforts, defaults, and base token prices. Model
+details are cached for six hours and can be refreshed manually. Models must accept
+text and support structured outputs. Switching models resets effort to the model
+default; choosing an effort saves it immediately. Summary processing and connection
+tests both use these choices, with provider routing limited to endpoints that
+support the requested parameters.
 
 The app uses the private `BrieflyDocuments` zone. Each local transaction adds
 or coalesces a logical-record outbox entry for CKSyncEngine.
@@ -119,8 +135,7 @@ The iOS check requires the iOS Simulator platform installed in Xcode.
 
 ## Platform-specific limits
 
-- macOS summaries use either a user-supplied OpenRouter API key or a local
-  command-line provider such as Codex, Claude, or Gemini. iOS reads synced content
+- macOS summaries use the user's OpenRouter account. iOS reads synced content
   and can queue original items for Mac processing.
 - Scheduled channel checks run on the Mac at launch and while the app remains active.
 - The native clients can generate local speech for ordinary library documents.

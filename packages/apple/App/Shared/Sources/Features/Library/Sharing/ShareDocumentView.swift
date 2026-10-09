@@ -32,7 +32,6 @@ struct ShareDocumentView: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 54)
-            Divider()
 
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -52,14 +51,8 @@ struct ShareDocumentView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(20)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.ultraThinMaterial.opacity(0.72))
-                .clipShape(Rectangle())
-                .overlay {
-                    Rectangle()
-                        .stroke(Color.primary.opacity(0.10))
-                }
 
                 if !model.account.account.authenticated {
                     Label(
@@ -125,7 +118,7 @@ struct ShareDocumentView: View {
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(.regularMaterial)
+        .background { BrieflyAtmosphere().ignoresSafeArea() }
         .task { await load() }
         #if os(macOS)
         .frame(minWidth: 540, minHeight: 390)

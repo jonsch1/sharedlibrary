@@ -27,7 +27,7 @@ struct XErrorBanner: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .frame(width: 520)
+        .frame(maxWidth: 520)
         .background(.regularMaterial, in: Rectangle())
         .overlay {
             Rectangle()

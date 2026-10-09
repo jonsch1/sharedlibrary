@@ -12,6 +12,11 @@ separate submission after iOS is through review.
 
 ## Status
 
+On October 1, 2026, macOS version **1.0.1 (16)** and iOS/iPadOS version
+**1.0 (16)** were uploaded and submitted to App Review. Both are **Waiting for
+Review**, with automatic release after approval. The listings and review notes
+describe OpenRouter browser sign-in, model IDs, and supported reasoning efforts.
+
 - [x] Confirm current upload toolchain requirement: Xcode 26 or later. The local
   machine has Xcode 26.0.1.
 - [x] Confirm the native app bundle ID: `fyi.readbriefly.BrieflyNative`.

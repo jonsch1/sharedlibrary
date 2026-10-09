@@ -20,6 +20,7 @@
 		100000000000000000000190 /* BrieflyBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000190 /* BrieflyBackground.swift */; };
 		100000000000000000000109 /* GlassEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000109 /* GlassEffects.swift */; };
 		100000000000000000000110 /* GrainyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000110 /* GrainyCard.swift */; };
+		1000000000000000000005C1 /* ChoiceChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2000000000000000000005C1 /* ChoiceChip.swift */; };
 		100000000000000000000112 /* CaptureComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000112 /* CaptureComposer.swift */; };
 		100000000000000000000186 /* LibraryInputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000186 /* LibraryInputService.swift */; };
 		100000000000000000000114 /* MacPageExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000114 /* MacPageExtractor.swift */; };
@@ -68,7 +69,10 @@
 		100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000159 /* ChannelSettingsComponents.swift */; };
 		100000000000000000000160 /* LibraryAccountModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000160 /* LibraryAccountModel.swift */; };
 		100000000000000000000161 /* LibrarySettingsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000161 /* LibrarySettingsModel.swift */; };
+		100000000000000000000191 /* OpenRouterConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000191 /* OpenRouterConnectionView.swift */; };
 		100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000162 /* MacSettingsWorkspace.swift */; };
+		100000000000000000000601 /* AgentConnectionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000601 /* AgentConnectionSettings.swift */; };
+		100000000000000000000600 /* SKILL.md in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000600 /* SKILL.md */; platformFilters = (macos, ); };
 		100000000000000000000164 /* SettingsHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000164 /* SettingsHelpers.swift */; };
 		100000000000000000000165 /* SettingsSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000165 /* SettingsSections.swift */; };
 		100000000000000000000166 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000166 /* SettingsView.swift */; };
@@ -167,6 +171,7 @@
 		200000000000000000000190 /* BrieflyBackground.swift */ = {path = "App/Shared/Sources/DesignSystem/BrieflyBackground.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "BrieflyBackground.swift"; };
 		200000000000000000000109 /* GlassEffects.swift */ = {path = "App/Shared/Sources/DesignSystem/GlassEffects.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GlassEffects.swift"; };
 		200000000000000000000110 /* GrainyCard.swift */ = {path = "App/Shared/Sources/DesignSystem/GrainyCard.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "GrainyCard.swift"; };
+		2000000000000000000005C1 /* ChoiceChip.swift */ = {path = "App/Shared/Sources/DesignSystem/ChoiceChip.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChoiceChip.swift"; };
 		200000000000000000000112 /* CaptureComposer.swift */ = {path = "App/Shared/Sources/Features/Capture/CaptureComposer.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "CaptureComposer.swift"; };
 		200000000000000000000186 /* LibraryInputService.swift */ = {path = "App/macOS/Sources/Features/Capture/LibraryInputService.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryInputService.swift"; };
 		200000000000000000000114 /* MacPageExtractor.swift */ = {path = "App/macOS/Sources/Features/Capture/MacPageExtractor.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacPageExtractor.swift"; };
@@ -215,7 +220,10 @@
 		200000000000000000000159 /* ChannelSettingsComponents.swift */ = {path = "App/Shared/Sources/Features/Settings/ChannelSettingsComponents.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ChannelSettingsComponents.swift"; };
 		200000000000000000000160 /* LibraryAccountModel.swift */ = {path = "App/Shared/Sources/Features/Settings/LibraryAccountModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibraryAccountModel.swift"; };
 		200000000000000000000161 /* LibrarySettingsModel.swift */ = {path = "App/Shared/Sources/Features/Settings/LibrarySettingsModel.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "LibrarySettingsModel.swift"; };
+		200000000000000000000191 /* OpenRouterConnectionView.swift */ = {path = "App/Shared/Sources/Features/Settings/OpenRouterConnectionView.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "OpenRouterConnectionView.swift"; };
 		200000000000000000000162 /* MacSettingsWorkspace.swift */ = {path = "App/macOS/Sources/Features/Settings/MacSettingsWorkspace.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "MacSettingsWorkspace.swift"; };
+		200000000000000000000601 /* AgentConnectionSettings.swift */ = {path = "App/macOS/Sources/Features/Settings/AgentConnectionSettings.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "AgentConnectionSettings.swift"; };
+		200000000000000000000600 /* SKILL.md */ = {path = "../mcp/plugin/skills/briefly/SKILL.md"; isa = PBXFileReference; lastKnownFileType = "net.daringfireball.markdown"; sourceTree = SOURCE_ROOT; name = "SKILL.md"; };
 		200000000000000000000185 /* ShortcutRecorder.swift */ = {path = "App/macOS/Sources/Features/Settings/ShortcutRecorder.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "ShortcutRecorder.swift"; };
 		200000000000000000000164 /* SettingsHelpers.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsHelpers.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsHelpers.swift"; };
 		200000000000000000000165 /* SettingsSections.swift */ = {path = "App/Shared/Sources/Features/Settings/SettingsSections.swift"; isa = PBXFileReference; lastKnownFileType = "sourcecode.swift"; sourceTree = SOURCE_ROOT; name = "SettingsSections.swift"; };
@@ -322,6 +330,7 @@
 			children = (
 				200000000000000000000005 /* Assets.xcassets */,
 				F20000000000000000000001 /* PrivacyInfo.xcprivacy */,
+				200000000000000000000600 /* SKILL.md */,
 			);
 			name = "Resources";
 			sourceTree = "<group>";
@@ -356,6 +365,7 @@
 				200000000000000000000190 /* BrieflyBackground.swift */,
 				200000000000000000000109 /* GlassEffects.swift */,
 				200000000000000000000110 /* GrainyCard.swift */,
+				2000000000000000000005C1 /* ChoiceChip.swift */,
 			);
 			name = "DesignSystem";
 			sourceTree = "<group>";
@@ -468,6 +478,7 @@
 				200000000000000000000159 /* ChannelSettingsComponents.swift */,
 				200000000000000000000160 /* LibraryAccountModel.swift */,
 				200000000000000000000161 /* LibrarySettingsModel.swift */,
+				200000000000000000000191 /* OpenRouterConnectionView.swift */,
 				200000000000000000000164 /* SettingsHelpers.swift */,
 				200000000000000000000165 /* SettingsSections.swift */,
 				200000000000000000000166 /* SettingsView.swift */,
@@ -665,6 +676,7 @@
 			isa = PBXGroup;
 			children = (
 				200000000000000000000162 /* MacSettingsWorkspace.swift */,
+				200000000000000000000601 /* AgentConnectionSettings.swift */,
 				200000000000000000000185 /* ShortcutRecorder.swift */,
 			);
 			name = "Settings";
@@ -893,6 +905,7 @@
 			files = (
 				100000000000000000000005 /* Assets.xcassets in Resources */,
 				F10000000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+				100000000000000000000600 /* SKILL.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -930,6 +943,7 @@
 				100000000000000000000190 /* BrieflyBackground.swift in Sources */,
 				100000000000000000000109 /* GlassEffects.swift in Sources */,
 				100000000000000000000110 /* GrainyCard.swift in Sources */,
+				1000000000000000000005C1 /* ChoiceChip.swift in Sources */,
 				100000000000000000000112 /* CaptureComposer.swift in Sources */,
 				100000000000000000000186 /* LibraryInputService.swift in Sources */,
 				100000000000000000000114 /* MacPageExtractor.swift in Sources */,
@@ -981,7 +995,9 @@
 				100000000000000000000159 /* ChannelSettingsComponents.swift in Sources */,
 				100000000000000000000160 /* LibraryAccountModel.swift in Sources */,
 				100000000000000000000161 /* LibrarySettingsModel.swift in Sources */,
+				100000000000000000000191 /* OpenRouterConnectionView.swift in Sources */,
 				100000000000000000000162 /* MacSettingsWorkspace.swift in Sources */,
+				100000000000000000000601 /* AgentConnectionSettings.swift in Sources */,
 				100000000000000000000164 /* SettingsHelpers.swift in Sources */,
 				100000000000000000000165 /* SettingsSections.swift in Sources */,
 				100000000000000000000166 /* SettingsView.swift in Sources */,
@@ -1167,6 +1183,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
+				"MARKETING_VERSION[sdk=macosx*]" = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;
@@ -1205,6 +1222,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 1.0;
+				"MARKETING_VERSION[sdk=macosx*]" = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.readbriefly.BrieflyNative;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = auto;

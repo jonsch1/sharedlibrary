@@ -4,6 +4,10 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	build: {
+		// The CSP allows fonts only from 'self', so never inline small font subsets as data: URLs.
+		assetsInlineLimit: (file) => (file.endsWith('.woff2') || file.endsWith('.woff') ? false : undefined)
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

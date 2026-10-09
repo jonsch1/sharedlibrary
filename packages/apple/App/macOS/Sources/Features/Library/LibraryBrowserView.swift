@@ -3,18 +3,24 @@ import SwiftUI
 import BrieflyCore
 
 #if os(macOS)
+extension EnvironmentValues {
+    /// Set by ⌘F; the library list focuses its search field and clears the request.
+    @Entry var librarySearchFocusRequest: Binding<Bool> = .constant(false)
+}
+
 struct LibraryCardBrowser: View {
     @Bindable var model: LibraryModel
+    @Environment(\.librarySearchFocusRequest) private var searchFocusRequest
+    @FocusState private var searchFocused: Bool
+    @State private var topicBeingRenamed: String?
+    @State private var renamedTopic = ""
+    @State private var topicBeingDeleted: String?
 
     private var channels: [LibraryChannel] {
         model.channels.filteredChannels(query: model.navigation.query).filter {
             model.navigation.selectedChannelDomain == "All" ||
                 channelDomain($0.primarySource) == model.navigation.selectedChannelDomain
         }
-    }
-
-    private var count: Int {
-        model.navigation.filteredEntries(trashEntries: model.selection.trashEntries).count
     }
 
     private var feedEntries: [LibraryEntry] {
@@ -24,21 +30,15 @@ struct LibraryCardBrowser: View {
     var body: some View {
         Group {
             if model.navigation.activeSection == .channels {
-                VStack(spacing: 0) {
-                    feedHeader
-                        .frame(maxWidth: 680)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                    ChannelCandidateDocument(
-                        model: model,
-                        channelID: "",
-                        showsNavigationHeader: false
-                    )
-                }
+                ChannelCandidateDocument(
+                    model: model,
+                    channelID: "",
+                    showsNavigationHeader: false
+                )
             } else {
                 ScrollView {
-                    if count == 0 {
-                        VStack(spacing: 0) {
-                            feedHeader
+                    Group {
+                        if feedEntries.isEmpty {
                             XEmptyState(
                                 icon: emptyIcon,
                                 title: emptyTitle,
@@ -49,48 +49,112 @@ struct LibraryCardBrowser: View {
                                 } : nil
                             )
                             .frame(minHeight: 360)
+                        } else {
+                            feedColumn(feedEntries)
                         }
-                        .frame(maxWidth: 680)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                    } else {
-                        browserContent
                     }
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
                 .scrollIndicators(.hidden)
             }
         }
+        // The search field lives in the bar, outside the scroll content, so typing a
+        // query with no matches keeps focus.
+        .fadingHeaderBar {
+            VStack(spacing: 0) {
+                searchField
+                feedHeader
+            }
+            .frame(maxWidth: 680)
+            .frame(maxWidth: .infinity)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial.opacity(0.24))
-    }
-
-    @ViewBuilder
-    private var browserContent: some View {
-        switch model.navigation.activeSection {
-        case .items:
-            feedColumn(feedEntries)
-                .frame(maxWidth: 680)
-                .frame(maxWidth: .infinity, alignment: .top)
-        case .channels:
-            EmptyView()
+        .task(id: searchFocusRequest.wrappedValue) {
+            guard searchFocusRequest.wrappedValue else { return }
+            searchFocused = true
+            searchFocusRequest.wrappedValue = false
+        }
+        .alert("Rename topic", isPresented: renamingTopic) {
+            TextField("Topic name", text: $renamedTopic)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                guard let topicBeingRenamed else { return }
+                Task { await model.workflows.renameTopic(topicBeingRenamed, to: renamedTopic) }
+            }
+            .disabled(renamedTopic.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .alert("Delete topic?", isPresented: deletingTopic) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                guard let topicBeingDeleted else { return }
+                Task { await model.workflows.deleteTopic(topicBeingDeleted) }
+            }
+        } message: {
+            Text("The topic will be removed, but its items will stay in your library.")
         }
     }
 
-    private func feedColumn(_ entries: [LibraryEntry]) -> some View {
-        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-            Section {
-                ForEach(entries) { entry in
-                    let row = FeedEntryRow(
-                        entry: entry,
-                        action: { Task { await model.workflows.select(entry.id) } }
-                    )
-                    if model.navigation.showingTrash {
-                        row.modifier(TrashItemContextMenu(model: model, entry: entry))
-                    } else {
-                        row.modifier(EntryContextMenu(model: model, entry: entry))
-                    }
+    private var searchField: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(searchPrompt, text: $model.navigation.query)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+                .accessibilityIdentifier("library.search")
+            if !model.navigation.query.isEmpty {
+                Button {
+                    model.navigation.query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 32, height: 40)
+                        .contentShape(Rectangle())
                 }
-            } header: {
-                feedHeader
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 13)
+        .frame(height: 40)
+        .background(Color.primary.opacity(0.055), in: Rectangle())
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 4)
+    }
+
+    private var searchPrompt: String {
+        if model.navigation.activeSection == .channels { return "Search channels" }
+        return model.navigation.showingTrash ? "Search Trash" : "Search your library"
+    }
+
+    private var renamingTopic: Binding<Bool> {
+        Binding(
+            get: { topicBeingRenamed != nil },
+            set: { if !$0 { topicBeingRenamed = nil } }
+        )
+    }
+
+    private var deletingTopic: Binding<Bool> {
+        Binding(
+            get: { topicBeingDeleted != nil },
+            set: { if !$0 { topicBeingDeleted = nil } }
+        )
+    }
+
+    private func feedColumn(_ entries: [LibraryEntry]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(entries) { entry in
+                let row = FeedEntryRow(
+                    entry: entry,
+                    action: { Task { await model.workflows.select(entry.id) } }
+                )
+                if model.navigation.showingTrash {
+                    row.modifier(TrashItemContextMenu(model: model, entry: entry))
+                } else {
+                    row.modifier(EntryContextMenu(model: model, entry: entry))
+                }
             }
         }
     }
@@ -105,25 +169,20 @@ struct LibraryCardBrowser: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
-            } else { feedTabs }
+            } else {
+                feedTabs
+                    .overlay(alignment: .topTrailing) {
+                        if model.navigation.activeSection != .items {
+                            feedHeaderAction
+                                .padding(.top, 8)
+                                .padding(.trailing, 10)
+                        }
+                    }
+            }
 
             Color.clear
                 .frame(height: 1)
                 .padding(.top, 12)
-        }
-        #if os(macOS)
-        .macLiquidGlass(
-            in: Rectangle()
-        )
-        #else
-        .background(.regularMaterial)
-        #endif
-        .overlay(alignment: .topTrailing) {
-            if model.navigation.activeSection != .items {
-                feedHeaderAction
-                    .padding(.top, 12)
-                    .padding(.trailing, 10)
-            }
         }
     }
 
@@ -133,13 +192,15 @@ struct LibraryCardBrowser: View {
         case .items:
             ScrollView(.horizontal) {
                 HStack(spacing: 20) {
-                    topicTab("All")
+                    selectionTab("All", selected: model.navigation.selectedTopic == "All") {
+                        Task { await model.workflows.showTopic("All") }
+                    }
                     ForEach(Array(model.session.projection.documentTopics.prefix(7)), id: \.self) {
                         topicTab($0)
                     }
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 24)
+                .padding(.top, 8)
             }
             .scrollIndicators(.hidden)
         case .channels:
@@ -190,7 +251,7 @@ struct LibraryCardBrowser: View {
             }
             .padding(.horizontal, 18)
             .padding(.trailing, 62)
-            .padding(.top, 24)
+            .padding(.top, 8)
         }
         .scrollIndicators(.hidden)
     }
@@ -218,30 +279,26 @@ struct LibraryCardBrowser: View {
     }
 
     private func topicTab(_ topic: String) -> some View {
-        let selected = model.navigation.selectedTopic == topic
-        return Button {
+        selectionTab(topic, selected: model.navigation.selectedTopic == topic) {
             Task { await model.workflows.showTopic(topic) }
-        } label: {
-            VStack(spacing: 8) {
-                Text(topic)
-                    .font(.system(size: 16, weight: selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? .primary : .secondary)
-                    .lineLimit(1)
-                Rectangle()
-                    .fill(selected ? Color.accentColor : .clear)
-                    .frame(height: 4)
-            }
-            .frame(minHeight: 44)
-            .padding(.horizontal, 4)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .contextMenu {
+            if model.session.canEdit {
+                Button("Rename…", systemImage: "pencil") {
+                    renamedTopic = topic
+                    topicBeingRenamed = topic
+                }
+                Button("Delete…", systemImage: "trash", role: .destructive) {
+                    topicBeingDeleted = topic
+                }
+            }
+        }
     }
 
     private var emptyTitle: String {
         if !model.navigation.query.isEmpty { return "No matches" }
         return switch model.navigation.activeSection {
-        case .items: model.navigation.showingTrash ? "Trash is empty" : "No notes yet"
+        case .items: model.navigation.showingTrash ? "Trash is empty" : "No items yet"
         case .channels:
             model.navigation.selectedChannelSource.isEmpty
                 ? "No channels yet"
@@ -261,12 +318,12 @@ struct LibraryCardBrowser: View {
         return switch model.navigation.activeSection {
         case .items:
             model.navigation.showingTrash
-                ? "Notes moved to Trash appear here."
-                : "Add a note to start your library."
+                ? "Items moved to Trash appear here."
+                : "Capture a link or note to start your library."
         case .channels:
             model.navigation.selectedChannelSource.isEmpty
                 ? "Add a channel to follow its updates."
-                : "Fetch fresh candidates when you are ready."
+                : "New items from your channels appear here."
         }
     }
 

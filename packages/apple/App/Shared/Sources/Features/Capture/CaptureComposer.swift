@@ -23,8 +23,8 @@ struct CaptureComposer: View {
     }
 
     private enum CaptureTab: String, CaseIterable, Identifiable {
-        case files = "Files"
         case text = "Text or link"
+        case files = "Files"
         var id: Self { self }
     }
 
@@ -41,12 +41,25 @@ struct CaptureComposer: View {
                     .disabled(isSaving || (tab == .files ? file == nil : draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
                     .accessibilityIdentifier("capture.save")
             }
+            #if os(iOS)
+            HStack(spacing: 4) {
+                ForEach(CaptureTab.allCases) { item in
+                    ChoiceChip(title: item.rawValue, isSelected: tab == item, fillsWidth: true) {
+                        tab = item
+                    }
+                }
+            }
+            .disabled(isSaving)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("capture.tabs")
+            #else
             Picker("Input", selection: $tab) {
                 ForEach(CaptureTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
             }
             .pickerStyle(.segmented)
             .disabled(isSaving)
             .accessibilityIdentifier("capture.tabs")
+            #endif
 
             if tab == .files {
                 VStack(spacing: 18) {
@@ -85,8 +98,24 @@ struct CaptureComposer: View {
                         .focused($focused)
                         .scrollContentBackground(.hidden)
                         .padding(8)
+                        .background(alignment: .topLeading) {
+                            if draft.isEmpty {
+                                // Aligns with the editor's first line inside its text inset.
+                                Text("Paste a link or type a note")
+                                    .font(.body)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.horizontal, 13)
+                                    #if os(iOS)
+                                    .padding(.vertical, 16)
+                                    #else
+                                    .padding(.vertical, 8)
+                                    #endif
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .background(Color.primary.opacity(0.03))
                         .accessibilityIdentifier("capture.text")
+                        .accessibilityLabel("Text or link")
                     Button("Paste clipboard", systemImage: "clipboard") { readClipboard() }
                         .buttonStyle(.plain)
                         .font(.callout)
@@ -112,6 +141,9 @@ struct CaptureComposer: View {
         .task {
             model.workflows.clearError()
             readClipboard()
+            // Focus only takes once the sheet has finished presenting.
+            try? await Task.sleep(for: .milliseconds(400))
+            focused = tab == .text
         }
     }
 

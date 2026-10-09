@@ -140,12 +140,14 @@ struct ChannelCandidateDocument: View {
                     }
                     .buttonStyle(.plain)
                     .contentShape(Circle())
+                    .accessibilityLabel("Back")
+                    .help("Back")
 
                     Spacer()
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 56)
-                .background(.regularMaterial)
+                .fadingBarBackground()
             }
             #endif
 
@@ -174,17 +176,18 @@ struct ChannelCandidateDocument: View {
                     } else {
                         XEmptyState(
                             icon: "checkmark.circle",
-                            title: "Nothing waiting for review",
+                            title: "Nothing to review",
                             message: skippedItemIDs.isEmpty
                                 ? isAllChannels
-                                    ? "Check your channels for more candidates."
-                                    : "Check this channel for more candidates."
-                                : "You have reached the end of the unskipped candidates."
+                                    ? "New items from your channels appear here."
+                                    : "New items from this channel appear here."
+                                : "You've skipped every remaining item."
                         )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .layoutPriority(1)
+                .scrollContentEdgeFade()
 
                 actionBar
             }
@@ -193,7 +196,6 @@ struct ChannelCandidateDocument: View {
         #if os(macOS)
         .frame(maxWidth: 680)
         .frame(maxWidth: .infinity, alignment: .top)
-        .background(.ultraThinMaterial.opacity(0.64))
         #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #endif
@@ -233,84 +235,93 @@ struct ChannelCandidateDocument: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             if let current = candidates.first {
-                actionButton("Accept", systemImage: "checkmark", progress: deciding == .accept) {
-                    decide(.accept, current)
-                }
-                Divider().frame(height: 20).padding(.horizontal, 4)
                 actionButton("Reject", systemImage: "xmark", progress: deciding == .reject) {
                     decide(.reject, current)
                 }
-                Divider().frame(height: 20).padding(.horizontal, 4)
                 actionButton("Skip", systemImage: "forward", progress: false) {
                     skippedItemIDs.insert(current.reviewKey)
+                }
+                actionButton(
+                    "Accept",
+                    systemImage: "checkmark",
+                    prominent: true,
+                    progress: deciding == .accept
+                ) {
+                    decide(.accept, current)
                 }
             } else if canLoadMore {
                 actionButton(
                     "Load more",
                     systemImage: "arrow.down.circle",
+                    prominent: true,
                     progress: deciding == .loadMore
                 ) {
                     loadMore()
                 }
             } else {
                 actionButton(
-                    "Fetch fresh",
+                    "Check for new items",
                     systemImage: "arrow.clockwise",
+                    prominent: true,
                     progress: deciding == .refresh
                 ) {
                     refresh()
                 }
             }
         }
-        .frame(maxWidth: .infinity)
         .disabled(
             deciding != nil || model.channels.isAcceptingReviewCandidate ||
                 model.channels.isCheckingChannel
         )
+        .padding(.horizontal, 16)
+        .padding(.top, 20)
         #if os(iOS)
-        .background(readerBackground)
-        .clipShape(Rectangle())
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(.primary.opacity(0.08))
-                .frame(height: 1)
-        }
+        .padding(.bottom, 10)
+        #else
+        .padding(.bottom, 14)
         #endif
-        #if os(macOS)
-        .background(.regularMaterial)
-        #endif
+        .frame(maxWidth: .infinity)
+        .fadingBarBackground(.bottom)
     }
 
+    /// Square review action: the decision to make is solid, the alternatives are frosted
+    /// like unselected chips.
     private func actionButton(
         _ title: String,
         systemImage: String,
+        prominent: Bool = false,
         progress: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
                 if progress {
-                    ProgressView().controlSize(.small)
+                    ProgressView()
+                        .controlSize(.small)
                 } else {
                     Image(systemName: systemImage)
+                        .font(.subheadline.weight(.bold))
                 }
                 Text(title)
+                    .lineLimit(1)
             }
-            .font(ReaderActionBarMetrics.iconFont)
-            .padding(.horizontal, 10)
+            .font(.headline)
+            .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
-            #if os(iOS)
-            .frame(height: 64)
-            #else
-            .frame(height: 52)
-            #endif
+            .frame(height: 48)
+            .foregroundStyle(prominent ? AnyShapeStyle(.background) : AnyShapeStyle(.primary))
+            .background {
+                if prominent {
+                    Rectangle().fill(Color.primary)
+                } else {
+                    Rectangle().fill(.thinMaterial).overlay(Color.primary.opacity(0.05))
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
         .accessibilityLabel(title)
         #if os(macOS)
         .help(title)

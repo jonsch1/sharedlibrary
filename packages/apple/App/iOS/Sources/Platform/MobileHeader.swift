@@ -15,67 +15,58 @@ struct MobileXHeaderMenuItem {
     let action: () -> Void
 }
 
+/// Top bar shared by the tab roots: logo or title on the leading edge, then
+/// search, the screen's primary action, and the overflow menu on the trailing edge.
 struct MobileXHeader: View {
     let title: String
     var showsLogo = false
     var search: MobileXHeaderAction? = nil
-    var searchesTrailing = false
     var primary: MobileXHeaderAction? = nil
-    var trailing: MobileXHeaderAction? = nil
     var menuItems: [MobileXHeaderMenuItem] = []
 
     var body: some View {
-        ZStack {
-            if !showsLogo {
+        HStack(spacing: 6) {
+            if showsLogo {
+                BrieflyLogo()
+                    .padding(.leading, 6)
+            } else {
                 Text(title)
-                    .font(.headline.weight(.bold))
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+                    .padding(.leading, 6)
+                    .accessibilityAddTraits(.isHeader)
             }
 
-            HStack(spacing: 6) {
-                if showsLogo {
-                    BrieflyLogo()
-                        .padding(.leading, 6)
-                }
+            Spacer(minLength: 8)
 
-                if let search, !searchesTrailing {
-                    headerButton(search)
-                }
+            if let search {
+                headerButton(search)
+            }
 
-                Spacer()
+            if let primary {
+                headerButton(primary)
+            }
 
-                if let search, searchesTrailing {
-                    headerButton(search)
-                }
-
-                if let trailing {
-                    headerButton(trailing)
-                }
-
-                if let primary {
-                    headerButton(primary)
-                }
-
-                if !menuItems.isEmpty {
-                    Menu {
-                        ForEach(Array(menuItems.enumerated()), id: \.offset) { _, item in
-                            Button(action: item.action) {
-                                Label(item.title, systemImage: item.icon)
-                            }
-                            .accessibilityIdentifier(
-                                item.identifier ?? "header.menu.\(slug(item.title))"
-                            )
+            if !menuItems.isEmpty {
+                Menu {
+                    ForEach(Array(menuItems.enumerated()), id: \.offset) { _, item in
+                        Button(action: item.action) {
+                            Label(item.title, systemImage: item.icon)
                         }
-                    } label: {
-                        headerIcon("ellipsis")
+                        .accessibilityIdentifier(
+                            item.identifier ?? "header.menu.\(slug(item.title))"
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("More")
-                    .accessibilityIdentifier("library.more")
+                } label: {
+                    headerIcon("ellipsis")
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("More")
+                .accessibilityIdentifier("library.more")
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: 44)
+        .frame(height: 52)
     }
 
     private func headerButton(_ action: MobileXHeaderAction) -> some View {
@@ -92,13 +83,25 @@ struct MobileXHeader: View {
     private func headerIcon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 18, weight: .semibold))
-            .frame(width: 42, height: 42)
+            .frame(width: 44, height: 44)
             .background(Color.primary.opacity(0.06), in: Circle())
             .contentShape(Circle())
     }
 
     private func slug(_ value: String) -> String {
         value.lowercased().replacingOccurrences(of: " ", with: "-")
+    }
+}
+
+extension View {
+    /// Pins a tab root's header above its content without a backing panel.
+    func mobileHeaderBar<Header: View>(@ViewBuilder _ header: () -> Header) -> some View {
+        fadingHeaderBar {
+            header()
+                .padding(.horizontal, 8)
+                .padding(.top, 9)
+                .padding(.bottom, 6)
+        }
     }
 }
 
@@ -130,15 +133,17 @@ struct MobileXSearchField: View {
             }
             .padding(.leading, 14)
             .padding(.trailing, 6)
-            .frame(height: 40)
+            .frame(height: 44)
             .background(Color.primary.opacity(0.07), in: Rectangle())
 
             Button("Cancel", action: cancel)
                 .font(.subheadline.weight(.semibold))
                 .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
         .padding(.horizontal, 10)
-        .frame(height: 42)
+        .frame(height: 52)
         .task { focused = true }
     }
 }

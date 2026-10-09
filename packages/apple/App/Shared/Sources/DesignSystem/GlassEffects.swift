@@ -4,6 +4,75 @@ import SwiftUI
 import AppKit
 #endif
 
+extension View {
+    /// Pins a header above scrolling content without a backing panel. Content scrolling
+    /// underneath fades out through the system's soft scroll edge (a material fade before
+    /// iOS/macOS 26).
+    func fadingHeaderBar<Header: View>(@ViewBuilder _ header: () -> Header) -> some View {
+        modifier(FadingHeaderBar(header: header()))
+    }
+
+    /// A soft fade behind a bar for content the system scroll edge can't reach,
+    /// such as an AppKit text view.
+    func fadingBarBackground(_ edge: VerticalEdge = .top) -> some View {
+        background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .mask(
+                    LinearGradient(
+                        colors: [.black, .black, .clear],
+                        startPoint: edge == .top ? .top : .bottom,
+                        endPoint: edge == .top ? .bottom : .top
+                    )
+                )
+                .ignoresSafeArea(edges: edge == .top ? .top : .bottom)
+        }
+    }
+}
+
+extension View {
+    /// Fades scrolling content out at its top and bottom edges so it never meets a header
+    /// or bottom bar with a hard cut. Used for UIKit/AppKit text views, which the system
+    /// scroll edge effect doesn't reach. Hit testing is unaffected.
+    func scrollContentEdgeFade(top: CGFloat = 44, bottom: CGFloat = 32) -> some View {
+        mask {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: top)
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: bottom)
+            }
+        }
+    }
+}
+
+private struct FadingHeaderBar<Header: View>: ViewModifier {
+    let header: Header
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            content
+                .safeAreaBar(edge: .top, spacing: 0) { header }
+                .scrollEdgeEffectStyle(.soft, for: .top)
+        } else {
+            materialFade(content)
+        }
+        #else
+        // The macOS scroll edge effect doesn't reach content in this borderless,
+        // full-height window, so draw the blur fade directly.
+        materialFade(content)
+        #endif
+    }
+
+    private func materialFade(_ content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: 0) {
+            header.fadingBarBackground()
+        }
+    }
+}
+
 #if os(iOS)
 struct MobileGlass<S: Shape>: ViewModifier {
     let shape: S
@@ -17,7 +86,12 @@ struct MobileGlass<S: Shape>: ViewModifier {
             if interactive {
                 content.glassEffect(glass.interactive(), in: shape)
             } else {
-                content.glassEffect(glass, in: shape)
+                // Glass sits behind the content so solid fills inside a bar
+                // (such as a selected ChoiceChip) keep full contrast instead of
+                // being rendered with glass vibrancy.
+                content.background {
+                    Color.clear.glassEffect(glass, in: shape)
+                }
             }
         } else if let tint {
             content.background(tint, in: shape)

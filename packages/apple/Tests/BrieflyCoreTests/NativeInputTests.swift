@@ -1,6 +1,9 @@
 import Foundation
 import XCTest
 @testable import BrieflyCore
+#if os(macOS)
+import CryptoKit
+#endif
 
 private let realItemTestURLs: [(ItemInputID, URL)] = [
     (.text, URL(string: "https://www.rfc-editor.org/rfc/rfc9110.txt")!),
@@ -32,6 +35,115 @@ private let realChannelTestURLs: [(ChannelInputID, URL)] = [
 @MainActor
 final class NativeItemInputTests: XCTestCase {
     private let router = NativeItemInputRouter()
+
+    #if os(macOS)
+    func testOpenRouterBrowserAuthorizationUsesPKCEAndRejectsUnrelatedCallbacks() async throws {
+        let browser = OpenRouterBrowserFixture()
+        let key = try await OpenRouterOAuth().signIn(
+            openBrowser: browser.open,
+            http: InputHTTPClient { request, _ in try await browser.exchange(request) }
+        )
+        try await browser.requests?.value
+        XCTAssertEqual(key, "test-openrouter-key")
+        let callback = try XCTUnwrap(browser.callback)
+        var request = URLRequest(url: callback, timeoutInterval: 1)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            XCTFail("The authorization listener must close after sign-in")
+        } catch {}
+
+        let canceled = Task { @MainActor in
+            try await OpenRouterOAuth().signIn(openBrowser: { _ in
+                Task { @MainActor in browser.pendingSignIn?.cancel() }
+                return true
+            }, http: InputHTTPClient { _, _ in
+                XCTFail("Canceling must not exchange a code")
+                throw CancellationError()
+            })
+        }
+        browser.pendingSignIn = canceled
+        do {
+            _ = try await canceled.value
+            XCTFail("Canceling must not create a credential")
+        } catch is CancellationError {}
+
+        let deniedBrowser = OpenRouterBrowserFixture()
+        deniedBrowser.denied = true
+        do {
+            _ = try await OpenRouterOAuth().signIn(openBrowser: deniedBrowser.open, http: InputHTTPClient { _, _ in
+                XCTFail("Declining authorization must not create a credential")
+                throw CancellationError()
+            }, timeout: 10)
+            XCTFail("Declining must end the authorization attempt")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "OpenRouter authorization was declined.")
+        }
+        try await deniedBrowser.requests?.value
+    }
+
+    func testOpenRouterModelAndEffortReachSummaryRequestAndPersistedOutput() async throws {
+        let modelJSON = Data(#"""
+        {"data":{
+          "id":"example/reasoner","name":"Example Reasoner",
+          "architecture":{"input_modalities":["text"],"output_modalities":["text"]},
+          "supported_parameters":["structured_outputs","response_format","reasoning"],
+          "top_provider":{"max_completion_tokens":8192},
+          "reasoning":{"supported_efforts":["high","medium","low","none"],"default_effort":"medium","mandatory":true}
+        }}
+        """#.utf8)
+        let suggestionJSON = #"{"short_filename":"source-summary","topic_name":"Reading","summaries":{"concise":"The selected model’s concise summary.","detailed":"The selected model’s detailed summary."}}"#
+        let http = InputHTTPClient { request, _ in
+            if request.url?.path == "/api/v1/model/example/reasoner" {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"), "Public model lookup must not expose the account key")
+                return InputHTTPResponse(data: modelJSON, finalURL: request.url!)
+            }
+            XCTAssertEqual(request.url?.absoluteString, "https://openrouter.ai/api/v1/chat/completions")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-key")
+            let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
+            XCTAssertEqual(payload["model"] as? String, "example/reasoner")
+            let reasoning = try XCTUnwrap(payload["reasoning"] as? [String: Any])
+            XCTAssertEqual(reasoning["effort"] as? String, "high")
+            let provider = try XCTUnwrap(payload["provider"] as? [String: Any])
+            XCTAssertEqual(provider["require_parameters"] as? Bool, true)
+            XCTAssertNil(provider["order"], "Model selection must not pin an unrelated provider")
+            XCTAssertEqual((payload["response_format"] as? [String: Any])?["type"] as? String, "json_schema")
+            XCTAssertLessThanOrEqual(try XCTUnwrap(payload["max_tokens"] as? Int), 8192)
+            let messages = try XCTUnwrap(payload["messages"] as? [[String: String]])
+            XCTAssertTrue(messages.first?["content"]?.contains("The original source remains saved.") == true)
+            let response = try JSONSerialization.data(withJSONObject: [
+                "choices": [["message": ["content": suggestionJSON], "finish_reason": "stop"]]
+            ])
+            return InputHTTPResponse(data: response, finalURL: request.url!)
+        }
+        let model = try await fetchOpenRouterModel("example/reasoner", http: http)
+        let storedSelection = try JSONDecoder().decode(OpenRouterModelSelection.self, from:
+            JSONEncoder().encode(OpenRouterModelSelection(modelID: "example/reasoner", model: model)))
+        let root = FileManager.default.temporaryDirectory.appending(path: "openrouter-summary-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SQLiteLibraryStore(databaseURL: root.appending(path: "library.sqlite3"))
+        let entryID = try await store.captureDocument(title: "Source", content: "The original source remains saved.")
+        let prompt = try await store.processingPrompt(entryID: entryID, template: defaultProcessingPrompt)
+        let output = try await runOpenRouterProcessing(
+            prompt: prompt, format: "json", apiKey: "test-key", modelID: storedSelection.modelID,
+            reasoningEffort: "high", model: storedSelection.model, http: http
+        )
+        let resultID = try await store.applyProcessingSuggestion(entryID: entryID, suggestion: .decode(output))
+        let document = try await store.getDocument(resultID)
+        XCTAssertEqual(document.texts[.source], "The original source remains saved.")
+        XCTAssertEqual(document.texts[.concise], "The selected model’s concise summary.")
+        do {
+            _ = try await runOpenRouterProcessing(
+                prompt: prompt, format: "json", apiKey: "test-key", modelID: storedSelection.modelID,
+                reasoningEffort: "none", model: storedSelection.model, http: http
+            )
+            XCTFail("Mandatory reasoning must reject disabled reasoning before sending a paid request")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("supported by this model"))
+        }
+    }
+    #endif
 
     func testPermanentDeletionClearsTrashAndSurvivesOfflineSync() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "trash-\(UUID())")
@@ -1024,6 +1136,70 @@ final class NativeItemInputTests: XCTestCase {
         }
     }
 }
+
+#if os(macOS)
+@MainActor
+private final class OpenRouterBrowserFixture {
+    var denied = false
+    var callback: URL?
+    var challenge: String?
+    var requests: Task<Void, Error>?
+    var pendingSignIn: Task<String, Error>?
+
+    func open(_ url: URL) -> Bool {
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "openrouter.ai")
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertNil(items.first { $0.name == "code_verifier" })
+        XCTAssertEqual(items.first { $0.name == "code_challenge_method" }?.value, "S256")
+        challenge = items.first { $0.name == "code_challenge" }?.value
+        guard let value = items.first(where: { $0.name == "callback_url" })?.value,
+              let callback = URL(string: value) else { return false }
+        self.callback = callback
+        XCTAssertEqual(callback.host, "127.0.0.1")
+        requests = Task { @MainActor in
+            var components = URLComponents(url: callback, resolvingAgainstBaseURL: false)!
+            if denied {
+                components.queryItems = [URLQueryItem(name: "error", value: "access_denied")]
+                let (body, response) = try await URLSession.shared.data(from: components.url!)
+                XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+                XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("Authorization was declined"))
+                return
+            }
+            components.path += "/unrelated"
+            components.queryItems = [URLQueryItem(name: "code", value: "wrong-session")]
+            let (_, unrelated) = try await URLSession.shared.data(from: components.url!)
+            XCTAssertEqual((unrelated as? HTTPURLResponse)?.statusCode, 400)
+            components.path = callback.path
+            components.queryItems = [URLQueryItem(name: "code", value: "one"), URLQueryItem(name: "code", value: "two")]
+            let (_, duplicate) = try await URLSession.shared.data(from: components.url!)
+            XCTAssertEqual((duplicate as? HTTPURLResponse)?.statusCode, 400)
+            components.queryItems = [URLQueryItem(name: "code", value: "authorized-code")]
+            let (body, accepted) = try await URLSession.shared.data(from: components.url!)
+            XCTAssertEqual((accepted as? HTTPURLResponse)?.statusCode, 200)
+            XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("authorized-code"))
+        }
+        return true
+    }
+
+    func exchange(_ request: URLRequest) throws -> InputHTTPResponse {
+        XCTAssertEqual(request.url?.absoluteString, "https://openrouter.ai/api/v1/auth/keys")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+        let data = try XCTUnwrap(request.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: String])
+        XCTAssertEqual(payload["code"], "authorized-code")
+        XCTAssertEqual(payload["code_challenge_method"], "S256")
+        let verifier = try XCTUnwrap(payload["code_verifier"])
+        XCTAssertEqual(verifier.utf8.count, 43)
+        let actual = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        XCTAssertEqual(actual, challenge)
+        return InputHTTPResponse(data: Data(#"{"key":"test-openrouter-key"}"#.utf8), finalURL: request.url!)
+    }
+}
+#endif
 
 @MainActor
 final class NativeChannelInputTests: XCTestCase {

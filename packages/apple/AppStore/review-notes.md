@@ -42,9 +42,14 @@ and can optionally send new material to the Mac's pending queue.
 
 - iCloud/CloudKit syncs the user's private library between their Apple devices.
 - Sign in with Apple is optional for Briefly account features.
-- On Mac, users may configure their own OpenRouter API key or a supported local
-  AI command to create summaries. No AI service is required to review the sample
+- On Mac, users can sign in with OpenRouter or supply their own API key to create
+  summaries. Settings > AI lets users enter an OpenRouter model ID and choose
+  from the reasoning efforts supported by that model. AI usage is billed to
+  their OpenRouter account. No AI service is required to review the sample
   library or use the reader and library controls.
+- OpenRouter browser sign-in uses a short-lived callback listener bound only to
+  127.0.0.1. It closes after sign-in, cancellation, or timeout. This is why the Mac
+  app includes the incoming network entitlement.
 - Public share links are user initiated and unlisted. There is no public feed,
   social graph, messaging, advertising, or tracking.
 
@@ -54,5 +59,15 @@ are original Briefly fixtures.
 
 ## In-app purchases
 
-This build does not expose or sell an in-app purchase or subscription. Do not
-include the existing subscription records in the review submission.
+This build does not expose or sell an in-app purchase or subscription. The
+legacy ReadBriefly Plus subscription is not part of this submission and is not
+available for sale. All features described above are available without a
+purchase.
+
+## Production readiness
+
+This is a complete release, not a beta or trial. It does not contain a
+time limit, evaluation mode, beta-access label, unfinished purchase flow, or
+features reserved for a later release. The Mac and iPhone/iPad apps have
+different roles by design: the Mac prepares material, while every platform can
+read and manage the synchronized library.

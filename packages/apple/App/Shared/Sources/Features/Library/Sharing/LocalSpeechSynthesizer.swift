@@ -258,7 +258,7 @@ private enum LocalVoiceError: LocalizedError {
         case .audioTooLarge:
             "The local speech is too large to save as a WAV file."
         case .emptyText:
-            "The document does not contain text to speak."
+            "This item does not contain text to speak."
         case .inconsistentSampleRate:
             "The local voice returned incompatible audio chunks."
         case .modelUnavailable:
@@ -266,7 +266,7 @@ private enum LocalVoiceError: LocalizedError {
         case .noAudio:
             "The local voice did not create any audio."
         case .textCannotBeChunked:
-            "Part of the document is too long for the local voice model."
+            "Part of this item is too long for the local voice model."
         case .unsafeOperatingSystem:
             "This OS version has a known Neural Engine speech crash."
         case .unsupportedEnvironment:

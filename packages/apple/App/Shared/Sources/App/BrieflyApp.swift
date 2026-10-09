@@ -9,6 +9,7 @@ struct BrieflyApp: App {
     @State private var model: LibraryModel
     #if os(macOS)
     @NSApplicationDelegateAdaptor(BrieflyAppDelegate.self) private var appDelegate
+    @AppStorage(MacWorkspaceLayout.sidebarCollapsedKey) private var sidebarCollapsed = false
     #endif
 
     init() {
@@ -22,31 +23,41 @@ struct BrieflyApp: App {
             ContentView(model: model)
         }
         .defaultSize(width: 1500, height: 900)
+        .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("Capture Clipboard") {
-                    NotificationCenter.default.post(
-                        name: .brieflyCaptureClipboard,
-                        object: nil
-                    )
-                }
-                .keyboardShortcut("g", modifiers: .command)
-                Button("Import file…") {
-                    NotificationCenter.default.post(
-                        name: .brieflyImportFile,
-                        object: nil
-                    )
-                }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { post(.brieflyOpenSettings) }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .disabled(!model.lifecycle.isReady)
+            }
+            CommandGroup(replacing: .newItem) {
+                Button("Capture…") { post(.brieflyOpenCaptureComposer) }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .disabled(!model.lifecycle.isReady)
+                Button("Capture Clipboard") { post(.brieflyCaptureClipboard) }
+                    .keyboardShortcut("g", modifiers: .command)
+                Button("Import file…") { post(.brieflyImportFile) }
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
                 Divider()
-                Button("Refresh Library") {
-                    NotificationCenter.default.post(
-                        name: .brieflyRefreshLibrary,
-                        object: nil
-                    )
+                Button("Refresh Library") { post(.brieflyRefreshLibrary) }
+                    .keyboardShortcut("r", modifiers: .command)
+            }
+            // Listed ahead of the standard Find submenu so ⌘F reaches the library search.
+            CommandGroup(before: .textEditing) {
+                Button("Search Library") { post(.brieflyFocusSearch) }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .disabled(!model.lifecycle.isReady)
+            }
+            CommandGroup(replacing: .sidebar) {
+                Button(sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar") {
+                    sidebarCollapsed.toggle()
                 }
-                .keyboardShortcut("r", modifiers: .command)
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                Button("Back") { post(.brieflyNavigateBack) }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(model.selection.selectedEntry == nil)
+                Divider()
             }
         }
 
@@ -70,4 +81,10 @@ struct BrieflyApp: App {
         }
         #endif
     }
+
+    #if os(macOS)
+    private func post(_ name: Notification.Name) {
+        NotificationCenter.default.post(name: name, object: nil)
+    }
+    #endif
 }

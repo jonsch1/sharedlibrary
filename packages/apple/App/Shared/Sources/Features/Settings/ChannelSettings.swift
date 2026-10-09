@@ -12,231 +12,26 @@ struct ChannelConfiguration: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                #if !os(macOS)
-                channelPicker
-                #endif
-
+            Group {
                 if model.navigation.selectedChannelSource == "new" {
                     channelCreation
                 } else if let channel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource) {
-                #if os(macOS)
-                VStack(alignment: .leading, spacing: 30) {
-                    HStack(alignment: .top, spacing: 18) {
-                        Image(
-                            systemName: channel.kind == .podcast
-                                ? "waveform"
-                                : "dot.radiowaves.left.and.right"
-                        )
-                        .font(.system(size: 28, weight: .medium))
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: 58, height: 58)
-                        .background(Color.accentColor.opacity(0.12))
-                        .clipShape(Rectangle())
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("CHANNEL")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            TextField("Channel name", text: $channelTitle)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: 28, weight: .bold))
-                                .onSubmit(saveSettings)
-                        }
-
-                        Spacer(minLength: 20)
-
-                        Button {
-                            Task { await model.workflows.checkSelectedChannel() }
-                        } label: {
-                            if model.channels.isCheckingChannel {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Label(model.supportsAIProcessing ? "Fetch fresh" : "Sync candidates", systemImage: "arrow.clockwise")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.channels.isCheckingChannel)
-
-                        Menu {
-                            Button("Remove channel", role: .destructive) {
-                                confirmsRemoval = true
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .accessibilityLabel("More channel actions")
-                    }
-
-                    Divider()
-
-                    channelSourceEditor(listTitle: "Included sources")
-
-                    Grid(alignment: .leading, horizontalSpacing: 52, verticalSpacing: 6) {
-                        GridRow {
-                            Text("CAPTURED ITEMS")
-                            Text("TYPE")
-                            Text("LAST CHECKED")
-                        }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        GridRow {
-                            Text(model.channels.channelEntries(for: channel.source).count.formatted())
-                            Text(channel.kind?.rawValue.capitalized ?? "Not checked")
-                            Text(channel.lastCheckedAt ?? "Never")
-                        }
-                        .font(.title3.weight(.semibold))
-                    }
-
-                    if let error = channel.error {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.red.opacity(0.08), in: Rectangle())
-                    }
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Review window")
-                                .font(.headline)
-                            Text("How many pending candidates Briefly keeps available to review.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Stepper(
-                            "Candidates: \(reviewWindow)",
-                            value: $reviewWindow,
-                            in: channelReviewLimitRange
-                        )
-                        .fixedSize()
-                    }
-                    Text("Briefly discovers candidates without saving them. Summaries start only after you accept an item.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Divider()
-                    HStack {
-                        Text("\(model.channels.newChannelSources.count) " +
-                             (model.channels.newChannelSources.count == 1 ? "source" : "sources"))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Save changes", action: saveSettings)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-                            .disabled(
-                                model.channels.newChannelSources.isEmpty ||
-                                    channelTitle.trimmingCharacters(
-                                        in: .whitespacesAndNewlines
-                                    ).isEmpty
-                            )
-                    }
-                }
-                .frame(maxWidth: 560, alignment: .leading)
-                .padding(24)
-                .background(
-                    .thinMaterial,
-                    in: Rectangle()
-                )
-                .overlay {
-                    Rectangle()
-                        .stroke(Color.primary.opacity(0.10))
-                }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 36)
-                .frame(maxWidth: .infinity, alignment: .top)
-                #else
-                ConfigurationCard(
-                    eyebrow: "CHANNEL",
-                    title: "Channel settings",
-                    description: "Edit this channel's name, sources, and review settings."
-                ) {
-                    TextField("Channel name", text: $channelTitle)
-                        .font(.system(size: 28, weight: .bold))
-                        .onSubmit(saveSettings)
-                    LabeledContent(
-                        "Captured items",
-                        value: model.channels.channelEntries(for: channel.source).count.formatted()
-                    )
-                    LabeledContent(
-                        "Type",
-                        value: channel.kind?.rawValue.capitalized ?? "Not checked"
-                    )
-                    LabeledContent(
-                        "Last checked",
-                        value: channel.lastCheckedAt ?? "Never"
-                    )
-                    if let error = channel.error {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                    }
-                    channelSourceEditor(listTitle: "Included sources")
-                    Text("Review window")
-                        .font(.headline)
-                    Stepper(
-                        "Candidates: \(reviewWindow)",
-                        value: $reviewWindow,
-                        in: channelReviewLimitRange
-                    )
-                    Text("Briefly discovers candidates without saving them. Summaries start only after you accept an item.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Button {
-                            Task { await model.workflows.checkSelectedChannel() }
-                        } label: {
-                            if model.channels.isCheckingChannel {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Label(model.supportsAIProcessing ? "Fetch fresh" : "Sync candidates", systemImage: "arrow.clockwise")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(model.channels.isCheckingChannel)
-                    }
-                    HStack {
-                        Text("\(model.channels.newChannelSources.count) " +
-                             (model.channels.newChannelSources.count == 1 ? "source" : "sources"))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Save changes", action: saveSettings)
-                            .buttonStyle(.borderedProminent)
-                            .disabled(
-                                model.channels.newChannelSources.isEmpty ||
-                                    channelTitle.trimmingCharacters(
-                                        in: .whitespacesAndNewlines
-                                    ).isEmpty
-                            )
-                    }
-                    Divider()
-                    Button("Remove channel", role: .destructive) {
-                        confirmsRemoval = true
-                    }
-                }
-                #endif
+                    channelEditor(channel)
                 } else {
                     XEmptyState(
                         icon: "dot.radiowaves.left.and.right",
-                        title: "No channels",
-                        message: "Add a channel to gather new material."
+                        title: "No channel selected",
+                        message: "Choose a channel to edit, or add a new one."
                     )
-                    .frame(maxWidth: 680)
-                    .background(.ultraThinMaterial.opacity(0.64))
-                    .overlay { Rectangle().stroke(Color.primary.opacity(0.10)) }
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .frame(minHeight: 360)
                 }
             }
+            .frame(maxWidth: 680, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
+        .scrollIndicators(.hidden)
         #if os(macOS)
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .fadingHeaderBar {
             HStack(spacing: 12) {
                 Button {
                     model.workflows.navigateBack()
@@ -246,26 +41,24 @@ struct ChannelConfiguration: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                Text("Manage Channels")
-                    .font(.title3.weight(.semibold))
+                .accessibilityLabel("Back")
+                .help("Back")
                 Spacer()
                 Picker("Channel", selection: channelSelection) {
-                    Text("Add a channel").tag("new")
+                    Text("New channel").tag("new")
                     ForEach(model.channels.channels) { channel in
                         Text(channel.title).tag(channel.source)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
-                .frame(width: 210, alignment: .trailing)
+                .fixedSize()
             }
-            .padding(.horizontal, 18)
-            .frame(height: 60)
-            .frame(maxWidth: .infinity)
-            .background(.regularMaterial)
-            .overlay(alignment: .bottom) { Divider() }
+            .padding(.horizontal, 14)
+            .frame(height: 56)
         }
         #endif
+        .buttonBorderShape(.roundedRectangle(radius: 0))
         .task(id: model.navigation.selectedChannelSource) {
             source = ""
             let selectedChannel = model.channels.selectedChannel(for: model.navigation.selectedChannelSource)
@@ -279,7 +72,7 @@ struct ChannelConfiguration: View {
                 : selectedChannel?.sources ?? []
             sourceFieldFocused = model.navigation.selectedChannelSource == "new"
         }
-        .confirmationDialog("Delete this channel?", isPresented: $confirmsRemoval) {
+        .confirmationDialog("Remove this channel?", isPresented: $confirmsRemoval) {
             Button("Remove channel and pending candidates", role: .destructive) {
                 Task { await model.workflows.removeSelectedChannel() }
             }
@@ -289,147 +82,201 @@ struct ChannelConfiguration: View {
             } ?? 0
             Text(
                 count == 1
-                    ? "The channel and its 1 pending candidate will be removed. Accepted documents stay in your library."
-                    : "The channel and its \(count) pending candidates will be removed. Accepted documents stay in your library."
+                    ? "The channel and its 1 pending candidate will be removed. Accepted items stay in your library."
+                    : "The channel and its \(count) pending candidates will be removed. Accepted items stay in your library."
             )
         }
     }
 
-    private var channelPicker: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Channel")
-                    .font(.headline)
-                Text("Add a channel or choose one to update.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 12)
-            Picker("Channel", selection: channelSelection) {
-                Text("Add a channel").tag("new")
-                ForEach(model.channels.channels) { channel in
-                    Text(channel.title).tag(channel.source)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 260, alignment: .trailing)
-        }
-        .padding(20)
-        .frame(maxWidth: 680)
-        .background(.regularMaterial)
-        .overlay(alignment: .bottom) { Divider() }
-        .frame(maxWidth: .infinity, alignment: .top)
-    }
-
+    #if os(macOS)
     private var channelSelection: Binding<String> {
         Binding(
             get: { model.navigation.selectedChannelSource },
             set: { model.workflows.showChannelSettings($0) }
         )
     }
+    #endif
+
+    private func channelEditor(_ channel: LibraryChannel) -> some View {
+        VStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: 16) {
+                channelHeading(
+                    icon: channel.kind == .podcast ? "waveform" : "dot.radiowaves.left.and.right",
+                    eyebrow: "Channel"
+                ) {
+                    TextField("Channel name", text: $channelTitle)
+                        .textFieldStyle(.plain)
+                        .font(.title.weight(.bold))
+                        .onSubmit(saveSettings)
+                        .accessibilityLabel("Channel name")
+                }
+
+                HStack(alignment: .top, spacing: 32) {
+                    channelFact("Items", value: model.channels.channelEntries(for: channel.source).count.formatted())
+                    channelFact("Type", value: channel.kind?.rawValue.capitalized ?? "Not checked")
+                    channelFact("Last checked", value: channel.lastCheckedAt ?? "Never")
+                }
+
+                if let error = channel.error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+            }
+
+            channelSourceEditor(listTitle: "Included sources")
+
+            SettingsGroup(
+                title: "Review",
+                footer: "Briefly finds candidates without saving them. Summaries start only after you accept an item."
+            ) {
+                SettingsRow(
+                    icon: "tray.full",
+                    title: "Review window",
+                    subtitle: "Keep up to \(reviewWindow) candidates ready to review."
+                ) {
+                    HStack(spacing: 2) {
+                        reviewStep("minus", label: "Fewer candidates", by: -1)
+                        reviewStep("plus", label: "More candidates", by: 1)
+                    }
+                }
+            }
+
+            HStack {
+                Text(sourceCountLabel)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Save changes", action: saveSettings)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        model.channels.newChannelSources.isEmpty ||
+                            channelTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+            }
+
+            SettingsGroup(title: "Actions") {
+                VStack(alignment: .leading, spacing: 4) {
+                    SettingsActionRow(
+                        icon: "arrow.clockwise",
+                        title: model.supportsAIProcessing ? "Check for new items" : "Sync candidates",
+                        isWorking: model.channels.isCheckingChannel
+                    ) {
+                        Task { await model.workflows.checkSelectedChannel() }
+                    }
+                    .disabled(model.channels.isCheckingChannel)
+                    SettingsActionRow(icon: "trash", title: "Remove channel…", role: .destructive) {
+                        confirmsRemoval = true
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, bottomPadding)
+    }
 
     private var channelCreation: some View {
-        #if os(macOS)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 16) {
-                Image(systemName: "dot.radiowaves.left.and.right")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 48, height: 48)
-                    .background(Color.accentColor.opacity(0.12), in: Rectangle())
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Create a channel")
-                        .font(.system(size: 26, weight: .bold))
-                    Text("Collect updates from the sites and people you follow in one place.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(24)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 16) {
-                channelSourceEditor(listTitle: "Added sources")
-
-                if model.channels.newChannelSources.isEmpty {
-                    Label(
-                        "Start with a website, newsletter, podcast, profile, or any public page.",
-                        systemImage: "sparkles"
-                    )
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 32) {
+            channelHeading(icon: "dot.radiowaves.left.and.right", eyebrow: "New channel") {
+                Text("Create a channel")
+                    .font(.title.weight(.bold))
+                Text("Collect updates from the sites and people you follow in one place.")
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                }
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(24)
 
-            Divider()
+            channelSourceEditor(
+                listTitle: "Added sources",
+                hint: "Start with a website, newsletter, podcast, profile, or any public page."
+            )
 
             HStack(spacing: 12) {
-                Text(stagedSourceCountLabel)
-                    .font(.callout)
-                    .foregroundStyle(model.channels.newChannelSources.isEmpty ? .secondary : .primary)
-                Spacer()
-                Button("Cancel") {
-                    model.channels.newChannelSources = []
-                    model.workflows.navigateBack()
+                if !model.channels.newChannelSources.isEmpty {
+                    Text(sourceCountLabel)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
+                Spacer(minLength: 8)
                 Button("Create channel") {
                     Task { await model.workflows.createChannel() }
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.large)
                 .disabled(model.channels.newChannelSources.isEmpty)
                 .accessibilityIdentifier("channels.create")
             }
-            .padding(20)
         }
-        .frame(maxWidth: 560, alignment: .topLeading)
-        .background(
-            .thinMaterial,
-            in: Rectangle()
-        )
-        .overlay {
-            Rectangle()
-                .stroke(Color.primary.opacity(0.10))
-        }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 36)
-        .frame(maxWidth: .infinity, alignment: .top)
-        #else
-        ConfigurationCard(
-            eyebrow: "CHANNEL",
-            title: "Add channel",
-            description: "Add websites, blogs, podcasts, profiles, or pages to this channel."
-        ) {
-            channelSourceEditor(listTitle: "Added sources")
-            HStack {
-                Text(stagedSourceCountLabel)
+        .padding(.horizontal, 24)
+        .padding(.top, 16)
+        .padding(.bottom, bottomPadding)
+    }
+
+    private func channelHeading<Title: View>(
+        icon: String,
+        eyebrow: String,
+        @ViewBuilder title: () -> Title
+    ) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 48, height: 48)
+                .background(Color.accentColor.opacity(0.12), in: Rectangle())
+            VStack(alignment: .leading, spacing: 6) {
+                Text(eyebrow.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .tracking(0.6)
                     .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel") {
-                    model.channels.newChannelSources = []
-                    model.workflows.navigateBack()
-                }
-                Button("Create channel") {
-                    Task { await model.workflows.createChannel() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.channels.newChannelSources.isEmpty)
-                .accessibilityIdentifier("channels.create")
+                title()
             }
         }
+    }
+
+    private func reviewStep(_ icon: String, label: String, by delta: Int) -> some View {
+        let next = reviewWindow + delta
+        return Button {
+            reviewWindow = next
+        } label: {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 36)
+                .background(Color.primary.opacity(0.055), in: Rectangle())
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!channelReviewLimitRange.contains(next))
+        .accessibilityLabel(label)
+    }
+
+    private func channelFact(_ title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline)
+                .lineLimit(1)
+        }
+    }
+
+    private var sourceCountLabel: String {
+        let count = model.channels.newChannelSources.count
+        return count == 1 ? "1 source" : "\(count) sources"
+    }
+
+    /// Leaves room for the floating tab bar on iOS.
+    private var bottomPadding: CGFloat {
+        #if os(iOS)
+        120
+        #else
+        40
         #endif
     }
 
-    private var stagedSourceCountLabel: String {
-        let count = model.channels.newChannelSources.count
-        return count == 1 ? "1 source added" : "\(count) sources added"
+    private var sourceIsEmpty: Bool {
+        source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func addSource() {
@@ -437,66 +284,55 @@ struct ChannelConfiguration: View {
         source = ""
     }
 
-    @ViewBuilder
-    private func channelSourceEditor(
-        listTitle: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Sources")
-                .font(.headline)
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
+    private func channelSourceEditor(listTitle: String, hint: String? = nil) -> some View {
+        SettingsGroup(
+            title: "Sources",
+            footer: model.channels.newChannelSources.isEmpty ? hint : nil
+        ) {
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
                     TextField("Paste a domain or URL", text: $source)
                         .textFieldStyle(.plain)
                         .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
                         .focused($sourceFieldFocused)
                         .onSubmit(addSource)
                         .accessibilityIdentifier("channels.source")
-
-                    Button(action: addSource) {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("channels.source.add")
                 }
-                .padding(.horizontal, 14)
-                .frame(minHeight: 58)
+                .settingsField()
 
-            }
-            .background(.primary.opacity(0.035), in: Rectangle())
-            .overlay {
-                Rectangle()
-                    .stroke(.primary.opacity(0.12), lineWidth: 1)
-            }
-        }
-
-        if !model.channels.newChannelSources.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(listTitle)
-                        .font(.headline)
-                    Spacer()
-                    Text(model.channels.newChannelSources.count.formatted())
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.primary.opacity(0.07), in: Rectangle())
+                Button(action: addSource) {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.background)
+                        .frame(width: 40, height: 40)
+                        .background(Color.primary, in: Rectangle())
+                        .contentShape(Rectangle())
                 }
-                ForEach(model.channels.newChannelSources, id: \.self) { source in
-                    ChannelSourceCard(
-                        source: source,
-                        remove: {
+                .buttonStyle(.plain)
+                .disabled(sourceIsEmpty)
+                .opacity(sourceIsEmpty ? 0.3 : 1)
+                .accessibilityLabel("Add source")
+                .accessibilityIdentifier("channels.source.add")
+            }
+
+            if !model.channels.newChannelSources.isEmpty {
+                Text(listTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.top, 8)
+                VStack(spacing: 0) {
+                    ForEach(model.channels.newChannelSources, id: \.self) { source in
+                        ChannelSourceCard(source: source) {
                             model.channels.removeStagedChannelSource(source)
                         }
-                    )
+                    }
                 }
             }
-            .padding(.top, 24)
         }
     }
 

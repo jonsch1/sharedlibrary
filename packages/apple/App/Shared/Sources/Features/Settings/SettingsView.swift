@@ -1,78 +1,51 @@
 import Foundation
 import SwiftUI
 
+#if os(iOS)
+/// Full-screen settings on iPhone and iPad. The Mac shows the same sections in
+/// `MacXSettingsWorkspace` inside the main window.
 struct SettingsView: View {
-    @Environment(\.dismiss) var dismiss
-    @AppStorage("BrieflyAppearance") var appearance = "system"
-    #if os(macOS)
-    @State var captureShortcut = CaptureShortcut.load()
-    @State var shortcutRegistered = UserDefaults.standard.bool(
-        forKey: "BrieflyCaptureShortcutRegistered"
-    )
-    #endif
+    @Environment(\.dismiss) private var dismiss
     @Bindable var model: LibraryModel
-    var initialSection: BrieflySettingsSection? = nil
-    @State var appleSignInNonce = ""
-    @State var settingsQuery = ""
-    @State var showingAccountDeletionConfirmation = false
-    #if os(iOS)
-    @State var selectedSection: BrieflySettingsSection?
-    #else
-    @State var selectedSection: BrieflySettingsSection? = .general
-    #endif
+    @State private var path: [BrieflySettingsSection]
 
-    var availableSections: [BrieflySettingsSection] {
-        #if os(iOS)
-        BrieflySettingsSection.allCases.filter { $0 != .capture }
-        #else
-        BrieflySettingsSection.allCases
-        #endif
+    init(model: LibraryModel, initialSection: BrieflySettingsSection? = nil) {
+        self.model = model
+        _path = State(initialValue: initialSection.map { [$0] } ?? [])
     }
 
-    func settingsRow(
-        _ section: BrieflySettingsSection,
-        value: String? = nil
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: section.icon)
-                .font(.system(size: 18, weight: .medium))
-                .frame(width: 24)
-            Text(section.title)
-            Spacer()
-            if let value {
-                Text(value)
-                    .foregroundStyle(.secondary)
-            }
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+    var body: some View {
+        NavigationStack(path: $path) {
+            SettingsIndex(model: model)
+                .settingsScreen(title: "Settings", dismiss: dismiss)
+                .navigationDestination(for: BrieflySettingsSection.self) { section in
+                    ScrollView {
+                        SettingsSectionContent(section: section, model: model)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .padding(.bottom, 40)
+                    }
+                    .settingsScreen(title: section.title, dismiss: dismiss)
+                }
         }
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-        .tag(section)
-    }
-
-    func externalSettingsRow(
-        _ title: String,
-        icon: String,
-        destination: String
-    ) -> some View {
-        Link(destination: URL(string: destination)!) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .medium))
-                    .frame(width: 24)
-                Text(title)
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
+        .task {
+            await model.account.refreshAccount()
         }
-        .foregroundStyle(.primary)
-        .accessibilityHint("Opens in your browser")
     }
-
 }
+
+private extension View {
+    func settingsScreen(title: String, dismiss: DismissAction) -> some View {
+        self
+            .scrollIndicators(.hidden)
+            .background { BrieflyAtmosphere().ignoresSafeArea() }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+    }
+}
+#endif

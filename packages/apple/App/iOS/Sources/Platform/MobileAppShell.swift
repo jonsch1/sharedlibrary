@@ -3,6 +3,15 @@ import BrieflyCore
 import SwiftUI
 
 #if os(iOS)
+/// A screen pushed onto one tab's navigation stack. Routes carry enough to
+/// reselect their content, because every tab shares one `LibraryModel` selection.
+enum MobileRoute: Hashable {
+    case entry(String)
+    case channel(String)
+    case channelSettings(String)
+    case trash
+}
+
 struct MobileXAppShell: View {
     @Bindable var model: LibraryModel
     let openSettings: (BrieflySettingsSection?) -> Void
@@ -10,122 +19,94 @@ struct MobileXAppShell: View {
     @Bindable var audioPlayer: NativeAudioPlayer
     @Binding var audioEntry: LibraryEntry?
     @AppStorage("BrieflyMobileTab") private var selectedTab = MobilePrimaryTab.home
-    @State private var showsDetail = false
+    @State private var paths: [MobilePrimaryTab: [MobileRoute]] = [:]
+    @State private var variants: [MobilePrimaryTab: LibraryVariant] = [:]
+    @State private var homeTopic = ""
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            mobileStack(.home)
-                .tabItem { Label("Home", systemImage: "house") }
-                .tag(MobilePrimaryTab.home)
+            mobileStack(.home) {
+                feedScreen(.home)
+                    .overlay(alignment: .bottomTrailing) { nowPlayingButton }
+            }
+            .tabItem { Label("Home", systemImage: "house") }
+            .tag(MobilePrimaryTab.home)
 
-            mobileStack(.channels)
-                .tabItem { Label("Channels", systemImage: "dot.radiowaves.left.and.right") }
-                .tag(MobilePrimaryTab.channels)
+            mobileStack(.channels) {
+                feedScreen(.channels)
+            }
+            .tabItem { Label("Channels", systemImage: "dot.radiowaves.left.and.right") }
+            .tag(MobilePrimaryTab.channels)
 
-            NavigationStack {
-                MobileXLibraryScreen(
+            mobileStack(.highlights) {
+                MobileXHighlightsScreen(
                     model: model,
                     openSettings: openSettings,
-                    openEntry: openEntry
+                    openTrash: openTrash
                 )
-                .navigationDestination(isPresented: $showsDetail) {
-                    MobileXDetail(
-                        model: model,
-                        audioPlayer: audioPlayer,
-                        audioEntry: $audioEntry
-                    )
-                }
+                .overlay(alignment: .bottomTrailing) { nowPlayingButton }
             }
-            .tabItem { Label("Library", systemImage: "bookmark") }
-            .tag(MobilePrimaryTab.library)
+            .tabItem { Label("Highlights", systemImage: "highlighter") }
+            .tag(MobilePrimaryTab.highlights)
         }
         .tint(Color.accentColor)
-        .overlay(alignment: .bottomTrailing) {
-            if selectedTab == .channels {
-                EmptyView()
-            } else if let playingEntry {
-                Button {
-                    audioEntry = playingEntry
-                } label: {
-                    ZStack {
-                        Circle().fill(Color.accentColor)
-                        if audioPlayer.isPlaying {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .symbolEffect(.variableColor.iterative, options: .repeating)
-                        } else {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(width: 56, height: 56)
-                    .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
-                .padding(.trailing, 18)
-                .padding(.bottom, 58)
-                .accessibilityLabel("Open audio player")
-            } else if isPlayableDetail {
-                Button(action: primaryAction) {
-                    if model.audio.isGeneratingSpeech {
-                        ProgressView()
-                            .tint(.white)
-                            .frame(width: 56, height: 56)
-                            .background(Color.accentColor, in: Circle())
-                            .contentShape(Circle())
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 56, height: 56)
-                            .background(Color.accentColor, in: Circle())
-                            .contentShape(Circle())
-                    }
-                }
-                .buttonStyle(.plain)
-                .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
-                .padding(.trailing, 18)
-                .padding(.bottom, 58)
-                .accessibilityLabel("Play audio")
-                .disabled(
-                    model.audio.isGeneratingSpeech || model.selection.selectedText.isEmpty
-                )
-            }
-        }
-        .onChange(of: selectedTab) {
-            showsDetail = false
+        .onChange(of: selectedTab) { previousTab, tab in
+            remember(previousTab)
             model.navigation.query = ""
-            Task { await activate(selectedTab) }
+            Task { await restore(tab) }
         }
-        .task { await activate(selectedTab) }
+        .task { await restore(selectedTab) }
     }
 
-    private func mobileStack(_ tab: MobilePrimaryTab) -> some View {
-        NavigationStack {
-            MobileXFeedScreen(
-                model: model,
-                tab: tab,
-                openEntry: openEntry,
-                openChannel: { channel in
-                    model.workflows.selectChannel(channel.source)
-                    showsDetail = true
-                },
-                openConfiguration: {
-                    showsDetail = true
-                },
-                create: primaryCreate
-            )
-            .navigationDestination(isPresented: $showsDetail) {
-                MobileXDetail(
-                    model: model,
-                    audioPlayer: audioPlayer,
-                    audioEntry: $audioEntry
-                )
-            }
+    private func mobileStack<Root: View>(
+        _ tab: MobilePrimaryTab,
+        @ViewBuilder root: () -> Root
+    ) -> some View {
+        NavigationStack(path: path(tab)) {
+            root()
+                .navigationDestination(for: MobileRoute.self) { route in
+                    switch route {
+                    case .trash:
+                        MobileXTrashScreen(model: model, openEntry: openEntry)
+                    case .entry, .channel, .channelSettings:
+                        MobileXDetail(
+                            model: model,
+                            audioPlayer: audioPlayer,
+                            audioEntry: $audioEntry
+                        )
+                    }
+                }
         }
+        .onChange(of: paths[tab, default: []]) { previous, current in
+            // Popping (back button or edge swipe) returns the shared model to
+            // whatever the new top of this stack shows.
+            guard tab == selectedTab, current.count < previous.count else { return }
+            Task { await restore(tab) }
+        }
+    }
+
+    private func feedScreen(_ tab: MobilePrimaryTab) -> some View {
+        MobileXFeedScreen(
+            model: model,
+            tab: tab,
+            openEntry: openEntry,
+            openChannel: { channel in
+                model.workflows.selectChannel(channel.source)
+                push(.channel(channel.source))
+            },
+            create: primaryCreate
+        )
+    }
+
+    private func path(_ tab: MobilePrimaryTab) -> Binding<[MobileRoute]> {
+        Binding(
+            get: { paths[tab, default: []] },
+            set: { paths[tab] = $0 }
+        )
+    }
+
+    private func push(_ route: MobileRoute) {
+        paths[selectedTab, default: []].append(route)
     }
 
     private func openEntry(_ entry: LibraryEntry) {
@@ -134,92 +115,99 @@ struct MobileXAppShell: View {
                 model.navigation.activeSection = .items
             }
             await model.workflows.select(entry.id)
-            showsDetail = true
+            push(.entry(entry.id))
         }
     }
 
-    private func activate(_ tab: MobilePrimaryTab) async {
-        switch tab {
-        case .home: await model.workflows.show(.items)
-        case .channels: await model.workflows.show(.channels)
-        case .library: break
-        }
-    }
-
-    private var isPlayableDetail: Bool {
-        selectedTab != .channels && model.navigation.activeSection == .items &&
-            showsDetail && model.selection.selectedEntry != nil &&
-            (model.selection.selectedEntry?.captureRequest == nil ||
-             model.selection.selectedEntry?.captureRequest?.state == .ready)
-    }
-
-    private var playingEntry: LibraryEntry? {
-        guard let id = audioPlayer.currentEntryID else { return nil }
-        if isPlayableDetail, let selectedEntry = model.selection.selectedEntry {
-            let selectedPlaybackID = model.audio.audioPlaybackID(
-                for: selectedEntry,
-                variant: model.selection.selectedVariant,
-                text: model.selection.selectedText
-            )
-            guard
-                selectedEntry.id == id,
-                audioPlayer.isCurrentPlayback(selectedPlaybackID)
-            else { return nil }
-        }
-        return model.session.projection.entries.first { $0.id == id }
-    }
-
-    private func primaryAction() {
-        guard isPlayableDetail, let entry = model.selection.selectedEntry else { return }
-
-        Task {
-            let variant = model.selection.selectedVariant
-            let text = model.selection.selectedText
-            let playbackID = model.audio.audioPlaybackID(
-                for: entry,
-                variant: variant,
-                text: text
-            )
-            do {
-                let shouldGenerate = try audioPlayer.startStream(
-                    entryID: entry.id,
-                    title: entry.title,
-                    playbackID: playbackID,
-                    positionID: "\(entry.id):\(variant.rawValue)"
-                )
-                if shouldGenerate {
-                    var startedPlayback = false
-                    _ = await model.workflows.streamPlayableAudio(
-                        for: entry,
-                        variant: variant,
-                        text: text,
-                    ) { url in
-                        try audioPlayer.appendSegment(url, playbackID: playbackID)
-                        if !startedPlayback {
-                            startedPlayback = true
-                            audioEntry = entry
-                        }
-                    }
-                    audioPlayer.finishStream(playbackID: playbackID)
-                    if !startedPlayback { audioPlayer.stop() }
-                } else {
-                    audioEntry = entry
-                }
-            } catch {
-                model.session.errorMessage = error.localizedDescription
-                audioPlayer.stop()
-            }
-        }
+    private func openTrash() {
+        model.workflows.showTrash()
+        push(.trash)
     }
 
     private func primaryCreate() {
         switch selectedTab {
-        case .home, .library:
+        case .home, .highlights:
             showsCaptureComposer = true
         case .channels:
             model.workflows.showChannelSettings("new")
-            showsDetail = true
+            push(.channelSettings("new"))
         }
+    }
+
+    /// Captures the parts of the shared model that the other tabs overwrite.
+    private func remember(_ tab: MobilePrimaryTab) {
+        if tab == .home {
+            homeTopic = model.navigation.selectedTopic
+        }
+        variants[tab] = model.selection.selectedVariant
+    }
+
+    /// Points the shared model at the top of `tab`'s stack.
+    private func restore(_ tab: MobilePrimaryTab) async {
+        switch tab {
+        case .home:
+            model.navigation.activeSection = .items
+            await model.workflows.showTopic(homeTopic)
+        case .channels:
+            await model.workflows.show(.channels)
+        case .highlights:
+            if paths[tab, default: []].contains(.trash) {
+                model.workflows.showTrash()
+            } else {
+                model.workflows.showHighlights()
+            }
+        }
+
+        // Read the stack only after the section switch: a screen pushed while it was
+        // loading would otherwise be reset by it and never reselected.
+        guard tab == selectedTab else { return }
+        switch paths[tab, default: []].last {
+        case .entry(let id):
+            await model.workflows.select(id)
+            if let variant = variants[tab],
+               variant != model.selection.selectedVariant,
+               model.selection.selectedEntry?.text(for: variant) != nil {
+                await model.workflows.selectVariant(variant)
+            }
+        case .channel(let source):
+            model.workflows.selectChannel(source)
+        case .channelSettings(let source):
+            model.workflows.showChannelSettings(source)
+        case .trash, nil:
+            break
+        }
+    }
+
+    @ViewBuilder
+    private var nowPlayingButton: some View {
+        if let playingEntry {
+            Button {
+                audioEntry = playingEntry
+            } label: {
+                ZStack {
+                    Circle().fill(Color.accentColor)
+                    Image(systemName: audioPlayer.isPlaying ? "waveform" : "play.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .symbolEffect(
+                            .variableColor.iterative,
+                            options: .repeating,
+                            isActive: audioPlayer.isPlaying
+                        )
+                }
+                .frame(width: 56, height: 56)
+                .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .shadow(color: .black.opacity(0.18), radius: 10, y: 5)
+            .padding(18)
+            .accessibilityLabel("Open audio player")
+        }
+    }
+
+    private var playingEntry: LibraryEntry? {
+        guard let id = audioPlayer.currentEntryID else { return nil }
+        return model.session.projection.entries.first { $0.id == id }
     }
 }
 

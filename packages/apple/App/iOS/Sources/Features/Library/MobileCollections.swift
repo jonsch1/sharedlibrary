@@ -17,7 +17,7 @@ struct MobileCollectionHeader: View {
             }
             .buttonStyle(.plain)
             .mobileGlass(in: Circle())
-            .accessibilityLabel("Back to collections")
+            .accessibilityLabel("Back to topics")
 
             Text(title)
                 .font(.title3.weight(.bold))

@@ -1,52 +1,55 @@
 import SwiftUI
 
-extension SettingsView {
-    var filteredSettingsSections: [BrieflySettingsSection] {
-        guard !settingsQuery.isEmpty else { return availableSections }
-        return availableSections.filter {
-            $0.title.localizedCaseInsensitiveContains(settingsQuery)
-        }
-    }
+#if os(iOS)
+/// The iOS settings root: one row per section, then help and legal links.
+struct SettingsIndex: View {
+    @Bindable var model: LibraryModel
+    @AppStorage("BrieflyAppearance") private var appearance = "system"
 
-    func settingsNavigationRow(_ section: BrieflySettingsSection) -> some View {
-        let selected = selectedSection == section
-        return HStack(spacing: 12) {
-            Image(systemName: section.icon)
-                .frame(width: 22)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(section.title)
-                    .font(.callout.weight(.medium))
-                Text(settingsSubtitle(section))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                SettingsGroup(title: nil) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(BrieflySettingsSection.available) { section in
+                            NavigationLink(value: section) {
+                                SettingsRow(
+                                    icon: section.icon,
+                                    title: section.title,
+                                    subtitle: section.summary
+                                ) {
+                                    if let value = value(for: section) {
+                                        Text(value)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                SettingsGroup(title: "Help & legal") {
+                    SettingsWebLinks()
+                }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.tertiary)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 40)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 54)
-        .background(selected ? Color.primary.opacity(0.055) : .clear)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(selected ? Color.accentColor : .clear)
-                .frame(width: 3)
-        }
-        .contentShape(Rectangle())
     }
 
-    func settingsSubtitle(_ section: BrieflySettingsSection) -> String {
+    private func value(for section: BrieflySettingsSection) -> String? {
         switch section {
-        case .general: "Color scheme and display"
-        case .library: "Storage, refresh, and iCloud"
-        case .capture: "System-wide keyboard shortcut"
-        case .account: "Sign-in and beta access"
-        case .topics: "Reusable library topics"
-        case .ai: "Provider, command, and prompt"
+        case .account: model.account.account.authenticated ? "Signed in" : nil
+        case .general: appearance == "system" ? "System" : appearance.capitalized
+        default: nil
         }
     }
-
 }
+#endif

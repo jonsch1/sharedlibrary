@@ -164,11 +164,9 @@ struct BrieflyBackgroundSetting: View {
                 BrieflyBackgroundImage(appearance: appearance)
                     .frame(width: previewWidth, height: previewHeight)
                     .clipped()
-                    .clipShape(Rectangle())
-                    .overlay {
-                        Rectangle()
-                            .stroke(Color.primary.opacity(0.14))
-                    }
+                    // A mat instead of an outline keeps both previews visible on either background.
+                    .padding(3)
+                    .background(Color.primary.opacity(0.1), in: Rectangle())
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("\(appearance.title) mode")
@@ -203,6 +201,7 @@ struct BrieflyBackgroundSetting: View {
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.roundedRectangle(radius: 0))
+            .tint(.primary)
         }
         #if os(macOS)
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.image]) { result in

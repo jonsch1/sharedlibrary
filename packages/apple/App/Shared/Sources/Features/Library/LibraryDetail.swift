@@ -76,40 +76,31 @@ struct LibraryDetail: View {
                 ContentUnavailableView(
                     model.navigation.query.isEmpty
                         ? model.navigation.selectedTopic == "All"
-                            ? "No documents yet"
-                            : "No documents in \(model.navigation.selectedTopic)"
-                        : "No matching documents",
+                            ? "No items yet"
+                            : "No items in \(model.navigation.selectedTopic)"
+                        : "No matching items",
                     systemImage: model.navigation.query.isEmpty
                         ? "doc.text"
                         : "doc.text.magnifyingglass",
                     description: Text(
                         model.navigation.query.isEmpty
                             ? model.navigation.selectedTopic == "All"
-                                ? "Add a document to start your library."
-                                : "Choose another topic or add a document."
+                                ? "Capture a link or note to start your library."
+                                : "Choose another topic or capture something new."
                             : "Try another search."
                     )
                 )
             } else {
                 ContentUnavailableView(
-                    "No document selected",
+                    "No item selected",
                     systemImage: "doc.text",
-                    description: Text("Choose a document from the library.")
+                    description: Text("Choose an item from the library.")
                 )
             }
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #if os(macOS)
-        .background {
-            ZStack {
-                readerBackground.opacity(0.08)
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.08)
-            }
-        }
-        #else
+        #if os(iOS)
         .background { BrieflyAtmosphere().ignoresSafeArea() }
         #endif
     }

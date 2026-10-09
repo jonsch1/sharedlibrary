@@ -37,26 +37,20 @@ struct ReadingDepthPicker: View {
     }
 
     var body: some View {
-        Picker(
-            "Reading depth",
-            selection: Binding(
-                get: { model.selection.selectedVariant },
-                set: { variant in
+        HStack(spacing: 4) {
+            ForEach(variants, id: \.self) { variant in
+                ChoiceChip(
+                    title: variant.title,
+                    isSelected: model.selection.selectedVariant == variant
+                ) {
                     guard model.selection.selectedVariant != variant else { return }
                     model.selection.selectedVariant = variant
                     Task { await model.workflows.selectVariant(variant) }
                 }
-            )
-        ) {
-            ForEach(variants, id: \.self) { variant in
-                Text(variant.title)
-                    .tag(variant)
-                    .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
+                .accessibilityIdentifier("reader.depth.\(variant.rawValue)")
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize(horizontal: true, vertical: false)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reader.depth.selector")
     }
 }

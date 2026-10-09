@@ -1,0 +1,7 @@
+A calmer, more polished Briefly.
+
+- A refreshed design: new app icon, softer backgrounds, and a cleaner reading view with the title and source up front.
+- Connect Claude, Codex, and other AI assistants to your library from Settings → Connect your AI.
+- Sign in to OpenRouter in your browser and choose the model and reasoning effort for your summaries.
+- A resizable window with a collapsible sidebar and new keyboard shortcuts.
+- Redesigned Settings, better share pages, and many smaller fixes.

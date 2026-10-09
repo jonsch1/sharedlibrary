@@ -69,22 +69,33 @@ func httpURL(_ value: String) -> URL? {
 
 func libraryExcerpt(_ text: String) -> String {
     // The result is at most 240 characters; do not run every regex over a full document.
-    var result = String(text.prefix(4_096))
+    let source = String(text.prefix(4_096))
+    // Headings repeat the title or label a section; without them the body reads as prose.
+    // Fall back to keeping heading text when a note contains nothing else.
+    let body = excerptText(source, removingHeadings: true)
+    let result = body.isEmpty ? excerptText(source, removingHeadings: false) : body
+    return result.count > 240 ? "\(result.prefix(237).trimmingCharacters(in: .whitespaces))…" : result
+}
+
+private func excerptText(_ markdown: String, removingHeadings: Bool) -> String {
+    var result = markdown
     for (pattern, replacement) in [
-        (#"```[\s\S]*?```"#, " "),
+        (#"```[\s\S]*?```"#, "\n"),
         (#"!\[[^\]]*\]\([^)]+\)"#, " "),
         (#"\[([^\]]+)\]\([^)]+\)"#, "$1"),
-        (#"[#>*_~`-]"#, " "),
+        (#"(?m)^[ \t]{0,3}#{1,6}[ \t]+.*$"#, removingHeadings ? "" : "$0."),
+        (#"(?m)^[ \t]{0,3}#{1,6}[ \t]+"#, ""),
+        (#"(?m)^[ \t]*([-*_][ \t]*){3,}$"#, ""),
+        (#"(?m)^[ \t]*(>[ \t]*)+"#, ""),
+        // Close unpunctuated list items so consecutive items don't read as one sentence.
+        (#"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+(.*[^.!?:;,\s])[ \t]*$"#, "$1."),
+        (#"(?m)^[ \t]*([-*+]|\d+[.)])[ \t]+"#, ""),
+        (#"\*\*|__|~~|[*`]"#, ""),
         (#"\s+"#, " ")
     ] {
-        result = result.replacingOccurrences(
-            of: pattern,
-            with: replacement,
-            options: .regularExpression
-        )
+        result = result.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
     }
-    result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-    return result.count > 240 ? "\(result.prefix(237).trimmingCharacters(in: .whitespaces))…" : result
+    return result.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 func normalizedDocumentType(_ type: String) -> String {

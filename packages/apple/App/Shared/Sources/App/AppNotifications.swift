@@ -7,4 +7,8 @@ extension Notification.Name {
         Self("BrieflyCaptureShortcutRegistrationChanged")
     static let brieflyImportFile = Self("BrieflyImportFile")
     static let brieflyRefreshLibrary = Self("BrieflyRefreshLibrary")
+    static let brieflyOpenCaptureComposer = Self("BrieflyOpenCaptureComposer")
+    static let brieflyOpenSettings = Self("BrieflyOpenSettings")
+    static let brieflyNavigateBack = Self("BrieflyNavigateBack")
+    static let brieflyFocusSearch = Self("BrieflyFocusSearch")
 }
