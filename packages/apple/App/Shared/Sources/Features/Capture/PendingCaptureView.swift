@@ -84,6 +84,9 @@ struct PendingCaptureView: View {
             .padding(28)
             .frame(maxWidth: 580, alignment: .leading)
             .frame(maxWidth: .infinity)
+            #if os(macOS)
+            .readingColumn()
+            #endif
         }
         .accessibilityIdentifier("capture.pending")
     }

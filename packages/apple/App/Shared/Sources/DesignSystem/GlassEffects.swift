@@ -124,45 +124,62 @@ struct FullScreenToolbarBehavior: ViewModifier {
     }
 }
 
+/// Leaves the traffic lights at their system position and places the sidebar toggle
+/// beside them in the titlebar.
 struct WindowControlPositioner: NSViewRepresentable {
-    let x: CGFloat
-    let y: CGFloat
     @Binding var controlsVisible: Bool
+    /// Drives the sidebar toggle placed in the titlebar beside the traffic lights.
+    @Binding var sidebarCollapsed: Bool
 
     func makeNSView(context: Context) -> PositioningView {
-        PositioningView(x: x, y: y) { visible in
-            if controlsVisible != visible {
-                controlsVisible = visible
-            }
-        }
+        let view = PositioningView { _ in }
+        update(view)
+        return view
     }
 
     func updateNSView(_ nsView: PositioningView, context: Context) {
-        nsView.onControlsVisible = { visible in
+        update(nsView)
+        nsView.positionControls()
+    }
+
+    private func update(_ view: PositioningView) {
+        view.onControlsVisible = { visible in
             if controlsVisible != visible {
                 controlsVisible = visible
             }
         }
-        nsView.positionControls()
+        view.onToggleSidebar = { sidebarCollapsed.toggle() }
+        view.sidebarCollapsed = sidebarCollapsed
     }
 
     final class PositioningView: NSView {
-        let x: CGFloat
-        let y: CGFloat
         weak var positionedWindow: NSWindow?
         var onControlsVisible: (Bool) -> Void
-        private var originalOrigins = [NSWindow.ButtonType: NSPoint]()
+        var onToggleSidebar: () -> Void = {}
+        var sidebarCollapsed = false {
+            didSet { updateSidebarToggleLabel() }
+        }
         private var observers = [NSObjectProtocol]()
 
-        init(
-            x: CGFloat,
-            y: CGFloat,
-            onControlsVisible: @escaping (Bool) -> Void
-        ) {
-            self.x = x
-            self.y = y
+        /// Lives in the titlebar next to the zoom button, so it stays aligned with the
+        /// traffic lights and hides with them in full screen.
+        private lazy var sidebarToggle: NSButton = {
+            let button = NSButton(
+                image: NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil) ?? NSImage(),
+                target: self,
+                action: #selector(toggleSidebar)
+            )
+            button.isBordered = false
+            button.imagePosition = .imageOnly
+            button.contentTintColor = .secondaryLabelColor
+            button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+            return button
+        }()
+
+        init(onControlsVisible: @escaping (Bool) -> Void) {
             self.onControlsVisible = onControlsVisible
             super.init(frame: .zero)
+            updateSidebarToggleLabel()
         }
 
         @available(*, unavailable)
@@ -170,12 +187,21 @@ struct WindowControlPositioner: NSViewRepresentable {
             fatalError()
         }
 
+        @objc private func toggleSidebar() {
+            onToggleSidebar()
+        }
+
+        private func updateSidebarToggleLabel() {
+            let title = sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"
+            sidebarToggle.toolTip = "\(title) (⌃⌘S)"
+            sidebarToggle.setAccessibilityLabel(title)
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window, positionedWindow !== window else { return }
             removeObservers()
             positionedWindow = window
-            originalOrigins = [:]
             let center = NotificationCenter.default
             observers = [
                 center.addObserver(
@@ -183,7 +209,9 @@ struct WindowControlPositioner: NSViewRepresentable {
                     object: window,
                     queue: .main
                 ) { [weak self] _ in
-                    self?.onControlsVisible(false)
+                    guard let self else { return }
+                    self.onControlsVisible(false)
+                    self.positionControls()
                 },
                 center.addObserver(
                     forName: NSWindow.didExitFullScreenNotification,
@@ -195,6 +223,19 @@ struct WindowControlPositioner: NSViewRepresentable {
                     self.onControlsVisible(true)
                 }
             ]
+            // AppKit lays the traffic lights out again on resize and around full screen;
+            // keep the toggle beside them whenever they move.
+            for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                guard let button = window.standardWindowButton(kind) else { continue }
+                button.postsFrameChangedNotifications = true
+                observers.append(center.addObserver(
+                    forName: NSView.frameDidChangeNotification,
+                    object: button,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.positionControls()
+                })
+            }
             DispatchQueue.main.async {
                 self.positionControls()
                 self.onControlsVisible(!window.styleMask.contains(.fullScreen))
@@ -202,17 +243,21 @@ struct WindowControlPositioner: NSViewRepresentable {
         }
 
         func positionControls() {
-            guard let window, !window.styleMask.contains(.fullScreen) else { return }
-            for kind in [
-                NSWindow.ButtonType.closeButton,
-                .miniaturizeButton,
-                .zoomButton
-            ] {
-                guard let button = window.standardWindowButton(kind) else { continue }
-                let origin = originalOrigins[kind] ?? button.frame.origin
-                originalOrigins[kind] = origin
-                button.setFrameOrigin(NSPoint(x: origin.x + x, y: origin.y + y))
+            guard let window else { return }
+            guard let zoom = window.standardWindowButton(.zoomButton),
+                  let titlebar = zoom.superview else { return }
+            if sidebarToggle.superview !== titlebar {
+                sidebarToggle.removeFromSuperview()
+                titlebar.addSubview(sidebarToggle)
             }
+            // Same spacing as between the traffic lights, vertically centered on them.
+            let size = NSSize(width: 26, height: 22)
+            sidebarToggle.frame = NSRect(
+                x: (zoom.frame.maxX + 10).rounded(),
+                y: (zoom.frame.midY - size.height / 2).rounded(),
+                width: size.width,
+                height: size.height
+            )
         }
 
         private func removeObservers() {

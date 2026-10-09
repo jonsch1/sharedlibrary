@@ -27,9 +27,14 @@ struct ChannelConfiguration: View {
                 }
             }
             .frame(maxWidth: 680, alignment: .leading)
+            #if os(macOS)
+            .readingColumn()
+            #endif
             .frame(maxWidth: .infinity, alignment: .top)
         }
+        #if os(iOS)
         .scrollIndicators(.hidden)
+        #endif
         #if os(macOS)
         .fadingHeaderBar {
             HStack(spacing: 12) {
@@ -56,6 +61,7 @@ struct ChannelConfiguration: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 56)
+            .readingColumn()
         }
         #endif
         .buttonBorderShape(.roundedRectangle(radius: 0))

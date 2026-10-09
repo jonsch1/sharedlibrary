@@ -7,6 +7,13 @@ struct MacXSettingsWorkspace: View {
     @Bindable var model: LibraryModel
     @Binding var selectedSection: BrieflySettingsSection
     let indexWidth: CGFloat
+    /// Width the index and detail content occupy; the detail scroll view extends past
+    /// it to the window edge.
+    let contentWidth: CGFloat
+
+    private var detailWidth: CGFloat {
+        max(0, contentWidth - indexWidth)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -55,10 +62,10 @@ struct MacXSettingsWorkspace: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 12)
                 .padding(.bottom, 40)
+                .frame(width: detailWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .id(selectedSection)
         }
-        .scrollIndicators(.hidden)
         .fadingHeaderBar {
             VStack(alignment: .leading, spacing: 4) {
                 Text(selectedSection.title)
@@ -71,6 +78,7 @@ struct MacXSettingsWorkspace: View {
             .padding(.horizontal, 24)
             .padding(.top, 16)
             .padding(.bottom, 16)
+            .frame(width: detailWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

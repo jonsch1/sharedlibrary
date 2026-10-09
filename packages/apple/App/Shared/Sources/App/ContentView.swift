@@ -51,9 +51,8 @@ struct ContentView: View {
                 .modifier(FullScreenToolbarBehavior())
                 .background(
                     WindowControlPositioner(
-                        x: 10,
-                        y: -12,
-                        controlsVisible: $windowControlsVisible
+                        controlsVisible: $windowControlsVisible,
+                        sidebarCollapsed: $sidebarCollapsed
                     )
                 )
                 #else
@@ -294,7 +293,7 @@ struct ContentView: View {
                 showsCaptureComposer: $showsCaptureComposer,
                 selectedSettingsSection: $selectedSettingsSection,
                 collapsed: $sidebarCollapsed,
-                windowControlsInset: layout.windowControlsInset
+                logoBelowWindowControls: layout.logoBelowWindowControls
             )
             .frame(width: layout.sidebarWidth)
 
@@ -302,9 +301,10 @@ struct ContentView: View {
                 MacXSettingsWorkspace(
                     model: model,
                     selectedSection: $selectedSettingsSection,
-                    indexWidth: layout.settingsIndexWidth
+                    indexWidth: layout.settingsIndexWidth,
+                    contentWidth: layout.settingsWidth
                 )
-                .frame(width: layout.settingsWidth)
+                .frame(width: layout.contentAreaWidth)
                 .frame(maxHeight: .infinity)
             } else {
                 LibraryDetail(
@@ -313,7 +313,8 @@ struct ContentView: View {
                     audioEntry: $audioEntry
                 )
                 .environment(\.librarySearchFocusRequest, $focusesSearch)
-                .frame(width: layout.readerColumnWidth)
+                .environment(\.readingColumnWidth, layout.readerColumnWidth)
+                .frame(width: layout.contentAreaWidth)
                 .frame(maxHeight: .infinity)
                 .clipShape(Rectangle())
             }

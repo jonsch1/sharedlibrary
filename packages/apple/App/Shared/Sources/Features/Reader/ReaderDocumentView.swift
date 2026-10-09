@@ -44,6 +44,7 @@ struct LibraryDocument: View {
         .padding(.horizontal, 14)
         .frame(height: 56)
         .fadingBarBackground()
+        .readingColumn()
     }
     #endif
 
@@ -56,12 +57,18 @@ struct LibraryDocument: View {
                             title: "Loading item",
                             message: "Fetching the saved item and its summaries."
                         )
+                        #if os(macOS)
+                        .readingColumn()
+                        #endif
                     } else if model.selection.selectedText.isEmpty && !model.session.canEdit {
                         XEmptyState(
                             icon: "icloud.slash",
                             title: "Item unavailable",
                             message: "Sync the library to download this item."
                         )
+                        #if os(macOS)
+                        .readingColumn()
+                        #endif
                     } else {
                         DocumentEditor(
                             model: model,
@@ -181,17 +188,16 @@ struct LibraryDocument: View {
                 .frame(height: 52)
                 #endif
                 #if os(macOS)
+                // Controls stay on the reading column; the fade spans the full width.
+                .readingColumn()
                 .fadingBarBackground(.bottom)
                 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        #if os(macOS)
-        .frame(maxWidth: 680)
-        .frame(maxWidth: .infinity, alignment: .top)
-        #else
+        // On macOS this spans the full content area so the text view's scroller sits at
+        // the window edge; the text, bars, and states keep to the reading column.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
         .onChange(of: entry.id) {
             isEditing = false
         }

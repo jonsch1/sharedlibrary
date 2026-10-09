@@ -22,7 +22,7 @@ struct BrieflyApp: App {
         Window("Briefly", id: "main") {
             ContentView(model: model)
         }
-        .defaultSize(width: 1500, height: 900)
+        .defaultSize(width: 1240, height: 860)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {

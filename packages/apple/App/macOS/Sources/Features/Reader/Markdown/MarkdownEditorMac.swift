@@ -65,12 +65,15 @@ struct EditableDocumentTextView: NSViewRepresentable {
             width: scrollView.contentSize.width,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.textContainer?.widthTracksTextView = true
+        // layoutText sizes the container to the reading column, so the scroll view can
+        // span the window and keep its scroller at the edge.
+        textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = NSSize(width: 32, height: 90)
         textView.highlightAction = onHighlight
         textView.removeHighlightAction = onRemoveHighlight
         textView.highlightedPassages = highlightedPassages
+        textView.columnWidth = context.environment.readingColumnWidth
         textView.heading = context.environment.macReaderHeading
         textView.isSelectable = true
         textView.isEditable = isEditable
@@ -88,6 +91,7 @@ struct EditableDocumentTextView: NSViewRepresentable {
         textView.highlightAction = onHighlight
         textView.removeHighlightAction = onRemoveHighlight
         textView.highlightedPassages = highlightedPassages
+        textView.columnWidth = context.environment.readingColumnWidth
         textView.heading = context.environment.macReaderHeading
         if textView.string != text { textView.setMarkdown(text) }
         else { textView.renderMarkdown() }
@@ -146,7 +150,14 @@ private final class MarkdownTextView: NSTextView {
                 headingController = nil
             }
             guard heading != oldValue else { return }
-            layoutHeading()
+            layoutText()
+        }
+    }
+    /// Reading column width at the view's leading edge; `nil` uses the full width.
+    var columnWidth: CGFloat? {
+        didSet {
+            guard columnWidth != oldValue else { return }
+            layoutText()
         }
     }
     private var headingController: NSHostingController<MacReaderHeadingView>?
@@ -157,15 +168,19 @@ private final class MarkdownTextView: NSTextView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        layoutHeading()
+        layoutText()
     }
 
-    /// Places the heading above the text and pushes the text container below it.
-    private func layoutHeading() {
-        let horizontal = max(32, (frame.width - 780) / 2)
+    /// Fits the text container to the reading column and places the heading above it.
+    private func layoutText() {
+        let column = min(columnWidth ?? frame.width, frame.width)
+        let horizontal = max(32, (column - 780) / 2)
+        let width = max(0, column - horizontal * 2)
+        if let textContainer, textContainer.containerSize.width != width {
+            textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        }
         var top: CGFloat = 90
         if let headingController {
-            let width = max(0, frame.width - horizontal * 2)
             let height = headingController.sizeThatFits(
                 in: NSSize(width: width, height: .greatestFiniteMagnitude)
             ).height

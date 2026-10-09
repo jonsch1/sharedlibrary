@@ -53,10 +53,8 @@ struct LibraryCardBrowser: View {
                             feedColumn(feedEntries)
                         }
                     }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .readingColumn()
                 }
-                .scrollIndicators(.hidden)
             }
         }
         // The search field lives in the bar, outside the scroll content, so typing a
@@ -66,8 +64,7 @@ struct LibraryCardBrowser: View {
                 searchField
                 feedHeader
             }
-            .frame(maxWidth: 680)
-            .frame(maxWidth: .infinity)
+            .readingColumn()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: searchFocusRequest.wrappedValue) {
@@ -199,10 +196,10 @@ struct LibraryCardBrowser: View {
                         topicTab($0)
                     }
                 }
-                .padding(.horizontal, 18)
                 .padding(.top, 8)
             }
             .scrollIndicators(.hidden)
+            .tabRowEdges()
         case .channels:
             channelTabs
         }
@@ -249,11 +246,11 @@ struct LibraryCardBrowser: View {
                     }
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.trailing, 62)
+            .padding(.trailing, 46)
             .padding(.top, 8)
         }
         .scrollIndicators(.hidden)
+        .tabRowEdges()
     }
 
     private func selectionTab(
@@ -333,6 +330,21 @@ struct LibraryCardBrowser: View {
             model.navigation.query.isEmpty &&
             model.navigation.selectedTopic == "All" &&
             model.session.projection.entries.isEmpty
+    }
+}
+
+private extension View {
+    /// Keeps a horizontally scrolling tab row inside the search field's edges and fades
+    /// tabs that run past the trailing edge instead of cutting them off.
+    func tabRowEdges() -> some View {
+        mask {
+            LinearGradient(
+                stops: [.init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
+        .padding(.horizontal, 16)
     }
 }
 

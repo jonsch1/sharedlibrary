@@ -16,8 +16,13 @@ struct MacXLoadingWorkspace: View {
     private func workspace(_ layout: MacWorkspaceLayout) -> some View {
         HStack(alignment: .top, spacing: MacWorkspaceLayout.spacing) {
             VStack(alignment: .leading, spacing: 5) {
+                // Mirrors the sidebar's logo row, which drops below the window controls.
                 Color.clear
-                    .frame(height: 42)
+                    .frame(
+                        height: layout.logoBelowWindowControls && !sidebarCollapsed
+                            ? 42 + MacWorkspaceLayout.titlebarZoneBottom - 7
+                            : 42
+                    )
                     .accessibilityHidden(true)
                 ForEach([
                     ("house", "Home"),

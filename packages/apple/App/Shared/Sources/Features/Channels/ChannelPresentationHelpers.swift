@@ -148,6 +148,7 @@ struct ChannelCandidateDocument: View {
                 .padding(.horizontal, 14)
                 .frame(height: 56)
                 .fadingBarBackground()
+                .readingColumn()
             }
             #endif
 
@@ -161,6 +162,9 @@ struct ChannelCandidateDocument: View {
                                 title: "Preview unavailable",
                                 message: "This candidate did not include readable text."
                             )
+                            #if os(macOS)
+                            .readingColumn()
+                            #endif
                         } else {
                             EditableDocumentTextView(
                                 text: .constant(previewText),
@@ -183,6 +187,9 @@ struct ChannelCandidateDocument: View {
                                     : "New items from this channel appear here."
                                 : "You've skipped every remaining item."
                         )
+                        #if os(macOS)
+                        .readingColumn()
+                        #endif
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -193,12 +200,9 @@ struct ChannelCandidateDocument: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        #if os(macOS)
-        .frame(maxWidth: 680)
-        .frame(maxWidth: .infinity, alignment: .top)
-        #else
+        // On macOS this spans the full content area so the preview's scroller sits at the
+        // window edge; the text, bars, and states keep to the reading column.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
         .onChange(of: channelID) {
             skippedItemIDs = []
             resolvedPreviewText = [:]
@@ -281,6 +285,7 @@ struct ChannelCandidateDocument: View {
         .padding(.bottom, 10)
         #else
         .padding(.bottom, 14)
+        .readingColumn()
         #endif
         .frame(maxWidth: .infinity)
         .fadingBarBackground(.bottom)
