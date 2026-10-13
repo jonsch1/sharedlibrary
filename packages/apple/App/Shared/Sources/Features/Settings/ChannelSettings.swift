@@ -61,7 +61,6 @@ struct ChannelConfiguration: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 56)
-            .readingColumn()
         }
         #endif
         .buttonBorderShape(.roundedRectangle(radius: 0))

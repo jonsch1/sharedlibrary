@@ -188,9 +188,8 @@ struct LibraryDocument: View {
                 .frame(height: 52)
                 #endif
                 #if os(macOS)
-                // Controls stay on the reading column; the fade spans the full width.
-                .readingColumn()
                 .fadingBarBackground(.bottom)
+                .readingColumn()
                 #endif
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

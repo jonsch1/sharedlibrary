@@ -68,7 +68,12 @@ private struct FadingHeaderBar<Header: View>: ViewModifier {
 
     private func materialFade(_ content: Content) -> some View {
         content.safeAreaInset(edge: .top, spacing: 0) {
-            header.fadingBarBackground()
+            header
+                .fadingBarBackground()
+                #if os(macOS)
+                // The blur stays on the reading column rather than running to the window edge.
+                .readingColumn()
+                #endif
         }
     }
 }

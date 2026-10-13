@@ -285,10 +285,12 @@ struct ChannelCandidateDocument: View {
         .padding(.bottom, 10)
         #else
         .padding(.bottom, 14)
-        .readingColumn()
         #endif
         .frame(maxWidth: .infinity)
         .fadingBarBackground(.bottom)
+        #if os(macOS)
+        .readingColumn()
+        #endif
     }
 
     /// Square review action: the decision to make is solid, the alternatives are frosted

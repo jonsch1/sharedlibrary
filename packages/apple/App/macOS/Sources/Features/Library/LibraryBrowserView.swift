@@ -64,7 +64,6 @@ struct LibraryCardBrowser: View {
                 searchField
                 feedHeader
             }
-            .readingColumn()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: searchFocusRequest.wrappedValue) {
@@ -246,11 +245,11 @@ struct LibraryCardBrowser: View {
                     }
                 }
             }
-            .padding(.trailing, 46)
             .padding(.top, 8)
         }
         .scrollIndicators(.hidden)
-        .tabRowEdges()
+        // Clears the channel settings button overlaid on the row's trailing edge.
+        .tabRowEdges(trailingInset: 46)
     }
 
     private func selectionTab(
@@ -335,16 +334,18 @@ struct LibraryCardBrowser: View {
 
 private extension View {
     /// Keeps a horizontally scrolling tab row inside the search field's edges and fades
-    /// tabs that run past the trailing edge instead of cutting them off.
-    func tabRowEdges() -> some View {
-        mask {
-            LinearGradient(
-                stops: [.init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
-        .padding(.horizontal, 16)
+    /// tabs that run past the trailing edge instead of cutting them off. The trailing
+    /// inset ends the row before the fade, so the last tab scrolls fully clear of it.
+    func tabRowEdges(trailingInset: CGFloat = 32) -> some View {
+        contentMargins(.trailing, trailingInset, for: .scrollContent)
+            .mask {
+                HStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 32)
+                }
+            }
+            .padding(.horizontal, 16)
     }
 }
 
