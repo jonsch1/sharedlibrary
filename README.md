@@ -17,9 +17,8 @@ does not expose a private library, account manager, or checkout.
 | [`web`](packages/web/README.md) | Public website, Cloudflare Worker, and shared reader components |
 | [`sdk`](packages/sdk/README.md) | Public `@readbriefly/sdk` TypeScript capture SDK |
 
-Architecture and product documents live in [`docs/`](docs/); brand originals live
-in [`assets/brand/`](assets/brand/). The hosted speech scripts live in
-[`tools/kokoro/`](tools/kokoro/) and [`tools/whisper/`](tools/whisper/).
+Architecture and product documents live in [`docs/`](docs/). The hosted speech
+scripts live in [`tools/kokoro/`](tools/kokoro/) and [`tools/whisper/`](tools/whisper/).
 
 The JavaScript packages use npm workspaces and one root lockfile. Swift uses
 local package dependencies: MCP depends on the `BrieflyCore` library exported by
