@@ -30,7 +30,7 @@ final class BrieflyAgentAPITests: XCTestCase {
 
         #if os(macOS)
         let socketURL = URL(filePath: "/tmp/briefly-agent-\(UUID().uuidString).sock")
-        let server = BrieflyAgentSocketServer(socketURL: socketURL) { call in
+        let server = BrieflyAgentSocketServer(socketURL: socketURL, recoveryInterval: 0.1) { call in
             do {
                 switch call.op {
                 case "save":
@@ -134,6 +134,36 @@ final class BrieflyAgentAPITests: XCTestCase {
         ))
         XCTAssertNil(pendingRead.read?.text)
         XCTAssertEqual(pendingRead.read?.status, "processing")
+
+        // Another Briefly copy replaces the shared socket, then exits without removing it.
+        unlink(socketURL.path)
+        let orphan = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { destination in
+            socketURL.path.utf8CString.withUnsafeBytes { destination.copyMemory(from: $0) }
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(orphan, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(bound, 0)
+        Darwin.close(orphan)
+        var recovered: BrieflyAgentReply?
+        for _ in 0..<50 where recovered == nil {
+            recovered = try? await client.call(BrieflyAgentCall(
+                op: "search",
+                search: .init(q: "compact interface")
+            ))
+            if recovered == nil { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        XCTAssertEqual(
+            recovered?.search?.items.first?.id,
+            ready.id,
+            "The running app must take back a socket path left behind by another copy."
+        )
+
         server.stop()
         do {
             _ = try await client.call(BrieflyAgentCall(op: "search", search: .init()))

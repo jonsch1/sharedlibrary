@@ -29,19 +29,36 @@ public enum BrieflyAgentIPC {
     }
 }
 
+/// Serves agent requests on the shared socket path.
+///
+/// Every Briefly build signed for the same team shares this path, so another copy can
+/// replace the socket file and later exit without removing it. The server checks the
+/// path periodically and binds again whenever no running Briefly answers there.
 public final class BrieflyAgentSocketServer: @unchecked Sendable {
     public typealias Handler = @Sendable (BrieflyAgentCall) async -> BrieflyAgentReply
 
+    private struct Listener {
+        let descriptor: Int32
+        let source: DispatchSourceRead
+        let file: SocketFileIdentity
+    }
+
     private let handler: Handler
     private let requestedSocketURL: URL?
+    private let recoveryInterval: TimeInterval
     private let queue = DispatchQueue(label: "fyi.readbriefly.agent-ipc")
     private let lock = NSLock()
-    private var source: DispatchSourceRead?
-    private var socketDescriptor: Int32 = -1
+    private var listener: Listener?
+    private var recoveryTimer: DispatchSourceTimer?
     private var socketURL: URL?
 
-    public init(socketURL: URL? = nil, handler: @escaping Handler) {
+    public init(
+        socketURL: URL? = nil,
+        recoveryInterval: TimeInterval = 2,
+        handler: @escaping Handler
+    ) {
         requestedSocketURL = socketURL
+        self.recoveryInterval = recoveryInterval
         self.handler = handler
     }
 
@@ -52,7 +69,7 @@ public final class BrieflyAgentSocketServer: @unchecked Sendable {
     public func start() throws {
         lock.lock()
         defer { lock.unlock() }
-        guard source == nil else { return }
+        guard listener == nil else { return }
 
         let url = try requestedSocketURL ?? BrieflyAgentIPC.socketURL()
         try FileManager.default.createDirectory(
@@ -66,55 +83,103 @@ public final class BrieflyAgentSocketServer: @unchecked Sendable {
                 message: "Briefly's local agent socket path is too long."
             )
         }
-        unlink(url.path)
+        listener = try makeListener(at: url.path)
+        socketURL = url
 
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now() + recoveryInterval,
+            repeating: recoveryInterval,
+            leeway: .milliseconds(Int(recoveryInterval * 250))
+        )
+        timer.setEventHandler { [weak self] in self?.reclaimSocketPathIfOrphaned() }
+        timer.resume()
+        recoveryTimer = timer
+    }
+
+    public func stop() {
+        lock.lock()
+        let listener = self.listener
+        let timer = recoveryTimer
+        let url = socketURL
+        self.listener = nil
+        recoveryTimer = nil
+        socketURL = nil
+        lock.unlock()
+
+        timer?.cancel()
+        guard let listener else { return }
+        listener.source.cancel()
+        // Leave the path alone when another running Briefly has taken it over.
+        if let url, SocketFileIdentity(path: url.path) == listener.file {
+            unlink(url.path)
+        }
+    }
+
+    private func makeListener(at path: String) throws -> Listener {
+        unlink(path)
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw posixFailure("create the local agent socket") }
+        let file: SocketFileIdentity
         do {
-            try bindSocket(descriptor, to: url.path)
-            guard chmod(url.path, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            try bindSocket(descriptor, to: path)
+            guard chmod(path, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
                 throw posixFailure("secure the local agent socket")
             }
             guard listen(descriptor, 8) == 0 else {
                 throw posixFailure("listen on the local agent socket")
             }
+            guard let identity = SocketFileIdentity(path: path) else {
+                throw posixFailure("inspect the local agent socket")
+            }
+            file = identity
         } catch {
             Darwin.close(descriptor)
-            unlink(url.path)
+            unlink(path)
             throw error
         }
 
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
-        source.setEventHandler { [weak self] in self?.acceptConnection() }
+        source.setEventHandler { [weak self] in self?.acceptConnection(on: descriptor) }
+        source.setCancelHandler { Darwin.close(descriptor) }
         source.resume()
-        socketDescriptor = descriptor
-        socketURL = url
-        self.source = source
+        return Listener(descriptor: descriptor, source: source, file: file)
     }
 
-    public func stop() {
+    private func reclaimSocketPathIfOrphaned() {
         lock.lock()
-        let source = self.source
-        let descriptor = socketDescriptor
+        let current = listener
         let url = socketURL
-        self.source = nil
-        socketDescriptor = -1
-        socketURL = nil
+        lock.unlock()
+        guard let current, let url else { return }
+
+        if SocketFileIdentity(path: url.path) == current.file { return }
+        // Another running Briefly owns the path; take it back only after it exits.
+        let probe = connectSocket(at: url.path)
+        if probe >= 0 {
+            Darwin.close(probe)
+            return
+        }
+
+        guard let replacement = try? makeListener(at: url.path) else { return }
+        lock.lock()
+        let isCurrent = listener?.descriptor == current.descriptor
+        if isCurrent { listener = replacement }
         lock.unlock()
 
-        source?.cancel()
-        if descriptor >= 0 { Darwin.close(descriptor) }
-        if let url { unlink(url.path) }
+        if isCurrent {
+            current.source.cancel()
+        } else {
+            // The server stopped while the replacement was being bound.
+            replacement.source.cancel()
+            unlink(url.path)
+        }
     }
 
-    private func acceptConnection() {
-        lock.lock()
-        let listener = socketDescriptor
-        lock.unlock()
-        guard listener >= 0 else { return }
+    private func acceptConnection(on listener: Int32) {
         let descriptor = Darwin.accept(listener, nil, nil)
         guard descriptor >= 0 else { return }
-        setTimeout(on: descriptor, seconds: 180)
+        configureConnection(descriptor)
         let handler = self.handler
         Task.detached {
             defer { Darwin.close(descriptor) }
@@ -144,6 +209,20 @@ public final class BrieflyAgentSocketServer: @unchecked Sendable {
     }
 }
 
+/// The file that a bound socket created, so a server can tell its own socket file
+/// from one that another process put at the same path.
+private struct SocketFileIdentity: Equatable {
+    let device: dev_t
+    let inode: ino_t
+
+    init?(path: String) {
+        var info = stat()
+        guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFSOCK else { return nil }
+        device = info.st_dev
+        inode = info.st_ino
+    }
+}
+
 public struct BrieflyAgentSocketClient: Sendable {
     private let requestedSocketURL: URL?
 
@@ -163,7 +242,7 @@ public struct BrieflyAgentSocketClient: Sendable {
                 )
             }
             defer { Darwin.close(descriptor) }
-            setTimeout(on: descriptor, seconds: 180)
+            configureConnection(descriptor)
             try writeFrame(try JSONEncoder().encode(request), to: descriptor)
             return try JSONDecoder().decode(
                 BrieflyAgentReply.self,
@@ -266,8 +345,18 @@ private func writeAll(_ data: Data, to descriptor: Int32) throws {
     }
 }
 
-private func setTimeout(on descriptor: Int32, seconds: Int) {
-    var timeout = timeval(tv_sec: seconds, tv_usec: 0)
+/// Bounds each request's I/O and turns writes to a vanished peer into errors instead
+/// of a SIGPIPE that would terminate the process.
+private func configureConnection(_ descriptor: Int32) {
+    var noSignal: Int32 = 1
+    _ = setsockopt(
+        descriptor,
+        SOL_SOCKET,
+        SO_NOSIGPIPE,
+        &noSignal,
+        socklen_t(MemoryLayout<Int32>.size)
+    )
+    var timeout = timeval(tv_sec: 180, tv_usec: 0)
     withUnsafePointer(to: &timeout) { pointer in
         _ = setsockopt(
             descriptor,
