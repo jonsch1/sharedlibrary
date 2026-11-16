@@ -144,12 +144,34 @@ private struct OpenRouterResponse: Decodable {
     let choices: [Choice]
 }
 
-private struct OpenRouterFailure: Decodable {
-    struct Detail: Decodable {
-        let message: String?
+/// The full error OpenRouter reports, including the upstream provider's own error,
+/// which OpenRouter wraps as "Provider returned error" with the details in `metadata.raw`.
+private func openRouterFailureMessage(_ data: Data, statusCode: Int) -> String? {
+    guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = body["error"] as? [String: Any] else {
+        return nil
     }
-
-    let error: Detail?
+    var parts = [(error["message"] as? String) ?? "OpenRouter could not process this request."]
+    let metadata = error["metadata"] as? [String: Any]
+    var context: [String] = []
+    if let provider = metadata?["provider_name"] as? String, !provider.isEmpty { context.append(provider) }
+    context.append("HTTP \((error["code"] as? Int) ?? statusCode)")
+    parts[0] += " (\(context.joined(separator: ", ")))"
+    if let raw = metadata?["raw"] {
+        let text: String? = if let string = raw as? String {
+            string
+        } else if JSONSerialization.isValidJSONObject(raw),
+                  let rawData = try? JSONSerialization.data(withJSONObject: raw, options: [.sortedKeys]) {
+            String(data: rawData, encoding: .utf8)
+        } else {
+            nil
+        }
+        if let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { parts.append(text) }
+    }
+    if let reasons = metadata?["reasons"] as? [String], !reasons.isEmpty {
+        parts.append(reasons.joined(separator: ", "))
+    }
+    return parts.joined(separator: "\n")
 }
 
 public func runOpenRouterProcessing(
@@ -230,11 +252,12 @@ public func runOpenRouterProcessing(
         throw OpenRouterProcessingError(message: "OpenRouter returned an invalid response.")
     }
     let data = response.data
+    // OpenRouter can also report a provider failure inside a 200 response.
+    if let failure = openRouterFailureMessage(data, statusCode: response.statusCode) {
+        throw OpenRouterProcessingError(message: failure)
+    }
     guard (200..<300).contains(response.statusCode) else {
-        let failure = try? JSONDecoder().decode(OpenRouterFailure.self, from: data)
-        throw OpenRouterProcessingError(message: 
-            failure?.error?.message ?? "OpenRouter could not process this request."
-        )
+        throw OpenRouterProcessingError(message: "OpenRouter could not process this request (HTTP \(response.statusCode)).")
     }
     let result = try? JSONDecoder().decode(OpenRouterResponse.self, from: data)
     if result?.choices.first?.finishReason == "length" {
