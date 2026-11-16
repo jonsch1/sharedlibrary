@@ -1,0 +1,24 @@
+Turn saved links into a library you actually return to.
+
+ReadBriefly brings articles, PDFs, notes, podcasts, and videos into one calm space on your Mac. Save something interesting, get the main ideas, and settle in when you want to go deeper.
+
+SAVE FROM ANYWHERE
+Add a public link, paste text, or import a PDF or text file. Follow sources through channels and choose what deserves a place in your library.
+
+READ AT YOUR OWN DEPTH
+Move between a concise summary, a detailed version, and the original material. A clean reading view keeps the title and source close at hand. Search your library, highlight useful passages, and listen to saved material.
+
+MAKE YOUR LIBRARY YOUR OWN
+Organize what you save, revisit highlights, and keep your reading space comfortable with a resizable window and collapsible sidebar. Connect compatible AI assistants to your library from Settings.
+
+CHOOSE YOUR AI
+On Mac, connect OpenRouter using browser sign-in or your own API key. Choose your model and, where supported, its reasoning effort. AI usage is billed separately to your OpenRouter account. No AI service is needed to read the included sample library.
+
+KEEP YOUR READING WITH YOU
+Your library is stored locally and can sync privately through iCloud. Read and manage it on iPhone and iPad, or send new material to your Mac's pending queue. Your Mac handles extraction and summaries.
+
+STAY IN CONTROL
+Sign in with Apple is optional. Nothing becomes public unless you create an unlisted share link. Export your library as Markdown files or a complete SQLite database.
+
+Privacy Policy: https://www.readbriefly.fyi/privacy
+Terms of Use: https://www.readbriefly.fyi/terms

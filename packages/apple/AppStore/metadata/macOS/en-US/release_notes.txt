@@ -1,0 +1,4 @@
+A more comfortable reading experience on Mac.
+
+- Refined window layout, scrolling, and sidebar header.
+- Improved reading-view blur so it stays within the reading column.
