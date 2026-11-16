@@ -4,6 +4,7 @@ import SwiftUI
 struct XErrorBanner: View {
     let message: String
     let dismiss: () -> Void
+    @State private var copied = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -16,16 +17,27 @@ struct XErrorBanner: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 12)
+            Button(action: copy) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Copy error")
+            .accessibilityLabel("Copy error")
             Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
         }
+        .onChange(of: message) { copied = false }
         .padding(14)
         .frame(maxWidth: 520)
         .background(.regularMaterial, in: Rectangle())
@@ -34,6 +46,12 @@ struct XErrorBanner: View {
                 .stroke(Color.primary.opacity(0.12))
         }
         .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
+    }
+
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message, forType: .string)
+        copied = true
     }
 }
 
