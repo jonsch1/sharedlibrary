@@ -490,14 +490,16 @@ final class NativeItemInputTests: XCTestCase {
     }
 
     func testArxivInput() async throws {
-        let value = try await router.ingest(
-            .init(source: .url(itemTestURL(.arxiv))),
-            context: .init(http: fixtureHTTP([
-                "markxiv.org/abs/1706.03762": .text("# Attention Is All You Need\n\nPaper body.", "text/markdown")
-            ]))
-        )
-        XCTAssertEqual(value.inputID, .arxiv)
-        XCTAssertEqual(value.title, "Attention Is All You Need")
+        for url in [itemTestURL(.arxiv), URL(string: "https://arxiv.org/html/1706.03762v7")!] {
+            let value = try await router.ingest(
+                .init(source: .url(url)),
+                context: .init(http: fixtureHTTP([
+                    "markxiv.org/abs/1706.03762": .text("# Attention Is All You Need\n\nPaper body.", "text/markdown")
+                ]))
+            )
+            XCTAssertEqual(value.inputID, .arxiv)
+            XCTAssertEqual(value.title, "Attention Is All You Need")
+        }
     }
 
     func testArxivInputFallsBackToOriginalPDFWhenMarkxivFails() async throws {
